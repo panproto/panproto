@@ -158,8 +158,18 @@ pub fn refine_scoped_optic(edge_kind: &str, inner_kind: OpticKind) -> OpticKind 
 /// - **Iso**: `get(put(v, c)) == v` AND `put(get(s), c) == s`
 ///   AND complement is empty.
 /// - **Lens**: `get(put(v, c)) == v` and `put(get(s), c) == s`.
-/// - **Prism/Affine/Traversal**: falls through to Lens-level checks
-///   (the full prism laws require a `review` operation not yet implemented).
+/// - **Prism**: Lens-level round-trip *and* preview-stability — a
+///   second `get` on a `put`-restored source produces the same view
+///   (the prism's idempotence on its focus). The full van-Laarhoven
+///   prism laws require a `review` operation that constructs a tagged
+///   variant from inner data; the schema-parameterised optic doesn't
+///   carry the variant tag, so `review` is not exposed at this layer.
+///   What *is* checkable without `review` is enforced.
+/// - **Affine**: union of Lens and Prism law obligations.
+/// - **Traversal**: Lens-level round-trip applied to a multi-foci
+///   view — `put` restores all foci consistently, `get` recovers each
+///   focus pointwise. Modify-distributivity across composition is
+///   inherited from `Lens` composition (verified by §5 chain tests).
 ///
 /// # Errors
 ///
@@ -219,36 +229,119 @@ pub fn check_optic_laws(
         });
     }
 
-    // For Iso: no data may be dropped, no transforms may apply, no nodes
-    // may be synthesized. Bookkeeping fields (original_parent, arc_edges,
-    // contraction_choices, source_fingerprint) are allowed because they are
-    // structural metadata captured by `get` for every lens, not data loss.
+    if matches!(kind, OpticKind::Prism | OpticKind::Affine) {
+        check_prism_preview_stability(kind, lens, &view, &restored)?;
+    }
+    if matches!(kind, OpticKind::Traversal | OpticKind::Affine) {
+        check_traversal_putput(kind, lens, &view, &complement)?;
+    }
     if kind == OpticKind::Iso {
-        let has_data_loss = !complement.dropped_nodes.is_empty()
-            || !complement.dropped_arcs.is_empty()
-            || !complement.dropped_fans.is_empty()
-            || !complement.original_extra_fields.is_empty()
-            || !complement.original_values.is_empty()
-            || !complement.synthesized_nodes.is_empty();
-        if has_data_loss {
-            return Err(OpticLawViolation {
-                kind,
-                law: "Iso complement must have no data loss",
-                detail: format!(
-                    "complement has {} dropped nodes, {} dropped arcs, {} dropped fans, \
-                     {} original extra fields, {} original values, {} synthesized nodes",
-                    complement.dropped_nodes.len(),
-                    complement.dropped_arcs.len(),
-                    complement.dropped_fans.len(),
-                    complement.original_extra_fields.len(),
-                    complement.original_values.len(),
-                    complement.synthesized_nodes.len(),
-                ),
-            });
+        check_iso_no_data_loss(kind, &complement)?;
+    }
+    Ok(())
+}
+
+fn check_prism_preview_stability(
+    kind: OpticKind,
+    lens: &crate::Lens,
+    view: &panproto_inst::WInstance,
+    restored: &panproto_inst::WInstance,
+) -> Result<(), OpticLawViolation> {
+    use crate::asymmetric::get;
+    let (view_again, _) = get(lens, restored).map_err(|e| OpticLawViolation {
+        kind,
+        law: "Prism preview stability",
+        detail: format!("re-get failed: {e}"),
+    })?;
+    if !crate::laws::instances_equivalent(view, &view_again) {
+        return Err(OpticLawViolation {
+            kind,
+            law: "Prism preview stability",
+            detail: format!(
+                "view drifted across `put`/`get`/`put` cycle: {} vs {} nodes",
+                view.node_count(),
+                view_again.node_count(),
+            ),
+        });
+    }
+    Ok(())
+}
+
+fn check_traversal_putput(
+    kind: OpticKind,
+    lens: &crate::Lens,
+    view: &panproto_inst::WInstance,
+    complement: &crate::asymmetric::Complement,
+) -> Result<(), OpticLawViolation> {
+    use crate::asymmetric::{get, put};
+    let perturbed = perturb_view_for_traversal(view);
+    if crate::laws::instances_equivalent(view, &perturbed) {
+        return Ok(());
+    }
+    let restored1 = put(lens, &perturbed, complement).map_err(|e| OpticLawViolation {
+        kind,
+        law: "Traversal PutPut",
+        detail: format!("first put failed: {e}"),
+    })?;
+    let (view_after, _) = get(lens, &restored1).map_err(|e| OpticLawViolation {
+        kind,
+        law: "Traversal PutPut",
+        detail: format!("get after put failed: {e}"),
+    })?;
+    if !crate::laws::instances_equivalent(&perturbed, &view_after) {
+        return Err(OpticLawViolation {
+            kind,
+            law: "Traversal PutPut",
+            detail: "perturbed view did not round-trip".into(),
+        });
+    }
+    Ok(())
+}
+
+fn check_iso_no_data_loss(
+    kind: OpticKind,
+    complement: &crate::asymmetric::Complement,
+) -> Result<(), OpticLawViolation> {
+    let has_data_loss = !complement.dropped_nodes.is_empty()
+        || !complement.dropped_arcs.is_empty()
+        || !complement.dropped_fans.is_empty()
+        || !complement.original_extra_fields.is_empty()
+        || !complement.original_values.is_empty()
+        || !complement.synthesized_nodes.is_empty();
+    if has_data_loss {
+        return Err(OpticLawViolation {
+            kind,
+            law: "Iso complement must have no data loss",
+            detail: format!(
+                "complement has {} dropped nodes, {} dropped arcs, {} dropped fans, \
+                 {} original extra fields, {} original values, {} synthesized nodes",
+                complement.dropped_nodes.len(),
+                complement.dropped_arcs.len(),
+                complement.dropped_fans.len(),
+                complement.original_extra_fields.len(),
+                complement.original_values.len(),
+                complement.synthesized_nodes.len(),
+            ),
+        });
+    }
+    Ok(())
+}
+
+/// Perturb every leaf-string and integer value in `view` so a
+/// traversal's `PutPut` law has a meaningfully different second view to
+/// round-trip. Mirrors `laws::perturb_view_leaves` but kept local to
+/// avoid a cross-module proptest helper export.
+fn perturb_view_for_traversal(view: &panproto_inst::WInstance) -> panproto_inst::WInstance {
+    use panproto_inst::value::{FieldPresence, Value};
+    let mut perturbed = view.clone();
+    for node in perturbed.nodes.values_mut() {
+        if let Some(FieldPresence::Present(Value::Str(ref mut s))) = node.value {
+            s.push_str("_t");
+        } else if let Some(FieldPresence::Present(Value::Int(ref mut i))) = node.value {
+            *i = i.wrapping_add(1);
         }
     }
-
-    Ok(())
+    perturbed
 }
 
 /// A violation of an optic law.

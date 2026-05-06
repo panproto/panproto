@@ -193,6 +193,70 @@ impl SymmetricLens {
         violations
     }
 
+    /// Check the symmetric-lens round-trip laws on a given middle
+    /// instance. Each leg must individually satisfy `GetPut`; in
+    /// addition, the *consistency relation* between the two legs (the
+    /// span's witness that `(left_view, right_view)` arose from a
+    /// shared middle) must be stable under one-sided round-trips.
+    ///
+    /// This is the Hofmann/Pierce / Diskin-Xiong-Czarnecki form
+    /// adapted to span-based symmetric lenses: rather than parameterise
+    /// over an explicit consistency relation, we use the span's middle
+    /// as the witness — two views are consistent iff they `get` from a
+    /// common middle, and stability requires that putting one side
+    /// back and re-getting the other produces an equivalent view.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::error::LawViolation`] for the first failure observed.
+    pub fn check_symmetric_laws(
+        &self,
+        middle_instance: &WInstance,
+    ) -> Result<(), crate::error::LawViolation> {
+        use crate::error::LawViolation;
+        use crate::laws::instances_equivalent;
+
+        // Per-leg GetPut.
+        crate::laws::check_get_put(&self.left, middle_instance)?;
+        crate::laws::check_get_put(&self.right, middle_instance)?;
+
+        let (left_view, left_complement) =
+            get(&self.left, middle_instance).map_err(LawViolation::Error)?;
+        let (right_view, right_complement) =
+            get(&self.right, middle_instance).map_err(LawViolation::Error)?;
+
+        // Stability of right view under a left-side round-trip.
+        let middle_after_left =
+            put(&self.left, &left_view, &left_complement).map_err(LawViolation::Error)?;
+        let (right_view_after, _) =
+            get(&self.right, &middle_after_left).map_err(LawViolation::Error)?;
+        if !instances_equivalent(&right_view, &right_view_after) {
+            return Err(LawViolation::PutGet {
+                detail: format!(
+                    "right view drift after left round-trip: {} vs {} nodes",
+                    right_view.node_count(),
+                    right_view_after.node_count(),
+                ),
+            });
+        }
+
+        // Stability of left view under a right-side round-trip.
+        let middle_after_right =
+            put(&self.right, &right_view, &right_complement).map_err(LawViolation::Error)?;
+        let (left_view_after, _) =
+            get(&self.left, &middle_after_right).map_err(LawViolation::Error)?;
+        if !instances_equivalent(&left_view, &left_view_after) {
+            return Err(LawViolation::PutGet {
+                detail: format!(
+                    "left view drift after right round-trip: {} vs {} nodes",
+                    left_view.node_count(),
+                    left_view_after.node_count(),
+                ),
+            });
+        }
+        Ok(())
+    }
+
     /// Auto-generate a symmetric lens from two schemas.
     ///
     /// Uses overlap discovery to find shared structure, then builds
@@ -275,7 +339,7 @@ impl SymmetricLens {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
     use crate::tests::{identity_lens, three_node_schema};
@@ -303,6 +367,17 @@ mod tests {
             violations.is_empty(),
             "identity lens should be complement-coherent, got violations: {violations:?}"
         );
+    }
+
+    #[test]
+    fn identity_symmetric_lens_satisfies_laws() {
+        let schema = three_node_schema();
+        let left = identity_lens(&schema);
+        let right = identity_lens(&schema);
+        let sym = SymmetricLens::from_span(left, right).unwrap();
+        let middle_instance = crate::tests::three_node_instance();
+        sym.check_symmetric_laws(&middle_instance)
+            .expect("identity symmetric lens should satisfy laws");
     }
 
     #[test]

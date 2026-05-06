@@ -177,6 +177,38 @@ fn check_put_get_with_view(
     Ok(())
 }
 
+/// Verify the `PutPut` law for two views over a shared complement:
+/// `put(put(s, v1, c), v2, c) ≡ put(s, v2, c)`. The well-behaved-lens
+/// law requiring sequential puts to be subsumed by the latter.
+///
+/// # Errors
+///
+/// Returns [`LawViolation::PutGet`] (re-used to signal a put-stage
+/// disagreement) or [`LawViolation::Error`] on operational failure.
+pub fn check_put_put(
+    lens: &Lens,
+    instance: &WInstance,
+    second_view: &WInstance,
+) -> Result<(), LawViolation> {
+    let (first_view, complement) = get(lens, instance).map_err(LawViolation::Error)?;
+    let after_first = put(lens, &first_view, &complement).map_err(LawViolation::Error)?;
+    let (_, complement2) = get(lens, &after_first).map_err(LawViolation::Error)?;
+    let after_second_via_chain =
+        put(lens, second_view, &complement2).map_err(LawViolation::Error)?;
+    let after_second_direct = put(lens, second_view, &complement).map_err(LawViolation::Error)?;
+
+    if !instances_equivalent(&after_second_via_chain, &after_second_direct) {
+        return Err(LawViolation::PutGet {
+            detail: format!(
+                "PutPut violated: chained put has {} nodes, direct put has {} nodes",
+                after_second_via_chain.node_count(),
+                after_second_direct.node_count(),
+            ),
+        });
+    }
+    Ok(())
+}
+
 /// Create a copy of the instance with leaf string values modified.
 fn modify_leaf_values(instance: &WInstance) -> WInstance {
     use panproto_inst::value::{FieldPresence, Value};
@@ -253,7 +285,7 @@ mod tests {
 
     // --- proptest strategies and property tests ---
 
-    #[allow(clippy::unwrap_used)]
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
     mod property {
         use super::*;
         use panproto_gat::Name;
@@ -545,6 +577,49 @@ mod tests {
                     "identity lens with ComputeField should satisfy GetPut",
                 );
             }
+
+            /// PutPut: a second put subsumes the first. `put(put(s, v1, c), v2, c) ≡ put(s, v2, c)`.
+            /// Exercised over identity lenses (where the law follows trivially) and over
+            /// projections (where it constrains the round-trip).
+            #[test]
+            fn identity_lens_satisfies_put_put_proptest(
+                (lens, instance) in arb_identity_lens_scenario()
+            ) {
+                let (view, _) = get(&lens, &instance).unwrap();
+                let perturbed = perturb_view_leaves(&view);
+                prop_assert!(
+                    check_put_put(&lens, &instance, &perturbed).is_ok(),
+                    "identity lens should satisfy PutPut",
+                );
+            }
+
+            #[test]
+            fn projection_lens_satisfies_put_put_proptest(
+                (lens, instance) in arb_projection_lens_scenario()
+            ) {
+                let (view, _) = get(&lens, &instance).unwrap();
+                let perturbed = perturb_view_leaves(&view);
+                prop_assert!(
+                    check_put_put(&lens, &instance, &perturbed).is_ok(),
+                    "projection lens should satisfy PutPut",
+                );
+            }
+        }
+
+        /// Perturb every leaf-string value in `view` so that it differs
+        /// from the original. Used by `PutPut` tests to obtain a second
+        /// view structurally compatible with the schema but distinct
+        /// from the round-tripped first view.
+        fn perturb_view_leaves(view: &WInstance) -> WInstance {
+            let mut perturbed = view.clone();
+            for node in perturbed.nodes.values_mut() {
+                if let Some(FieldPresence::Present(Value::Str(ref mut s))) = node.value {
+                    s.push_str("_v2");
+                } else if let Some(FieldPresence::Present(Value::Int(ref mut i))) = node.value {
+                    *i = i.wrapping_add(1);
+                }
+            }
+            perturbed
         }
 
         /// Generate an identity lens scenario WITH a `ComputeField` that

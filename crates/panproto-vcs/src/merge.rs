@@ -475,6 +475,19 @@ pub enum PushoutError {
         /// Where it ends up through theirs.
         via_theirs: String,
     },
+
+    /// The universal factorization through the resolved merge fails:
+    /// either no mediator exists (because two preimages of the same
+    /// merged vertex have distinct images in the alternative cocone),
+    /// or the constructed mediator does not factor the supplied
+    /// alternative cocone legs through the merge's inclusion legs.
+    #[error("universal property failure on `{side}`: {detail}")]
+    UniversalFactorizationFailure {
+        /// Which side's leg failed to factor.
+        side: &'static str,
+        /// Details about the failure.
+        detail: String,
+    },
 }
 
 /// Apply conflict resolutions to a merge result, producing a fully resolved schema.
@@ -627,11 +640,13 @@ fn apply_single_resolution(
     }
 }
 
-/// Verify that a resolved merge satisfies the categorical pushout properties.
+/// Verify that a resolved merge satisfies the *cocone* condition of a
+/// categorical pushout. This is the necessary condition: both
+/// migrations are total and the two base→merged paths commute.
 ///
-/// Checks:
-/// 1. Both migrations are total (every source vertex is mapped).
-/// 2. The cocone condition: both paths from base agree in the merged schema.
+/// For the *universal* property — that any other cocone factors
+/// uniquely through the resolved merge — see
+/// [`verify_pushout_universal`].
 ///
 /// # Errors
 ///
@@ -689,6 +704,138 @@ pub fn verify_pushout(
     }
 
     Ok(())
+}
+
+/// Verify the *universal property* of the resolved merge as a
+/// pushout in `Sch`.
+///
+/// Given any alternative cocone `(q_schema, k_ours, k_theirs)` —
+/// vertex maps from `ours.vertices` and `theirs.vertices` into a
+/// candidate `q_schema` that agree on every `base` vertex — exhibit
+/// and verify the unique mediating vertex map `m: resolved →
+/// q_schema` factoring both legs.
+///
+/// This is the genuine universal property: a strict-name-keyed merge
+/// that *also* satisfies this property is a true pushout in the
+/// (sub)category whose morphisms are the supplied vertex maps. The
+/// check is done at the vertex level, since `Schema` morphisms in this
+/// codebase are determined by their action on vertices (edges follow
+/// from endpoints, modulo the diff-driven edge maps already verified
+/// by [`verify_pushout`]).
+///
+/// # Errors
+///
+/// Returns [`PushoutError::CoconeViolation`] when the alternative
+/// cocone is not actually a cocone (legs disagree on a `base`
+/// vertex), or [`PushoutError::UniversalFactorizationFailure`] when
+/// the constructed mediator does not factor `k_ours` through
+/// `migration_from_ours.vertex_map` (and likewise for theirs).
+pub fn verify_pushout_universal<S, T>(
+    base: &Schema,
+    _ours: &Schema,
+    _theirs: &Schema,
+    resolved: &ResolvedMerge,
+    q_schema: &Schema,
+    k_ours: &HashMap<panproto_gat::Name, panproto_gat::Name, S>,
+    k_theirs: &HashMap<panproto_gat::Name, panproto_gat::Name, T>,
+) -> Result<HashMap<panproto_gat::Name, panproto_gat::Name>, PushoutError>
+where
+    S: ::std::hash::BuildHasher,
+    T: ::std::hash::BuildHasher,
+{
+    // 1. Validate the alternative cocone: agreement on every base vertex
+    //    that both ours and theirs retain.
+    for vid in base.vertices.keys() {
+        if let (Some(via_ours), Some(via_theirs)) = (k_ours.get(vid), k_theirs.get(vid)) {
+            if via_ours != via_theirs {
+                return Err(PushoutError::CoconeViolation {
+                    vertex: vid.to_string(),
+                    via_ours: via_ours.to_string(),
+                    via_theirs: via_theirs.to_string(),
+                });
+            }
+        }
+    }
+    // 2. Validate cocone codomain: every k_* image must live in q_schema.
+    for (src, dst) in k_ours.iter().chain(k_theirs.iter()) {
+        if !q_schema.vertices.contains_key(dst) {
+            return Err(PushoutError::UniversalFactorizationFailure {
+                side: "alternative cocone",
+                detail: format!("vertex `{src}` maps to `{dst}`, which is not present in q_schema"),
+            });
+        }
+    }
+
+    // 3. Build the mediator m: resolved.merged_schema → q_schema.
+    //    For each merged vertex, pull back to its preimage on either
+    //    side; cocone agreement guarantees the two pullbacks land at
+    //    the same q-vertex.
+    let mut mediator: HashMap<panproto_gat::Name, panproto_gat::Name> = HashMap::new();
+
+    for (ours_v, merged_v) in &resolved.migration_from_ours.vertex_map {
+        if let Some(q_v) = k_ours.get(ours_v) {
+            match mediator.get(merged_v) {
+                None => {
+                    mediator.insert(merged_v.clone(), q_v.clone());
+                }
+                Some(existing) if existing == q_v => {}
+                Some(existing) => {
+                    return Err(PushoutError::UniversalFactorizationFailure {
+                        side: "ours",
+                        detail: format!(
+                            "merged vertex `{merged_v}` has two distinct k_ours images: `{existing}` vs `{q_v}`",
+                        ),
+                    });
+                }
+            }
+        }
+    }
+    for (theirs_v, merged_v) in &resolved.migration_from_theirs.vertex_map {
+        if let Some(q_v) = k_theirs.get(theirs_v) {
+            match mediator.get(merged_v) {
+                None => {
+                    mediator.insert(merged_v.clone(), q_v.clone());
+                }
+                Some(existing) if existing == q_v => {}
+                Some(existing) => {
+                    return Err(PushoutError::UniversalFactorizationFailure {
+                        side: "theirs",
+                        detail: format!(
+                            "merged vertex `{merged_v}` has conflicting images under k_ours/k_theirs: `{existing}` vs `{q_v}`",
+                        ),
+                    });
+                }
+            }
+        }
+    }
+
+    // 4. Verify factorization: m ∘ migration_from_ours = k_ours and
+    //    m ∘ migration_from_theirs = k_theirs on every source vertex.
+    for (ours_v, merged_v) in &resolved.migration_from_ours.vertex_map {
+        let expected = k_ours.get(ours_v);
+        let actual = mediator.get(merged_v);
+        if expected != actual {
+            return Err(PushoutError::UniversalFactorizationFailure {
+                side: "ours",
+                detail: format!(
+                    "factorization fails at vertex `{ours_v}`: k_ours = {expected:?}, m∘j_ours = {actual:?}"
+                ),
+            });
+        }
+    }
+    for (theirs_v, merged_v) in &resolved.migration_from_theirs.vertex_map {
+        let expected = k_theirs.get(theirs_v);
+        let actual = mediator.get(merged_v);
+        if expected != actual {
+            return Err(PushoutError::UniversalFactorizationFailure {
+                side: "theirs",
+                detail: format!(
+                    "factorization fails at vertex `{theirs_v}`: k_theirs = {expected:?}, m∘j_theirs = {actual:?}"
+                ),
+            });
+        }
+    }
+    Ok(mediator)
 }
 
 // ===========================================================================

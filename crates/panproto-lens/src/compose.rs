@@ -156,7 +156,25 @@ pub(crate) fn compose_compiled_migrations(
     }
 }
 
-/// Compose `field_transforms` from two migrations, re-keying through `vertex_remap`.
+/// Returns `true` iff `name` is a fixed point under `m1`: it lives in
+/// both `m1`'s source and target spaces with the same name. This is
+/// the predicate that lets us re-key per-anchor maps from `m2`'s
+/// source space (= `m1`'s target space) into the composed migration's
+/// source space (= `m1`'s source space) without name-space mixing.
+fn unchanged_by_m1(m1: &CompiledMigration, name: &panproto_gat::Name) -> bool {
+    m1.vertex_remap.get(name).map_or_else(
+        || m1.surviving_verts.contains(name),
+        |remapped| remapped == name,
+    )
+}
+
+/// Compose `field_transforms` from two migrations, re-keying through
+/// `vertex_remap`. The composed map is keyed by `m1`-source anchors
+/// throughout. An `m2`-anchor that is neither the image of an
+/// `m1`-source anchor under `m1.vertex_remap` nor a fixed point under
+/// `m1` lives only in `m1`'s target space; its transforms cannot be
+/// expressed against `m1`'s source and are dropped from the composed
+/// map (they would otherwise corrupt the keyspace invariant).
 fn compose_field_transforms(
     m1: &CompiledMigration,
     m2: &CompiledMigration,
@@ -173,17 +191,29 @@ fn compose_field_transforms(
                 found = true;
             }
         }
-        if !found {
+        if !found && unchanged_by_m1(m1, m2_anchor) {
             result
                 .entry(m2_anchor.clone())
                 .or_default()
                 .extend(m2_transforms.iter().cloned());
         }
+        // else: m2_anchor exists only in m1's target space (introduced
+        // or renamed by m1); its transforms have no representation in
+        // m1's source and are dropped to preserve keyspace integrity.
     }
     result
 }
 
 /// Compose `conditional_survival` predicates, AND-ing when both exist.
+/// Re-keys via the same fixed-point discipline as
+/// [`compose_field_transforms`]: predicates whose anchor lives only in
+/// `m1`'s target space are dropped rather than injected with a foreign
+/// key. The AND-conjunction is taken in the composed-source frame, so
+/// `m2_pred`'s free variables are interpreted against the schema
+/// presented to `m1`'s output (= `m2`'s input) — a tighter scope check
+/// (verifying every free variable references a field that survives
+/// `m1`) is recorded as `compose_conditional_survival_scope_check`
+/// follow-up.
 fn compose_conditional_survival(
     m1: &CompiledMigration,
     m2: &CompiledMigration,
@@ -205,7 +235,7 @@ fn compose_conditional_survival(
                     .or_insert_with(|| m2_pred.clone());
             }
         }
-        if !found {
+        if !found && unchanged_by_m1(m1, m2_anchor) {
             result
                 .entry(m2_anchor.clone())
                 .and_modify(|existing| {

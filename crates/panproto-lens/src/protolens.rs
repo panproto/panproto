@@ -468,24 +468,55 @@ impl SchemaConstraint {
 // Composition
 // ---------------------------------------------------------------------------
 
+/// Structural equivalence of theory endofunctors, ignoring `name`.
+///
+/// Two endofunctors are equivalent when their preconditions and
+/// transforms are structurally equal. This is the relation used to
+/// verify natural-transformation composability.
+#[must_use]
+pub fn theory_endofunctor_equiv(a: &TheoryEndofunctor, b: &TheoryEndofunctor) -> bool {
+    a.precondition == b.precondition && a.transform == b.transform
+}
+
+/// Composability predicate for [`Protolens`] in vertical composition.
+///
+/// Two protolenses `η : F ⟹ G` and `θ : H ⟹ K` compose vertically
+/// when one of:
+///
+/// 1. `G ≡ H` as theory endofunctors (genuine natural-transformation
+///    composition).
+/// 2. `H.transform = Identity` (θ is "applied at the running schema":
+///    its source endofunctor is the identity, so for every schema `S`
+///    we have `H(G(S)) = G(S)` and θ's migration starts from `G(S)`
+///    directly).
+///
+/// Case (1) is the strict categorical condition. Case (2) covers the
+/// common authoring pattern in which each step is constructed with a
+/// trivial source endofunctor and is intended to apply at whatever
+/// schema the preceding step produced. Both forms produce a lens
+/// `F(S) → K(S)` that is composable at the schema level.
+#[must_use]
+pub fn protolens_composable(eta: &Protolens, theta: &Protolens) -> bool {
+    matches!(theta.source.transform, TheoryTransform::Identity)
+        || theory_endofunctor_equiv(&eta.target, &theta.source)
+}
+
 /// Vertical composition of protolenses: given `η : F ⟹ G` and
 /// `θ : G ⟹ H`, produce `θ ∘ η : F ⟹ H`.
 ///
-/// The target endofunctor of `eta` must match the source of `theta`.
-/// This is checked dynamically at instantiation time.
+/// Composition requires `eta.target ≡ theta.source` as theory
+/// endofunctors (structural equality of `precondition` and `transform`,
+/// ignoring the human-readable `name` field). This is the standard
+/// natural transformation composition condition.
 ///
 /// # Errors
 ///
-/// Currently infallible, but returns `Result` for future compatibility
-/// with static compatibility checks.
+/// Returns [`LensError::CompositionMismatch`] when the intermediate
+/// endofunctors do not agree.
 pub fn vertical_compose(eta: &Protolens, theta: &Protolens) -> Result<Protolens, LensError> {
-    // Note: in this codebase, vertical composition computes the direct
-    // migration between eta.source(S) and theta.target(S) at
-    // instantiation time, rather than composing individual migrations
-    // through an intermediate schema. This means eta.target and
-    // theta.source do NOT need to match structurally (unlike standard
-    // natural transformation composition). Compatibility is verified
-    // implicitly when instantiate() calls compute_migration_between().
+    if !protolens_composable(eta, theta) {
+        return Err(LensError::CompositionMismatch);
+    }
 
     let complement = ComplementConstructor::Composite(vec![
         eta.complement_constructor.clone(),
@@ -560,7 +591,19 @@ impl ProtolensChain {
     /// Check if the chain can be instantiated at the given schema.
     ///
     /// An empty chain (identity) is applicable to any schema. Otherwise,
-    /// the first step must be applicable.
+    /// every step must be applicable at the schema produced by the
+    /// preceding step's target endofunctor (or the initial schema for
+    /// the first step). This requires a `Protocol` to apply intermediate
+    /// transforms.
+    #[must_use]
+    pub fn applicable_to_with(&self, schema: &Schema, protocol: &Protocol) -> bool {
+        self.check_applicability_with(schema, protocol).is_ok()
+    }
+
+    /// Cheap pre-flight applicability check that only consults the first
+    /// step's precondition. Use [`Self::applicable_to_with`] when a
+    /// [`Protocol`] is in hand and per-step checks against the running
+    /// schema are required.
     #[must_use]
     pub fn applicable_to(&self, schema: &Schema) -> bool {
         if self.steps.is_empty() {
@@ -570,15 +613,22 @@ impl ProtolensChain {
     }
 
     /// Instantiate the chain at a specific schema, producing a composed
-    /// [`Lens`].
+    /// [`Lens`] via fused single-pass migration computation.
     ///
-    /// Each step is instantiated at the current schema, and the resulting
-    /// lenses are composed sequentially.
+    /// All steps are collapsed into one composite endofunctor whose
+    /// migration is then computed in one pass. This preserves
+    /// migration-level metadata (e.g. `expansion_path`) that sequential
+    /// composition aggregates only partially. The fused form and the
+    /// sequential form agree under the round-trip lens laws — the
+    /// sequential form is exposed as [`Self::instantiate_sequential`]
+    /// and is exercised by property tests in the laws module.
     ///
     /// # Errors
     ///
-    /// Returns [`LensError::ProtolensError`] if any step fails, or
-    /// [`LensError::CompositionMismatch`] if lens composition fails.
+    /// Returns [`LensError::ProtolensError`] if any step fails or the
+    /// chain is empty (in the multi-step case), or
+    /// [`LensError::CompositionMismatch`] if adjacent steps'
+    /// endofunctors are not composable.
     pub fn instantiate(&self, schema: &Schema, protocol: &Protocol) -> Result<Lens, LensError> {
         if self.steps.is_empty() {
             return Ok(identity_lens(schema));
@@ -586,9 +636,68 @@ impl ProtolensChain {
         if self.steps.len() == 1 {
             return self.steps[0].instantiate(schema, protocol);
         }
-        // Fuse and instantiate as a single protolens
         let fused = self.fuse()?;
         fused.instantiate(schema, protocol)
+    }
+
+    /// Sequential instantiation: instantiate each step at the running
+    /// schema and fold the resulting lenses via
+    /// [`crate::compose::compose`]. Exercises the lens laws end-to-end
+    /// on real intermediate states. Some migration metadata that the
+    /// fused form computes globally (e.g. `expansion_path`) is not
+    /// recovered by sequential composition; for that reason
+    /// [`Self::instantiate`] uses the fused form by default.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LensError::ProtolensError`] if any step's transform
+    /// fails, or [`LensError::CompositionMismatch`] if adjacent steps'
+    /// endofunctors are not composable.
+    pub fn instantiate_sequential(
+        &self,
+        schema: &Schema,
+        protocol: &Protocol,
+    ) -> Result<Lens, LensError> {
+        if self.steps.is_empty() {
+            return Ok(identity_lens(schema));
+        }
+        if self.steps.len() == 1 {
+            return self.steps[0].instantiate(schema, protocol);
+        }
+
+        for window in self.steps.windows(2) {
+            if !protolens_composable(&window[0], &window[1]) {
+                return Err(LensError::CompositionMismatch);
+            }
+        }
+
+        let mut running_schema = schema.clone();
+        let mut steps_iter = self.steps.iter();
+        // Bootstrap with the first step (chain is non-empty by the
+        // early-return above).
+        let first = steps_iter.next().ok_or_else(|| {
+            LensError::ProtolensError("chain unexpectedly empty after non-empty check".into())
+        })?;
+        if !first.applicable_to(&running_schema) {
+            return Err(LensError::ProtolensError(format!(
+                "step `{}` not applicable to running schema",
+                first.name,
+            )));
+        }
+        let mut composed: Lens = first.instantiate(&running_schema, protocol)?;
+        running_schema = composed.tgt_schema.clone();
+        for step in steps_iter {
+            if !step.applicable_to(&running_schema) {
+                return Err(LensError::ProtolensError(format!(
+                    "step `{}` not applicable to running schema",
+                    step.name,
+                )));
+            }
+            let step_lens = step.instantiate(&running_schema, protocol)?;
+            running_schema = step_lens.tgt_schema.clone();
+            composed = crate::compose::compose(&composed, &step_lens)?;
+        }
+        Ok(composed)
     }
 
     /// Instantiate this chain as an [`crate::EditLens`] at a specific schema.
@@ -637,21 +746,67 @@ impl ProtolensChain {
         self.steps[0].check_applicability(schema)
     }
 
+    /// Like [`Self::check_applicability`] but threads the running schema
+    /// through every step so each step's precondition is checked
+    /// against the schema actually presented to it.
+    ///
+    /// # Errors
+    ///
+    /// Returns reasons for the first step that fails. Adjacent-step
+    /// endofunctor disagreement is reported as a single reason.
+    pub fn check_applicability_with(
+        &self,
+        schema: &Schema,
+        protocol: &Protocol,
+    ) -> Result<(), Vec<String>> {
+        if self.steps.is_empty() {
+            return Ok(());
+        }
+        for window in self.steps.windows(2) {
+            if !protolens_composable(&window[0], &window[1]) {
+                return Err(vec![format!(
+                    "adjacent steps disagree: `{}.target` ≢ `{}.source`",
+                    window[0].name, window[1].name,
+                )]);
+            }
+        }
+        let mut running = schema.clone();
+        for step in &self.steps {
+            step.check_applicability(&running)?;
+            running = step
+                .target_schema(&running, protocol)
+                .map_err(|e| vec![format!("step `{}` transform failed: {e}", step.name)])?;
+        }
+        Ok(())
+    }
+
     /// Fuse all steps into a single `Protolens` by composing endofunctors.
     ///
     /// The fused protolens applies all transforms in one pass, avoiding
     /// intermediate schema materialization. The complement constructor
     /// becomes `Composite` of all individual complements.
     ///
+    /// Adjacent endofunctors must agree: for every pair `(stepᵢ,
+    /// stepᵢ₊₁)`, `stepᵢ.target ≡ stepᵢ₊₁.source` (structural equality
+    /// modulo name).
+    ///
     /// # Errors
     ///
-    /// Returns `LensError::ProtolensError` if the chain is empty.
+    /// Returns [`LensError::ProtolensError`] if the chain is empty, or
+    /// [`LensError::CompositionMismatch`] if adjacent endofunctors
+    /// disagree.
     pub fn fuse(&self) -> Result<Protolens, LensError> {
         if self.steps.is_empty() {
             return Err(LensError::ProtolensError("cannot fuse empty chain".into()));
         }
         if self.steps.len() == 1 {
             return Ok(self.steps[0].clone());
+        }
+
+        for window in self.steps.windows(2) {
+            if !protolens_composable(&window[0], &window[1]) {
+                return Err(LensError::CompositionMismatch);
+            }
         }
 
         let source = self.steps[0].source.clone();
