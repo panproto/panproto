@@ -1,3 +1,40 @@
 # What panproto verifies
 
-*This page is under construction.*
+panproto's correctness story rests on a small set of properties that are mechanically checked. Some are verified at compile time (panic on failure during protocol registration); some are verified at runtime when the operation is invoked; some are verified by property-based tests in CI. This page is the catalogue.
+
+If a property is in this list, the implementation enforces it. If you can construct a counterexample, that is a bug.
+
+| Property | Where checked | Failure mode | Source |
+|---|---|---|---|
+| Protocol registration produces a valid theory | Compile-time (panic at registration) | Named intermediate colimit step in panic message | [`panproto-protocols/src/theories.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-protocols/src/theories.rs) |
+| Schema validates against its protocol | Runtime | `schema validate` exits non-zero with the failing equation | `panproto-schema` |
+| Migration existence conditions hold | Runtime, before any data is moved | `schema check` exits non-zero, naming the missing input | `panproto-check` |
+| Migration type-checks at the GAT level | Runtime, on demand via `--typecheck` | `schema check --typecheck` exits non-zero, naming the offending sort or operation | `panproto-mig` |
+| Lens GetPut law: `put(s, get(s), complement(s)) = s` | CI property tests, every lens combinator | Property-test failure with shrunk counterexample | `panproto-lens/src/laws.rs` |
+| Lens PutGet law: `get(put(s, v, c)) = v` | CI property tests, every lens combinator | Property-test failure with shrunk counterexample | `panproto-lens/src/laws.rs` |
+| Lens PutPut law: `put(put(s, v₁, c), v₂, c) = put(s, v₂, c)` | CI property tests, every lens combinator | Property-test failure with shrunk counterexample | `panproto-lens/src/laws.rs` |
+| Complement composition compatibility | Runtime, on `Complement::compose` | `LensError::ComplementFingerprintMismatch` | `panproto-lens/src/asymmetric.rs` |
+| Complement composition agreement | Runtime, on `Complement::compose` | `LensError::ComplementConflict` (with offending key) | `panproto-lens/src/asymmetric.rs` |
+| Protolens composition: structural equality of the intermediate endofunctor | Runtime, on `vertical_compose` | `LensError::CompositionMismatch` | `panproto-lens/src/protolens.rs` |
+| Pushout cocone commutativity | Runtime, on every colimit construction | Returned as part of `ColimitResult` | `panproto-gat/src/colimit.rs` |
+| Pushout universal property: every alternative cocone factors uniquely through the pushout | Runtime, on demand via `verify_universal` | `EquationNotPreserved` | `panproto-gat/src/colimit.rs` |
+| Schema merge universal property | Runtime, on `vcs::merge::verify_pushout_universal` | `MergeError::UniversalFactorizationFailure` | `panproto-vcs/src/merge.rs` |
+| Expression evaluation totality (within step budget) | Runtime, on every evaluation | `ExprError::BudgetExceeded` | `panproto-expr/src/eval.rs` |
+| Expression arithmetic overflow check | Runtime, on every arithmetic op | `ExprError::Overflow` | `panproto-expr/src/builtin.rs` |
+| Expression division by zero check | Runtime, on `Div`/`Mod` | `ExprError::DivisionByZero` | `panproto-expr/src/builtin.rs` |
+
+## What is *not* verified
+
+The following properties are *not* mechanically checked and should not be assumed:
+
+- **Performance characteristics.** The implementation does not guarantee any particular complexity bound on lens composition, colimit construction, or migration application.
+- **Round-trip stability of value-level transforms across data with information loss.** A migration that drops a field cannot round-trip the dropped data; the lens laws apply only to the surviving structure.
+- **Equivalence of two protocols with isomorphic theories but different parsers.** Two protocols whose theories are the same up to isomorphism are still distinct from panproto's perspective.
+- **Application-level invariants not expressible in the schema theory.** "Email addresses must contain `@`" is checked only if the schema actually carries a constraint expressing it.
+
+## See also
+
+- [Schema version control semantics](./vcs-semantics.md) for the merge case.
+- [Lenses and round-trip laws](./lenses-roundtrip.md) for the lens case.
+- [Migrations as morphisms](./migrations-as-morphisms.md) for the migration case.
+- [Pushouts and merge](./semantics/pushouts-and-merge.md) for the universal-property statement.
