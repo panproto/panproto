@@ -4,7 +4,7 @@
 
 The expression language `panproto-expr` is what you use to describe field-level transforms inside a migration ("the new `full_name` field is the old `first` plus a space plus the old `last`") and predicates inside a query ("only records where `created_at > '2024-01-01'`"). Everything in the language is pure: no IO, no mutation, no clock reads, no random numbers. Two expressions that look the same always do the same thing. Every expression terminates within a fixed number of evaluation steps.
 
-This page pins down exactly what those properties mean and what the evaluator actually computes.
+This page describes what those properties mean and what the evaluator actually computes.
 
 ## Surface syntax
 

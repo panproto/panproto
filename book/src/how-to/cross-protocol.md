@@ -27,7 +27,9 @@ The DSL composition shape is `compose = { result, bases, steps }`, with each ste
     bases = ["ThGraph", "ThConstraint", "ThMulti"],
     steps = [
       { left = "ThGraph", right = "ThConstraint", shared_sorts = ["Vertex", "Edge"] },
-      { left = "ConstrainedMultigraph", right = "ThMulti", shared_sorts = ["Vertex", "Edge"] },
+      # Reference the prior step's intermediate result by its generated
+      # name (`step_<i>`); the final intermediate is renamed to `result`.
+      { left = "step_0", right = "ThMulti", shared_sorts = ["Vertex", "Edge"] },
     ],
   },
 }
