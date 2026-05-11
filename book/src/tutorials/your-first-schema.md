@@ -44,12 +44,15 @@ const schema = proto.schema()
   .edge('user', 'user.age', 'prop', { name: 'age', required: false })
   .build();
 
-console.log('vertices:', schema.vertices.length, 'edges:', schema.edges.length);
+console.log(
+  'vertices:', Object.keys(schema.vertices).length,
+  'edges:', schema.edges.length,
+);
 ```
 
 `.vertex()` declares a *vertex* (a record kind, in JSON Schema parlance: an object). `.edge()` declares an *edge* (a field, item, or variant). This schema says: a user is an object with a required string `name` and an optional integer `age`.
 
-`.build()` validates the construction: required edges are present, every reference targets an existing vertex, the protocol's equations are satisfied. If anything is wrong, you get an error here, before any data is touched. The returned `BuiltSchema` carries `.vertices`, `.edges`, and `.protocol`.
+`.build()` validates the construction: required edges are present, every reference targets an existing vertex, the protocol's equations are satisfied. If anything is wrong, you get an error here, before any data is touched. The returned `BuiltSchema` carries `.vertices` (an `id -> Vertex` record), `.edges` (an array), and `.protocol`.
 
 ## Step 3: parse and validate data
 
