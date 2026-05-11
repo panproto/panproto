@@ -30,8 +30,12 @@ Each pack auto-registers its grammars with `panproto.AstParserRegistry()` on imp
 ```python
 import panproto
 
-proto  = panproto.get_builtin_protocol("atproto")
-schema = proto.schema().vertex(...).edge(...).build()
+proto = panproto.get_builtin_protocol("atproto")
+b = proto.schema()
+b.vertex("post", "record", "app.bsky.feed.post")
+b.vertex("post:body", "object")
+b.edge("post", "post:body", "record-schema")
+schema = b.build()
 ```
 
 There is no `Panproto` umbrella class; the entry points are free functions on the `panproto` module. The full re-export list (errors, schema types, protocol registry, migration, check, instance, I/O, lens, GAT, expression-language, VCS, parse, project, git bridge) is in [`bindings/python/src/panproto/__init__.py`](https://github.com/panproto/panproto/blob/main/bindings/python/src/panproto/__init__.py). Selected entry points:
@@ -39,7 +43,7 @@ There is no `Panproto` umbrella class; the entry points are free functions on th
 | Surface | Entry point |
 |---|---|
 | Protocol registry | `get_builtin_protocol(name)`, `list_builtin_protocols()`, `define_protocol(...)` |
-| Schema construction | `Protocol.schema()` returns a `SchemaBuilder`; chain `.vertex()`, `.edge()`, `.build()`. |
+| Schema construction | `Protocol.schema()` returns a `SchemaBuilder`. Each `.vertex(id, kind)` / `.edge(src, tgt, kind, name=None)` / `.constraint(vid, sort, value)` mutates the builder in place and returns `None`; call `.build()` on the final builder. Chain syntax is a TypeScript-only convenience; Python is statement-by-statement. |
 | Migration | `MigrationBuilder`, `compile_migration`, `compose_migrations`, `invert_migration`, `pipeline` |
 | Check | `diff_and_classify`, `diff_schemas`, `check_existence`, `check_coverage` |
 | Lens | `Lens`, `ProtolensChain` (with `from_dsl_json` / `from_dsl_yaml` / `from_dsl_nickel` / `from_dsl_path` loaders), `auto_generate_lens`, `auto_generate_lens_candidates` |
