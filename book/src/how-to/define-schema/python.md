@@ -11,29 +11,29 @@ import panproto
 
 proto = panproto.get_builtin_protocol("json-schema")
 
-schema = (proto.schema()
-    .vertex("user", "object")
-    .vertex("user.name", "string")
-    .vertex("user.age", "integer")
-    .edge("user", "user.name", "prop", name="name", required=True)
-    .edge("user", "user.age", "prop", name="age", required=False)
-    .build())
+b = proto.schema()
+b.vertex("user", "object")
+b.vertex("user.name", "string")
+b.vertex("user.age", "integer")
+b.edge("user", "user.name", "prop", "name")
+b.edge("user", "user.age", "prop", "age")
+schema = b.build()
 ```
 
-`panproto.get_builtin_protocol(name)` returns the named protocol; the fluent surface mirrors the TypeScript SDK. `.vertex()` and `.edge()` build up a `SchemaBuilder`; `.build()` validates and returns a `Schema`.
+`panproto.get_builtin_protocol(name)` returns the named protocol; `.vertex(id, kind)` and `.edge(src, tgt, kind, name=None)` each mutate the `SchemaBuilder` in place (returning `None`), and `.build()` validates and returns a `Schema`. The TypeScript SDK exposes the same operations as a chainable surface; the Python binding does not.
 
 ## Verification
 
 ```python
-schema.validate()
+schema.validate(proto)
 ```
 
-Raises `panproto.ValidationError` on failure. Catch it to inspect `.equation` and `.location`.
+Raises `panproto.SchemaValidationError` on failure. The error carries the offending equation and location.
 
 ## Common mistakes
 
-- Passing edge metadata as positional arguments instead of keyword arguments. The Python binding requires keyword arguments for everything beyond the source, target, and edge kind.
-- Using a Python dict where the SDK expects a `Schema` handle. Conversion is deliberate; `panproto.parse(json_dict, protocol="json-schema")` is the explicit bridge.
+- Chaining the builder calls. The Python `SchemaBuilder.vertex(...)` / `edge(...)` / `constraint(...)` methods mutate in place and return `None`; hold the builder in a variable and mutate it statement-by-statement, then call `.build()`.
+- Using a Python dict where the SDK expects a `Schema` handle. Conversion is deliberate; to materialise an `Instance` from bytes against a built `Schema`, use `panproto.IoRegistry().parse(protocol, schema, data)`.
 
 ## See also
 

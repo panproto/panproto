@@ -41,7 +41,7 @@ The `lift` operation applies $M_!(X)$ (left Kan extension):
 lifted = compiled.lift(instance)
 ```
 
-## Get/Put (lens interface)
+## Get (restrict)
 
 `get` applies the restrict functor $M^*$ and returns both the projected view and the complement $C$:
 
@@ -49,7 +49,7 @@ lifted = compiled.lift(instance)
 view, complement = compiled.get(instance)
 ```
 
-The complement is a dict summarizing dropped nodes and arcs. It is needed by `put` to reconstruct the original.
+The complement is a dict summarizing dropped nodes and arcs. `CompiledMigration` does not expose a `put` method directly; for the reverse direction either compile the inverse migration (`invert_migration` below) or generate a full bidirectional `Lens` (`auto_generate_lens` produces a `Lens` whose `.put(view, complement)` reconstructs the source instance).
 
 ## Existence checking
 

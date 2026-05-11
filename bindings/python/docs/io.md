@@ -1,6 +1,6 @@
 # I/O
 
-The `IoRegistry` wraps 76 protocol codecs for parsing raw input bytes into schema-conforming instances and emitting instances back to protocol-specific formats.
+The `IoRegistry` wraps 50 protocol codecs for parsing raw input bytes into schema-conforming instances and emitting instances back to protocol-specific formats.
 
 ## Creating a registry
 
@@ -8,7 +8,7 @@ The `IoRegistry` wraps 76 protocol codecs for parsing raw input bytes into schem
 import panproto
 
 io = panproto.IoRegistry()
-print(len(io))                # 76
+print(len(io))                # 50
 print(io.list_protocols())    # ["graphql", "openapi", "sql", ...]
 ```
 

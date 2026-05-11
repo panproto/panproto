@@ -4,7 +4,7 @@ The Rust surface of panproto is the `panproto-core` facade. Add it to your `Carg
 
 ```toml
 [dependencies]
-panproto-core = "0.46"
+panproto-core = "0.47"
 ```
 
 Full type signatures, constructors, and method documentation live on docs.rs:

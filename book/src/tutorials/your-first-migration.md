@@ -23,9 +23,14 @@ export const v2 = proto.schema()
   .vertex('user.name',  'string')
   .vertex('user.years', 'integer')
   .vertex('user.email', 'string')
-  .edge('user', 'user.name',  'prop', { name: 'name',  required: true })
-  .edge('user', 'user.years', 'prop', { name: 'years', required: true })
-  .edge('user', 'user.email', 'prop', { name: 'email', required: true })
+  .edge('user', 'user.name',  'prop', { name: 'name' })
+  .edge('user', 'user.years', 'prop', { name: 'years' })
+  .edge('user', 'user.email', 'prop', { name: 'email' })
+  .required('user', [
+    { src: 'user', tgt: 'user.name',  kind: 'prop', name: 'name' },
+    { src: 'user', tgt: 'user.years', kind: 'prop', name: 'years' },
+    { src: 'user', tgt: 'user.email', kind: 'prop', name: 'email' },
+  ])
   .build();
 ```
 

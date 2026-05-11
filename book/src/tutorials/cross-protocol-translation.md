@@ -77,7 +77,7 @@ Verification runs the round-trip laws on the data; a clean run means the chain i
 
 ## What you built
 
-A small composed theory over panproto's building blocks, two schemas against it, and a verified chain between them. The same pattern, executed in Rust inside `panproto-protocols`, is how the 51 built-in protocols compose. Cross-protocol translation between built-in protocols then reduces to lens generation between schemas in their shared composed theory.
+A small composed theory over panproto's building blocks, two schemas against it, and a verified chain between them. The same pattern, executed in Rust inside `panproto-protocols`, is how the 50 built-in protocols compose. Cross-protocol translation between built-in protocols then reduces to lens generation between schemas in their shared composed theory.
 
 ## See also
 

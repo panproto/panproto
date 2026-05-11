@@ -40,16 +40,20 @@ const schema = proto.schema()
   .vertex('user', 'object')
   .vertex('user.name', 'string')
   .vertex('user.age', 'integer')
-  .edge('user', 'user.name', 'prop', { name: 'name', required: true })
-  .edge('user', 'user.age', 'prop', { name: 'age', required: false })
+  .edge('user', 'user.name', 'prop', { name: 'name' })
+  .edge('user', 'user.age', 'prop', { name: 'age' })
+  .required('user', [{ src: 'user', tgt: 'user.name', kind: 'prop', name: 'name' }])
   .build();
 
-console.log('vertices:', schema.vertices.length, 'edges:', schema.edges.length);
+console.log(
+  'vertices:', Object.keys(schema.vertices).length,
+  'edges:', schema.edges.length,
+);
 ```
 
 `.vertex()` declares a *vertex* (a record kind, in JSON Schema parlance: an object). `.edge()` declares an *edge* (a field, item, or variant). This schema says: a user is an object with a required string `name` and an optional integer `age`.
 
-`.build()` validates the construction: required edges are present, every reference targets an existing vertex, the protocol's equations are satisfied. If anything is wrong, you get an error here, before any data is touched. The returned `BuiltSchema` carries `.vertices`, `.edges`, and `.protocol`.
+`.build()` validates the construction: required edges are present, every reference targets an existing vertex, the protocol's equations are satisfied. If anything is wrong, you get an error here, before any data is touched. The returned `BuiltSchema` carries `.vertices` (an `id -> Vertex` record), `.edges` (an array), and `.protocol`.
 
 ## Step 3: parse and validate data
 
@@ -89,7 +93,7 @@ Three things:
 2. A *schema* (a graph of vertices and edges) within that protocol.
 3. *Instances* (data) parsed and validated against the schema.
 
-This same pattern works for every protocol panproto supports. Replace `'json-schema'` with `'atproto'`, `'protobuf'`, or any of the [51 built-ins](../reference/protocols.md), and the rest of the code is identical.
+This same pattern works for every protocol panproto supports. Replace `'json-schema'` with `'atproto'`, `'protobuf'`, or any of the [50 built-ins](../reference/protocols.md), and the rest of the code is identical.
 
 ## Next
 
@@ -104,18 +108,21 @@ import panproto
 
 proto = panproto.get_builtin_protocol("json-schema")
 
-schema = (proto.schema()
-    .vertex("user", "object")
-    .vertex("user.name", "string")
-    .vertex("user.age", "integer")
-    .edge("user", "user.name", "prop", name="name", required=True)
-    .edge("user", "user.age", "prop", name="age", required=False)
-    .build())
+b = proto.schema()
+b.vertex("user", "object")
+b.vertex("user.name", "string")
+b.vertex("user.age", "integer")
+b.edge("user", "user.name", "prop", "name")
+b.edge("user", "user.age", "prop", "age")
+schema = b.build()
 
-with open("data/sample.json") as f:
-    instance = schema.parse(f.read())
-print(instance.to_record())
+io = panproto.IoRegistry()
+with open("data/sample.json", "rb") as f:
+    instance = io.parse("json-schema", schema, f.read())
+print(instance.to_dict())
 ```
+
+The Python builder uses statement-by-statement mutation (each `.vertex()` and `.edge()` mutates in place and returns `None`); chain syntax does not work. Parsing data through a protocol's codec goes through `IoRegistry().parse(protocol, schema, bytes)`.
 
 ## Rust version
 

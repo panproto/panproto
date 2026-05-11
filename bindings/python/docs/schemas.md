@@ -19,7 +19,7 @@ print(sql.obj_kinds)      # ["table", "integer", "string", ...]
 print(sql.edge_rules)     # [{edge_kind: "prop", src_kinds: ["table"], ...}, ...]
 ```
 
-76 protocols are built in. List them with:
+50 protocols are built in. List them with:
 
 ```python
 panproto.list_builtin_protocols()
@@ -60,6 +60,18 @@ out = schema.outgoing_edges("users")
 inc = schema.incoming_edges("users.id")
 cs = schema.constraints_for("users.id")
 ```
+
+### Anonymous-token field values
+
+When the source schema comes from a tree-sitter grammar (via `AstParserRegistry`), parent vertices for rules of the form `field('<name>', choice('+', '-', '*', '/'))` carry the matched token's text as a `field:<name>` constraint. The supported accessor is `Schema.field_text`:
+
+```python
+schema = reg.parse_with_protocol("qvr", b"let y = log(x)", "demo.qvr")
+let_call = next(v.id for v in schema.vertices if v.kind == "let_call")
+schema.field_text(let_call, "func")   # -> "log"
+```
+
+Returns `None` when the named field is absent. Named-node field children continue to surface as edges (filter `outgoing_edges` by `edge.kind`).
 
 ## Normalization and validation
 

@@ -5,7 +5,7 @@ This cluster pins panproto's three DSLs and two structural constructions to a pr
 1. **Surface syntax.** BNF for what a user types.
 2. **Abstract syntax.** The Rust enum the parser produces.
 3. **Semantic domain.** The mathematical universe the syntax interprets into.
-4. **Interpretation function.** Inference rules of the form $\Gamma \vdash e : \tau \Downarrow v$ that define the meaning of every well-formed expression.
+4. **Interpretation function.** A semantic function $\llbracket \cdot \rrbracket : \mathsf{Syntax} \to \mathsf{Env} \to \mathsf{Val}_\bot$ defined by structural recursion on the abstract syntax, in the Scott-Strachey idiom. Typing is presented separately as an inductive relation $\Gamma \vdash e : \tau$; evaluation is not a relation.
 5. **Soundness.** Statement of what the implementation guarantees, and which property tests or runtime checks enforce it.
 6. **What is intentionally not modelled.** The boundary of the formal account.
 

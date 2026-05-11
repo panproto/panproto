@@ -79,7 +79,7 @@ impl ParserRegistry {
     /// Create a new registry populated with all enabled language parsers.
     ///
     /// With the `grammars` feature (default), this populates the registry from
-    /// `panproto-grammars`, which provides up to 248 tree-sitter languages.
+    /// `panproto-grammars`, which provides up to 259 tree-sitter languages.
     /// Without the `grammars` feature, this returns an empty registry; call
     /// [`register`](Self::register) to add parsers manually using individual
     /// grammar crates.

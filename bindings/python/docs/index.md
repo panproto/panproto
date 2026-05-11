@@ -51,7 +51,7 @@ panproto treats schemas as models of generalized algebraic theories (GATs). A pr
 
 Migrations between schemas are compiled into restrict functors $M^*: \mathbf{Set}^T \to \mathbf{Set}^S$ that transform instance data. The get/put interface forms an asymmetric lens with a complement $C$ capturing the data lost in the forward direction.
 
-76 protocols are built in, covering annotation, API, config, data schema, data science, database, domain, serialization, type system, and web document formats.
+50 protocols are built in, covering annotation, API, config, data schema, data science, database, domain, serialization, type system, and web document formats.
 
 ## Modules
 
@@ -60,7 +60,7 @@ Migrations between schemas are compiled into restrict functors $M^*: \mathbf{Set
 | [Schemas](schemas.md) | Protocol-aware schema construction |
 | [Migrations](migrations.md) | Compiled migrations, lift, get/put |
 | [Lenses](lenses.md) | Bidirectional transformations, law checking |
-| [I/O](io.md) | Parse and emit instances across 76 protocols |
+| [I/O](io.md) | Parse and emit instances across 50 protocols |
 | [GAT](gat.md) | Theory operations: colimit, morphism, model |
 | [VCS](vcs.md) | Schematic version control |
 | [Expressions](expressions.md) | Pure functional expression language |
