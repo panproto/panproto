@@ -178,7 +178,7 @@ impl ParserRegistry {
     /// This is the registration primitive for grammar-author workflows
     /// where a grammar's `parser.c` / `grammar.json` / `node-types.json`
     /// are evolving outside the panproto release cadence. Production
-    /// builds should continue to use [`register_external_grammar`] with
+    /// builds should continue to use [`register_external_grammar`](Self::register_external_grammar) with
     /// `'static` data baked into the binary at compile time.
     ///
     /// # Errors

@@ -206,8 +206,15 @@ impl PyAstParserRegistry {
         let language: tree_sitter::Language =
             unsafe { std::mem::transmute::<usize, tree_sitter::Language>(language_ptr) };
 
-        reg.override_grammar(name, extensions, language, node_types, tags_query, grammar_json)
-            .map_err(|e| crate::error::PanprotoError::new_err(e.to_string()))?;
+        reg.override_grammar(
+            name,
+            extensions,
+            language,
+            node_types,
+            tags_query,
+            grammar_json,
+        )
+        .map_err(|e| crate::error::PanprotoError::new_err(e.to_string()))?;
         Ok(())
     }
 

@@ -450,9 +450,9 @@ impl PyProtolensChain {
     /// uses it to anchor the per-step protolens construction.
     #[staticmethod]
     fn from_dsl_json(source: &str, body_vertex: &str) -> PyResult<Self> {
-        let doc = panproto_lens_dsl::eval::eval_json(source).map_err(lens_dsl_err)?;
+        let doc = panproto_lens_dsl::eval::eval_json(source).map_err(|e| lens_dsl_err(&e))?;
         let compiled = panproto_lens_dsl::compile(&doc, body_vertex, &|_| None)
-            .map_err(lens_dsl_err)?;
+            .map_err(|e| lens_dsl_err(&e))?;
         Ok(Self {
             inner: Arc::new(compiled.chain),
         })
@@ -463,9 +463,9 @@ impl PyProtolensChain {
     /// Same body shape as :meth:`from_dsl_json`, in YAML.
     #[staticmethod]
     fn from_dsl_yaml(source: &str, body_vertex: &str) -> PyResult<Self> {
-        let doc = panproto_lens_dsl::eval::eval_yaml(source).map_err(lens_dsl_err)?;
+        let doc = panproto_lens_dsl::eval::eval_yaml(source).map_err(|e| lens_dsl_err(&e))?;
         let compiled = panproto_lens_dsl::compile(&doc, body_vertex, &|_| None)
-            .map_err(lens_dsl_err)?;
+            .map_err(|e| lens_dsl_err(&e))?;
         Ok(Self {
             inner: Arc::new(compiled.chain),
         })
@@ -485,9 +485,10 @@ impl PyProtolensChain {
         import_paths: Option<Vec<std::path::PathBuf>>,
     ) -> PyResult<Self> {
         let paths = import_paths.unwrap_or_default();
-        let doc = panproto_lens_dsl::eval::eval_nickel(source, &paths).map_err(lens_dsl_err)?;
+        let doc =
+            panproto_lens_dsl::eval::eval_nickel(source, &paths).map_err(|e| lens_dsl_err(&e))?;
         let compiled = panproto_lens_dsl::compile(&doc, body_vertex, &|_| None)
-            .map_err(lens_dsl_err)?;
+            .map_err(|e| lens_dsl_err(&e))?;
         Ok(Self {
             inner: Arc::new(compiled.chain),
         })
@@ -497,9 +498,10 @@ impl PyProtolensChain {
     /// extension (``.ncl`` → Nickel, ``.json`` → JSON, ``.yaml`` /
     /// ``.yml`` → YAML).
     #[staticmethod]
+    #[allow(clippy::needless_pass_by_value)] // pyo3 #[staticmethod] requires an owned argument here.
     fn from_dsl_path(path: std::path::PathBuf, body_vertex: &str) -> PyResult<Self> {
         let compiled = panproto_lens_dsl::load_and_compile(&path, body_vertex)
-            .map_err(lens_dsl_err)?;
+            .map_err(|e| lens_dsl_err(&e))?;
         Ok(Self {
             inner: Arc::new(compiled.chain),
         })
@@ -674,6 +676,6 @@ pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
 }
 
 /// Map a `panproto-lens-dsl` error to a Python exception.
-fn lens_dsl_err(e: panproto_lens_dsl::LensDslError) -> PyErr {
+fn lens_dsl_err(e: &panproto_lens_dsl::LensDslError) -> PyErr {
     crate::error::LensError::new_err(format!("lens DSL error: {e}"))
 }
