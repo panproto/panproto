@@ -379,6 +379,47 @@ class TestIoRegistry:
         assert "50" in repr(io)
 
 
+class TestAstParserRegistryOverride:
+    """Tests for :meth:`AstParserRegistry.override_grammar` (panproto/panproto#89)."""
+
+    def test_rejects_null_language_ptr(self) -> None:
+        reg = panproto.AstParserRegistry()
+        with pytest.raises(ValueError, match="language_ptr is null"):
+            reg.override_grammar(
+                name="qvr",
+                extensions=["qvr"],
+                language_ptr=0,
+                node_types=b"[]",
+            )
+
+    def test_rejects_empty_node_types(self) -> None:
+        reg = panproto.AstParserRegistry()
+        with pytest.raises(ValueError, match="node_types is empty"):
+            reg.override_grammar(
+                name="qvr",
+                extensions=["qvr"],
+                language_ptr=0xDEADBEEF,
+                node_types=b"",
+            )
+
+    def test_rejects_shared_handle(self) -> None:
+        # `lens(...)` clones the registry's Arc, blocking override until
+        # the lens handle is dropped.
+        reg = panproto.AstParserRegistry()
+        if not reg.protocol_names():
+            pytest.skip("registry has no built-in grammars in this build")
+        proto = next(iter(reg.protocol_names()))
+        lens = reg.lens(proto)
+        with pytest.raises(panproto.PanprotoError, match="shared"):
+            reg.override_grammar(
+                name=proto,
+                extensions=["xyz"],
+                language_ptr=0xDEADBEEF,
+                node_types=b"[]",
+            )
+        del lens
+
+
 # ---------------------------------------------------------------------------
 # Expression language
 # ---------------------------------------------------------------------------

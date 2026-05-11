@@ -387,6 +387,22 @@ class AstParserRegistry:
     def emit(self, protocol: str, schema: Schema) -> bytes: ...
     def emit_pretty(self, protocol: str, schema: Schema) -> bytes: ...
     def lens(self, protocol: str) -> ParseEmitLens: ...
+    # Override (or insert) a grammar registration at runtime. Used by
+    # grammar-author workflows where the grammar evolves outside the
+    # panproto release cadence. `language_ptr` is the integer address of
+    # the `tree_sitter_<name>` function obtained via ctypes/cffi from a
+    # locally-compiled grammar shared library. The byte payloads are
+    # leaked into 'static storage on the Rust side. Cannot run while
+    # any ParseEmitLens produced by `lens(...)` is alive.
+    def override_grammar(
+        self,
+        name: str,
+        extensions: Sequence[str],
+        language_ptr: int,
+        node_types: bytes,
+        tags_query: str | None = ...,
+        grammar_json: bytes | None = ...,
+    ) -> None: ...
 
 def available_grammars() -> list[str]: ...
 def parse_source_file(*args: object, **kwargs: object) -> Schema: ...

@@ -166,6 +166,103 @@ impl ParserRegistry {
         Ok(())
     }
 
+    /// Owned-data variant of [`register_external_grammar`](Self::register_external_grammar).
+    ///
+    /// Accepts `String` / `Vec<u8>` rather than `&'static` references. The
+    /// caller is presumed not to have process-lifetime rodata available
+    /// (typical dev-time use: bytes read from disk via the Python binding's
+    /// override hook). To match the trait's `'static` lifetime requirement
+    /// the inputs are leaked into the heap; the leak is one-time per
+    /// override.
+    ///
+    /// This is the registration primitive for grammar-author workflows
+    /// where a grammar's `parser.c` / `grammar.json` / `node-types.json`
+    /// are evolving outside the panproto release cadence. Production
+    /// builds should continue to use [`register_external_grammar`] with
+    /// `'static` data baked into the binary at compile time.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParseError`] if theory extraction or tags-query
+    /// compilation fails.
+    pub fn register_external_grammar_owned(
+        &mut self,
+        name: String,
+        extensions: Vec<String>,
+        language: tree_sitter::Language,
+        node_types_json: Vec<u8>,
+        tags_query: Option<String>,
+        grammar_json: Option<Vec<u8>>,
+    ) -> Result<(), crate::error::ParseError> {
+        let name_static: &'static str = Box::leak(name.into_boxed_str());
+        let extensions_static: Vec<&'static str> = extensions
+            .into_iter()
+            .map(|s| Box::leak(s.into_boxed_str()) as &'static str)
+            .collect();
+        let node_types_static: &'static [u8] = Box::leak(node_types_json.into_boxed_slice());
+        let tags_query_static: Option<&'static str> =
+            tags_query.map(|s| Box::leak(s.into_boxed_str()) as &'static str);
+        let grammar_json_static: Option<&'static [u8]> =
+            grammar_json.map(|v| Box::leak(v.into_boxed_slice()) as &'static [u8]);
+
+        self.register_external_grammar(
+            name_static,
+            extensions_static,
+            language,
+            node_types_static,
+            tags_query_static,
+            grammar_json_static,
+        )
+    }
+
+    /// Remove a registration by protocol name.
+    ///
+    /// Drops the parser and any extension mappings that pointed at it.
+    /// Returns `true` if a parser was removed, `false` if no such
+    /// registration existed. Primarily intended for grammar-author
+    /// workflows where a registered grammar is being replaced by a
+    /// freshly-compiled version mid-process.
+    pub fn unregister(&mut self, name: &str) -> bool {
+        let removed = self.parsers.remove(name).is_some();
+        if removed {
+            self.extension_map.retain(|_, v| v != name);
+        }
+        removed
+    }
+
+    /// Override a registered grammar with new owned data.
+    ///
+    /// Equivalent to [`unregister`](Self::unregister) followed by
+    /// [`register_external_grammar_owned`](Self::register_external_grammar_owned),
+    /// and intended for the same grammar-author dev workflow. Any
+    /// extension mappings previously bound to `name` are replaced by
+    /// the new `extensions`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParseError`] if theory extraction or tags-query
+    /// compilation fails on the new grammar; in that case the prior
+    /// registration is already gone.
+    pub fn override_grammar(
+        &mut self,
+        name: String,
+        extensions: Vec<String>,
+        language: tree_sitter::Language,
+        node_types_json: Vec<u8>,
+        tags_query: Option<String>,
+        grammar_json: Option<Vec<u8>>,
+    ) -> Result<(), crate::error::ParseError> {
+        self.unregister(&name);
+        self.register_external_grammar_owned(
+            name,
+            extensions,
+            language,
+            node_types_json,
+            tags_query,
+            grammar_json,
+        )
+    }
+
     /// Detect the language protocol for a file path by its extension.
     ///
     /// Returns `None` if the extension is not recognized (caller should
