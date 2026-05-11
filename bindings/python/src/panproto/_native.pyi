@@ -65,11 +65,10 @@ class SchemaBuilder:
     def vertex(self, name: str, kind: str) -> Self: ...
     def edge(
         self,
-        name: str,
-        source: str,
-        target: str,
-        *,
-        cardinality: str | None = ...,
+        src: str,
+        tgt: str,
+        kind: str,
+        name: str | None = ...,
     ) -> Self: ...
     def hyper_edge(self, name: str, /, *args: object, **kwargs: object) -> Self: ...
     def constraint(self, name: str, /, *args: object, **kwargs: object) -> Self: ...

@@ -66,9 +66,9 @@ restored = lens.put(view, complement)
 # Version-control schemas.
 repo = panproto.Repository.init("/path/to/repo")
 repo.add(schema_v1)
-repo.commit("initial schema")
-repo.branch("feature")
-repo.merge("feature")
+repo.commit("initial schema", "anonymous")
+repo.create_and_checkout_branch("feature")
+repo.merge("feature", "anonymous")
 ```
 
 ## API overview
