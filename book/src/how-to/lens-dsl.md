@@ -57,6 +57,26 @@ schema lens inspect --protocol json-schema lenses/user-v1-to-v2.json
 
 Prints the combinator chain. `--protocol` is required.
 
+### Compile from Python
+
+`ProtolensChain` exposes loaders that consume a lens-DSL document and compile it directly to a chain anchored at the named body vertex of the source schema:
+
+```python
+import panproto
+
+chain = panproto.ProtolensChain.from_dsl_path(
+    "lenses/user-v1-to-v2.ncl",
+    body_vertex="record:body",
+)
+
+# Or from a string:
+chain = panproto.ProtolensChain.from_dsl_json(json_source, "record:body")
+chain = panproto.ProtolensChain.from_dsl_yaml(yaml_source, "record:body")
+chain = panproto.ProtolensChain.from_dsl_nickel(nickel_source, "record:body")
+```
+
+`from_dsl_path` dispatches on file extension (`.ncl` / `.json` / `.yaml` / `.yml`). For Nickel, an optional `import_paths` argument extends the import-resolution lookup so user-defined modules can be referenced.
+
 ## Verification
 
 ```sh

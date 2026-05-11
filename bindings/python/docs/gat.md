@@ -41,6 +41,41 @@ This combines the sorts, operations, and equations of both theories, identifying
 result = panproto.colimit_theories(t1, t2, shared)
 ```
 
+## Loading from a DSL document
+
+`Theory` accepts theory-DSL documents in Nickel, JSON, or YAML and compiles them to a `Theory`:
+
+```python
+import panproto
+
+# From source text:
+theory = panproto.Theory.from_nickel(open("monoid.ncl").read())
+theory = panproto.Theory.from_yaml(yaml_source)
+theory = panproto.Theory.from_json(json_source)
+
+# Or from a file path (dispatches on extension):
+theory = panproto.Theory.from_path("theories/monoid.ncl")
+```
+
+`from_nickel`, `from_yaml`, `from_json`, and `from_path` accept the `theory`, `class`, and `inductive` body variants — the three that collapse to a single `Theory`. Multi-body documents (`morphism`, `composition`, `protocol`, `bundle`) raise; use the `panproto-theory-dsl` Rust crate for those.
+
+For incremental authoring, use `TheoryBuilder` (chainable `.sort()` / `.op()` / `.eq()` mirrors the Rust `class!` macro).
+
+## Round-trip through the flat shape
+
+Independent of the DSL loaders, `Theory` exposes a flat `panproto_gat::Theory` round-trip through JSON and YAML:
+
+```python
+emitted = theory.to_json()
+recovered = panproto.Theory.from_dict_json(emitted)
+assert recovered.to_dict() == theory.to_dict()
+
+# YAML pair, same shape:
+recovered = panproto.Theory.from_dict_yaml(theory.to_yaml())
+```
+
+The flat shape is the supported round-trip surface; the DSL surfaces above are one-way compile paths.
+
 ## Morphism checking
 
 A theory morphism $f: \mathbb{T}_1 \to \mathbb{T}_2$ maps sorts to sorts and operations to operations, preserving all equations. `check_morphism` verifies these conditions:

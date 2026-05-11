@@ -35,19 +35,64 @@ Parses then emits, useful for confirming a clean round-trip through the format-p
 ### From Rust
 
 ```rust
-use panproto_core::parse::Parser;
+use panproto_core::parse::ParserRegistry;
 
-let parser = Parser::for_language("rust")?;
-let instance = parser.parse_file("src/main.rs")?;
+let registry = ParserRegistry::new();
+let schema = registry.parse_with_protocol(
+    "rust",
+    std::fs::read("src/main.rs")?.as_slice(),
+    "src/main.rs",
+)?;
 ```
+
+`panproto_core::parse` is the re-export of `panproto-parse`. `ParserRegistry::new()` populates with every grammar enabled at build time; for a specific file path, `registry.parse_file(path, content)` auto-detects the language by extension.
 
 ### From Python
 
 ```python
-from panproto import Parser
-parser = Parser.for_language("python")
-instance = parser.parse_file("src/app.py")
+import panproto
+
+reg = panproto.AstParserRegistry()
+schema = reg.parse_with_protocol("python", source_bytes, "src/app.py")
 ```
+
+Companion grammar packs install additional languages: `pip install panproto-grammars-functional`, `-web`, `-systems`, etc.
+
+### Read anonymous-token field values
+
+A tree-sitter rule of the form `field('<name>', choice('+', '-', '*', '/'))` attaches a field name to an *unnamed* token alternative. The walker captures the matched token's text as a `field:<name>` constraint on the parent vertex; `Schema::field_text` is the supported accessor:
+
+```python
+schema = reg.parse_with_protocol("qvr", b"let y = log(x)", "demo.qvr")
+let_call = next(v.id for v in schema.vertices if v.kind == "let_call")
+schema.field_text(let_call, "func")   # -> "log"
+```
+
+The Rust equivalent is `Schema::field_text(vertex_id, name) -> Option<&str>`. Named-node field children continue to surface as edges; this accessor is specifically for the anonymous-token field case.
+
+### Override a registered grammar at runtime
+
+Grammar authors iterating on a grammar's `parser.c` / `grammar.json` / `node-types.json` outside the panproto release cadence can swap in a freshly-compiled grammar mid-process. Compile the grammar via `tree-sitter build`, load the resulting shared library with `ctypes`, and pass the integer address of the `tree_sitter_<name>` symbol to `override_grammar`:
+
+```python
+import ctypes
+import panproto
+
+lib = ctypes.CDLL("./build/qvr.dylib")
+language_ptr = ctypes.cast(lib.tree_sitter_qvr, ctypes.c_void_p).value
+
+reg = panproto.AstParserRegistry()
+reg.override_grammar(
+    name="qvr",
+    extensions=["qvr"],
+    language_ptr=language_ptr,
+    node_types=open("./grammars/qvr/src/node-types.json", "rb").read(),
+    grammar_json=open("./grammars/qvr/src/grammar.json", "rb").read(),
+)
+schema = reg.parse_with_protocol("qvr", source_bytes, "demo.qvr")  # uses the new grammar
+```
+
+If a parser is already registered under `name`, it is dropped first (along with any extension mappings). Cannot run while a `ParseEmitLens` produced by `reg.lens(...)` is alive: drop outstanding lens handles, or construct a fresh registry, first. The byte payloads are leaked into `'static` storage on the Rust side — intended for dev-time work, not production.
 
 ## Verification
 

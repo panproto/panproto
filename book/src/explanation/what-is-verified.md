@@ -1,6 +1,6 @@
 # What panproto verifies
 
-panproto's correctness story rests on a small set of properties that are mechanically checked. Some are verified at compile time (panic on failure during protocol registration); some are verified at runtime when the operation is invoked; some are verified by property-based tests in CI. This page is the catalogue.
+panproto's correctness rests on a small set of properties that are mechanically checked. Some are verified at compile time (panic on failure during protocol registration); some are verified at runtime when the operation is invoked; some are verified by property-based tests in CI. This page is the catalogue.
 
 If a property is in this list, the implementation enforces it. If you can construct a counterexample, that is a bug.
 

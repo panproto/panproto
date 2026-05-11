@@ -30,6 +30,8 @@ The fastest path is the theory DSL ([`panproto-theory-dsl`](https://github.com/p
 
 For finer control, declare the theory directly in Rust with the `class!` and `inductive!` macros from [`panproto-gat-macros`](https://github.com/panproto/panproto/tree/main/crates/panproto-gat-macros).
 
+From Python, the same DSL document loads via `Theory.from_nickel(source)`, `Theory.from_yaml(source)`, `Theory.from_json(source)`, or `Theory.from_path(path)` (dispatches by extension). The loaders accept the `theory`, `class`, and `inductive` body variants; multi-body documents (morphism, composition, protocol, bundle) belong in `panproto-theory-dsl::load_and_compile` directly. For incremental authoring, `panproto.TheoryBuilder` mirrors `class!` in a chainable form. Round-trip the flat Theory shape via `to_json` / `to_yaml` paired with `from_dict_json` / `from_dict_yaml`.
+
 ### Implement parser and emitter
 
 Each protocol provides a `Parser: Bytes -> Schema` and an `Emitter: Schema -> Bytes`. Implement both in a new submodule of `panproto-protocols`. See existing modules (`serialization::avro`, `data_schema::json_schema`) for canonical structure.

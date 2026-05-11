@@ -63,6 +63,27 @@ composed = lens1.compose(lens2)
 
 The composed lens applies `lens1` first, then `lens2`. The target schema of `lens1` must match the source schema of `lens2`.
 
+## Loading a chain from a lens-DSL document
+
+`ProtolensChain` accepts lens-DSL documents (Nickel, JSON, or YAML) and compiles them to a chain anchored at a named body vertex of the source schema:
+
+```python
+import panproto
+
+# From a file (dispatches on extension):
+chain = panproto.ProtolensChain.from_dsl_path(
+    "lenses/user-v1-to-v2.ncl",
+    body_vertex="record:body",
+)
+
+# From source text:
+chain = panproto.ProtolensChain.from_dsl_json(json_source, "record:body")
+chain = panproto.ProtolensChain.from_dsl_yaml(yaml_source, "record:body")
+chain = panproto.ProtolensChain.from_dsl_nickel(nickel_source, "record:body")
+```
+
+`from_dsl_nickel` also accepts `import_paths=[...]` to extend Nickel's import-resolution lookup so user-defined modules can be referenced. Instantiate the chain against source and target schemas with `chain.instantiate(src, tgt)` to get a `Lens`.
+
 ## Complement
 
 The complement $C$ is the kernel of $get$: it captures exactly the information lost in the forward direction. For an isomorphism (bijective migration), the complement is empty. For a projection (dropping columns), the complement stores the dropped values.

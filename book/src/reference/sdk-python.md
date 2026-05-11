@@ -42,11 +42,12 @@ There is no `Panproto` umbrella class; the entry points are free functions on th
 | Schema construction | `Protocol.schema()` returns a `SchemaBuilder`; chain `.vertex()`, `.edge()`, `.build()`. |
 | Migration | `MigrationBuilder`, `compile_migration`, `compose_migrations`, `invert_migration`, `pipeline` |
 | Check | `diff_and_classify`, `diff_schemas`, `check_existence`, `check_coverage` |
-| Lens | `Lens`, `ProtolensChain`, `auto_generate_lens`, `auto_generate_lens_candidates` |
-| GAT | `Theory`, `TheoryBuilder`, `Model`, `colimit_theories`, `free_model`, `migrate_model`, `check_model`, `check_morphism` |
+| Lens | `Lens`, `ProtolensChain` (with `from_dsl_json` / `from_dsl_yaml` / `from_dsl_nickel` / `from_dsl_path` loaders), `auto_generate_lens`, `auto_generate_lens_candidates` |
+| GAT | `Theory` (with `from_json` / `from_yaml` / `from_nickel` / `from_path` DSL loaders and `to_yaml` / `from_dict_yaml` for the flat-shape round-trip), `TheoryBuilder`, `Model`, `colimit_theories`, `free_model`, `migrate_model`, `check_model`, `check_morphism` |
+| Schema | `Schema.constraints_for(vertex_id)` lists every constraint; `Schema.field_text(vertex_id, field_name)` reads the text of a tree-sitter `field('<name>', anonymous-token)` child |
 | Expression language | `Expr`, `parse_expr`, `pretty_print_expr` |
 | VCS | `Repository`, `VcsRepository`, `BisectState` |
-| Parse | `parse_source_file`, `available_grammars`, `ParseEmitLens`, `AstParserRegistry()` |
+| Parse | `parse_source_file`, `available_grammars`, `ParseEmitLens`, `AstParserRegistry()` (with `.override_grammar(name, extensions, language_ptr, node_types, ...)` for dev-time grammar swapping) |
 | Project | `ProjectBuilder`, `parse_project`, `build_project` |
 
 Full API reference, including every method signature, lives at the dedicated mkdocs site:
