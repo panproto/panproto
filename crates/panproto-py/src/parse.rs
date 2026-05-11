@@ -172,6 +172,7 @@ impl PyAstParserRegistry {
     ///
     /// Closes panproto/panproto#89.
     #[pyo3(signature = (name, extensions, language_ptr, node_types, tags_query = None, grammar_json = None))]
+    #[allow(unsafe_code)]
     fn override_grammar(
         &mut self,
         name: String,
@@ -200,16 +201,12 @@ impl PyAstParserRegistry {
             )
         })?;
 
-        // Drop the previous extension cache for this name so the
-        // leaked-metadata path inside `register_external_from_metadata`
-        // never reuses extension bindings from a stale registration.
-        // The owned-bytes path below does not consult that cache.
-        let language: tree_sitter::Language = unsafe {
-            // Same transmute the extra_grammars path uses; the user is
-            // responsible for the pointer's validity.
-            #[allow(unsafe_code)]
-            std::mem::transmute::<usize, tree_sitter::Language>(language_ptr)
-        };
+        // Same transmute the extra_grammars path uses; the user is
+        // responsible for the pointer's validity (it must point at the
+        // `tree_sitter_<name>` function of a loaded grammar shared
+        // library).
+        let language: tree_sitter::Language =
+            unsafe { std::mem::transmute::<usize, tree_sitter::Language>(language_ptr) };
 
         reg.override_grammar(name, extensions, language, node_types, tags_query, grammar_json)
             .map_err(|e| crate::error::PanprotoError::new_err(e.to_string()))?;

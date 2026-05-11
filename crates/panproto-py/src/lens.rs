@@ -440,6 +440,79 @@ impl PyProtolensChain {
         })
     }
 
+    /// Compile a JSON lens-DSL document into a protolens chain.
+    ///
+    /// Accepts the JSON surface of ``panproto-lens-dsl``: a top-level
+    /// document with ``id`` / ``description`` / ``steps`` (and optional
+    /// ``constraints`` / ``hints`` / ``preferences``). The
+    /// ``body_vertex`` argument is the entry vertex of the source
+    /// schema the chain is being authored against; the DSL compiler
+    /// uses it to anchor the per-step protolens construction.
+    ///
+    /// Closes panproto/panproto#73 (Python loaders + round-trip).
+    #[staticmethod]
+    fn from_dsl_json(source: &str, body_vertex: &str) -> PyResult<Self> {
+        let doc = panproto_lens_dsl::eval::eval_json(source).map_err(lens_dsl_err)?;
+        let compiled = panproto_lens_dsl::compile(&doc, body_vertex, &|_| None)
+            .map_err(lens_dsl_err)?;
+        Ok(Self {
+            inner: Arc::new(compiled.chain),
+        })
+    }
+
+    /// Compile a YAML lens-DSL document into a protolens chain.
+    ///
+    /// Same body shape as :meth:`from_dsl_json`, in YAML.
+    ///
+    /// Closes panproto/panproto#73.
+    #[staticmethod]
+    fn from_dsl_yaml(source: &str, body_vertex: &str) -> PyResult<Self> {
+        let doc = panproto_lens_dsl::eval::eval_yaml(source).map_err(lens_dsl_err)?;
+        let compiled = panproto_lens_dsl::compile(&doc, body_vertex, &|_| None)
+            .map_err(lens_dsl_err)?;
+        Ok(Self {
+            inner: Arc::new(compiled.chain),
+        })
+    }
+
+    /// Compile a Nickel lens-DSL document into a protolens chain.
+    ///
+    /// Same body shape as :meth:`from_dsl_json`, in Nickel.
+    /// ``import_paths`` (default empty) extends Nickel's
+    /// import-resolution lookup so user-defined modules can be
+    /// referenced from ``source``.
+    ///
+    /// Closes panproto/panproto#73.
+    #[staticmethod]
+    #[pyo3(signature = (source, body_vertex, import_paths=None))]
+    fn from_dsl_nickel(
+        source: &str,
+        body_vertex: &str,
+        import_paths: Option<Vec<std::path::PathBuf>>,
+    ) -> PyResult<Self> {
+        let paths = import_paths.unwrap_or_default();
+        let doc = panproto_lens_dsl::eval::eval_nickel(source, &paths).map_err(lens_dsl_err)?;
+        let compiled = panproto_lens_dsl::compile(&doc, body_vertex, &|_| None)
+            .map_err(lens_dsl_err)?;
+        Ok(Self {
+            inner: Arc::new(compiled.chain),
+        })
+    }
+
+    /// Compile a lens-DSL document from a file, dispatching on
+    /// extension (``.ncl`` → Nickel, ``.json`` → JSON, ``.yaml`` /
+    /// ``.yml`` → YAML).
+    ///
+    /// Closes panproto/panproto#73.
+    #[staticmethod]
+    fn from_dsl_path(path: std::path::PathBuf, body_vertex: &str) -> PyResult<Self> {
+        let compiled = panproto_lens_dsl::load_and_compile(&path, body_vertex)
+            .map_err(lens_dsl_err)?;
+        Ok(Self {
+            inner: Arc::new(compiled.chain),
+        })
+    }
+
     /// Number of steps in the chain.
     fn __len__(&self) -> usize {
         self.inner.steps.len()
@@ -606,4 +679,9 @@ pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     parent.add_function(wrap_pyfunction!(hoist_field, parent)?)?;
     parent.add_function(wrap_pyfunction!(pipeline, parent)?)?;
     Ok(())
+}
+
+/// Map a `panproto-lens-dsl` error to a Python exception.
+fn lens_dsl_err(e: panproto_lens_dsl::LensDslError) -> PyErr {
+    crate::error::LensError::new_err(format!("lens DSL error: {e}"))
 }

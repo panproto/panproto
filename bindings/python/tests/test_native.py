@@ -616,6 +616,25 @@ class TestGat:
         recovered = panproto.Theory.from_dict_json(emitted)
         assert recovered.to_dict() == original.to_dict()
 
+    def test_theory_to_yaml_round_trip_via_from_dict_yaml(self) -> None:
+        # panproto/panproto#73: YAML round-trip symmetric to the JSON
+        # pair. The flat shape is the supported round-trip surface;
+        # the DSL surfaces (from_json / from_yaml / from_nickel) are
+        # one-way compile paths.
+        original = panproto.create_theory({
+            "name": "YamlRoundtrip",
+            "extends": [],
+            "sorts": [{"name": "A", "params": [], "kind": "Structural"}],
+            "ops": [],
+            "eqs": [],
+            "directed_eqs": [],
+            "policies": [],
+        })
+        emitted = original.to_yaml()
+        assert isinstance(emitted, str) and emitted, "to_yaml emitted empty payload"
+        recovered = panproto.Theory.from_dict_yaml(emitted)
+        assert recovered.to_dict() == original.to_dict()
+
     def test_theory_from_yaml(self) -> None:
         src = (
             "id: dev.panproto.test.yaml\n"
