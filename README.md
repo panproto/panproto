@@ -191,7 +191,7 @@ schema expr repl
 | Crate | What it does |
 |-------|--------------|
 | [`panproto-gat`](crates/panproto-gat) | The math engine that everything else is built on. Defines sorts (types), operations, equations, and structure-preserving maps between theories. |
-| [`panproto-expr`](crates/panproto-expr) | A small functional language used for data transforms during migration: lambdas, pattern matching, ~50 built-in functions. |
+| [`panproto-expr`](crates/panproto-expr) | A small functional language used for data transforms during migration: lambdas, pattern matching, 59 built-in functions. |
 | [`panproto-expr-parser`](crates/panproto-expr-parser) | Parser for the expression language (Haskell-style syntax with operator precedence). |
 | [`panproto-schema`](crates/panproto-schema) | Represents schemas as graphs: vertices are types, edges are fields/relationships, constraints are validation rules. |
 | [`panproto-inst`](crates/panproto-inst) | Represents actual data (instances). Handles converting data between schema versions by walking the instance tree and remapping fields. |
@@ -200,7 +200,7 @@ schema expr repl
 | [`panproto-lens-dsl`](crates/panproto-lens-dsl) | Write lens specifications declaratively in Nickel, JSON, or YAML instead of code. |
 | [`panproto-theory-dsl`](crates/panproto-theory-dsl) | Write theory (schema language) definitions declaratively in Nickel, JSON, or YAML. |
 | [`panproto-check`](crates/panproto-check) | Detects breaking changes between two schema versions: added/removed fields, type changes, constraint violations. |
-| [`panproto-protocols`](crates/panproto-protocols) | 51 built-in schema language definitions: ATProto, OpenAPI, JSON Schema, Protobuf, GraphQL, SQL DDL, Avro, and more. |
+| [`panproto-protocols`](crates/panproto-protocols) | 50 built-in schema language definitions: ATProto, OpenAPI, JSON Schema, Protobuf, GraphQL, SQL DDL, Avro, and more. |
 | [`panproto-io`](crates/panproto-io) | Reads and writes instance data in each protocol's native format (JSON, XML, YAML, CSV, etc.) with optional format-preserving round-trips. |
 | [`panproto-vcs`](crates/panproto-vcs) | Git-style version control for schemas: commit, branch, merge, diff, log, blame, bisect. |
 | [`panproto-parse`](crates/panproto-parse) | Parses source code in 259 programming languages into schema graphs using tree-sitter grammars. |

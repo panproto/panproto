@@ -40,8 +40,9 @@ const schema = proto.schema()
   .vertex('user', 'object')
   .vertex('user.name', 'string')
   .vertex('user.age', 'integer')
-  .edge('user', 'user.name', 'prop', { name: 'name', required: true })
-  .edge('user', 'user.age', 'prop', { name: 'age', required: false })
+  .edge('user', 'user.name', 'prop', { name: 'name' })
+  .edge('user', 'user.age', 'prop', { name: 'age' })
+  .required('user', [{ src: 'user', tgt: 'user.name', kind: 'prop', name: 'name' }])
   .build();
 
 console.log(
