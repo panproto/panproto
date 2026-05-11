@@ -323,9 +323,20 @@ fn localize_macos(lib_path: &Path, lib_name: &str, out_dir: &Path, target_arch: 
 
 /// Linux: use objcopy (or llvm-objcopy) with wildcard to keep only
 /// `tree_sitter_*` symbols global in each archive member.
+///
+/// On cross-compile builds the host `objcopy` does not understand the target's
+/// object format (e.g. an x86_64-elf objcopy invoked against an aarch64-elf
+/// archive silently partial-renames symbols, leaving duplicate definitions
+/// that the cross-linker rejects). Prefer the `${TARGET}-objcopy` binary that
+/// cross-toolchains ship (`aarch64-linux-gnu-objcopy`, etc.); fall back to
+/// `objcopy` / `llvm-objcopy` on native builds.
 fn localize_linux(lib_path: &Path) -> bool {
-    // Try objcopy first (GNU binutils), then llvm-objcopy.
-    for tool in &["objcopy", "llvm-objcopy"] {
+    let target = env::var("TARGET").unwrap_or_default();
+    let prefixed = format!("{target}-objcopy");
+
+    let candidates: [&str; 3] = [&prefixed, "objcopy", "llvm-objcopy"];
+
+    for tool in candidates {
         let status = Command::new(tool)
             .args(["--wildcard", "--keep-global-symbol=tree_sitter_*"])
             .arg(lib_path)

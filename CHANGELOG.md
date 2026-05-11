@@ -4,6 +4,12 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.46.1] - 2026-05-10
+
+### Fixed
+
+- **`panproto-grammars` cross-compile to `aarch64-unknown-linux-gnu`** (`crates/panproto-grammars/build.rs`): `localize_internal_symbols` now resolves the target-prefixed `objcopy` (e.g. `aarch64-linux-gnu-objcopy`) before falling back to plain `objcopy` / `llvm-objcopy`. The host's `x86_64-elf` objcopy could not parse aarch64-elf archive members; symbols went un-renamed and the cross-linker rejected the `panproto-grammars-all` cdylib with `multiple definition of scan/deserialize/scan_comment`. Closes #85.
+
 ## [0.46.0] - 2026-05-06
 
 ### Added
