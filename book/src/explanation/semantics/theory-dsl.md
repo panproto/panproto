@@ -110,7 +110,7 @@ $$
 \llbracket \mathsf{TheoryDocument}\{\mathsf{body} = \mathsf{Theory}(T)\} \rrbracket \;=\; \mathbf{CwF}(T)
 $$
 
-where $\mathbf{CwF}(T)$ is the *initial* CwF satisfying the sort, operation, and equation declarations of $T$. Initiality is the universal property: for every CwF $\mathcal{C}$ that interprets $T$'s sorts and operations and validates its equations, there is a unique structure-preserving functor $\mathbf{CwF}(T) \to \mathcal{C}$. This is Cartmell's GAT construction (@cartmell1986generalised).
+where $\mathbf{CwF}(T)$ is the *initial* CwF satisfying the sort, operation, and equation declarations of $T$. Initiality is the *semantic content* of the GAT construction: for every CwF $\mathcal{C}$ that interprets $T$'s sorts and operations and validates its equations, there is a unique structure-preserving functor $\mathbf{CwF}(T) \to \mathcal{C}$. The GAT presentation framework is due to Cartmell (@cartmell1986generalised), and the category-with-families packaging of dependent type theory is Dybjer's (@dybjer1996internal); the two compose to give the initial-model semantics used here.
 
 A *schema* in panproto is a model of $\mathbf{CwF}(T)$ in the CwF of finite sets and functions: equivalently, a CwF morphism $\mathbf{CwF}(T) \to \mathbf{FinSet}$.
 

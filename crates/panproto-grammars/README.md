@@ -4,11 +4,11 @@
 [![docs.rs](https://docs.rs/panproto-grammars/badge.svg)](https://docs.rs/panproto-grammars)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-Pre-compiled tree-sitter grammars for 250 programming languages, used by `panproto-parse`.
+Pre-compiled tree-sitter grammars for 259 programming languages, used by `panproto-parse`.
 
 ## What it does
 
-This crate bundles tree-sitter grammar sources for up to 250 languages and compiles them from C at build time. Each `Grammar` value provides the tree-sitter `Language` object needed for parsing, the raw `node-types.json` bytes needed for theory extraction, the optional `grammar.json` production-rule table (used by `panproto-parse`'s `emit_pretty` to render by-construction schemas), and the file extensions the grammar handles.
+This crate bundles tree-sitter grammar sources for up to 259 languages and compiles them from C at build time. Each `Grammar` value provides the tree-sitter `Language` object needed for parsing, the raw `node-types.json` bytes needed for theory extraction, the optional `grammar.json` production-rule table (used by `panproto-parse`'s `emit_pretty` to render by-construction schemas), and the file extensions the grammar handles.
 
 The crate is published to crates.io with zero vendored grammars: the C sources weigh roughly 500MB, well above the 10MB package limit. The published version exposes the API surface so downstream crates compile, and consumers register individual grammar crates against `panproto_parse::ParserRegistry`. Inside the workspace, `build.rs` compiles all vendored grammars, so the in-tree build of `panproto-parse` (with the default `grammars` feature) gets the full set.
 
@@ -55,7 +55,7 @@ assert!(panproto_grammars::has_grammar("python"));
 | `group-devops` | Dockerfile, Terraform, HCL, Nix, Bash, YAML, TOML, Make, CMake |
 | `group-mobile` | Swift, Kotlin, Dart, Java, Objective-C |
 | `group-music` | SuperCollider, LilyPond, ABC, Csound, ChucK, Glicol, Tidal mini-notation, Strudel mini-notation |
-| `group-all` | All 250 languages |
+| `group-all` | All 259 languages |
 | `lang-{name}` | Any individual language by name |
 
 ## Companion grammar packs

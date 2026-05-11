@@ -10,7 +10,7 @@
 //! - `@name`: the identifier within the scope node
 //!
 //! This module wraps `tree-sitter-tags` to produce a uniform [`NamedScope`]
-//! view of source code across all 248 supported languages. The walker uses
+//! view of source code across all 259 supported languages. The walker uses
 //! the resulting scope map to drive named-scope detection without any
 //! hardcoded node-kind lists.
 
