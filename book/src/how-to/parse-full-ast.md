@@ -1,6 +1,6 @@
 # Parse full ASTs
 
-panproto can parse source code in 248 languages via tree-sitter and treat the full AST as a schema instance. The resulting instance can be queried, diffed, migrated, and version-controlled like any other schema.
+panproto can parse source code in 259 languages via tree-sitter and treat the full AST as a schema instance. The resulting instance can be queried, diffed, migrated, and version-controlled like any other schema.
 
 ## Prerequisites
 
@@ -56,7 +56,7 @@ Tree-sitter parsing is total: every byte sequence parses into *some* AST. `insta
 ## Common mistakes
 
 - Treating the AST as the source of truth for non-syntactic information. Type information, name resolution, control flow are not modelled by the auto-derived theories.
-- Assuming language coverage. The 248-language list is in [`crates/panproto-grammars/`](https://github.com/panproto/panproto/tree/main/crates/panproto-grammars). Languages not in the list have no parser.
+- Assuming language coverage. The 259-language list is in [`crates/panproto-grammars/`](https://github.com/panproto/panproto/tree/main/crates/panproto-grammars). Languages not in the list have no parser.
 
 ## See also
 
