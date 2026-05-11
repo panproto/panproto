@@ -36,4 +36,4 @@ Objects in the store are content-addressed. The `ObjectId` is a blake3 hash of t
 - `Protocol`: protocol specification
 - `Expr`: expression used in a migration resolver
 
-The VCS module is currently in-memory only. Filesystem-backed repositories (via `FsStore`) are available in the Rust API and will be exposed in a future version.
+`VcsRepository` is the in-memory store used above. For filesystem-backed repositories with a working tree, refs, an index, and commit/branch/tag/log/blame/bisect support, use `panproto.Repository.init(path)` or `panproto.Repository.open(path)`. The `Repository` class wraps the same content-addressed object store backed by `FsStore` instead of `MemStore`.

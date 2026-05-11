@@ -104,18 +104,21 @@ import panproto
 
 proto = panproto.get_builtin_protocol("json-schema")
 
-schema = (proto.schema()
-    .vertex("user", "object")
-    .vertex("user.name", "string")
-    .vertex("user.age", "integer")
-    .edge("user", "user.name", "prop", name="name", required=True)
-    .edge("user", "user.age", "prop", name="age", required=False)
-    .build())
+b = proto.schema()
+b.vertex("user", "object")
+b.vertex("user.name", "string")
+b.vertex("user.age", "integer")
+b.edge("user", "user.name", "prop", "name")
+b.edge("user", "user.age", "prop", "age")
+schema = b.build()
 
-with open("data/sample.json") as f:
-    instance = schema.parse(f.read())
-print(instance.to_record())
+io = panproto.IoRegistry()
+with open("data/sample.json", "rb") as f:
+    instance = io.parse("json-schema", schema, f.read())
+print(instance.to_dict())
 ```
+
+The Python builder uses statement-by-statement mutation (each `.vertex()` and `.edge()` mutates in place and returns `None`); chain syntax does not work. Parsing data through a protocol's codec goes through `IoRegistry().parse(protocol, schema, bytes)`.
 
 ## Rust version
 
