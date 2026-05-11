@@ -92,7 +92,7 @@ Three things:
 2. A *schema* (a graph of vertices and edges) within that protocol.
 3. *Instances* (data) parsed and validated against the schema.
 
-This same pattern works for every protocol panproto supports. Replace `'json-schema'` with `'atproto'`, `'protobuf'`, or any of the [51 built-ins](../reference/protocols.md), and the rest of the code is identical.
+This same pattern works for every protocol panproto supports. Replace `'json-schema'` with `'atproto'`, `'protobuf'`, or any of the [50 built-ins](../reference/protocols.md), and the rest of the code is identical.
 
 ## Next
 
