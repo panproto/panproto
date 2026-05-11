@@ -293,8 +293,7 @@ impl Schema {
     /// Return every constraint attached to the given vertex.
     ///
     /// Tree-sitter-derived schemas attach byte ranges, interstitials,
-    /// formatting, and (after panproto/panproto#86) `field:<name>`
-    /// entries here.
+    /// formatting, and `field:<name>` entries here.
     #[must_use]
     pub fn constraints_for(&self, vertex_id: &str) -> &[Constraint] {
         self.constraints
@@ -315,8 +314,6 @@ impl Schema {
     /// `vertex_id`. Named-node field children continue to surface as
     /// edges (use [`outgoing_edges`](Self::outgoing_edges) and filter
     /// by [`Edge::kind`](crate::Edge::kind) for those).
-    ///
-    /// Closes panproto/panproto#86.
     #[must_use]
     pub fn field_text(&self, vertex_id: &str, field_name: &str) -> Option<&str> {
         let sort = format!("field:{field_name}");

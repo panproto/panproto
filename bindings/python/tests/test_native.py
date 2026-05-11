@@ -380,7 +380,7 @@ class TestIoRegistry:
 
 
 class TestAstParserRegistryOverride:
-    """Tests for :meth:`AstParserRegistry.override_grammar` (panproto/panproto#89)."""
+    """Tests for :meth:`AstParserRegistry.override_grammar`."""
 
     def test_rejects_null_language_ptr(self) -> None:
         reg = panproto.AstParserRegistry()
@@ -617,10 +617,9 @@ class TestGat:
         assert recovered.to_dict() == original.to_dict()
 
     def test_theory_to_yaml_round_trip_via_from_dict_yaml(self) -> None:
-        # panproto/panproto#73: YAML round-trip symmetric to the JSON
-        # pair. The flat shape is the supported round-trip surface;
-        # the DSL surfaces (from_json / from_yaml / from_nickel) are
-        # one-way compile paths.
+        # YAML round-trip symmetric to the JSON pair. The flat shape is
+        # the supported round-trip surface; the DSL surfaces (from_json
+        # / from_yaml / from_nickel) are one-way compile paths.
         original = panproto.create_theory({
             "name": "YamlRoundtrip",
             "extends": [],

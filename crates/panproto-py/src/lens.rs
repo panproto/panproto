@@ -448,8 +448,6 @@ impl PyProtolensChain {
     /// ``body_vertex`` argument is the entry vertex of the source
     /// schema the chain is being authored against; the DSL compiler
     /// uses it to anchor the per-step protolens construction.
-    ///
-    /// Closes panproto/panproto#73 (Python loaders + round-trip).
     #[staticmethod]
     fn from_dsl_json(source: &str, body_vertex: &str) -> PyResult<Self> {
         let doc = panproto_lens_dsl::eval::eval_json(source).map_err(lens_dsl_err)?;
@@ -463,8 +461,6 @@ impl PyProtolensChain {
     /// Compile a YAML lens-DSL document into a protolens chain.
     ///
     /// Same body shape as :meth:`from_dsl_json`, in YAML.
-    ///
-    /// Closes panproto/panproto#73.
     #[staticmethod]
     fn from_dsl_yaml(source: &str, body_vertex: &str) -> PyResult<Self> {
         let doc = panproto_lens_dsl::eval::eval_yaml(source).map_err(lens_dsl_err)?;
@@ -481,8 +477,6 @@ impl PyProtolensChain {
     /// ``import_paths`` (default empty) extends Nickel's
     /// import-resolution lookup so user-defined modules can be
     /// referenced from ``source``.
-    ///
-    /// Closes panproto/panproto#73.
     #[staticmethod]
     #[pyo3(signature = (source, body_vertex, import_paths=None))]
     fn from_dsl_nickel(
@@ -502,8 +496,6 @@ impl PyProtolensChain {
     /// Compile a lens-DSL document from a file, dispatching on
     /// extension (``.ncl`` → Nickel, ``.json`` → JSON, ``.yaml`` /
     /// ``.yml`` → YAML).
-    ///
-    /// Closes panproto/panproto#73.
     #[staticmethod]
     fn from_dsl_path(path: std::path::PathBuf, body_vertex: &str) -> PyResult<Self> {
         let compiled = panproto_lens_dsl::load_and_compile(&path, body_vertex)

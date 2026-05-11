@@ -672,8 +672,6 @@ impl PySchema {
     ///
     /// Named-node field children continue to surface as edges (use
     /// :meth:`outgoing_edges` and filter by ``edge.kind`` for those).
-    ///
-    /// Closes panproto/panproto#86.
     fn field_text(&self, vertex_id: &str, field_name: &str) -> Option<String> {
         self.inner
             .field_text(vertex_id, field_name)

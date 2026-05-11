@@ -430,9 +430,9 @@ mod tests {
 
     #[test]
     fn field_text_reads_field_prefixed_constraint() {
-        // Closes panproto/panproto#86: the walker emits `field:<name>`
-        // constraints for tree-sitter `field('<name>', anonymous-token)`
-        // children. `Schema::field_text` is the supported accessor.
+        // The walker emits `field:<name>` constraints for tree-sitter
+        // `field('<name>', anonymous-token)` children. `Schema::field_text`
+        // is the supported accessor.
         let proto = atproto_protocol();
         let schema = SchemaBuilder::new(&proto)
             .vertex("call", "record", Some("call"))

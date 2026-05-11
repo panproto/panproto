@@ -269,11 +269,10 @@ impl<'a> AstWalker<'a> {
         // `field('op', choice('+', '-', '*', '/'))` produce children
         // that are field-named but not themselves named nodes, so they
         // are skipped by the named-child walk above and would otherwise
-        // be invisible to downstream consumers. Recovering the text
-        // out-of-band (start-byte / end-byte arithmetic against the
-        // source buffer) is what panproto/panproto#86 reports as
-        // friction; emitting the value here lets consumers read
-        // `schema.field_text(vid, name)` directly.
+        // be invisible to downstream consumers. Emitting the value here
+        // lets consumers read `schema.field_text(vid, name)` directly
+        // rather than reconstructing the text via start-byte / end-byte
+        // arithmetic against the source buffer.
         builder = self.capture_anonymous_field_constraints(node, &vertex_id, builder);
 
         // Emit formatting constraints if enabled.
@@ -393,8 +392,6 @@ impl<'a> AstWalker<'a> {
     /// to recover the value by reading the source buffer between
     /// recorded byte offsets. This emits the value as a structural
     /// constraint so [`Schema::field_text`] can return it directly.
-    ///
-    /// Closes panproto/panproto#86.
     fn capture_anonymous_field_constraints(
         &self,
         node: tree_sitter::Node<'_>,

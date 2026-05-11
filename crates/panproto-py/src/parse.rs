@@ -169,8 +169,6 @@ impl PyAstParserRegistry {
     /// :meth:`lens` is alive (those clone the registry's underlying
     /// reference-counted handle). Drop outstanding lens handles, or
     /// construct a fresh registry, before calling.
-    ///
-    /// Closes panproto/panproto#89.
     #[pyo3(signature = (name, extensions, language_ptr, node_types, tags_query = None, grammar_json = None))]
     #[allow(unsafe_code)]
     fn override_grammar(

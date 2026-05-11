@@ -92,8 +92,6 @@ impl PyTheory {
     /// The output is the flat ``panproto_gat::Theory`` serde shape
     /// (same as :meth:`to_json`, rendered as YAML). Round-trips with
     /// :meth:`from_dict_yaml`.
-    ///
-    /// Closes panproto/panproto#73 (Python loaders + round-trip).
     fn to_yaml(&self) -> PyResult<String> {
         yaml_serde::to_string(self.inner.as_ref())
             .map_err(|e| crate::error::GatError::new_err(format!("theory to_yaml failed: {e}")))
