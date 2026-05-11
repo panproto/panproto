@@ -37,7 +37,7 @@ For lower-level work, depend on individual crates rather than the facade. The [c
 | Write lenses in the lens DSL | `panproto-lens-dsl` |
 | Use the expression language | `panproto-expr`, `panproto-expr-parser` |
 | Version-control schemas and data | `panproto-vcs`, `panproto-git` |
-| Parse full ASTs across 248 languages | `panproto-parse` |
+| Parse full ASTs across 259 languages | `panproto-parse` |
 
 ## See also
 
