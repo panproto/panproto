@@ -289,6 +289,43 @@ impl Schema {
     pub fn entry_vertices(&self) -> &[Name] {
         &self.entries
     }
+
+    /// Return every constraint attached to the given vertex.
+    ///
+    /// Tree-sitter-derived schemas attach byte ranges, interstitials,
+    /// formatting, and (after panproto/panproto#86) `field:<name>`
+    /// entries here.
+    #[must_use]
+    pub fn constraints_for(&self, vertex_id: &str) -> &[Constraint] {
+        self.constraints
+            .get(&Name::from(vertex_id))
+            .map_or(&[], Vec::as_slice)
+    }
+
+    /// Return the text value of a tree-sitter `field('<name>', ...)`
+    /// anonymous-token child on the given vertex, if any.
+    ///
+    /// Tree-sitter rules of the form
+    /// `field('op', choice('+', '-', '*', '/'))` attach a field name to
+    /// an unnamed token alternative. The walker emits the token's text
+    /// as a `field:<name>` constraint on the parent vertex; this is the
+    /// supported accessor for that text.
+    ///
+    /// Returns `None` if no `field:<name>` constraint exists on
+    /// `vertex_id`. Named-node field children continue to surface as
+    /// edges (use [`outgoing_edges`](Self::outgoing_edges) and filter
+    /// by [`Edge::kind`](crate::Edge::kind) for those).
+    ///
+    /// Closes panproto/panproto#86.
+    #[must_use]
+    pub fn field_text(&self, vertex_id: &str, field_name: &str) -> Option<&str> {
+        let sort = format!("field:{field_name}");
+        self.constraints
+            .get(&Name::from(vertex_id))?
+            .iter()
+            .find(|c| c.sort.as_ref() == sort.as_str())
+            .map(|c| c.value.as_str())
+    }
 }
 
 /// Choose a single entry vertex for a schema.

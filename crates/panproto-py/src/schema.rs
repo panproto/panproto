@@ -661,6 +661,25 @@ impl PySchema {
             })
     }
 
+    /// Text of a tree-sitter ``field('<name>', anonymous-token)`` child
+    /// on the given vertex, if any.
+    ///
+    /// Tree-sitter rules such as ``field('op', choice('+','-','*','/'))``
+    /// attach a field name to an unnamed token alternative. The walker
+    /// records the matched token's text as a ``field:<name>`` constraint
+    /// on the parent vertex; this is the supported accessor. Returns
+    /// ``None`` when no such constraint exists.
+    ///
+    /// Named-node field children continue to surface as edges (use
+    /// :meth:`outgoing_edges` and filter by ``edge.kind`` for those).
+    ///
+    /// Closes panproto/panproto#86.
+    fn field_text(&self, vertex_id: &str, field_name: &str) -> Option<String> {
+        self.inner
+            .field_text(vertex_id, field_name)
+            .map(str::to_owned)
+    }
+
     /// Whether the given vertex ID exists.
     fn has_vertex(&self, id: &str) -> bool {
         self.inner.has_vertex(id)

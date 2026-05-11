@@ -264,6 +264,18 @@ impl<'a> AstWalker<'a> {
             }
         }
 
+        // Capture field-keyed anonymous-token children as `field:<name>`
+        // constraints on this vertex. Tree-sitter rules of the form
+        // `field('op', choice('+', '-', '*', '/'))` produce children
+        // that are field-named but not themselves named nodes, so they
+        // are skipped by the named-child walk above and would otherwise
+        // be invisible to downstream consumers. Recovering the text
+        // out-of-band (start-byte / end-byte arithmetic against the
+        // source buffer) is what panproto/panproto#86 reports as
+        // friction; emitting the value here lets consumers read
+        // `schema.field_text(vid, name)` directly.
+        builder = self.capture_anonymous_field_constraints(node, &vertex_id, builder);
+
         // Emit formatting constraints if enabled.
         if self.config.capture_formatting {
             builder = self.emit_formatting_constraints(node, &vertex_id, builder);
@@ -368,6 +380,51 @@ impl<'a> AstWalker<'a> {
     }
 
     /// Capture interstitial text between `gap_start` and `gap_end` as a constraint.
+    /// Walk all children of `node` (including anonymous tokens), and for
+    /// each anonymous-token child that was reached through a tree-sitter
+    /// `field('<name>', ...)` accessor, emit a `field:<name>` constraint
+    /// on the parent vertex carrying the token's text.
+    ///
+    /// Tree-sitter rules like `field('direction', choice('/', '\\'))` or
+    /// `field('func', choice('sigmoid','exp','log','abs'))` attach a
+    /// field name to an unnamed token alternative. The named-children
+    /// walk in [`walk_children_with_interstitials`] omits these (they
+    /// are not named nodes), and downstream consumers previously had
+    /// to recover the value by reading the source buffer between
+    /// recorded byte offsets. This emits the value as a structural
+    /// constraint so [`Schema::field_text`] can return it directly.
+    ///
+    /// Closes panproto/panproto#86.
+    fn capture_anonymous_field_constraints(
+        &self,
+        node: tree_sitter::Node<'_>,
+        vertex_id: &str,
+        mut builder: SchemaBuilder,
+    ) -> SchemaBuilder {
+        let child_count = node.child_count();
+        for i in 0..child_count {
+            let Some(child) = node.child(i) else { continue };
+            // Named children carry their own vertex (and surface as edges
+            // keyed by the field name in walk_node). We only need to
+            // handle the unnamed tokens here.
+            if child.is_named() {
+                continue;
+            }
+            let Some(field_name) = u32::try_from(i)
+                .ok()
+                .and_then(|idx| node.field_name_for_child(idx))
+            else {
+                continue;
+            };
+            let Ok(text) = child.utf8_text(self.source) else {
+                continue;
+            };
+            let sort = format!("field:{field_name}");
+            builder = builder.constraint(vertex_id, &sort, text);
+        }
+        builder
+    }
+
     fn capture_interstitial(
         &self,
         mut builder: SchemaBuilder,
