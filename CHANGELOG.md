@@ -4,6 +4,15 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.47.0] - 2026-05-11
+
+### Added
+
+- **Runtime grammar override** (`panproto-parse::ParserRegistry`, `panproto-py::PyAstParserRegistry`): `ParserRegistry::override_grammar` / `register_external_grammar_owned` / `unregister` accept owned bytes (leaked into `'static` on registration) so grammar-author dev loops can swap a registered grammar mid-process. Exposed as `AstParserRegistry.override_grammar(name, extensions, language_ptr, node_types, tags_query=None, grammar_json=None)` on the Python side; `language_ptr` is the integer address of the `tree_sitter_<name>` function obtained via `ctypes` / `cffi` from a locally-compiled grammar shared library. Uses `Arc::get_mut`; raises `PanprotoError` when the underlying registry handle is shared (e.g. an outstanding `ParseEmitLens`). Closes #89.
+- **Query anonymous-token field values from a parsed schema** (`panproto-parse::walker`, `panproto-schema::Schema`, `panproto-py::PySchema`): the walker now emits a `field:<name>` constraint on the parent vertex for every tree-sitter `field('<name>', anonymous-token)` child it encounters, capturing the matched token's text. `Schema::constraints_for(vertex_id)` returns every constraint on a vertex; `Schema::field_text(vertex_id, name)` returns the value of the `field:<name>` constraint or `None`. Surfaced on the Python `Schema` as `field_text(vertex_id, field_name)`. Closes #86.
+- **`Theory.to_yaml` + `Theory.from_dict_yaml`** (`panproto-py::PyTheory`): YAML symmetric to the existing `to_json` / `from_dict_json` round-trip for the flat `panproto_gat::Theory` shape. Backed by `yaml_serde`. Closes the loaders + round-trip piece of #73 on the theory side (the DSL loaders `from_json` / `from_yaml` / `from_nickel` / `from_path` and the `TheoryBuilder` were added in 0.46.x via #83).
+- **`ProtolensChain.from_dsl_{json,yaml,nickel,path}`** (`panproto-py::PyProtolensChain`): load a `panproto-lens-dsl` document (its Nickel / JSON / YAML surface) and compile it to a protolens chain anchored at the named `body_vertex` of the source schema. Mirrors what `Theory.from_{json,yaml,nickel}` does on the theory side, using the existing `panproto-lens-dsl::compile` entry point. Closes the loaders piece of #73 on the lens side.
+
 ## [0.46.1] - 2026-05-10
 
 ### Fixed

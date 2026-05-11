@@ -150,6 +150,74 @@ impl PyAstParserRegistry {
         self.inner.protocol_names().map(String::from).collect()
     }
 
+    /// Override (or insert) a grammar registration at runtime.
+    ///
+    /// Intended for grammar-author workflows where a grammar's
+    /// ``parser.c`` / ``grammar.json`` / ``node-types.json`` are evolving
+    /// outside the panproto release cadence. The caller compiles the
+    /// grammar themselves (typically via ``tree-sitter build``) and
+    /// loads the resulting shared library; ``language_ptr`` is the
+    /// integer address of the ``tree_sitter_<name>`` function obtained
+    /// via ``ctypes`` / ``cffi``. The byte payloads are owned by Python
+    /// here and leaked into ``'static`` storage on the Rust side.
+    ///
+    /// If a parser is already registered under ``name``, it is dropped
+    /// first (along with any extension mappings that targeted it); the
+    /// new grammar's ``extensions`` are then bound.
+    ///
+    /// Cannot run while any :class:`ParseEmitLens` produced by
+    /// :meth:`lens` is alive (those clone the registry's underlying
+    /// reference-counted handle). Drop outstanding lens handles, or
+    /// construct a fresh registry, before calling.
+    #[pyo3(signature = (name, extensions, language_ptr, node_types, tags_query = None, grammar_json = None))]
+    #[allow(unsafe_code)]
+    fn override_grammar(
+        &mut self,
+        name: String,
+        extensions: Vec<String>,
+        language_ptr: usize,
+        node_types: Vec<u8>,
+        tags_query: Option<String>,
+        grammar_json: Option<Vec<u8>>,
+    ) -> PyResult<()> {
+        use pyo3::exceptions::PyValueError;
+        if language_ptr == 0 {
+            return Err(PyValueError::new_err(format!(
+                "grammar {name:?}: language_ptr is null"
+            )));
+        }
+        if node_types.is_empty() {
+            return Err(PyValueError::new_err(format!(
+                "grammar {name:?}: node_types is empty"
+            )));
+        }
+        let reg = Arc::get_mut(&mut self.inner).ok_or_else(|| {
+            crate::error::PanprotoError::new_err(
+                "cannot override grammar: registry handle is shared \
+                 (drop any open ParseEmitLens first, or construct a fresh \
+                 AstParserRegistry)",
+            )
+        })?;
+
+        // Same transmute the extra_grammars path uses; the user is
+        // responsible for the pointer's validity (it must point at the
+        // `tree_sitter_<name>` function of a loaded grammar shared
+        // library).
+        let language: tree_sitter::Language =
+            unsafe { std::mem::transmute::<usize, tree_sitter::Language>(language_ptr) };
+
+        reg.override_grammar(
+            name,
+            extensions,
+            language,
+            node_types,
+            tags_query,
+            grammar_json,
+        )
+        .map_err(|e| crate::error::PanprotoError::new_err(e.to_string()))?;
+        Ok(())
+    }
+
     fn __repr__(&self) -> String {
         format!("AstParserRegistry({} parsers)", self.inner.len())
     }

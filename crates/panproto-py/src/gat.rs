@@ -87,6 +87,31 @@ impl PyTheory {
             .map_err(|e| crate::error::GatError::new_err(format!("theory to_json failed: {e}")))
     }
 
+    /// Serialize this theory to a YAML string.
+    ///
+    /// The output is the flat ``panproto_gat::Theory`` serde shape
+    /// (same as :meth:`to_json`, rendered as YAML). Round-trips with
+    /// :meth:`from_dict_yaml`.
+    fn to_yaml(&self) -> PyResult<String> {
+        yaml_serde::to_string(self.inner.as_ref())
+            .map_err(|e| crate::error::GatError::new_err(format!("theory to_yaml failed: {e}")))
+    }
+
+    /// Construct a theory from the YAML-rendered ``panproto_gat::Theory``
+    /// shape. Inverse of :meth:`to_yaml`.
+    ///
+    /// To compile a DSL document (the YAML lens-DSL surface), use
+    /// :meth:`from_yaml` instead.
+    #[classmethod]
+    fn from_dict_yaml(_cls: &Bound<'_, pyo3::types::PyType>, payload: &str) -> PyResult<Self> {
+        let theory: Theory = yaml_serde::from_str(payload).map_err(|e| {
+            crate::error::GatError::new_err(format!("theory from_dict_yaml failed: {e}"))
+        })?;
+        Ok(Self {
+            inner: Arc::new(theory),
+        })
+    }
+
     /// Construct a theory from the serialized ``panproto_gat::Theory`` shape.
     ///
     /// Inverse of :meth:`to_json`. The expected payload is a flat

@@ -429,6 +429,26 @@ mod tests {
     }
 
     #[test]
+    fn field_text_reads_field_prefixed_constraint() {
+        // The walker emits `field:<name>` constraints for tree-sitter
+        // `field('<name>', anonymous-token)` children. `Schema::field_text`
+        // is the supported accessor.
+        let proto = atproto_protocol();
+        let schema = SchemaBuilder::new(&proto)
+            .vertex("call", "record", Some("call"))
+            .expect("vertex call")
+            .constraint("call", "field:func", "log")
+            .constraint("call", "field:op", "+")
+            .build()
+            .expect("build");
+
+        assert_eq!(schema.field_text("call", "func"), Some("log"));
+        assert_eq!(schema.field_text("call", "op"), Some("+"));
+        assert_eq!(schema.field_text("call", "missing"), None);
+        assert_eq!(schema.field_text("other-vertex", "func"), None);
+    }
+
+    #[test]
     fn build_atproto_schema() {
         let proto = atproto_protocol();
         let schema = SchemaBuilder::new(&proto)
