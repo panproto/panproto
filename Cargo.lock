@@ -1975,7 +1975,7 @@ checksum = "d211803b9b6b570f68772237e415a029d5a50c65d382910b879fb19d3271f94d"
 
 [[package]]
 name = "panproto-c"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "ciborium",
  "panproto-core",
@@ -1986,7 +1986,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-check"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "divan",
  "insta",
@@ -2006,7 +2006,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-cli"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "assert_cmd",
  "blake3",
@@ -2037,7 +2037,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-core"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "divan",
  "panproto-check",
@@ -2059,7 +2059,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-expr"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "divan",
  "proptest",
@@ -2071,7 +2071,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-expr-parser"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "chumsky",
  "divan",
@@ -2082,7 +2082,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-gat"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "divan",
  "miette",
@@ -2096,7 +2096,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-gat-macros"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "panproto-gat",
  "proc-macro2",
@@ -2107,7 +2107,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-git"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "divan",
  "git2",
@@ -2126,7 +2126,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-git-remote"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "git2",
  "miette",
@@ -2142,7 +2142,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "cc",
  "divan",
@@ -2154,7 +2154,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars-all"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "panproto-grammars",
  "pyo3",
@@ -2163,7 +2163,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars-data"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "panproto-grammars",
  "pyo3",
@@ -2172,7 +2172,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars-devops"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "panproto-grammars",
  "pyo3",
@@ -2181,7 +2181,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars-functional"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "panproto-grammars",
  "pyo3",
@@ -2190,7 +2190,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars-jvm"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "panproto-grammars",
  "pyo3",
@@ -2199,7 +2199,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars-mobile"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "panproto-grammars",
  "pyo3",
@@ -2208,7 +2208,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars-music"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "panproto-grammars",
  "pyo3",
@@ -2217,7 +2217,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars-scripting"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "panproto-grammars",
  "pyo3",
@@ -2226,7 +2226,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars-systems"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "panproto-grammars",
  "pyo3",
@@ -2235,7 +2235,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars-web"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "panproto-grammars",
  "pyo3",
@@ -2244,7 +2244,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-inst"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "bumpalo",
  "divan",
@@ -2261,7 +2261,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-integration-tests"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "panproto-check",
  "panproto-core",
@@ -2285,7 +2285,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-io"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "bumpalo",
  "divan",
@@ -2312,7 +2312,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-jit"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "divan",
  "inkwell",
@@ -2323,7 +2323,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-lens"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "divan",
  "insta",
@@ -2342,7 +2342,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-lens-dsl"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "divan",
  "miette",
@@ -2362,7 +2362,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-llvm"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "divan",
  "inkwell",
@@ -2378,7 +2378,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-mig"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "blake3",
  "panproto-expr",
@@ -2395,7 +2395,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-parse"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "divan",
  "memchr",
@@ -2416,7 +2416,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-project"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "blake3",
  "divan",
@@ -2438,7 +2438,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-protocols"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "blake3",
  "divan",
@@ -2454,7 +2454,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-py"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "git2",
  "panproto-core",
@@ -2477,7 +2477,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-repl"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "miette",
  "panproto-gat",
@@ -2486,7 +2486,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-schema"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "panproto-expr",
  "panproto-gat",
@@ -2501,7 +2501,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-theory-dsl"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "divan",
  "miette",
@@ -2522,7 +2522,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-vcs"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "blake3",
  "divan",
@@ -2546,7 +2546,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-wasm"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "divan",
  "panproto-core",
@@ -2563,7 +2563,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-xrpc"
-version = "0.47.0"
+version = "0.47.1"
 dependencies = [
  "divan",
  "hex",

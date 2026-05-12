@@ -4,6 +4,12 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.47.1] - 2026-05-12
+
+### Fixed
+
+- **Vendored QVR tree-sitter grammar refreshed** (`grammars/qvr/`): the panproto-vendored QVR grammar lagged the upstream Quivers 0.4 surface, emitting the pre-0.4 `arrow_draw_step` / `draw_step` / `output_decl` node kinds where the 0.4 surface expects `bind_step` / `marginalize_step` / `export_decl`. A clean `pip install quivers==0.4.0` could not parse any `.qvr` file using the 0.4 surface, including the examples shipped inside the Quivers wheel. Re-vendored `grammars/qvr/` from FACTSlab/quivers HEAD (revision `a756fff9`, previously `8aab05b`). Refreshed the `qvr_hmm_parses_with_expected_blocks` and `qvr_program_block_parses` integration tests to use the 0.4 surface (`<-` binder, `export` declaration, `bind_step` vertex kind). Closes #98.
+
 ## [0.47.0] - 2026-05-11
 
 ### Added
