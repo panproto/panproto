@@ -22,7 +22,7 @@ stochastic emission   : State -> Obs
 let n_step = repeat(transition) >> emission
 let hmm    = transition >> n_step
 
-output hmm
+export hmm
 "#;
 
 const QVR_PROGRAM: &[u8] = br#"
@@ -31,7 +31,7 @@ type State = Euclidean 16
 continuous transition : State -> State ~ Normal [scale=0.1]
 
 program step : State -> State
-    draw s ~ transition
+    s <- transition
     return s
 "#;
 
@@ -57,7 +57,7 @@ fn qvr_hmm_parses_with_expected_blocks() {
         "object_decl",
         "stochastic_decl",
         "let_decl",
-        "output_decl",
+        "export_decl",
     ] {
         assert!(
             kinds.contains(required),
@@ -80,7 +80,7 @@ fn qvr_program_block_parses() {
         "type_alias_decl",
         "continuous_decl",
         "program_decl",
-        "draw_step",
+        "bind_step",
     ] {
         assert!(
             kinds.contains(required),
