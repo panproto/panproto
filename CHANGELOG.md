@@ -4,6 +4,12 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.47.2] - 2026-05-14
+
+### Changed
+
+- **Vendored QVR tree-sitter grammar upgraded to Quivers 0.6.0** (`grammars/qvr/`): re-vendored from FACTSlab/quivers `v0.6.0` (revision `16523d46`), replacing the previous `a756fff9` snapshot. The 0.6 surface drops the pre-0.5 `stochastic` / `continuous` morphism keywords in favour of `latent` / `observed` (now `morphism_decl`) and introduces the new parametric `kernel_decl` for Markov-kernel declarations of the form `kernel f : A -> B ~ Family [options]`. Refreshed the `qvr_hmm_parses_with_expected_blocks` and `qvr_program_block_parses` integration tests to the 0.6 surface (`latent` for HMM morphisms, `kernel` for parametric-family declarations).
+
 ## [0.47.1] - 2026-05-12
 
 ### Fixed

@@ -16,8 +16,8 @@ quantale product_fuzzy
 object State : 8
 object Obs   : 16
 
-stochastic transition : State -> State
-stochastic emission   : State -> Obs
+latent transition : State -> State
+latent emission   : State -> Obs
 
 let n_step = repeat(transition) >> emission
 let hmm    = transition >> n_step
@@ -28,7 +28,7 @@ export hmm
 const QVR_PROGRAM: &[u8] = br#"
 type State = Euclidean 16
 
-continuous transition : State -> State ~ Normal [scale=0.1]
+kernel transition : State -> State ~ Normal [scale=0.1]
 
 program step : State -> State
     s <- transition
@@ -55,7 +55,7 @@ fn qvr_hmm_parses_with_expected_blocks() {
         "source_file",
         "quantale_decl",
         "object_decl",
-        "stochastic_decl",
+        "morphism_decl",
         "let_decl",
         "export_decl",
     ] {
@@ -78,7 +78,7 @@ fn qvr_program_block_parses() {
     let kinds = vertex_kinds(&schema);
     for required in [
         "type_alias_decl",
-        "continuous_decl",
+        "kernel_decl",
         "program_decl",
         "bind_step",
     ] {

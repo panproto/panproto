@@ -46,6 +46,56 @@
     }
   },
   {
+    "type": "axis_role_clause",
+    "named": true,
+    "fields": {
+      "iid_over": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "axis_tuple",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "over": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "axis_tuple",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "axis_tuple",
+    "named": true,
+    "fields": {
+      "axis": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "bind_step",
     "named": true,
     "fields": {
@@ -67,6 +117,16 @@
           },
           {
             "type": "signed_number",
+            "named": true
+          }
+        ]
+      },
+      "axes": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "axis_role_clause",
             "named": true
           }
         ]
@@ -330,6 +390,22 @@
     }
   },
   {
+    "type": "cap_expr",
+    "named": true,
+    "fields": {
+      "object": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "category_decl",
     "named": true,
     "fields": {
@@ -388,11 +464,19 @@
         "required": true,
         "types": [
           {
+            "type": "cap_expr",
+            "named": true
+          },
+          {
             "type": "chart_fold_expr",
             "named": true
           },
           {
             "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
             "named": true
           },
           {
@@ -408,11 +492,19 @@
             "named": true
           },
           {
+            "type": "from_data_expr",
+            "named": true
+          },
+          {
             "type": "identity_expr",
             "named": true
           },
           {
             "type": "integer",
+            "named": true
+          },
+          {
+            "type": "morphism_call",
             "named": true
           },
           {
@@ -437,6 +529,10 @@
           },
           {
             "type": "tensor_expr",
+            "named": true
+          },
+          {
+            "type": "trans_compose",
             "named": true
           }
         ]
@@ -472,11 +568,19 @@
         "required": true,
         "types": [
           {
+            "type": "cap_expr",
+            "named": true
+          },
+          {
             "type": "chart_fold_expr",
             "named": true
           },
           {
             "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
             "named": true
           },
           {
@@ -492,7 +596,15 @@
             "named": true
           },
           {
+            "type": "from_data_expr",
+            "named": true
+          },
+          {
             "type": "identity_expr",
+            "named": true
+          },
+          {
+            "type": "morphism_call",
             "named": true
           },
           {
@@ -518,6 +630,10 @@
           {
             "type": "tensor_expr",
             "named": true
+          },
+          {
+            "type": "trans_compose",
+            "named": true
           }
         ]
       },
@@ -525,6 +641,26 @@
         "multiple": false,
         "required": true,
         "types": [
+          {
+            "type": "$>",
+            "named": false
+          },
+          {
+            "type": "%>",
+            "named": false
+          },
+          {
+            "type": "&&>",
+            "named": false
+          },
+          {
+            "type": "*>",
+            "named": false
+          },
+          {
+            "type": "+>",
+            "named": false
+          },
           {
             "type": "<<",
             "named": false
@@ -536,6 +672,18 @@
           {
             "type": ">>",
             "named": false
+          },
+          {
+            "type": "?>",
+            "named": false
+          },
+          {
+            "type": "||>",
+            "named": false
+          },
+          {
+            "type": "~>",
+            "named": false
           }
         ]
       },
@@ -544,11 +692,19 @@
         "required": true,
         "types": [
           {
+            "type": "cap_expr",
+            "named": true
+          },
+          {
             "type": "chart_fold_expr",
             "named": true
           },
           {
             "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
             "named": true
           },
           {
@@ -564,7 +720,15 @@
             "named": true
           },
           {
+            "type": "from_data_expr",
+            "named": true
+          },
+          {
             "type": "identity_expr",
+            "named": true
+          },
+          {
+            "type": "morphism_call",
             "named": true
           },
           {
@@ -589,6 +753,109 @@
           },
           {
             "type": "tensor_expr",
+            "named": true
+          },
+          {
+            "type": "trans_compose",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "composition_rule_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "composition_rule_entry",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "composition_rule_entry",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "let_binop",
+            "named": true
+          },
+          {
+            "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
+            "named": true
+          },
+          {
+            "type": "let_index",
+            "named": true
+          },
+          {
+            "type": "let_lambda",
+            "named": true
+          },
+          {
+            "type": "let_list",
+            "named": true
+          },
+          {
+            "type": "let_literal",
+            "named": true
+          },
+          {
+            "type": "let_method_call",
+            "named": true
+          },
+          {
+            "type": "let_paren",
+            "named": true
+          },
+          {
+            "type": "let_string",
+            "named": true
+          },
+          {
+            "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_var",
+            "named": true
+          }
+        ]
+      },
+      "key": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "params": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": ",",
+            "named": false
+          },
+          {
+            "type": "identifier",
             "named": true
           }
         ]
@@ -636,7 +903,7 @@
     }
   },
   {
-    "type": "continuous_decl",
+    "type": "contraction_decl",
     "named": true,
     "fields": {
       "codomain": {
@@ -699,12 +966,16 @@
           }
         ]
       },
-      "family": {
-        "multiple": false,
+      "inputs": {
+        "multiple": true,
         "required": true,
         "types": [
           {
-            "type": "identifier",
+            "type": ",",
+            "named": false
+          },
+          {
+            "type": "contraction_input",
             "named": true
           }
         ]
@@ -719,22 +990,114 @@
           }
         ]
       },
-      "options": {
+      "rule_name": {
         "multiple": false,
-        "required": false,
+        "required": true,
         "types": [
           {
-            "type": "option_block",
+            "type": "identifier",
             "named": true
           }
         ]
       },
-      "replicate": {
+      "wiring_spec": {
         "multiple": false,
-        "required": false,
+        "required": true,
         "types": [
           {
-            "type": "replicate_count",
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "contraction_input",
+    "named": true,
+    "fields": {
+      "input_codomain": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      },
+      "input_domain": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "cup_expr",
+    "named": true,
+    "fields": {
+      "object": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
             "named": true
           }
         ]
@@ -765,6 +1128,10 @@
           },
           {
             "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
             "named": true
           },
           {
@@ -956,6 +1323,10 @@
             "named": true
           },
           {
+            "type": "let_factor",
+            "named": true
+          },
+          {
             "type": "let_index",
             "named": true
           },
@@ -1022,6 +1393,10 @@
             "named": true
           },
           {
+            "type": "let_factor",
+            "named": true
+          },
+          {
             "type": "let_index",
             "named": true
           },
@@ -1085,6 +1460,10 @@
           },
           {
             "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
             "named": true
           },
           {
@@ -1760,6 +2139,10 @@
             "named": true
           },
           {
+            "type": "let_factor",
+            "named": true
+          },
+          {
             "type": "let_index",
             "named": true
           },
@@ -1839,6 +2222,10 @@
           },
           {
             "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
             "named": true
           },
           {
@@ -1938,6 +2325,10 @@
             "named": true
           },
           {
+            "type": "let_factor",
+            "named": true
+          },
+          {
             "type": "let_index",
             "named": true
           },
@@ -2024,6 +2415,10 @@
             "named": true
           },
           {
+            "type": "let_factor",
+            "named": true
+          },
+          {
             "type": "let_index",
             "named": true
           },
@@ -2077,6 +2472,10 @@
           },
           {
             "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
             "named": true
           },
           {
@@ -2176,6 +2575,10 @@
             "named": true
           },
           {
+            "type": "let_factor",
+            "named": true
+          },
+          {
             "type": "let_index",
             "named": true
           },
@@ -2264,11 +2667,19 @@
         "required": true,
         "types": [
           {
+            "type": "cap_expr",
+            "named": true
+          },
+          {
             "type": "chart_fold_expr",
             "named": true
           },
           {
             "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
             "named": true
           },
           {
@@ -2284,7 +2695,15 @@
             "named": true
           },
           {
+            "type": "from_data_expr",
+            "named": true
+          },
+          {
             "type": "identity_expr",
+            "named": true
+          },
+          {
+            "type": "morphism_call",
             "named": true
           },
           {
@@ -2309,6 +2728,10 @@
           },
           {
             "type": "tensor_expr",
+            "named": true
+          },
+          {
+            "type": "trans_compose",
             "named": true
           }
         ]
@@ -2339,11 +2762,19 @@
       "required": true,
       "types": [
         {
+          "type": "cap_expr",
+          "named": true
+        },
+        {
           "type": "chart_fold_expr",
           "named": true
         },
         {
           "type": "compose_expr",
+          "named": true
+        },
+        {
+          "type": "cup_expr",
           "named": true
         },
         {
@@ -2359,7 +2790,15 @@
           "named": true
         },
         {
+          "type": "from_data_expr",
+          "named": true
+        },
+        {
           "type": "identity_expr",
+          "named": true
+        },
+        {
+          "type": "morphism_call",
           "named": true
         },
         {
@@ -2385,6 +2824,10 @@
         {
           "type": "tensor_expr",
           "named": true
+        },
+        {
+          "type": "trans_compose",
+          "named": true
         }
       ]
     }
@@ -2402,11 +2845,19 @@
             "named": false
           },
           {
+            "type": "cap_expr",
+            "named": true
+          },
+          {
             "type": "chart_fold_expr",
             "named": true
           },
           {
             "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
             "named": true
           },
           {
@@ -2422,7 +2873,15 @@
             "named": true
           },
           {
+            "type": "from_data_expr",
+            "named": true
+          },
+          {
             "type": "identity_expr",
+            "named": true
+          },
+          {
+            "type": "morphism_call",
             "named": true
           },
           {
@@ -2447,6 +2906,10 @@
           },
           {
             "type": "tensor_expr",
+            "named": true
+          },
+          {
+            "type": "trans_compose",
             "named": true
           }
         ]
@@ -2532,6 +2995,22 @@
     }
   },
   {
+    "type": "from_data_expr",
+    "named": true,
+    "fields": {
+      "key": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "ident_list",
     "named": true,
     "fields": {},
@@ -2563,6 +3042,122 @@
     }
   },
   {
+    "type": "kernel_decl",
+    "named": true,
+    "fields": {
+      "axes": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "axis_role_clause",
+            "named": true
+          }
+        ]
+      },
+      "codomain": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      },
+      "domain": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      },
+      "family": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "options": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "option_block",
+            "named": true
+          }
+        ]
+      },
+      "replicate": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "replicate_count",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "let_binop",
     "named": true,
     "fields": {
@@ -2576,6 +3171,10 @@
           },
           {
             "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
             "named": true
           },
           {
@@ -2651,6 +3250,10 @@
             "named": true
           },
           {
+            "type": "let_factor",
+            "named": true
+          },
+          {
             "type": "let_index",
             "named": true
           },
@@ -2708,6 +3311,10 @@
           },
           {
             "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
             "named": true
           },
           {
@@ -2779,11 +3386,19 @@
         "required": true,
         "types": [
           {
+            "type": "cap_expr",
+            "named": true
+          },
+          {
             "type": "chart_fold_expr",
             "named": true
           },
           {
             "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
             "named": true
           },
           {
@@ -2799,7 +3414,15 @@
             "named": true
           },
           {
+            "type": "from_data_expr",
+            "named": true
+          },
+          {
             "type": "identity_expr",
+            "named": true
+          },
+          {
+            "type": "morphism_call",
             "named": true
           },
           {
@@ -2825,6 +3448,10 @@
           {
             "type": "tensor_expr",
             "named": true
+          },
+          {
+            "type": "trans_compose",
+            "named": true
           }
         ]
       },
@@ -2834,6 +3461,202 @@
         "types": [
           {
             "type": "let_decl",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "let_factor",
+    "named": true,
+    "fields": {
+      "binders": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "let_factor_binder",
+            "named": true
+          }
+        ]
+      },
+      "body": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "let_binop",
+            "named": true
+          },
+          {
+            "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
+            "named": true
+          },
+          {
+            "type": "let_index",
+            "named": true
+          },
+          {
+            "type": "let_lambda",
+            "named": true
+          },
+          {
+            "type": "let_list",
+            "named": true
+          },
+          {
+            "type": "let_literal",
+            "named": true
+          },
+          {
+            "type": "let_method_call",
+            "named": true
+          },
+          {
+            "type": "let_paren",
+            "named": true
+          },
+          {
+            "type": "let_string",
+            "named": true
+          },
+          {
+            "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_var",
+            "named": true
+          }
+        ]
+      },
+      "cases": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "let_factor_case",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "let_factor_binder",
+    "named": true,
+    "fields": {
+      "index": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      },
+      "var": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "let_factor_case",
+    "named": true,
+    "fields": {
+      "label": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "integer",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "let_binop",
+            "named": true
+          },
+          {
+            "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
+            "named": true
+          },
+          {
+            "type": "let_index",
+            "named": true
+          },
+          {
+            "type": "let_lambda",
+            "named": true
+          },
+          {
+            "type": "let_list",
+            "named": true
+          },
+          {
+            "type": "let_literal",
+            "named": true
+          },
+          {
+            "type": "let_method_call",
+            "named": true
+          },
+          {
+            "type": "let_paren",
+            "named": true
+          },
+          {
+            "type": "let_string",
+            "named": true
+          },
+          {
+            "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_var",
             "named": true
           }
         ]
@@ -2868,6 +3691,10 @@
           },
           {
             "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
             "named": true
           },
           {
@@ -2924,6 +3751,10 @@
           },
           {
             "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
             "named": true
           },
           {
@@ -2990,6 +3821,10 @@
         },
         {
           "type": "let_call",
+          "named": true
+        },
+        {
+          "type": "let_factor",
           "named": true
         },
         {
@@ -3071,6 +3906,10 @@
             "named": true
           },
           {
+            "type": "let_factor",
+            "named": true
+          },
+          {
             "type": "let_index",
             "named": true
           },
@@ -3147,6 +3986,10 @@
           "named": true
         },
         {
+          "type": "let_factor",
+          "named": true
+        },
+        {
           "type": "let_index",
           "named": true
         },
@@ -3209,6 +4052,10 @@
           },
           {
             "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
             "named": true
           },
           {
@@ -3276,6 +4123,10 @@
         "types": [
           {
             "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
             "named": true
           },
           {
@@ -3383,6 +4234,10 @@
           },
           {
             "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
             "named": true
           },
           {
@@ -3523,6 +4378,10 @@
             "named": true
           },
           {
+            "type": "let_factor",
+            "named": true
+          },
+          {
             "type": "let_index",
             "named": true
           },
@@ -3580,6 +4439,10 @@
           },
           {
             "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
             "named": true
           },
           {
@@ -3688,6 +4551,46 @@
           }
         ]
       },
+      "over": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      },
+      "reduction": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
       "scope": {
         "multiple": true,
         "required": false,
@@ -3726,6 +4629,80 @@
     "type": "method_call",
     "named": true,
     "fields": {
+      "arg": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "cap_expr",
+            "named": true
+          },
+          {
+            "type": "chart_fold_expr",
+            "named": true
+          },
+          {
+            "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
+            "named": true
+          },
+          {
+            "type": "expr_ident",
+            "named": true
+          },
+          {
+            "type": "expr_paren",
+            "named": true
+          },
+          {
+            "type": "fan_expr",
+            "named": true
+          },
+          {
+            "type": "from_data_expr",
+            "named": true
+          },
+          {
+            "type": "identity_expr",
+            "named": true
+          },
+          {
+            "type": "morphism_call",
+            "named": true
+          },
+          {
+            "type": "parser_expr",
+            "named": true
+          },
+          {
+            "type": "postfix_expr",
+            "named": true
+          },
+          {
+            "type": "repeat_expr",
+            "named": true
+          },
+          {
+            "type": "scan_expr",
+            "named": true
+          },
+          {
+            "type": "stack_expr",
+            "named": true
+          },
+          {
+            "type": "tensor_expr",
+            "named": true
+          },
+          {
+            "type": "trans_compose",
+            "named": true
+          }
+        ]
+      },
       "args": {
         "multiple": true,
         "required": false,
@@ -3745,6 +4722,10 @@
         "required": true,
         "types": [
           {
+            "type": "change_base",
+            "named": false
+          },
+          {
             "type": "curry_left",
             "named": false
           },
@@ -3753,8 +4734,50 @@
             "named": false
           },
           {
+            "type": "dagger",
+            "named": false
+          },
+          {
+            "type": "freeze",
+            "named": false
+          },
+          {
             "type": "marginalize",
             "named": false
+          },
+          {
+            "type": "trace",
+            "named": false
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "morphism_call",
+    "named": true,
+    "fields": {
+      "args": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": ",",
+            "named": false
+          },
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "callee": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
           }
         ]
       }
@@ -3829,11 +4852,19 @@
         "required": false,
         "types": [
           {
+            "type": "cap_expr",
+            "named": true
+          },
+          {
             "type": "chart_fold_expr",
             "named": true
           },
           {
             "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
             "named": true
           },
           {
@@ -3849,7 +4880,15 @@
             "named": true
           },
           {
+            "type": "from_data_expr",
+            "named": true
+          },
+          {
             "type": "identity_expr",
+            "named": true
+          },
+          {
+            "type": "morphism_call",
             "named": true
           },
           {
@@ -3874,6 +4913,10 @@
           },
           {
             "type": "tensor_expr",
+            "named": true
+          },
+          {
+            "type": "trans_compose",
             "named": true
           }
         ]
@@ -3908,6 +4951,16 @@
         "types": [
           {
             "type": "option_block",
+            "named": true
+          }
+        ]
+      },
+      "prior": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "morphism_prior",
             "named": true
           }
         ]
@@ -3974,6 +5027,64 @@
           },
           {
             "type": "type_slash",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "morphism_prior",
+    "named": true,
+    "fields": {
+      "args": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": ",",
+            "named": false
+          },
+          {
+            "type": "bracket_index_arg",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "signed_number",
+            "named": true
+          }
+        ]
+      },
+      "axes": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "axis_role_clause",
+            "named": true
+          }
+        ]
+      },
+      "family": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "options": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "option_block",
             "named": true
           }
         ]
@@ -4075,6 +5186,16 @@
           }
         ]
       },
+      "axes": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "axis_role_clause",
+            "named": true
+          }
+        ]
+      },
       "index": {
         "multiple": false,
         "required": false,
@@ -4121,6 +5242,20 @@
         "types": [
           {
             "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "via": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "via_product",
             "named": true
           }
         ]
@@ -4277,11 +5412,19 @@
         "required": true,
         "types": [
           {
+            "type": "cap_expr",
+            "named": true
+          },
+          {
             "type": "chart_fold_expr",
             "named": true
           },
           {
             "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
             "named": true
           },
           {
@@ -4297,7 +5440,15 @@
             "named": true
           },
           {
+            "type": "from_data_expr",
+            "named": true
+          },
+          {
             "type": "identity_expr",
+            "named": true
+          },
+          {
+            "type": "morphism_call",
             "named": true
           },
           {
@@ -4322,6 +5473,10 @@
           },
           {
             "type": "tensor_expr",
+            "named": true
+          },
+          {
+            "type": "trans_compose",
             "named": true
           }
         ]
@@ -4510,6 +5665,16 @@
           }
         ]
       }
+    },
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "composition_rule_block",
+          "named": true
+        }
+      ]
     }
   },
   {
@@ -4531,11 +5696,19 @@
         "required": true,
         "types": [
           {
+            "type": "cap_expr",
+            "named": true
+          },
+          {
             "type": "chart_fold_expr",
             "named": true
           },
           {
             "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
             "named": true
           },
           {
@@ -4551,7 +5724,15 @@
             "named": true
           },
           {
+            "type": "from_data_expr",
+            "named": true
+          },
+          {
             "type": "identity_expr",
+            "named": true
+          },
+          {
+            "type": "morphism_call",
             "named": true
           },
           {
@@ -4576,6 +5757,10 @@
           },
           {
             "type": "tensor_expr",
+            "named": true
+          },
+          {
+            "type": "trans_compose",
             "named": true
           }
         ]
@@ -4771,11 +5956,19 @@
         "required": true,
         "types": [
           {
+            "type": "cap_expr",
+            "named": true
+          },
+          {
             "type": "chart_fold_expr",
             "named": true
           },
           {
             "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
             "named": true
           },
           {
@@ -4791,7 +5984,15 @@
             "named": true
           },
           {
+            "type": "from_data_expr",
+            "named": true
+          },
+          {
             "type": "identity_expr",
+            "named": true
+          },
+          {
+            "type": "morphism_call",
             "named": true
           },
           {
@@ -4816,6 +6017,10 @@
           },
           {
             "type": "tensor_expr",
+            "named": true
+          },
+          {
+            "type": "trans_compose",
             "named": true
           }
         ]
@@ -5194,7 +6399,7 @@
           "named": true
         },
         {
-          "type": "continuous_decl",
+          "type": "contraction_decl",
           "named": true
         },
         {
@@ -5219,6 +6424,10 @@
         },
         {
           "type": "export_decl",
+          "named": true
+        },
+        {
+          "type": "kernel_decl",
           "named": true
         },
         {
@@ -5259,10 +6468,6 @@
         },
         {
           "type": "space_decl",
-          "named": true
-        },
-        {
-          "type": "stochastic_decl",
           "named": true
         },
         {
@@ -5492,11 +6697,19 @@
         "required": true,
         "types": [
           {
+            "type": "cap_expr",
+            "named": true
+          },
+          {
             "type": "chart_fold_expr",
             "named": true
           },
           {
             "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
             "named": true
           },
           {
@@ -5512,7 +6725,15 @@
             "named": true
           },
           {
+            "type": "from_data_expr",
+            "named": true
+          },
+          {
             "type": "identity_expr",
+            "named": true
+          },
+          {
+            "type": "morphism_call",
             "named": true
           },
           {
@@ -5538,91 +6759,9 @@
           {
             "type": "tensor_expr",
             "named": true
-          }
-        ]
-      }
-    }
-  },
-  {
-    "type": "stochastic_decl",
-    "named": true,
-    "fields": {
-      "codomain": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "type_atom",
-            "named": true
           },
           {
-            "type": "type_coproduct",
-            "named": true
-          },
-          {
-            "type": "type_effect_apply",
-            "named": true
-          },
-          {
-            "type": "type_paren",
-            "named": true
-          },
-          {
-            "type": "type_product",
-            "named": true
-          },
-          {
-            "type": "type_slash",
-            "named": true
-          }
-        ]
-      },
-      "domain": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "type_atom",
-            "named": true
-          },
-          {
-            "type": "type_coproduct",
-            "named": true
-          },
-          {
-            "type": "type_effect_apply",
-            "named": true
-          },
-          {
-            "type": "type_paren",
-            "named": true
-          },
-          {
-            "type": "type_product",
-            "named": true
-          },
-          {
-            "type": "type_slash",
-            "named": true
-          }
-        ]
-      },
-      "name": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "identifier",
-            "named": true
-          }
-        ]
-      },
-      "replicate": {
-        "multiple": false,
-        "required": false,
-        "types": [
-          {
-            "type": "replicate_count",
+            "type": "trans_compose",
             "named": true
           }
         ]
@@ -5638,11 +6777,19 @@
         "required": true,
         "types": [
           {
+            "type": "cap_expr",
+            "named": true
+          },
+          {
             "type": "chart_fold_expr",
             "named": true
           },
           {
             "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
             "named": true
           },
           {
@@ -5658,7 +6805,15 @@
             "named": true
           },
           {
+            "type": "from_data_expr",
+            "named": true
+          },
+          {
             "type": "identity_expr",
+            "named": true
+          },
+          {
+            "type": "morphism_call",
             "named": true
           },
           {
@@ -5683,6 +6838,10 @@
           },
           {
             "type": "tensor_expr",
+            "named": true
+          },
+          {
+            "type": "trans_compose",
             "named": true
           }
         ]
@@ -5692,11 +6851,19 @@
         "required": true,
         "types": [
           {
+            "type": "cap_expr",
+            "named": true
+          },
+          {
             "type": "chart_fold_expr",
             "named": true
           },
           {
             "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
             "named": true
           },
           {
@@ -5712,7 +6879,15 @@
             "named": true
           },
           {
+            "type": "from_data_expr",
+            "named": true
+          },
+          {
             "type": "identity_expr",
+            "named": true
+          },
+          {
+            "type": "morphism_call",
             "named": true
           },
           {
@@ -5737,6 +6912,164 @@
           },
           {
             "type": "tensor_expr",
+            "named": true
+          },
+          {
+            "type": "trans_compose",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "trans_compose",
+    "named": true,
+    "fields": {
+      "left": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "cap_expr",
+            "named": true
+          },
+          {
+            "type": "chart_fold_expr",
+            "named": true
+          },
+          {
+            "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
+            "named": true
+          },
+          {
+            "type": "expr_ident",
+            "named": true
+          },
+          {
+            "type": "expr_paren",
+            "named": true
+          },
+          {
+            "type": "fan_expr",
+            "named": true
+          },
+          {
+            "type": "from_data_expr",
+            "named": true
+          },
+          {
+            "type": "identity_expr",
+            "named": true
+          },
+          {
+            "type": "morphism_call",
+            "named": true
+          },
+          {
+            "type": "parser_expr",
+            "named": true
+          },
+          {
+            "type": "postfix_expr",
+            "named": true
+          },
+          {
+            "type": "repeat_expr",
+            "named": true
+          },
+          {
+            "type": "scan_expr",
+            "named": true
+          },
+          {
+            "type": "stack_expr",
+            "named": true
+          },
+          {
+            "type": "tensor_expr",
+            "named": true
+          },
+          {
+            "type": "trans_compose",
+            "named": true
+          }
+        ]
+      },
+      "right": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "cap_expr",
+            "named": true
+          },
+          {
+            "type": "chart_fold_expr",
+            "named": true
+          },
+          {
+            "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
+            "named": true
+          },
+          {
+            "type": "expr_ident",
+            "named": true
+          },
+          {
+            "type": "expr_paren",
+            "named": true
+          },
+          {
+            "type": "fan_expr",
+            "named": true
+          },
+          {
+            "type": "from_data_expr",
+            "named": true
+          },
+          {
+            "type": "identity_expr",
+            "named": true
+          },
+          {
+            "type": "morphism_call",
+            "named": true
+          },
+          {
+            "type": "parser_expr",
+            "named": true
+          },
+          {
+            "type": "postfix_expr",
+            "named": true
+          },
+          {
+            "type": "repeat_expr",
+            "named": true
+          },
+          {
+            "type": "scan_expr",
+            "named": true
+          },
+          {
+            "type": "stack_expr",
+            "named": true
+          },
+          {
+            "type": "tensor_expr",
+            "named": true
+          },
+          {
+            "type": "trans_compose",
             "named": true
           }
         ]
@@ -6183,6 +7516,22 @@
     }
   },
   {
+    "type": "via_product",
+    "named": true,
+    "fields": {
+      "axis": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "vocab_literal",
     "named": true,
     "fields": {},
@@ -6210,6 +7559,18 @@
     "named": false
   },
   {
+    "type": "$>",
+    "named": false
+  },
+  {
+    "type": "%>",
+    "named": false
+  },
+  {
+    "type": "&&>",
+    "named": false
+  },
+  {
     "type": "(",
     "named": false
   },
@@ -6222,7 +7583,15 @@
     "named": false
   },
   {
+    "type": "*>",
+    "named": false
+  },
+  {
     "type": "+",
+    "named": false
+  },
+  {
+    "type": "+>",
     "named": false
   },
   {
@@ -6275,6 +7644,14 @@
   },
   {
     "type": ">>",
+    "named": false
+  },
+  {
+    "type": ">>>",
+    "named": false
+  },
+  {
+    "type": "?>",
     "named": false
   },
   {
@@ -6346,6 +7723,10 @@
     "named": false
   },
   {
+    "type": "bilinear_form",
+    "named": false
+  },
+  {
     "type": "binary",
     "named": false
   },
@@ -6370,6 +7751,10 @@
     "named": false
   },
   {
+    "type": "cap",
+    "named": false
+  },
+  {
     "type": "categories",
     "named": false
   },
@@ -6382,6 +7767,10 @@
     "named": false
   },
   {
+    "type": "change_base",
+    "named": false
+  },
+  {
     "type": "chart",
     "named": false
   },
@@ -6390,11 +7779,19 @@
     "named": false
   },
   {
+    "type": "composition_rule",
+    "named": false
+  },
+  {
     "type": "constructors",
     "named": false
   },
   {
-    "type": "continuous",
+    "type": "contraction",
+    "named": false
+  },
+  {
+    "type": "cup",
     "named": false
   },
   {
@@ -6403,6 +7800,10 @@
   },
   {
     "type": "curry_right",
+    "named": false
+  },
+  {
+    "type": "dagger",
     "named": false
   },
   {
@@ -6467,7 +7868,15 @@
     "named": true
   },
   {
+    "type": "freeze",
+    "named": false
+  },
+  {
     "type": "from",
+    "named": false
+  },
+  {
+    "type": "from_data",
     "named": false
   },
   {
@@ -6476,6 +7885,10 @@
   },
   {
     "type": "identity",
+    "named": false
+  },
+  {
+    "type": "iid",
     "named": false
   },
   {
@@ -6496,6 +7909,10 @@
   },
   {
     "type": "iterations",
+    "named": false
+  },
+  {
+    "type": "kernel",
     "named": false
   },
   {
@@ -6580,6 +7997,10 @@
     "named": false
   },
   {
+    "type": "product",
+    "named": false
+  },
+  {
     "type": "program",
     "named": false
   },
@@ -6597,6 +8018,10 @@
   },
   {
     "type": "recursive",
+    "named": false
+  },
+  {
+    "type": "reduction",
     "named": false
   },
   {
@@ -6624,6 +8049,10 @@
     "named": false
   },
   {
+    "type": "semigroupoid",
+    "named": false
+  },
+  {
     "type": "semiring",
     "named": false
   },
@@ -6648,10 +8077,6 @@
     "named": false
   },
   {
-    "type": "stochastic",
-    "named": false
-  },
-  {
     "type": "string",
     "named": true
   },
@@ -6661,6 +8086,10 @@
   },
   {
     "type": "terminal",
+    "named": false
+  },
+  {
+    "type": "trace",
     "named": false
   },
   {
@@ -6684,6 +8113,10 @@
     "named": false
   },
   {
+    "type": "via",
+    "named": false
+  },
+  {
     "type": "vocab",
     "named": false
   },
@@ -6693,6 +8126,10 @@
   },
   {
     "type": "where",
+    "named": false
+  },
+  {
+    "type": "wiring",
     "named": false
   },
   {
@@ -6712,11 +8149,19 @@
     "named": false
   },
   {
+    "type": "||>",
+    "named": false
+  },
+  {
     "type": "}",
     "named": false
   },
   {
     "type": "~",
+    "named": false
+  },
+  {
+    "type": "~>",
     "named": false
   },
   {
