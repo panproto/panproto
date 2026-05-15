@@ -15,7 +15,7 @@
       "members": [
         {
           "type": "SYMBOL",
-          "name": "quantale_decl"
+          "name": "algebra_decl"
         },
         {
           "type": "SYMBOL",
@@ -103,7 +103,7 @@
         }
       ]
     },
-    "quantale_decl": {
+    "algebra_decl": {
       "type": "CHOICE",
       "members": [
         {
@@ -111,7 +111,7 @@
           "members": [
             {
               "type": "STRING",
-              "value": "quantale"
+              "value": "algebra"
             },
             {
               "type": "FIELD",

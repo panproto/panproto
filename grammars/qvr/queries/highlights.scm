@@ -14,7 +14,7 @@
 
 ; Module-level declaration / statement keywords.
 [
-  "quantale"
+  "algebra"
   "semigroupoid"
   "bilinear_form"
   "composition_rule"
@@ -176,7 +176,7 @@
 ; declarations and identifiers
 ; ---------------------------------------------------------------------------
 
-(quantale_decl name: (identifier) @constant)
+(algebra_decl name: (identifier) @constant)
 (category_decl names: (identifier) @type)
 (object_decl   name: (identifier) @type)
 (rule_decl     name: (identifier) @function)

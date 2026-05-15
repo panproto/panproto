@@ -1,5 +1,31 @@
 [
   {
+    "type": "algebra_decl",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "composition_rule_block",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "alias_decl",
     "named": true,
     "fields": {
@@ -5652,32 +5678,6 @@
     }
   },
   {
-    "type": "quantale_decl",
-    "named": true,
-    "fields": {
-      "name": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "identifier",
-            "named": true
-          }
-        ]
-      }
-    },
-    "children": {
-      "multiple": false,
-      "required": false,
-      "types": [
-        {
-          "type": "composition_rule_block",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
     "type": "repeat_expr",
     "named": true,
     "fields": {
@@ -6387,6 +6387,10 @@
       "required": false,
       "types": [
         {
+          "type": "algebra_decl",
+          "named": true
+        },
+        {
           "type": "alias_decl",
           "named": true
         },
@@ -6448,10 +6452,6 @@
         },
         {
           "type": "program_decl",
-          "named": true
-        },
-        {
-          "type": "quantale_decl",
           "named": true
         },
         {
@@ -7703,6 +7703,10 @@
     "named": false
   },
   {
+    "type": "algebra",
+    "named": false
+  },
+  {
     "type": "alias",
     "named": false
   },
@@ -8002,10 +8006,6 @@
   },
   {
     "type": "program",
-    "named": false
-  },
-  {
-    "type": "quantale",
     "named": false
   },
   {

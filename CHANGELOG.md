@@ -4,6 +4,12 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.47.3] - 2026-05-15
+
+### Changed
+
+- **Vendored QVR tree-sitter grammar upgraded to Quivers 0.7.0** (`grammars/qvr/`): re-vendored from FACTSlab/quivers `v0.7.0` (revision `c9e4a4bc`), replacing the previous `16523d46` snapshot. The 0.7 surface renames the top-level `quantale` keyword to `algebra` (now emitted as `algebra_decl` alongside the existing `semigroupoid` / `bilinear_form` / `composition_rule` variants), and ships the new 0.7 analysis-pipeline machinery. Refreshed the `qvr_hmm_parses_with_expected_blocks` fixture to use `algebra product_fuzzy` and `algebra_decl` as the expected kind.
+
 ## [0.47.2] - 2026-05-14
 
 ### Changed
