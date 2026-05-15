@@ -425,6 +425,36 @@
           }
         },
         {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "FIELD",
+              "name": "wiring",
+              "content": {
+                "type": "CHOICE",
+                "members": [
+                  {
+                    "type": "SYMBOL",
+                    "name": "contraction_wiring_einsum"
+                  },
+                  {
+                    "type": "SYMBOL",
+                    "name": "contraction_wiring_share"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        }
+      ]
+    },
+    "contraction_wiring_einsum": {
+      "type": "SEQ",
+      "members": [
+        {
           "type": "STRING",
           "value": "wiring"
         },
@@ -434,6 +464,44 @@
           "content": {
             "type": "SYMBOL",
             "name": "string"
+          }
+        }
+      ]
+    },
+    "contraction_wiring_share": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "share"
+        },
+        {
+          "type": "FIELD",
+          "name": "shared_axes",
+          "content": {
+            "type": "SEQ",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "identifier"
+              },
+              {
+                "type": "REPEAT",
+                "content": {
+                  "type": "SEQ",
+                  "members": [
+                    {
+                      "type": "STRING",
+                      "value": ","
+                    },
+                    {
+                      "type": "SYMBOL",
+                      "name": "identifier"
+                    }
+                  ]
+                }
+              }
+            ]
           }
         }
       ]
@@ -2551,52 +2619,95 @@
           ]
         },
         {
-          "type": "STRING",
-          "value": "{"
-        },
-        {
-          "type": "REPEAT",
-          "content": {
-            "type": "CHOICE",
-            "members": [
-              {
-                "type": "SYMBOL",
-                "name": "encoder_dim"
-              },
-              {
-                "type": "SYMBOL",
-                "name": "encoder_iterations"
-              },
-              {
-                "type": "SYMBOL",
-                "name": "encoder_readout"
-              },
-              {
-                "type": "SYMBOL",
-                "name": "encoder_op_rule"
-              },
-              {
-                "type": "SYMBOL",
-                "name": "encoder_message_rule"
-              },
-              {
-                "type": "SYMBOL",
-                "name": "encoder_update_rule"
-              },
-              {
-                "type": "SYMBOL",
-                "name": "encoder_init_rule"
-              },
-              {
-                "type": "SYMBOL",
-                "name": "encoder_var_init"
-              }
-            ]
-          }
-        },
-        {
-          "type": "STRING",
-          "value": "}"
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "STRING",
+                  "value": "{"
+                },
+                {
+                  "type": "REPEAT",
+                  "content": {
+                    "type": "CHOICE",
+                    "members": [
+                      {
+                        "type": "SYMBOL",
+                        "name": "encoder_dim"
+                      },
+                      {
+                        "type": "SYMBOL",
+                        "name": "encoder_iterations"
+                      },
+                      {
+                        "type": "SYMBOL",
+                        "name": "encoder_readout"
+                      },
+                      {
+                        "type": "SYMBOL",
+                        "name": "encoder_op_rule"
+                      },
+                      {
+                        "type": "SYMBOL",
+                        "name": "encoder_message_rule"
+                      },
+                      {
+                        "type": "SYMBOL",
+                        "name": "encoder_update_rule"
+                      },
+                      {
+                        "type": "SYMBOL",
+                        "name": "encoder_init_rule"
+                      },
+                      {
+                        "type": "SYMBOL",
+                        "name": "encoder_var_init"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "type": "STRING",
+                  "value": "}"
+                }
+              ]
+            },
+            {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "STRING",
+                  "value": "using"
+                },
+                {
+                  "type": "FIELD",
+                  "name": "factory",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "identifier"
+                  }
+                },
+                {
+                  "type": "CHOICE",
+                  "members": [
+                    {
+                      "type": "FIELD",
+                      "name": "factory_options",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "option_block"
+                      }
+                    },
+                    {
+                      "type": "BLANK"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
         }
       ]
     },

@@ -1026,12 +1026,16 @@
           }
         ]
       },
-      "wiring_spec": {
+      "wiring": {
         "multiple": false,
-        "required": true,
+        "required": false,
         "types": [
           {
-            "type": "string",
+            "type": "contraction_wiring_einsum",
+            "named": true
+          },
+          {
+            "type": "contraction_wiring_share",
             "named": true
           }
         ]
@@ -1106,6 +1110,42 @@
         "multiple": false,
         "required": true,
         "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "contraction_wiring_einsum",
+    "named": true,
+    "fields": {
+      "wiring_spec": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "contraction_wiring_share",
+    "named": true,
+    "fields": {
+      "shared_axes": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": ",",
+            "named": false
+          },
           {
             "type": "identifier",
             "named": true
@@ -2038,6 +2078,26 @@
     "type": "encoder_decl",
     "named": true,
     "fields": {
+      "factory": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "factory_options": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "option_block",
+            "named": true
+          }
+        ]
+      },
       "name": {
         "multiple": false,
         "required": true,
@@ -8057,6 +8117,10 @@
     "named": false
   },
   {
+    "type": "share",
+    "named": false
+  },
+  {
     "type": "signature",
     "named": false
   },
@@ -8102,6 +8166,10 @@
   },
   {
     "type": "update",
+    "named": false
+  },
+  {
+    "type": "using",
     "named": false
   },
   {
