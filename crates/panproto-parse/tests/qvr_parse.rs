@@ -11,7 +11,7 @@
 use panproto_parse::ParserRegistry;
 
 const QVR_HMM: &[u8] = br#"
-quantale product_fuzzy
+algebra product_fuzzy
 
 object State : 8
 object Obs   : 16
@@ -53,7 +53,7 @@ fn qvr_hmm_parses_with_expected_blocks() {
     let kinds = vertex_kinds(&schema);
     for required in [
         "source_file",
-        "quantale_decl",
+        "algebra_decl",
         "object_decl",
         "morphism_decl",
         "let_decl",
