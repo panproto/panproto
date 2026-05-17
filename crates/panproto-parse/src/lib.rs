@@ -58,12 +58,29 @@ pub mod emit_pretty;
 /// law-checkers (retraction in the image of the parser).
 pub mod parse_emit_lens;
 
+/// Put-direction of the parse / decorate / emit lens: build a
+/// decorated schema from an abstract one by routing through
+/// `emit_pretty + parse`.
+pub mod decorate;
+
+/// Runtime `LayoutPolicy` for the put-direction of the parse / emit
+/// lens; carries whitespace conventions and CHOICE disambiguators.
+pub mod layout_policy;
+
+/// The parse / decorate / emit lens packaged as a first-class
+/// `panproto-lens::Protolens` for use in protolens chains and the
+/// generic law harness.
+pub mod parse_emit_protolens;
+
+pub use decorate::decorate_with_parser;
 pub use error::ParseError;
 pub use id_scheme::IdGenerator;
+pub use layout_policy::LayoutPolicy;
 pub use parse_emit_lens::{
     LawViolation as ParseEmitLawViolation, ParseEmitLens, check_emit_parse, check_parse_emit,
     edge_multiset, kind_multiset, strip_complement,
 };
+pub use parse_emit_protolens::{instantiate_parse_emit_lens, parse_emit_protolens};
 pub use registry::{AstParser, ParserRegistry};
 pub use scope_detector::{NamedScope, ScopeDetector, ScopeKind};
 pub use theory_extract::{ExtractedTheoryMeta, extract_theory_from_node_types};

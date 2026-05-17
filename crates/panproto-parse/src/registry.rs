@@ -1,11 +1,13 @@
 //! Parser registry mapping protocol names to full-AST parser implementations.
 
 use std::path::Path;
+use std::sync::Arc;
 
-use panproto_schema::Schema;
+use panproto_schema::{AbstractSchema, DecoratedSchema, Schema};
 use rustc_hash::FxHashMap;
 
 use crate::error::ParseError;
+use crate::layout_policy::LayoutPolicy;
 use crate::theory_extract::ExtractedTheoryMeta;
 
 /// A full-AST parser and emitter for a specific programming language.
@@ -70,7 +72,12 @@ pub trait AstParser: Send + Sync {
 /// operations to the appropriate language parser.
 pub struct ParserRegistry {
     /// Parsers keyed by protocol name.
-    parsers: FxHashMap<String, Box<dyn AstParser>>,
+    ///
+    /// Held by `Arc` (not `Box`) so the same handle can be shared with
+    /// the layout-enrichment registry without re-wrapping at every
+    /// lookup. Registration installs both: the parser into `parsers`
+    /// and a thin adapter into the lens crate's enrichment registry.
+    parsers: FxHashMap<String, Arc<dyn AstParser>>,
     /// Extension → protocol name mapping.
     extension_map: FxHashMap<String, String>,
 }
@@ -118,12 +125,20 @@ impl ParserRegistry {
     }
 
     /// Register a parser implementation.
+    ///
+    /// In addition to keying the parser by its protocol name, this
+    /// installs a [`LayoutEnricher`](panproto_lens::enrichment_registry::LayoutEnricher)
+    /// adapter into the global enrichment registry so that a
+    /// `parse_emit_protolens(protocol, …)` instantiation finds a
+    /// synthesis driver without any further wiring.
     pub fn register(&mut self, parser: Box<dyn AstParser>) {
         let name = parser.protocol_name().to_owned();
         for ext in parser.supported_extensions() {
             self.extension_map.insert((*ext).to_owned(), name.clone());
         }
-        self.parsers.insert(name, parser);
+        let arc: Arc<dyn AstParser> = Arc::from(parser);
+        crate::decorate::register_layout_enricher(Arc::clone(&arc));
+        self.parsers.insert(name, arc);
     }
 
     /// Register a tree-sitter language as a full-AST parser.
@@ -356,6 +371,88 @@ impl ParserRegistry {
             })?;
 
         parser.emit_pretty(schema)
+    }
+
+    /// Decorate an [`AbstractSchema`] with the layout enrichment
+    /// fibre required by `emit_pretty_with_protocol` and friends.
+    ///
+    /// This is the put-direction of the parse / decorate / emit lens
+    /// at `protocol`. The implementation routes through the same
+    /// grammar walker as `emit_pretty` followed by `parse`, so the
+    /// resulting [`DecoratedSchema`] carries a complete layout fibre
+    /// recovered by the parse-side walker — `start-byte`, `end-byte`,
+    /// every `interstitial-N`, `chose-alt-fingerprint`, and
+    /// `chose-alt-child-kinds`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParseError::UnknownLanguage`] when `protocol` is not
+    /// registered; [`ParseError::EmitFailed`] when the grammar walker
+    /// cannot render the abstract schema (missing `grammar.json`,
+    /// vertex kind not a rule); any other parser error if the
+    /// re-parse step rejects the canonical bytes (a regression in the
+    /// parse/emit pipeline, not a user bug).
+    pub fn decorate(
+        &self,
+        protocol: &str,
+        abstract_schema: &AbstractSchema,
+        policy: &LayoutPolicy,
+    ) -> Result<DecoratedSchema, ParseError> {
+        let parser = self
+            .parsers
+            .get(protocol)
+            .ok_or_else(|| ParseError::UnknownLanguage {
+                extension: protocol.to_owned(),
+            })?;
+        crate::decorate::decorate_with_parser(parser.as_ref(), abstract_schema, policy)
+    }
+
+    /// Convenience: `emit_pretty_with_protocol ∘ decorate`.
+    ///
+    /// Drives an abstract schema all the way to canonical source bytes
+    /// under the given `policy`. Equivalent to
+    /// `decorate(...).and_then(|d| emit_pretty_with_protocol(protocol, d.as_schema()))`.
+    ///
+    /// # Errors
+    ///
+    /// See [`decorate`](Self::decorate) and
+    /// [`emit_pretty_with_protocol`](Self::emit_pretty_with_protocol).
+    pub fn pretty_with_protocol(
+        &self,
+        protocol: &str,
+        abstract_schema: &AbstractSchema,
+        policy: &LayoutPolicy,
+    ) -> Result<Vec<u8>, ParseError> {
+        let decorated = self.decorate(protocol, abstract_schema, policy)?;
+        self.emit_pretty_with_protocol(protocol, decorated.as_schema())
+    }
+
+    /// Return the canonical [`Protolens`](panproto_lens::Protolens) for
+    /// the parse / decorate / emit lens at `protocol`.
+    ///
+    /// Composes with every other protolens in `panproto-lens`. The
+    /// protolens's `put` direction is `decorate`; its `get` is
+    /// `forget_layout`; its complement carries the per-vertex layout
+    /// witness. Law-check via
+    /// [`panproto_lens::optic::check_optic_laws`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParseError::UnknownLanguage`] when `protocol` is not
+    /// registered.
+    pub fn parse_emit_protolens(
+        &self,
+        protocol: &str,
+        policy: &LayoutPolicy,
+    ) -> Result<panproto_lens::Protolens, ParseError> {
+        if !self.parsers.contains_key(protocol) {
+            return Err(ParseError::UnknownLanguage {
+                extension: protocol.to_owned(),
+            });
+        }
+        Ok(crate::parse_emit_protolens::parse_emit_protolens(
+            protocol, policy,
+        ))
     }
 
     /// Get the theory metadata for a specific protocol.

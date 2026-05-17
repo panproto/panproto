@@ -2402,6 +2402,7 @@ dependencies = [
  "miette",
  "panproto-gat",
  "panproto-grammars",
+ "panproto-lens",
  "panproto-protocols",
  "panproto-schema",
  "proptest",
