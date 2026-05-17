@@ -332,7 +332,7 @@ impl SchemaBuilder {
     /// Returns [`SchemaError::EmptySchema`] if no vertices were added.
     pub fn build_decorated(self) -> Result<crate::DecoratedSchema, SchemaError> {
         let schema = self.build()?;
-        Ok(crate::DecoratedSchema::from_schema(schema))
+        Ok(crate::DecoratedSchema::wrap_unchecked(schema))
     }
 
     /// Consume the builder and produce a validated [`Schema`] with

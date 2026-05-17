@@ -67,7 +67,7 @@ pub fn decorate_with_parser(
     policy: &LayoutPolicy,
 ) -> Result<DecoratedSchema, ParseError> {
     let decorated = decorate_schema(parser, abstract_schema.as_schema(), policy)?;
-    Ok(DecoratedSchema::from_schema(decorated))
+    Ok(DecoratedSchema::wrap_unchecked(decorated))
 }
 
 /// Schema-level decorate driver shared by [`decorate_with_parser`] and

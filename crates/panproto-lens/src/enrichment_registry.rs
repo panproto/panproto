@@ -43,9 +43,13 @@ pub trait LayoutEnricher: Send + Sync + 'static {
     ) -> Result<Schema, LensError>;
 }
 
+/// Nested registry: outer keyed by enrichment kind, inner keyed by
+/// enricher name. The nesting lets [`lookup_enricher`] and
+/// [`has_enricher`] use `HashMap::get` against the input `&str`
+/// directly, with no per-lookup allocation.
 #[derive(Default)]
 struct Registry {
-    enrichers: FxHashMap<(EnrichmentKind, Arc<str>), Arc<dyn LayoutEnricher>>,
+    enrichers: FxHashMap<EnrichmentKind, FxHashMap<String, Arc<dyn LayoutEnricher>>>,
 }
 
 static REGISTRY: OnceLock<RwLock<Registry>> = OnceLock::new();
@@ -60,13 +64,23 @@ fn registry() -> &'static RwLock<Registry> {
 /// (e.g. `"lilypond"`, `"json"`). Re-registering an existing key
 /// replaces the prior driver — this is intentional so test code can
 /// install fakes.
+///
+/// Lock poisoning (a prior panic in a write-guard holder) is recovered
+/// transparently: the registry's critical sections do not invoke user
+/// code, so a poisoned lock cannot leave invariants broken. Callers
+/// see no `Result` for the lock state.
 pub fn register_enricher(
     kind: EnrichmentKind,
-    enricher_name: impl Into<Arc<str>>,
+    enricher_name: impl Into<String>,
     driver: Arc<dyn LayoutEnricher>,
 ) {
-    let mut g = registry().write().expect("enrichment registry poisoned");
-    g.enrichers.insert((kind, enricher_name.into()), driver);
+    let mut g = registry()
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    g.enrichers
+        .entry(kind)
+        .or_default()
+        .insert(enricher_name.into(), driver);
 }
 
 /// Look up a synthesis driver.
@@ -74,16 +88,18 @@ pub fn register_enricher(
 /// # Errors
 ///
 /// Returns [`LensError::UnknownEnricher`] if no driver is registered
-/// for `(kind, enricher_name)`.
+/// for `(kind, enricher_name)`. Lock poisoning is recovered
+/// transparently.
 pub fn lookup_enricher(
     kind: EnrichmentKind,
     enricher_name: &str,
 ) -> Result<Arc<dyn LayoutEnricher>, LensError> {
-    let g = registry().read().expect("enrichment registry poisoned");
-    let key: Arc<str> = Arc::from(enricher_name);
+    let g = registry()
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     g.enrichers
-        .get(&(kind, key))
-        .cloned()
+        .get(&kind)
+        .and_then(|m| m.get(enricher_name).cloned())
         .ok_or_else(|| LensError::UnknownEnricher {
             kind,
             enricher: enricher_name.to_owned(),
@@ -91,9 +107,14 @@ pub fn lookup_enricher(
 }
 
 /// Returns `true` if a driver is registered for `(kind, enricher_name)`.
+///
+/// Lock poisoning is recovered transparently.
 #[must_use]
 pub fn has_enricher(kind: EnrichmentKind, enricher_name: &str) -> bool {
-    let g = registry().read().expect("enrichment registry poisoned");
-    let key: Arc<str> = Arc::from(enricher_name);
-    g.enrichers.contains_key(&(kind, key))
+    let g = registry()
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    g.enrichers
+        .get(&kind)
+        .is_some_and(|m| m.contains_key(enricher_name))
 }

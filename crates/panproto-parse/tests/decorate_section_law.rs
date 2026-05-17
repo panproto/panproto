@@ -37,7 +37,7 @@ fn section_law_holds(protocol: &str, source: &[u8]) {
     let parsed = reg
         .parse_with_protocol(protocol, source, &format!("section.{protocol}"))
         .unwrap_or_else(|e| panic!("parse failed for {protocol}: {e}"));
-    let decorated_input = DecoratedSchema::from_schema(parsed);
+    let decorated_input = DecoratedSchema::wrap_unchecked(parsed);
     let abstract_input = decorated_input.forget_layout();
 
     let policy = LayoutPolicy::default();
@@ -101,7 +101,7 @@ fn pretty_with_protocol_honours_policy() {
         let parsed = reg
             .parse_with_protocol("json", b"{\"k\":1}", "policy.json")
             .expect("parse");
-        let decorated_input = DecoratedSchema::from_schema(parsed);
+        let decorated_input = DecoratedSchema::wrap_unchecked(parsed);
         let abstract_input = decorated_input.forget_layout();
 
         let policy_a = LayoutPolicy {

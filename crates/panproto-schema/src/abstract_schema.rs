@@ -1,19 +1,34 @@
-//! Sealed typed newtypes for the abstract / decorated schema distinction.
+//! Typed newtypes for the abstract / decorated schema distinction.
 //!
 //! A bare [`Schema`] can be in either of two states: it is *abstract*
 //! when no constraint sort belongs to the layout enrichment fibre, and
 //! it is *decorated* when the parser walker has attached layout
 //! witnesses (byte spans, interstitials, CHOICE discriminators).
 //!
-//! These newtypes turn that distinction into a type-level invariant so
-//! that the parse/decorate/emit lens can be wired through the type
-//! system: `emit_pretty` accepts only [`DecoratedSchema`]; `decorate`
-//! consumes [`AbstractSchema`]; the two are bridged exclusively via
-//! the lens. There is no `From<Schema>` escape hatch.
+//! These newtypes lift that distinction to a Rust type so that the
+//! parse/decorate/emit lens can be wired through the type system:
+//! `decorate` consumes an [`AbstractSchema`] and returns a
+//! [`DecoratedSchema`]; the operational `emit_pretty` and `decorate`
+//! entry points keep abstract and decorated inputs distinguishable
+//! at every call site without `Deref` erasure.
 //!
-//! Construction is sealed: only `panproto-schema` itself (via the
-//! `SchemaBuilder`) and `panproto-parse` (via the parser registry and
-//! the layout-enrichment driver) may construct values of these types.
+//! ## Construction
+//!
+//! - [`AbstractSchema::from_layout_free`] validates that no
+//!   layout-fibre constraint is present (returns
+//!   [`LayoutConstraintsPresent`] when the invariant fails); this is
+//!   the checked entry that callers should prefer.
+//! - [`AbstractSchema::from_layout_free_unchecked`] skips the scan
+//!   for callers that just ran `forget_layout` themselves.
+//! - [`DecoratedSchema::wrap_unchecked`] wraps a [`Schema`] without
+//!   checking the layout fibre. The legitimate sources are the
+//!   parse walker's output and the `decorate` synthesis driver;
+//!   misuse degrades emit correctness silently.
+//!
+//! Construction is *not* sealed at the type system level
+//! (panproto's `Schema` does not yet carry a phantom theory parameter
+//! that would let us refuse arbitrary cross-crate constructions).
+//! The checked / unchecked split is the load-bearing safety net.
 
 use std::collections::HashMap;
 
@@ -111,7 +126,7 @@ impl AbstractSchema {
     /// emit/decorate correctness silently; prefer
     /// [`from_layout_free`](Self::from_layout_free) elsewhere.
     #[must_use]
-    pub fn from_layout_free_unchecked(schema: Schema) -> Self {
+    pub const fn from_layout_free_unchecked(schema: Schema) -> Self {
         Self { inner: schema }
     }
 
@@ -123,7 +138,7 @@ impl AbstractSchema {
     /// `Deref<Target = Schema>` because that would silently erase the
     /// type-level distinction; every consumer must opt in.
     #[must_use]
-    pub fn as_schema(&self) -> &Schema {
+    pub const fn as_schema(&self) -> &Schema {
         &self.inner
     }
 
@@ -141,13 +156,38 @@ impl AbstractSchema {
 }
 
 impl DecoratedSchema {
-    /// Internal constructor. Callers (`panproto-parse`'s walker; the
-    /// `decorate` synthesis driver) use this after asserting that a
-    /// complete layout fibre has been attached.
-    #[doc(hidden)]
+    /// Wrap a [`Schema`] as a [`DecoratedSchema`] without checking the
+    /// layout-fibre invariant.
+    ///
+    /// Construction is *not* enforced at the type level (panproto's
+    /// `Schema` does not yet carry a phantom theory parameter), so
+    /// this constructor trusts the caller. The legitimate sources are:
+    ///
+    /// - Output of [`ParserRegistry::parse_with_protocol`](https://docs.rs/panproto-parse) —
+    ///   the parse walker attaches a complete layout fibre.
+    /// - Output of [`ParserRegistry::decorate`](https://docs.rs/panproto-parse) —
+    ///   the put-direction of the parse/emit lens.
+    ///
+    /// Wrapping a hand-built or otherwise abstract schema produces a
+    /// `DecoratedSchema` that subsequent emit_pretty calls will
+    /// fall back to grammar-walking on (since the layout fibre is
+    /// empty), which is well-defined but loses the "round-trips via
+    /// byte-position arithmetic" advantage of true decoration.
     #[must_use]
-    pub fn from_schema(schema: Schema) -> Self {
+    pub const fn wrap_unchecked(schema: Schema) -> Self {
         Self { inner: schema }
+    }
+
+    /// Deprecated alias for [`wrap_unchecked`](Self::wrap_unchecked).
+    /// The name `from_schema` understated the operation's
+    /// preconditions; use the explicit name at every call site.
+    #[must_use]
+    #[deprecated(
+        since = "0.48.0",
+        note = "renamed to `wrap_unchecked` to reflect that it does not validate the layout-fibre invariant"
+    )]
+    pub fn from_schema(schema: Schema) -> Self {
+        Self::wrap_unchecked(schema)
     }
 
     /// Borrow the underlying schema for read-only consumption.
@@ -156,7 +196,7 @@ impl DecoratedSchema {
     /// explicit, audited bridge to the raw type, intentionally
     /// non-`Deref`.
     #[must_use]
-    pub fn as_schema(&self) -> &Schema {
+    pub const fn as_schema(&self) -> &Schema {
         &self.inner
     }
 
@@ -320,7 +360,7 @@ mod tests {
             .constraint("v0", "end-byte", "7")
             .build()
             .unwrap();
-        let decorated = DecoratedSchema::from_schema(schema);
+        let decorated = DecoratedSchema::wrap_unchecked(schema);
         let w = decorated.layout_witness("v0").unwrap();
         assert_eq!(w.start_byte(), Some(3));
         assert_eq!(w.end_byte(), Some(7));

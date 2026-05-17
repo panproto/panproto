@@ -459,14 +459,20 @@ impl ParserRegistry {
         parser.emit_pretty_with_policy(abstract_schema.as_schema(), policy)
     }
 
-    /// Return the canonical [`Protolens`](panproto_lens::Protolens) for
-    /// the parse / decorate / emit lens at `protocol`.
+    /// Return the canonical [`Protolens`](panproto_lens::Protolens)
+    /// describing the parse / decorate / emit relationship at
+    /// `protocol`.
     ///
-    /// Composes with every other protolens in `panproto-lens`. The
-    /// protolens's `put` direction is `decorate`; its `get` is
-    /// `forget_layout`; its complement carries the per-vertex layout
-    /// witness. Law-check via
-    /// [`panproto_lens::optic::check_optic_laws`].
+    /// The protolens encodes the schema-level structure of the
+    /// relationship: source-side strips the layout enrichment fibre,
+    /// target-side adds it via the registered
+    /// [`LayoutEnricher`](panproto_lens::enrichment_registry::LayoutEnricher).
+    /// It composes with the rest of the `panproto-lens` protolens
+    /// algebra for chain-law reasoning. The operational entry points
+    /// for running the relationship on real schemas are
+    /// [`decorate`](Self::decorate),
+    /// [`pretty_with_protocol`](Self::pretty_with_protocol), and
+    /// [`emit_pretty_with_protocol`](Self::emit_pretty_with_protocol).
     ///
     /// # Errors
     ///
