@@ -427,6 +427,7 @@ impl ParserRegistry {
             .ok_or_else(|| ParseError::UnknownLanguage {
                 extension: protocol.to_owned(),
             })?;
+        check_protocol_match(protocol, abstract_schema.as_schema(), "decorate")?;
         crate::decorate::decorate_with_parser(parser.as_ref(), abstract_schema, policy)
     }
 
@@ -456,6 +457,7 @@ impl ParserRegistry {
             .ok_or_else(|| ParseError::UnknownLanguage {
                 extension: protocol.to_owned(),
             })?;
+        check_protocol_match(protocol, abstract_schema.as_schema(), "pretty_with_protocol")?;
         parser.emit_pretty_with_policy(abstract_schema.as_schema(), policy)
     }
 
@@ -532,5 +534,28 @@ impl ParserRegistry {
 impl Default for ParserRegistry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Guard against running parser-tied operations on a schema built
+/// for a different protocol. Catches the user-visible error of
+/// passing (say) a JSON schema to a Python parser before the
+/// underlying grammar walker would surface it as an opaque rule
+/// mismatch.
+fn check_protocol_match(
+    expected: &str,
+    schema: &Schema,
+    operation: &'static str,
+) -> Result<(), ParseError> {
+    if schema.protocol == expected {
+        Ok(())
+    } else {
+        Err(ParseError::SchemaConstruction {
+            reason: format!(
+                "{operation}: protocol mismatch — registry called with '{expected}' but \
+                 schema carries protocol '{}'",
+                schema.protocol,
+            ),
+        })
     }
 }

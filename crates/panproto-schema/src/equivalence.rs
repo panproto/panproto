@@ -2,9 +2,10 @@
 //!
 //! The parse / decorate / emit lens preserves the **kind multiset** of
 //! a schema, not its precise vertex IDs (the parser invents fresh ids)
-//! nor its precise byte spans (those are layout, not content). This
-//! module hosts the canonical witnesses used by the law-checker
-//! harness in `panproto-lens`.
+//! nor its precise byte spans (those are layout, not content). The
+//! `EmitParse` / `ParseEmit` law checkers in `panproto-parse` and the
+//! `decorate_section_law` integration test consume these witnesses to
+//! compare schemas across a round-trip.
 
 use std::collections::BTreeMap;
 
@@ -16,8 +17,7 @@ use crate::Schema;
 ///
 /// Maps each vertex kind to its number of occurrences. Together with
 /// [`edge_multiset`], this is a complete witness for the abstract-
-/// content equivalence used by the `Section` and `AbstractRoundTrip`
-/// lens laws.
+/// content equivalence used by the round-trip law checkers.
 #[must_use]
 pub fn kind_multiset(schema: &Schema) -> BTreeMap<String, usize> {
     let mut map = BTreeMap::new();

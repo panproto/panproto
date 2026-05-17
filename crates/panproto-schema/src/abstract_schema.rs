@@ -54,10 +54,14 @@ pub struct LayoutConstraintsPresent {
 ///
 /// Carrying only vertex kinds, edges, and content-level constraints
 /// (`literal-value`, `field:*`, and any protocol-defined constraint
-/// sorts that are *not* in the layout fibre). Constructed exclusively
-/// via [`SchemaBuilder::build_abstract`](crate::SchemaBuilder::build_abstract)
-/// or by stripping a [`DecoratedSchema`] through
-/// [`DecoratedSchema::forget_layout`].
+/// sorts that are *not* in the layout fibre). Typical sources:
+///
+/// - [`SchemaBuilder::build_abstract`](crate::SchemaBuilder::build_abstract),
+///   which checks the invariant before wrapping.
+/// - [`DecoratedSchema::forget_layout`], which projects a decorated
+///   schema to its abstract base.
+/// - [`AbstractSchema::from_layout_free`] for callers wrapping a
+///   `Schema` produced by other means (validates on entry).
 #[derive(Clone, Debug)]
 pub struct AbstractSchema {
     inner: Schema,
@@ -66,10 +70,15 @@ pub struct AbstractSchema {
 /// A schema carrying a complete layout enrichment over its abstract
 /// content.
 ///
-/// Constructed exclusively by `ParserRegistry::parse_with_protocol`
-/// (the get-direction of the parse/emit lens) or by `decorate` (its
-/// put-direction). Direct serialization round-trips a `Schema`; the
-/// newtype is enforced only at the Rust type level.
+/// Typical sources:
+///
+/// - The result of `ParserRegistry::parse_with_protocol` wrapped via
+///   [`DecoratedSchema::wrap_unchecked`].
+/// - The return value of `ParserRegistry::decorate` (the put-direction
+///   of the parse / decorate / emit lens).
+///
+/// Direct serialization round-trips a `Schema`; the newtype is
+/// enforced only at the Rust type level.
 #[derive(Clone, Debug)]
 pub struct DecoratedSchema {
     inner: Schema,
@@ -176,18 +185,6 @@ impl DecoratedSchema {
     #[must_use]
     pub const fn wrap_unchecked(schema: Schema) -> Self {
         Self { inner: schema }
-    }
-
-    /// Deprecated alias for [`wrap_unchecked`](Self::wrap_unchecked).
-    /// The name `from_schema` understated the operation's
-    /// preconditions; use the explicit name at every call site.
-    #[must_use]
-    #[deprecated(
-        since = "0.48.0",
-        note = "renamed to `wrap_unchecked` to reflect that it does not validate the layout-fibre invariant"
-    )]
-    pub const fn from_schema(schema: Schema) -> Self {
-        Self::wrap_unchecked(schema)
     }
 
     /// Borrow the underlying schema for read-only consumption.
