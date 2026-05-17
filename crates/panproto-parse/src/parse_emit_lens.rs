@@ -133,7 +133,7 @@ pub enum LawViolation {
 /// positions). `chose-alt-*` discriminators are **preserved** because
 /// they're the categorical witness of which CHOICE alternative the
 /// parser took and `emit_pretty` consumes them directly to dispatch
-/// without re-deriving the choice. This is the EmitParse law's
+/// without re-deriving the choice. This is the `EmitParse` law's
 /// "complement" projection — distinct from
 /// [`Schema::forget_layout`], which strips every layout-fibre sort
 /// including `chose-alt-*` to produce a truly abstract schema for

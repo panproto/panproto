@@ -169,7 +169,7 @@ impl DecoratedSchema {
     ///   the put-direction of the parse/emit lens.
     ///
     /// Wrapping a hand-built or otherwise abstract schema produces a
-    /// `DecoratedSchema` that subsequent emit_pretty calls will
+    /// `DecoratedSchema` that subsequent `emit_pretty` calls will
     /// fall back to grammar-walking on (since the layout fibre is
     /// empty), which is well-defined but loses the "round-trips via
     /// byte-position arithmetic" advantage of true decoration.
@@ -186,7 +186,7 @@ impl DecoratedSchema {
         since = "0.48.0",
         note = "renamed to `wrap_unchecked` to reflect that it does not validate the layout-fibre invariant"
     )]
-    pub fn from_schema(schema: Schema) -> Self {
+    pub const fn from_schema(schema: Schema) -> Self {
         Self::wrap_unchecked(schema)
     }
 
@@ -296,6 +296,7 @@ impl<'a> LayoutWitness<'a> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
     use crate::{EdgeRule, Protocol, SchemaBuilder};
