@@ -67,17 +67,7 @@ pub fn decorate_with_parser(
     abstract_schema: &AbstractSchema,
     policy: &LayoutPolicy,
 ) -> Result<DecoratedSchema, ParseError> {
-    let schema = abstract_schema.as_schema();
-    if schema.protocol != parser.protocol_name() {
-        return Err(ParseError::SchemaConstruction {
-            reason: format!(
-                "decorate_with_parser: protocol mismatch — parser is '{}' but schema is '{}'",
-                parser.protocol_name(),
-                schema.protocol,
-            ),
-        });
-    }
-    let decorated = decorate_schema(parser, schema, policy)?;
+    let decorated = decorate_schema(parser, abstract_schema.as_schema(), policy)?;
     Ok(DecoratedSchema::wrap_unchecked(decorated))
 }
 
@@ -89,6 +79,15 @@ fn decorate_schema(
     abstract_schema: &Schema,
     policy: &LayoutPolicy,
 ) -> Result<Schema, ParseError> {
+    if abstract_schema.protocol != parser.protocol_name() {
+        return Err(ParseError::SchemaConstruction {
+            reason: format!(
+                "decorate: protocol mismatch — parser is '{}' but schema is '{}'",
+                parser.protocol_name(),
+                abstract_schema.protocol,
+            ),
+        });
+    }
     let bytes = parser.emit_pretty_with_policy(abstract_schema, policy)?;
     parser.parse(&bytes, "decorate")
 }

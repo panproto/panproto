@@ -427,7 +427,9 @@ impl ParserRegistry {
             .ok_or_else(|| ParseError::UnknownLanguage {
                 extension: protocol.to_owned(),
             })?;
-        check_protocol_match(protocol, abstract_schema.as_schema(), "decorate")?;
+        // `decorate_with_parser` enforces the protocol-match invariant
+        // between the parser and the abstract schema, so no extra guard
+        // is needed here.
         crate::decorate::decorate_with_parser(parser.as_ref(), abstract_schema, policy)
     }
 
