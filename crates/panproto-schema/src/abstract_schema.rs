@@ -382,6 +382,53 @@ mod tests {
     }
 
     #[test]
+    fn layout_witness_iter_filters_to_layout_only() {
+        let p = empty_protocol();
+        let schema = SchemaBuilder::new(&p)
+            .vertex("v0", "node", None)
+            .unwrap()
+            .constraint("v0", "start-byte", "0")
+            .constraint("v0", "literal-value", "hi")
+            .constraint("v0", "interstitial-0", " ")
+            .build()
+            .unwrap();
+        let decorated = DecoratedSchema::wrap_unchecked(schema);
+        let w = decorated.layout_witness("v0").unwrap();
+        let sorts: Vec<&str> = w.iter().map(|c| c.sort.as_ref()).collect();
+        assert!(sorts.contains(&"start-byte"));
+        assert!(sorts.contains(&"interstitial-0"));
+        assert!(!sorts.contains(&"literal-value"));
+    }
+
+    #[test]
+    fn layout_witness_returns_chose_alt_constraints() {
+        let p = empty_protocol();
+        let schema = SchemaBuilder::new(&p)
+            .vertex("v0", "node", None)
+            .unwrap()
+            .constraint("v0", "chose-alt-fingerprint", "{ }")
+            .constraint("v0", "chose-alt-child-kinds", "symbol punctuation")
+            .build()
+            .unwrap();
+        let decorated = DecoratedSchema::wrap_unchecked(schema);
+        let w = decorated.layout_witness("v0").unwrap();
+        assert_eq!(w.chose_alt_fingerprint(), Some("{ }"));
+        assert_eq!(w.chose_alt_child_kinds(), Some("symbol punctuation"));
+    }
+
+    #[test]
+    fn layout_witness_returns_none_for_missing_vertex() {
+        let p = empty_protocol();
+        let schema = SchemaBuilder::new(&p)
+            .vertex("v0", "node", None)
+            .unwrap()
+            .build()
+            .unwrap();
+        let decorated = DecoratedSchema::wrap_unchecked(schema);
+        assert!(decorated.layout_witness("nonexistent").is_none());
+    }
+
+    #[test]
     fn from_layout_free_reports_offending_count() {
         let p = empty_protocol();
         let schema = SchemaBuilder::new(&p)
