@@ -19,7 +19,7 @@ use crate::emit_pretty::FormatPolicy;
 
 /// Runtime layout policy for `decorate` and `pretty_with_protocol`.
 ///
-/// Aliased to [`FormatPolicy`](crate::emit_pretty::FormatPolicy): the
+/// Aliased to [`FormatPolicy`]: the
 /// emitter's own policy struct is exactly the put-direction
 /// complement of the parse/emit lens, so the two are one type.
 pub type LayoutPolicy = FormatPolicy;

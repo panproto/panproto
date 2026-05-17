@@ -540,7 +540,7 @@ pub struct FormatPolicy {
     /// would otherwise glue together (word ↔ word, operator ↔ operator).
     /// Default is a single space.
     pub separator: String,
-    /// Newline byte sequence emitted after [`line_break_after`] tokens
+    /// Newline byte sequence emitted after `line_break_after` tokens
     /// and at end-of-output. Default is `"\n"`.
     pub newline: String,
     /// Tokens after which the walker breaks to a new line.

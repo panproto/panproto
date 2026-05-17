@@ -3,7 +3,7 @@
 //! [`TheoryTransform::AddEnrichment`](panproto_gat::TheoryTransform::AddEnrichment)
 //! needs to materialise an enrichment fibre on a schema, but the
 //! synthesis procedure is enrichment-specific and grammar-aware: for
-//! [`EnrichmentKind::Layout`](panproto_gat::EnrichmentKind::Layout) it
+//! [`EnrichmentKind::Layout`] it
 //! is the inverse of the parse-side grammar walker, which lives in
 //! `panproto-parse` and depends on tree-sitter grammars.
 //!

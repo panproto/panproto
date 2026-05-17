@@ -210,7 +210,7 @@ pub enum TheoryTransform {
     /// At the theory level this is identity. At the schema level, the
     /// enrichment-specific synthesis procedure runs against the
     /// schema's vertices and an enrichment-specific policy to attach
-    /// the fibre constraints. For [`EnrichmentKind::Layout`] the
+    /// the fibre constraints. For [`crate::EnrichmentKind::Layout`] the
     /// synthesis procedure walks the parser's grammar rules driven by
     /// a `LayoutPolicySpec`. Classified as `Lens`.
     ///

@@ -1,8 +1,8 @@
 //! The parse / decorate / emit lens packaged as a first-class
-//! [`Protolens`].
+//! [`Protolens`](panproto_lens::Protolens).
 //!
-//! For every registered grammar `G`, [`parse_emit_protolens`] returns
-//! a [`Protolens`] whose source endofunctor strips the layout
+//! For every registered grammar `G`, [`parse_emit_protolens()`] returns
+//! a [`Protolens`](panproto_lens::Protolens) whose source endofunctor strips the layout
 //! enrichment fibre (yielding an abstract schema) and whose target
 //! endofunctor adds it back via the registered
 //! [`LayoutEnricher`](panproto_lens::enrichment_registry::LayoutEnricher).
@@ -15,7 +15,7 @@
 //!
 //! ## What this protolens is, and is not
 //!
-//! The [`Protolens`] returned here is the **schema-level description**
+//! The [`Protolens`](panproto_lens::Protolens) returned here is the **schema-level description**
 //! of the parse/decorate/emit relationship: it documents which
 //! constraint sorts belong to the layout fibre, which synthesis
 //! driver populates them, and what policy the put-direction uses.
@@ -27,7 +27,7 @@
 //! [`ParserRegistry::decorate`](crate::ParserRegistry::decorate),
 //! [`ParserRegistry::pretty_with_protocol`](crate::ParserRegistry::pretty_with_protocol),
 //! and [`ParserRegistry::emit_pretty_with_protocol`](crate::ParserRegistry::emit_pretty_with_protocol)
-//! — not [`Protolens::instantiate`]. The reason is that the parse-side
+//! — not [`Protolens::instantiate`](panproto_lens::Protolens::instantiate). The reason is that the parse-side
 //! walker invents fresh vertex IDs that the lens framework's
 //! `WInstance`-level get/put cannot align with the source schema's
 //! IDs; the underlying mismatch is intrinsic to grammars that

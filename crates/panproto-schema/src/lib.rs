@@ -26,7 +26,9 @@ mod schema;
 pub mod serde_helpers;
 mod validate;
 
-pub use abstract_schema::{AbstractSchema, DecoratedSchema, LayoutWitness};
+pub use abstract_schema::{
+    AbstractSchema, DecoratedSchema, LayoutConstraintsPresent, LayoutWitness,
+};
 pub use builder::SchemaBuilder;
 pub use equivalence::{edge_multiset, kind_multiset};
 pub use colimit::{SchemaOverlap, schema_pushout};

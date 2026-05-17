@@ -1,11 +1,12 @@
 //! The put-direction of the parse / decorate / emit lens.
 //!
 //! `decorate` attaches a complete layout enrichment fibre to an
-//! [`AbstractSchema`], producing a [`DecoratedSchema`] that
+//! [`AbstractSchema`](panproto_schema::AbstractSchema), producing a
+//! [`DecoratedSchema`](panproto_schema::DecoratedSchema) that
 //! `emit_pretty_with_protocol` can render byte-for-byte. It is a
 //! section of the schema-level forgetful U
-//! [`DecoratedSchema::forget_layout`] up to kind-multiset
-//! equivalence.
+//! [`DecoratedSchema::forget_layout`](panproto_schema::DecoratedSchema::forget_layout)
+//! up to kind-multiset equivalence.
 //!
 //! ## Implementation strategy
 //!
