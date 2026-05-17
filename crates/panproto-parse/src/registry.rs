@@ -407,12 +407,22 @@ impl ParserRegistry {
     /// every `interstitial-N`, `chose-alt-fingerprint`, and
     /// `chose-alt-child-kinds`.
     ///
+    /// The section law holds up to kind- and edge-multiset
+    /// equivalence: `forget_layout(decorate(a)) ≅ a` modulo vertex-id
+    /// renaming. Grammars where parsing consolidates tokens that the
+    /// emitter rendered as separate sequences (e.g. lilypond's `c'4`
+    /// re-parses to a single note) do not preserve a one-to-one
+    /// vertex correspondence, so the result's vertex IDs are always
+    /// freshly minted by the parser.
+    ///
     /// # Errors
     ///
     /// Returns [`ParseError::UnknownLanguage`] when `protocol` is not
-    /// registered; [`ParseError::EmitFailed`] when the grammar walker
+    /// registered, [`ParseError::SchemaConstruction`] when the
+    /// abstract schema was built for a different protocol than
+    /// `protocol`, [`ParseError::EmitFailed`] when the grammar walker
     /// cannot render the abstract schema (missing `grammar.json`,
-    /// vertex kind not a rule); any other parser error if the
+    /// vertex kind not a rule), or any other parser error if the
     /// re-parse step rejects the canonical bytes (a regression in the
     /// parse/emit pipeline, not a user bug).
     pub fn decorate(
