@@ -2,45 +2,45 @@
 //!
 //! `decorate` attaches a complete layout enrichment fibre to an
 //! [`AbstractSchema`], producing a [`DecoratedSchema`] that
-//! `emit_pretty_with_protocol` can render byte-for-byte. It is the
+//! `emit_pretty_with_protocol` can render byte-for-byte. It is a
 //! section of the schema-level forgetful U
-//! [`DecoratedSchema::forget_layout`].
+//! [`DecoratedSchema::forget_layout`] up to kind-multiset
+//! equivalence.
 //!
-//! Implementation strategy:
+//! ## Implementation strategy
 //!
-//! 1. Run `emit_pretty_with_policy` on the abstract schema. The
-//!    de-novo emitter walks `grammar.json` production rules using the
-//!    caller-supplied [`LayoutPolicy`] as its source of whitespace
-//!    conventions and produces a syntactically valid byte sequence —
-//!    the canonical representative of the parse-preimage of the
-//!    abstract schema under that policy.
+//! 1. Render the abstract schema to canonical bytes via
+//!    `emit_pretty_with_policy`. The de-novo emitter walks
+//!    `grammar.json` production rules driven by the caller-supplied
+//!    [`LayoutPolicy`].
 //!
-//! 2. Re-parse those bytes through the registered parser. The parse
-//!    walker attaches the full layout fibre: `start-byte`, `end-byte`,
-//!    every `interstitial-N`, `chose-alt-fingerprint`, and
-//!    `chose-alt-child-kinds`. The resulting schema is, by
-//!    construction, a complete decorated representative whose abstract
-//!    projection matches the input up to kind-multiset equivalence
-//!    (the parser invents fresh vertex IDs; this is the standard
-//!    granularity for the section law as stated in the
-//!    [`parse_emit_lens`](crate::parse_emit_lens) module).
+//! 2. Re-parse those bytes. The parse walker attaches the full layout
+//!    fibre (`start-byte`, `end-byte`, every `interstitial-N`,
+//!    `chose-alt-fingerprint`, `chose-alt-child-kinds`) and invents
+//!    fresh vertex IDs.
 //!
-//! Both steps reuse the existing parse/emit machinery without
-//! duplication — `decorate` is exactly the composite
-//! `parse ∘ emit_pretty(·, policy)` lifted to the type level.
+//! Step 2's ID renaming is intrinsic to the parse walker: tree-sitter
+//! reparses can consolidate or fragment tokens at boundaries that the
+//! emit pipeline doesn't know how to mirror (e.g. lilypond's
+//! `c'4` parses as a single note even when the emitter rendered three
+//! tokens `c`, `'`, `4`). Recovering vertex IDs from the abstract
+//! input by parallel walk therefore *cannot* succeed for all
+//! grammars; the documented section law holds at the standard
+//! granularity of [`kind_multiset`](panproto_schema::kind_multiset)
+//! and [`edge_multiset`](panproto_schema::edge_multiset).
 //!
 //! ## Laws
 //!
 //! For every `a : AbstractSchema` and `p : LayoutPolicy`:
 //!
 //! - **Section law (mod kind-multiset):**
-//!   `forget_layout(decorate(a, p)) ≅_kinds a` — the abstract content
-//!   survives the round-trip up to vertex-id renaming. Verified by
-//!   the `decorate_section_law` integration test for every grammar
-//!   with a parse fixture.
+//!   `kind_multiset(forget_layout(decorate(a, p)).as_schema()) ==
+//!    kind_multiset(a.as_schema())`
+//!   for every protocol with a vendored grammar — verified by the
+//!   `decorate_section_law` integration test.
 //! - **Policy fidelity:** the bytes produced by `pretty_with_protocol`
-//!   honour `p.separator`, `p.newline`, and `p.indent_width`. Verified
-//!   by the policy-plumbing test below.
+//!   honour every field of `p` (separator, newline, indent_width,
+//!   line_break_after, indent_open / close).
 
 use panproto_gat::{EnrichmentKind, LayoutPolicySpec};
 use panproto_lens::enrichment_registry::{LayoutEnricher, register_enricher};
@@ -51,24 +51,35 @@ use crate::error::ParseError;
 use crate::layout_policy::{LayoutPolicy, policy_from_spec};
 use crate::registry::AstParser;
 
-/// Decorate an abstract schema by routing it through
-/// `emit_pretty_with_policy + parse` against `parser`.
+/// Decorate an abstract schema by routing through `emit_pretty_with_policy +
+/// parse` against `parser`.
 ///
 /// # Errors
 ///
-/// Returns [`ParseError::EmitFailed`] if the abstract schema cannot
-/// be rendered (e.g. missing grammar; vertex kind not a grammar rule)
-/// or any other [`ParseError`] variant if the parser cannot re-ingest
-/// its own canonical output. The latter would indicate a regression
-/// in the parse/emit pipeline rather than a user bug.
+/// Returns [`ParseError::EmitFailed`] when the abstract schema cannot
+/// be rendered (missing grammar; vertex kind not a grammar rule), or
+/// any other [`ParseError`] variant if the parser cannot re-ingest
+/// its canonical output — the latter indicates a regression in the
+/// parse/emit pipeline rather than a user bug.
 pub fn decorate_with_parser(
     parser: &dyn AstParser,
     abstract_schema: &AbstractSchema,
     policy: &LayoutPolicy,
 ) -> Result<DecoratedSchema, ParseError> {
-    let bytes = parser.emit_pretty_with_policy(abstract_schema.as_schema(), policy)?;
-    let reparsed = parser.parse(&bytes, "decorate")?;
-    Ok(DecoratedSchema::from_schema(reparsed))
+    let decorated = decorate_schema(parser, abstract_schema.as_schema(), policy)?;
+    Ok(DecoratedSchema::from_schema(decorated))
+}
+
+/// Schema-level decorate driver shared by [`decorate_with_parser`] and
+/// the [`ParserLayoutEnricher`] adapter installed in the lens crate's
+/// enrichment registry.
+fn decorate_schema(
+    parser: &dyn AstParser,
+    abstract_schema: &Schema,
+    policy: &LayoutPolicy,
+) -> Result<Schema, ParseError> {
+    let bytes = parser.emit_pretty_with_policy(abstract_schema, policy)?;
+    parser.parse(&bytes, "decorate")
 }
 
 /// Adapter exposing one registered parser as a
@@ -92,21 +103,13 @@ impl LayoutEnricher for ParserLayoutEnricher {
         policy: &LayoutPolicySpec,
     ) -> Result<Schema, LensError> {
         let runtime_policy = policy_from_spec(policy);
-        let bytes = self
-            .parser
-            .emit_pretty_with_policy(schema, &runtime_policy)
-            .map_err(|e| LensError::EnrichmentSynthesisFailed {
+        decorate_schema(self.parser.as_ref(), schema, &runtime_policy).map_err(|e| {
+            LensError::EnrichmentSynthesisFailed {
                 kind: EnrichmentKind::Layout,
                 enricher: self.protocol.clone(),
-                detail: format!("emit_pretty failed: {e}"),
-            })?;
-        self.parser
-            .parse(&bytes, "decorate/enrichment")
-            .map_err(|e| LensError::EnrichmentSynthesisFailed {
-                kind: EnrichmentKind::Layout,
-                enricher: self.protocol.clone(),
-                detail: format!("re-parse failed: {e}"),
-            })
+                detail: e.to_string(),
+            }
+        })
     }
 }
 

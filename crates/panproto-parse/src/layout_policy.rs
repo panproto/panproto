@@ -79,10 +79,12 @@ mod tests {
 
     #[test]
     fn non_default_separator_round_trips() {
-        let mut p = LayoutPolicy::default();
-        p.separator = "\t".to_owned();
-        p.newline = "\r\n".to_owned();
-        p.indent_width = 4;
+        let p = LayoutPolicy {
+            separator: "\t".to_owned(),
+            newline: "\r\n".to_owned(),
+            indent_width: 4,
+            ..LayoutPolicy::default()
+        };
         let q = policy_from_spec(&policy_to_spec(&p));
         assert_eq!(q.separator, "\t");
         assert_eq!(q.newline, "\r\n");

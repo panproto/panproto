@@ -104,15 +104,18 @@ fn pretty_with_protocol_honours_policy() {
         let decorated_input = DecoratedSchema::from_schema(parsed);
         let abstract_input = decorated_input.forget_layout();
 
-        let mut policy_a = LayoutPolicy::default();
-        policy_a.indent_width = 0;
-        policy_a.separator = " ".into();
-        policy_a.newline = "\n".into();
-
-        let mut policy_b = LayoutPolicy::default();
-        policy_b.indent_width = 4;
-        policy_b.separator = "  ".into(); // two-space glue separator
-        policy_b.newline = "\r\n".into();
+        let policy_a = LayoutPolicy {
+            indent_width: 0,
+            separator: " ".into(),
+            newline: "\n".into(),
+            ..LayoutPolicy::default()
+        };
+        let policy_b = LayoutPolicy {
+            indent_width: 4,
+            separator: "  ".into(),
+            newline: "\r\n".into(),
+            ..LayoutPolicy::default()
+        };
 
         let bytes_a = reg
             .pretty_with_protocol("json", &abstract_input, &policy_a)

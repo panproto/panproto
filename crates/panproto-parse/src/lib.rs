@@ -80,7 +80,7 @@ pub use parse_emit_lens::{
     LawViolation as ParseEmitLawViolation, ParseEmitLens, check_emit_parse, check_parse_emit,
     edge_multiset, kind_multiset, strip_complement,
 };
-pub use parse_emit_protolens::{instantiate_parse_emit_lens, parse_emit_protolens};
+pub use parse_emit_protolens::parse_emit_protolens;
 pub use registry::{AstParser, ParserRegistry};
 pub use scope_detector::{NamedScope, ScopeDetector, ScopeKind};
 pub use theory_extract::{ExtractedTheoryMeta, extract_theory_from_node_types};

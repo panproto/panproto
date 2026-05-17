@@ -438,8 +438,8 @@ impl ParserRegistry {
     /// recover the layout fibre, but if all the caller wants is the
     /// bytes, the re-parse is wasted work. Going through
     /// `emit_pretty_with_policy` directly preserves every field of
-    /// `policy` in the output (separator, newline, indent_width,
-    /// line_break_after, indent_open/close).
+    /// `policy` in the output (`separator`, `newline`, `indent_width`,
+    /// `line_break_after`, `indent_open` / `indent_close`).
     ///
     /// # Errors
     ///
