@@ -26,7 +26,7 @@ use panproto_lens::protolens::{ComplementConstructor, Protolens};
 use panproto_lens::{Lens, error::LensError};
 use panproto_schema::Schema;
 
-use crate::layout_policy::LayoutPolicy;
+use crate::layout_policy::{LayoutPolicy, policy_to_spec};
 
 /// Build a [`Protolens`] for the parse / decorate / emit lens at
 /// `grammar` under the given `policy`.
@@ -57,7 +57,7 @@ pub fn parse_emit_protolens(grammar: &str, policy: &LayoutPolicy) -> Protolens {
             transform: TheoryTransform::AddEnrichment {
                 kind: EnrichmentKind::Layout,
                 enricher: Arc::clone(&enricher),
-                policy: policy.to_spec(),
+                policy: policy_to_spec(policy),
             },
         },
         complement_constructor: ComplementConstructor::Enrichment {

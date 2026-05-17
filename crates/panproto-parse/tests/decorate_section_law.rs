@@ -87,3 +87,55 @@ fn parse_emit_protolens_constructible_for_json() {
     // The protolens names what it does.
     assert!(p.name.as_ref().starts_with("parse_emit/"));
 }
+
+#[cfg(feature = "lang-json")]
+#[test]
+fn pretty_with_protocol_honours_policy() {
+    // Drive the same abstract schema through two different policies
+    // and assert the rendered bytes differ in *exactly* the way the
+    // policies prescribe: separator, indent_width, and newline must
+    // all reach the output. If any field is dead (a "stub"), one of
+    // these assertions fails.
+    with_big_stack(|| {
+        let reg = registry();
+        let parsed = reg
+            .parse_with_protocol("json", b"{\"k\":1}", "policy.json")
+            .expect("parse");
+        let decorated_input = DecoratedSchema::from_schema(parsed);
+        let abstract_input = decorated_input.forget_layout();
+
+        let mut policy_a = LayoutPolicy::default();
+        policy_a.indent_width = 0;
+        policy_a.separator = " ".into();
+        policy_a.newline = "\n".into();
+
+        let mut policy_b = LayoutPolicy::default();
+        policy_b.indent_width = 4;
+        policy_b.separator = "  ".into(); // two-space glue separator
+        policy_b.newline = "\r\n".into();
+
+        let bytes_a = reg
+            .pretty_with_protocol("json", &abstract_input, &policy_a)
+            .expect("pretty A");
+        let bytes_b = reg
+            .pretty_with_protocol("json", &abstract_input, &policy_b)
+            .expect("pretty B");
+
+        assert!(
+            !bytes_a.contains(&b'\r'),
+            "policy A's newline is LF, so output must not contain CR"
+        );
+        assert!(
+            bytes_b.windows(2).any(|w| w == b"\r\n"),
+            "policy B's newline is CRLF; output must contain \\r\\n"
+        );
+
+        // The two policies must produce different output for an
+        // abstract schema with a layout — otherwise the policy field
+        // values were ignored.
+        assert_ne!(
+            bytes_a, bytes_b,
+            "pretty_with_protocol must honour LayoutPolicy field values"
+        );
+    });
+}

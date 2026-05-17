@@ -1,92 +1,91 @@
-//! Runtime `LayoutPolicy` for the parse/decorate/emit lens.
+//! Runtime `LayoutPolicy` for the parse / decorate / emit lens.
 //!
-//! The put-direction of the parse/emit lens (`decorate`) needs to fill
-//! in whitespace and choose CHOICE alternatives that parsing erases.
-//! `LayoutPolicy` is that put-direction complement: it carries the
-//! whitespace conventions (separator, indent, newline) plus optional
-//! per-rule disambiguators when a grammar's CHOICE structure cannot be
-//! uniquely identified from the abstract child-kind sequence alone.
+//! `LayoutPolicy` is a renamed re-export of
+//! [`FormatPolicy`](crate::emit_pretty::FormatPolicy) — the same
+//! configuration that the de-novo emitter consumes. Naming aligns
+//! with the put-direction terminology of the parse / decorate / emit
+//! lens: parsing erases layout; `decorate` puts it back; the policy
+//! is the put-direction complement that pins down what whitespace,
+//! indentation, and CHOICE disambiguators the put step chooses when
+//! the parse-side fingerprint is absent.
 //!
 //! Its [`LayoutPolicySpec`](panproto_gat::LayoutPolicySpec) projection
 //! is the wire-serialisable form embedded in
 //! [`TheoryTransform::AddEnrichment`](panproto_gat::TheoryTransform::AddEnrichment).
 
-use std::borrow::Cow;
-use std::sync::Arc;
-
 use panproto_gat::LayoutPolicySpec;
 use rustc_hash::FxHashMap;
+use std::sync::Arc;
 
-/// Whitespace and disambiguation conventions for `decorate`.
+use crate::emit_pretty::FormatPolicy;
+
+/// Runtime layout policy for `decorate` and `pretty_with_protocol`.
 ///
-/// All fields default to standard ASCII conventions: single-space
-/// separator, two-space indent, LF newline, no disambiguators
-/// (ambiguous alternatives are a hard error rather than silently
-/// resolved). Per-rule disambiguators name the index of the CHOICE
-/// alternative to take when the grammar can produce multiple matching
-/// alternatives for the same abstract child-kind sequence.
-#[derive(Debug, Clone)]
-pub struct LayoutPolicy {
-    /// Whitespace inserted between adjacent terminals in a production.
-    pub separator: Cow<'static, str>,
-    /// One indentation level.
-    pub indent: Cow<'static, str>,
-    /// Newline sequence.
-    pub newline: Cow<'static, str>,
-    /// Per-rule disambiguators: a rule name mapped to the alternative
-    /// index that this policy chooses when the abstract child-kind
-    /// sequence is ambiguous. Empty by default; an ambiguity with no
-    /// entry here is a hard error.
-    pub disambiguators: FxHashMap<Arc<str>, usize>,
-}
+/// Aliased to [`FormatPolicy`](crate::emit_pretty::FormatPolicy): the
+/// emitter's own policy struct is exactly the put-direction
+/// complement of the parse/emit lens, so the two are one type.
+pub type LayoutPolicy = FormatPolicy;
 
-impl Default for LayoutPolicy {
-    fn default() -> Self {
-        Self {
-            separator: Cow::Borrowed(" "),
-            indent: Cow::Borrowed("  "),
-            newline: Cow::Borrowed("\n"),
-            disambiguators: FxHashMap::default(),
-        }
+/// Project a [`LayoutPolicy`] to its wire-serialisable form for
+/// embedding in [`TheoryTransform::AddEnrichment`](panproto_gat::TheoryTransform::AddEnrichment).
+#[must_use]
+pub fn policy_to_spec(policy: &LayoutPolicy) -> LayoutPolicySpec {
+    LayoutPolicySpec {
+        indent_width: policy.indent_width,
+        separator: policy.separator.clone(),
+        newline: policy.newline.clone(),
+        line_break_after: policy.line_break_after.clone(),
+        indent_open: policy.indent_open.clone(),
+        indent_close: policy.indent_close.clone(),
+        disambiguators: FxHashMap::default(),
     }
 }
 
-impl LayoutPolicy {
-    /// Project to the wire-serialisable spec embedded in
-    /// `TheoryTransform::AddEnrichment`.
-    #[must_use]
-    pub fn to_spec(&self) -> LayoutPolicySpec {
-        LayoutPolicySpec {
-            separator: self.separator.clone().into_owned(),
-            indent: self.indent.clone().into_owned(),
-            newline: self.newline.clone().into_owned(),
-            disambiguators: self.disambiguators.clone(),
-        }
-    }
-
-    /// Recover a runtime policy from its wire-serialisable spec.
-    #[must_use]
-    pub fn from_spec(spec: &LayoutPolicySpec) -> Self {
-        Self {
-            separator: Cow::Owned(spec.separator.clone()),
-            indent: Cow::Owned(spec.indent.clone()),
-            newline: Cow::Owned(spec.newline.clone()),
-            disambiguators: spec.disambiguators.clone(),
-        }
+/// Recover a runtime [`LayoutPolicy`] from its wire-serialisable
+/// [`LayoutPolicySpec`].
+#[must_use]
+pub fn policy_from_spec(spec: &LayoutPolicySpec) -> LayoutPolicy {
+    FormatPolicy {
+        indent_width: spec.indent_width,
+        separator: spec.separator.clone(),
+        newline: spec.newline.clone(),
+        line_break_after: spec.line_break_after.clone(),
+        indent_open: spec.indent_open.clone(),
+        indent_close: spec.indent_close.clone(),
     }
 }
+
+/// CHOICE disambiguator map embedded in the protolens definition.
+///
+/// Mapped from a grammar production rule name to the index of the
+/// alternative that the policy selects when child-kind matching
+/// alone cannot uniquely pick an alternative. Carried alongside the
+/// runtime policy on the put-direction side of the lens.
+pub type DisambiguatorMap = FxHashMap<Arc<str>, usize>;
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn default_round_trips_through_spec() {
+    fn round_trip_through_spec() {
         let p = LayoutPolicy::default();
-        let q = LayoutPolicy::from_spec(&p.to_spec());
+        let q = policy_from_spec(&policy_to_spec(&p));
+        assert_eq!(p.indent_width, q.indent_width);
         assert_eq!(p.separator, q.separator);
-        assert_eq!(p.indent, q.indent);
         assert_eq!(p.newline, q.newline);
-        assert_eq!(p.disambiguators.len(), q.disambiguators.len());
+        assert_eq!(p.line_break_after, q.line_break_after);
+    }
+
+    #[test]
+    fn non_default_separator_round_trips() {
+        let mut p = LayoutPolicy::default();
+        p.separator = "\t".to_owned();
+        p.newline = "\r\n".to_owned();
+        p.indent_width = 4;
+        let q = policy_from_spec(&policy_to_spec(&p));
+        assert_eq!(q.separator, "\t");
+        assert_eq!(q.newline, "\r\n");
+        assert_eq!(q.indent_width, 4);
     }
 }

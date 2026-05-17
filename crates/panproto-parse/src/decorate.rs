@@ -8,12 +8,12 @@
 //!
 //! Implementation strategy:
 //!
-//! 1. Run `emit_pretty` on the abstract schema. `emit_pretty` walks
-//!    `grammar.json` production rules using the
-//!    [`LayoutPolicy`](crate::layout_policy::LayoutPolicy) as its
-//!    whitespace source, and produces a syntactically valid byte
-//!    sequence — *the* canonical representative of the parse-preimage
-//!    of the abstract schema under the policy.
+//! 1. Run `emit_pretty_with_policy` on the abstract schema. The
+//!    de-novo emitter walks `grammar.json` production rules using the
+//!    caller-supplied [`LayoutPolicy`] as its source of whitespace
+//!    conventions and produces a syntactically valid byte sequence —
+//!    the canonical representative of the parse-preimage of the
+//!    abstract schema under that policy.
 //!
 //! 2. Re-parse those bytes through the registered parser. The parse
 //!    walker attaches the full layout fibre: `start-byte`, `end-byte`,
@@ -27,18 +27,20 @@
 //!
 //! Both steps reuse the existing parse/emit machinery without
 //! duplication — `decorate` is exactly the composite
-//! `parse ∘ emit_pretty` lifted to the type level.
+//! `parse ∘ emit_pretty(·, policy)` lifted to the type level.
 //!
 //! ## Laws
 //!
 //! For every `a : AbstractSchema` and `p : LayoutPolicy`:
 //!
-//! - **Section law:** `forget_layout(decorate(a, p)) ≅_kinds a` —
-//!   the abstract content survives the round-trip up to vertex-id
-//!   renaming. Verified by [`tests`] below.
-//! - **Idempotence under iteration:**
-//!   `forget_layout(decorate(forget_layout(decorate(a, p)), p)) ≅_kinds a` —
-//!   decorate is well-defined on the image of `forget_layout`.
+//! - **Section law (mod kind-multiset):**
+//!   `forget_layout(decorate(a, p)) ≅_kinds a` — the abstract content
+//!   survives the round-trip up to vertex-id renaming. Verified by
+//!   the `decorate_section_law` integration test for every grammar
+//!   with a parse fixture.
+//! - **Policy fidelity:** the bytes produced by `pretty_with_protocol`
+//!   honour `p.separator`, `p.newline`, and `p.indent_width`. Verified
+//!   by the policy-plumbing test below.
 
 use panproto_gat::{EnrichmentKind, LayoutPolicySpec};
 use panproto_lens::enrichment_registry::{LayoutEnricher, register_enricher};
@@ -46,11 +48,11 @@ use panproto_lens::error::LensError;
 use panproto_schema::{AbstractSchema, DecoratedSchema, Schema};
 
 use crate::error::ParseError;
-use crate::layout_policy::LayoutPolicy;
+use crate::layout_policy::{LayoutPolicy, policy_from_spec};
 use crate::registry::AstParser;
 
 /// Decorate an abstract schema by routing it through
-/// `emit_pretty + parse` against `parser`.
+/// `emit_pretty_with_policy + parse` against `parser`.
 ///
 /// # Errors
 ///
@@ -62,9 +64,9 @@ use crate::registry::AstParser;
 pub fn decorate_with_parser(
     parser: &dyn AstParser,
     abstract_schema: &AbstractSchema,
-    _policy: &LayoutPolicy,
+    policy: &LayoutPolicy,
 ) -> Result<DecoratedSchema, ParseError> {
-    let bytes = parser.emit_pretty(abstract_schema.as_schema())?;
+    let bytes = parser.emit_pretty_with_policy(abstract_schema.as_schema(), policy)?;
     let reparsed = parser.parse(&bytes, "decorate")?;
     Ok(DecoratedSchema::from_schema(reparsed))
 }
@@ -73,7 +75,7 @@ pub fn decorate_with_parser(
 /// [`LayoutEnricher`](panproto_lens::enrichment_registry::LayoutEnricher).
 ///
 /// Held by the global enrichment registry; one driver is installed
-/// per protocol at [`ParserRegistry::new`](crate::ParserRegistry::new)
+/// per protocol at [`ParserRegistry::register`](crate::ParserRegistry::register)
 /// time so that
 /// [`TheoryTransform::AddEnrichment`](panproto_gat::TheoryTransform::AddEnrichment)
 /// dispatches to the right grammar walker without `panproto-lens`
@@ -87,16 +89,17 @@ impl LayoutEnricher for ParserLayoutEnricher {
     fn enrich(
         &self,
         schema: &Schema,
-        _policy: &LayoutPolicySpec,
+        policy: &LayoutPolicySpec,
     ) -> Result<Schema, LensError> {
-        let bytes =
-            self.parser
-                .emit_pretty(schema)
-                .map_err(|e| LensError::EnrichmentSynthesisFailed {
-                    kind: EnrichmentKind::Layout,
-                    enricher: self.protocol.clone(),
-                    detail: format!("emit_pretty failed: {e}"),
-                })?;
+        let runtime_policy = policy_from_spec(policy);
+        let bytes = self
+            .parser
+            .emit_pretty_with_policy(schema, &runtime_policy)
+            .map_err(|e| LensError::EnrichmentSynthesisFailed {
+                kind: EnrichmentKind::Layout,
+                enricher: self.protocol.clone(),
+                detail: format!("emit_pretty failed: {e}"),
+            })?;
         self.parser
             .parse(&bytes, "decorate/enrichment")
             .map_err(|e| LensError::EnrichmentSynthesisFailed {

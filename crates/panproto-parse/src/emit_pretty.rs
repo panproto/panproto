@@ -532,10 +532,17 @@ fn compute_subtype_closure(
 /// trailing-comma rules, blank-line conventions) can ride alongside
 /// this struct in a follow-up branch; today's defaults aim only for
 /// syntactic validity.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FormatPolicy {
     /// Number of spaces per indent level.
     pub indent_width: usize,
+    /// Separator inserted between adjacent terminals that the lexer
+    /// would otherwise glue together (word ↔ word, operator ↔ operator).
+    /// Default is a single space.
+    pub separator: String,
+    /// Newline byte sequence emitted after [`line_break_after`] tokens
+    /// and at end-of-output. Default is `"\n"`.
+    pub newline: String,
     /// Tokens after which the walker breaks to a new line.
     pub line_break_after: Vec<String>,
     /// Tokens that increase indent on emission.
@@ -548,6 +555,8 @@ impl Default for FormatPolicy {
     fn default() -> Self {
         Self {
             indent_width: 2,
+            separator: " ".to_owned(),
+            newline: "\n".to_owned(),
             line_break_after: vec![";".into(), "{".into(), "}".into()],
             indent_open: vec!["{".into()],
             indent_close: vec!["}".into()],
@@ -1678,6 +1687,8 @@ fn layout(tokens: &[Token], policy: &FormatPolicy) -> Vec<u8> {
     let mut indent: usize = 0;
     let mut at_line_start = true;
     let mut last_lit: Option<&str> = None;
+    let newline = policy.newline.as_bytes();
+    let separator = policy.separator.as_bytes();
 
     for tok in tokens {
         match tok {
@@ -1685,13 +1696,13 @@ fn layout(tokens: &[Token], policy: &FormatPolicy) -> Vec<u8> {
             Token::IndentClose => {
                 indent = indent.saturating_sub(1);
                 if !at_line_start {
-                    bytes.push(b'\n');
+                    bytes.extend_from_slice(newline);
                     at_line_start = true;
                 }
             }
             Token::LineBreak => {
                 if !at_line_start {
-                    bytes.push(b'\n');
+                    bytes.extend_from_slice(newline);
                     at_line_start = true;
                 }
             }
@@ -1700,7 +1711,7 @@ fn layout(tokens: &[Token], policy: &FormatPolicy) -> Vec<u8> {
                     bytes.extend(std::iter::repeat_n(b' ', indent * policy.indent_width));
                 } else if let Some(prev) = last_lit {
                     if needs_space_between(prev, value) {
-                        bytes.push(b' ');
+                        bytes.extend_from_slice(separator);
                     }
                 }
                 bytes.extend_from_slice(value.as_bytes());
@@ -1711,7 +1722,7 @@ fn layout(tokens: &[Token], policy: &FormatPolicy) -> Vec<u8> {
     }
 
     if !at_line_start {
-        bytes.push(b'\n');
+        bytes.extend_from_slice(newline);
     }
     bytes
 }

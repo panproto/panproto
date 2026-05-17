@@ -315,10 +315,8 @@ impl SchemaBuilder {
     /// [`Schema::is_layout_free`](crate::Schema::is_layout_free)).
     pub fn build_abstract(self) -> Result<crate::AbstractSchema, SchemaError> {
         let schema = self.build()?;
-        if !schema.is_layout_free() {
-            return Err(SchemaError::LayoutConstraintsOnAbstractBuild);
-        }
-        Ok(crate::AbstractSchema::from_layout_free(schema))
+        crate::AbstractSchema::from_layout_free(schema)
+            .map_err(|_| SchemaError::LayoutConstraintsOnAbstractBuild)
     }
 
     /// Build a [`DecoratedSchema`](crate::DecoratedSchema).

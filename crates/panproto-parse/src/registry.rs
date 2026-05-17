@@ -55,11 +55,34 @@ pub trait AstParser: Send + Sync {
     /// vendored `grammar.json`, when a vertex's kind is not a grammar
     /// rule, or when a required field has no corresponding schema edge.
     fn emit_pretty(&self, schema: &Schema) -> Result<Vec<u8>, ParseError> {
-        let _ = schema;
+        self.emit_pretty_with_policy(schema, &crate::emit_pretty::FormatPolicy::default())
+    }
+
+    /// Render a by-construction [`Schema`] under a caller-supplied
+    /// [`FormatPolicy`](crate::emit_pretty::FormatPolicy).
+    ///
+    /// The policy governs every configurable aspect of the rendered
+    /// output: separator between glued tokens, newline byte sequence,
+    /// indent width, line-break and indent-open/close token sets. The
+    /// default policy (used by [`emit_pretty`](Self::emit_pretty))
+    /// targets syntactic validity with ASCII conventions; callers
+    /// supplying their own policy can pin idiomatic formatting.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParseError::EmitFailed`] when the language has no
+    /// vendored `grammar.json`, when a vertex's kind is not a grammar
+    /// rule, or when a required field has no corresponding schema edge.
+    fn emit_pretty_with_policy(
+        &self,
+        schema: &Schema,
+        policy: &crate::emit_pretty::FormatPolicy,
+    ) -> Result<Vec<u8>, ParseError> {
+        let _ = (schema, policy);
         Err(ParseError::EmitFailed {
             protocol: self.protocol_name().to_owned(),
             reason: format!(
-                "emit_pretty not implemented for protocol '{}'",
+                "emit_pretty_with_policy not implemented for protocol '{}'",
                 self.protocol_name()
             ),
         })
@@ -407,24 +430,33 @@ impl ParserRegistry {
         crate::decorate::decorate_with_parser(parser.as_ref(), abstract_schema, policy)
     }
 
-    /// Convenience: `emit_pretty_with_protocol ∘ decorate`.
+    /// Render an [`AbstractSchema`] to canonical source bytes under
+    /// `policy`.
     ///
-    /// Drives an abstract schema all the way to canonical source bytes
-    /// under the given `policy`. Equivalent to
-    /// `decorate(...).and_then(|d| emit_pretty_with_protocol(protocol, d.as_schema()))`.
+    /// Implementation note: this is exactly the first emit step of
+    /// [`decorate`](Self::decorate) — `decorate` then re-parses to
+    /// recover the layout fibre, but if all the caller wants is the
+    /// bytes, the re-parse is wasted work. Going through
+    /// `emit_pretty_with_policy` directly preserves every field of
+    /// `policy` in the output (separator, newline, indent_width,
+    /// line_break_after, indent_open/close).
     ///
     /// # Errors
     ///
-    /// See [`decorate`](Self::decorate) and
-    /// [`emit_pretty_with_protocol`](Self::emit_pretty_with_protocol).
+    /// See [`decorate`](Self::decorate).
     pub fn pretty_with_protocol(
         &self,
         protocol: &str,
         abstract_schema: &AbstractSchema,
         policy: &LayoutPolicy,
     ) -> Result<Vec<u8>, ParseError> {
-        let decorated = self.decorate(protocol, abstract_schema, policy)?;
-        self.emit_pretty_with_protocol(protocol, decorated.as_schema())
+        let parser = self
+            .parsers
+            .get(protocol)
+            .ok_or_else(|| ParseError::UnknownLanguage {
+                extension: protocol.to_owned(),
+            })?;
+        parser.emit_pretty_with_policy(abstract_schema.as_schema(), policy)
     }
 
     /// Return the canonical [`Protolens`](panproto_lens::Protolens) for

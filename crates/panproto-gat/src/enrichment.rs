@@ -66,31 +66,42 @@ pub fn is_layout_sort(sort: &str) -> bool {
 /// Wire-serialisable layout policy carried inside
 /// [`TheoryTransform::AddEnrichment`](crate::TheoryTransform::AddEnrichment).
 ///
-/// The runtime `LayoutPolicy` (with its `Cow<'static, str>` fields and
-/// resolver hooks) lives in `panproto-parse`. This struct is the
-/// serialisable projection: enough state to round-trip a policy through
-/// a stored protolens definition.
+/// Mirrors the field set of `panproto_parse::emit_pretty::FormatPolicy`
+/// (the runtime policy actually consumed by the de-novo emitter), plus
+/// per-rule CHOICE disambiguators specific to the put direction of
+/// the parse/emit lens.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct LayoutPolicySpec {
-    /// Whitespace inserted between adjacent terminals.
+    /// Number of spaces per indent level.
+    pub indent_width: usize,
+    /// Separator inserted between adjacent terminals that the lexer
+    /// would otherwise glue together. Default: a single space.
     pub separator: String,
-    /// One indentation level.
-    pub indent: String,
-    /// Newline sequence.
+    /// Newline byte sequence. Default: `"\n"`.
     pub newline: String,
-    /// Per-rule disambiguators: maps a production-rule name to the
-    /// index of the alternative the policy selects when child-kind
-    /// matching is ambiguous. An empty map means "ambiguity is an
-    /// error"; this is the strict default.
+    /// Tokens after which the emitter breaks to a new line.
+    pub line_break_after: Vec<String>,
+    /// Tokens that increase indent on emission.
+    pub indent_open: Vec<String>,
+    /// Tokens that decrease indent on emission.
+    pub indent_close: Vec<String>,
+    /// Per-rule disambiguators: a grammar production rule name mapped
+    /// to the index of the alternative the policy selects when
+    /// child-kind matching alone cannot uniquely pick an alternative.
+    /// An empty map means "ambiguity is an error"; this is the strict
+    /// default.
     pub disambiguators: FxHashMap<Arc<str>, usize>,
 }
 
 impl Default for LayoutPolicySpec {
     fn default() -> Self {
         Self {
+            indent_width: 2,
             separator: " ".to_owned(),
-            indent: "  ".to_owned(),
             newline: "\n".to_owned(),
+            line_break_after: vec![";".into(), "{".into(), "}".into()],
+            indent_open: vec!["{".into()],
+            indent_close: vec!["}".into()],
             disambiguators: FxHashMap::default(),
         }
     }

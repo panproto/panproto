@@ -217,7 +217,11 @@ impl AstParser for LanguageParser {
         &self.theory_meta
     }
 
-    fn emit_pretty(&self, schema: &Schema) -> Result<Vec<u8>, ParseError> {
+    fn emit_pretty_with_policy(
+        &self,
+        schema: &Schema,
+        policy: &FormatPolicy,
+    ) -> Result<Vec<u8>, ParseError> {
         let bytes = self.grammar_json.ok_or_else(|| ParseError::EmitFailed {
             protocol: self.protocol_name.clone(),
             reason: "grammar.json not vendored for this protocol; \
@@ -236,8 +240,7 @@ impl AstParser for LanguageParser {
                 });
             }
         };
-        let policy = FormatPolicy::default();
-        emit_pretty_inner(&self.protocol_name, schema, grammar, &policy)
+        emit_pretty_inner(&self.protocol_name, schema, grammar, policy)
     }
 }
 

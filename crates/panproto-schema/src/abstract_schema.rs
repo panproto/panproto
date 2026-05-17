@@ -22,6 +22,19 @@ use panproto_gat::Name;
 use crate::Schema;
 use crate::schema::Constraint;
 
+/// Returned by [`AbstractSchema::from_layout_free`] when the input
+/// schema carries constraints in the layout enrichment fibre and
+/// therefore cannot be treated as abstract.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error(
+    "cannot construct AbstractSchema: {count} layout-fibre constraint(s) present; \
+     call Schema::forget_layout first"
+)]
+pub struct LayoutConstraintsPresent {
+    /// Number of offending constraint entries detected.
+    pub count: usize,
+}
+
 /// A schema with no layout enrichment.
 ///
 /// Carrying only vertex kinds, edges, and content-level constraints
@@ -60,17 +73,45 @@ pub struct LayoutWitness<'a> {
 }
 
 impl AbstractSchema {
-    /// Internal constructor. Callers in this crate (`SchemaBuilder`)
-    /// and in the lens crate (when applying the forgetful U) use this
-    /// after verifying the no-layout invariant; external code cannot
-    /// reach it.
-    #[doc(hidden)]
+    /// Construct an [`AbstractSchema`] from a [`Schema`] that already
+    /// satisfies the no-layout invariant.
+    ///
+    /// The invariant is checked at runtime in every build (debug and
+    /// release): a non-layout-free schema is a programming error in
+    /// the caller, but a load-bearing one — emit and parse use the
+    /// type-level distinction to dispatch, and a silently-wrong
+    /// `AbstractSchema` would corrupt downstream behaviour. Returns
+    /// `Err(LayoutConstraintsPresent { count })` carrying the number
+    /// of offending constraint entries so callers can diagnose.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LayoutConstraintsPresent`] when `schema.is_layout_free()`
+    /// returns `false`. Use [`Schema::forget_layout`] first if a
+    /// decorated schema needs to be downcast.
+    pub fn from_layout_free(schema: Schema) -> Result<Self, LayoutConstraintsPresent> {
+        let offending = schema
+            .constraints
+            .values()
+            .flat_map(|cs| cs.iter())
+            .filter(|c| panproto_gat::is_layout_sort(c.sort.as_ref()))
+            .count();
+        if offending == 0 {
+            Ok(Self { inner: schema })
+        } else {
+            Err(LayoutConstraintsPresent { count: offending })
+        }
+    }
+
+    /// Construct an [`AbstractSchema`] from a [`Schema`] without
+    /// checking the layout-free invariant.
+    ///
+    /// Reserved for callers that have *just* run `forget_layout` on
+    /// the input and want to skip the redundant scan. Misuse degrades
+    /// emit/decorate correctness silently; prefer
+    /// [`from_layout_free`](Self::from_layout_free) elsewhere.
     #[must_use]
-    pub fn from_layout_free(schema: Schema) -> Self {
-        debug_assert!(
-            schema.is_layout_free(),
-            "AbstractSchema::from_layout_free called with layout constraints present",
-        );
+    pub fn from_layout_free_unchecked(schema: Schema) -> Self {
         Self { inner: schema }
     }
 
@@ -127,9 +168,13 @@ impl DecoratedSchema {
 
     /// Project to the abstract schema by forgetting all layout-fibre
     /// constraints. This is the lens get-direction realised in types.
+    ///
+    /// Cannot fail: `Schema::forget_layout` always returns a
+    /// layout-free schema, so the invariant of [`AbstractSchema`] is
+    /// satisfied by construction.
     #[must_use]
     pub fn forget_layout(&self) -> AbstractSchema {
-        AbstractSchema::from_layout_free(self.inner.forget_layout())
+        AbstractSchema::from_layout_free_unchecked(self.inner.forget_layout())
     }
 
     /// Returns a read-only view of the layout witness at `vertex_id`,
