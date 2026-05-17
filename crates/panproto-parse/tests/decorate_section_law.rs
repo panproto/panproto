@@ -26,7 +26,7 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use panproto_parse::{LayoutPolicy, ParserRegistry};
-use panproto_schema::{DecoratedSchema, kind_multiset};
+use panproto_schema::{DecoratedSchema, edge_multiset, kind_multiset};
 
 fn registry() -> ParserRegistry {
     ParserRegistry::new()
@@ -47,11 +47,18 @@ fn section_law_holds(protocol: &str, source: &[u8]) {
 
     let abstract_output = redecorated.forget_layout();
 
-    let lhs = kind_multiset(abstract_input.as_schema());
-    let rhs = kind_multiset(abstract_output.as_schema());
+    let in_kinds = kind_multiset(abstract_input.as_schema());
+    let out_kinds = kind_multiset(abstract_output.as_schema());
     assert_eq!(
-        lhs, rhs,
-        "section law violated for {protocol}: abstract content drifted across decorate"
+        in_kinds, out_kinds,
+        "section law violated for {protocol}: vertex-kind multiset drifted across decorate"
+    );
+
+    let in_edges = edge_multiset(abstract_input.as_schema());
+    let out_edges = edge_multiset(abstract_output.as_schema());
+    assert_eq!(
+        in_edges, out_edges,
+        "section law violated for {protocol}: edge-shape multiset drifted across decorate"
     );
 }
 

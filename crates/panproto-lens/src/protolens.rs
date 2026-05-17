@@ -2170,14 +2170,7 @@ fn apply_theory_transform_to_schema(
             let intermediate = apply_theory_transform_to_schema(first, schema, protocol)?;
             apply_theory_transform_to_schema(second, &intermediate, protocol)
         }
-        TheoryTransform::StripEnrichment(kind) => {
-            let mut out = schema.clone();
-            for cs in out.constraints.values_mut() {
-                cs.retain(|c| !kind.is_member_sort(c.sort.as_ref()));
-            }
-            out.constraints.retain(|_, cs| !cs.is_empty());
-            Ok(out)
-        }
+        TheoryTransform::StripEnrichment(kind) => Ok(apply_strip_enrichment(schema, *kind)),
         TheoryTransform::AddEnrichment {
             kind,
             enricher,
@@ -2187,6 +2180,17 @@ fn apply_theory_transform_to_schema(
             driver.enrich(schema, policy)
         }
     }
+}
+
+/// Drop every constraint whose sort is in `kind`'s fibre, and prune
+/// the now-empty per-vertex entries so equality is structural.
+fn apply_strip_enrichment(schema: &Schema, kind: panproto_gat::EnrichmentKind) -> Schema {
+    let mut out = schema.clone();
+    for cs in out.constraints.values_mut() {
+        cs.retain(|c| !kind.is_member_sort(c.sort.as_ref()));
+    }
+    out.constraints.retain(|_, cs| !cs.is_empty());
+    out
 }
 
 /// Schema-level counterpart of

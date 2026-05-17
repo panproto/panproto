@@ -204,35 +204,40 @@ fn spec_from_constructor(constructor: &ComplementConstructor, schema: &Schema) -
             }
         }
         ComplementConstructor::Enrichment { kind, enricher } => {
-            // Count vertices that currently carry constraints in the
-            // enrichment's fibre, so the spec reports an honest size
-            // estimate for the schema-level shuffling that the
-            // registered driver performs in `apply_theory_transform_to_schema`.
-            let count = schema
-                .constraints
-                .values()
-                .filter(|cs| cs.iter().any(|c| kind.is_member_sort(c.sort.as_ref())))
-                .count();
-            ComplementSpec {
-                kind: ComplementKind::DataCaptured,
-                forward_defaults: vec![],
-                captured_data: vec![CapturedField {
-                    element_name: Name::from(format!("enrichment/{kind:?}/{enricher}")),
-                    element_kind: "enrichment".into(),
-                    description: format!(
-                        "{count} vertices carry constraints in the {kind:?} \
-                         enrichment fibre; the registered driver \
-                         '{enricher}' is responsible for materialising \
-                         them in the put direction."
-                    ),
-                }],
-                summary: format!(
-                    "{kind:?} enrichment via driver '{enricher}'; \
-                     per-vertex fibre handled by the driver, not the \
-                     WInstance complement."
-                ),
-            }
+            enrichment_spec(*kind, enricher, schema)
         }
+    }
+}
+
+/// Build a `ComplementSpec` for an enrichment-fibre complement.
+fn enrichment_spec(
+    kind: panproto_gat::EnrichmentKind,
+    enricher: &std::sync::Arc<str>,
+    schema: &Schema,
+) -> ComplementSpec {
+    let count = schema
+        .constraints
+        .values()
+        .filter(|cs| cs.iter().any(|c| kind.is_member_sort(c.sort.as_ref())))
+        .count();
+    ComplementSpec {
+        kind: ComplementKind::DataCaptured,
+        forward_defaults: vec![],
+        captured_data: vec![CapturedField {
+            element_name: Name::from(format!("enrichment/{kind:?}/{enricher}")),
+            element_kind: "enrichment".into(),
+            description: format!(
+                "{count} vertices carry constraints in the {kind:?} \
+                 enrichment fibre; the registered driver \
+                 '{enricher}' is responsible for materialising \
+                 them in the put direction."
+            ),
+        }],
+        summary: format!(
+            "{kind:?} enrichment via driver '{enricher}'; \
+             per-vertex fibre handled by the driver, not the \
+             WInstance complement."
+        ),
     }
 }
 
