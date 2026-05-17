@@ -295,7 +295,7 @@ mod tests {
             .spawn(|| {
                 let registry = ParserRegistry::new();
                 let lens = ParseEmitLens::new(&registry, "json");
-                let parsed = lens.parse(br#"[1, 2, 3]"#).expect("parse");
+                let parsed = lens.parse(b"[1, 2, 3]").expect("parse");
                 check_emit_parse(&lens, &parsed).expect("retraction holds for parsed schema");
             })
             .expect("spawn")
@@ -346,7 +346,7 @@ mod tests {
                 let registry = ParserRegistry::new();
                 let lens = ParseEmitLens::new(&registry, "json");
                 let s1 = lens.parse(br#"{"a": 1}"#).expect("parse");
-                let s2 = lens.parse(br#"[1]"#).expect("parse");
+                let s2 = lens.parse(b"[1]").expect("parse");
                 let m1 = edge_multiset(&s1);
                 let m2 = edge_multiset(&s2);
                 assert_ne!(
