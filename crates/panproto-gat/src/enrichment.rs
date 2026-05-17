@@ -14,10 +14,6 @@
 //! This module names the enrichments and gives the layout-kind predicate
 //! that classifies which constraint sorts belong to the layout fibre.
 
-use std::sync::Arc;
-
-use rustc_hash::FxHashMap;
-
 /// The classifying tag for a schema enrichment.
 ///
 /// Enrichments are not theory-level structure: they extend the *schema*
@@ -67,9 +63,10 @@ pub fn is_layout_sort(sort: &str) -> bool {
 /// [`TheoryTransform::AddEnrichment`](crate::TheoryTransform::AddEnrichment).
 ///
 /// Mirrors the field set of `panproto_parse::emit_pretty::FormatPolicy`
-/// (the runtime policy actually consumed by the de-novo emitter), plus
-/// per-rule CHOICE disambiguators specific to the put direction of
-/// the parse/emit lens.
+/// — the runtime policy actually consumed by the de-novo emitter.
+/// Every field here is honoured end-to-end by `emit_pretty`'s
+/// rendering pipeline; there are no stub fields whose values do not
+/// affect output.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct LayoutPolicySpec {
     /// Number of spaces per indent level.
@@ -85,12 +82,6 @@ pub struct LayoutPolicySpec {
     pub indent_open: Vec<String>,
     /// Tokens that decrease indent on emission.
     pub indent_close: Vec<String>,
-    /// Per-rule disambiguators: a grammar production rule name mapped
-    /// to the index of the alternative the policy selects when
-    /// child-kind matching alone cannot uniquely pick an alternative.
-    /// An empty map means "ambiguity is an error"; this is the strict
-    /// default.
-    pub disambiguators: FxHashMap<Arc<str>, usize>,
 }
 
 impl Default for LayoutPolicySpec {
@@ -102,7 +93,6 @@ impl Default for LayoutPolicySpec {
             line_break_after: vec![";".into(), "{".into(), "}".into()],
             indent_open: vec!["{".into()],
             indent_close: vec!["}".into()],
-            disambiguators: FxHashMap::default(),
         }
     }
 }

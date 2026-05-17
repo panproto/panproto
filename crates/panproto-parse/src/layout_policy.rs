@@ -5,17 +5,15 @@
 //! configuration that the de-novo emitter consumes. Naming aligns
 //! with the put-direction terminology of the parse / decorate / emit
 //! lens: parsing erases layout; `decorate` puts it back; the policy
-//! is the put-direction complement that pins down what whitespace,
-//! indentation, and CHOICE disambiguators the put step chooses when
-//! the parse-side fingerprint is absent.
+//! is the put-direction complement that pins down what whitespace
+//! and indentation the put step uses when the parse-side fingerprint
+//! is absent.
 //!
 //! Its [`LayoutPolicySpec`](panproto_gat::LayoutPolicySpec) projection
 //! is the wire-serialisable form embedded in
 //! [`TheoryTransform::AddEnrichment`](panproto_gat::TheoryTransform::AddEnrichment).
 
 use panproto_gat::LayoutPolicySpec;
-use rustc_hash::FxHashMap;
-use std::sync::Arc;
 
 use crate::emit_pretty::FormatPolicy;
 
@@ -37,7 +35,6 @@ pub fn policy_to_spec(policy: &LayoutPolicy) -> LayoutPolicySpec {
         line_break_after: policy.line_break_after.clone(),
         indent_open: policy.indent_open.clone(),
         indent_close: policy.indent_close.clone(),
-        disambiguators: FxHashMap::default(),
     }
 }
 
@@ -54,14 +51,6 @@ pub fn policy_from_spec(spec: &LayoutPolicySpec) -> LayoutPolicy {
         indent_close: spec.indent_close.clone(),
     }
 }
-
-/// CHOICE disambiguator map embedded in the protolens definition.
-///
-/// Mapped from a grammar production rule name to the index of the
-/// alternative that the policy selects when child-kind matching
-/// alone cannot uniquely pick an alternative. Carried alongside the
-/// runtime policy on the put-direction side of the lens.
-pub type DisambiguatorMap = FxHashMap<Arc<str>, usize>;
 
 #[cfg(test)]
 mod tests {
