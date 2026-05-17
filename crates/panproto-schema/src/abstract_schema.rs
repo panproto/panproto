@@ -210,16 +210,19 @@ impl DecoratedSchema {
         AbstractSchema::from_layout_free_unchecked(self.inner.forget_layout())
     }
 
-    /// Returns a read-only view of the layout witness at `vertex_id`,
-    /// or `None` if the vertex carries no layout constraints (which
-    /// implies the schema was synthesised by `decorate` on a vertex
-    /// outside the policy's coverage; this is a bug, not user input).
+    /// Returns a read-only view of the constraint set at `vertex_id`.
+    ///
+    /// Returns `None` when the vertex has no constraints recorded at
+    /// all (`schema.constraints.get(vertex_id) == None`). When the
+    /// vertex has constraints but none are in the layout fibre, the
+    /// returned witness is non-empty but [`LayoutWitness::iter`]
+    /// yields nothing — the layout accessors (`start_byte`,
+    /// `end_byte`, …) return `None` for missing entries.
     #[must_use]
     pub fn layout_witness(&self, vertex_id: &str) -> Option<LayoutWitness<'_>> {
         let cs = self.inner.constraints.get(vertex_id)?;
         Some(LayoutWitness { constraints: cs })
     }
-
 }
 
 impl<'a> LayoutWitness<'a> {
