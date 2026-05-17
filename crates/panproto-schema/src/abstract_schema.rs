@@ -30,10 +30,6 @@
 //! that would let us refuse arbitrary cross-crate constructions).
 //! The checked / unchecked split is the load-bearing safety net.
 
-use std::collections::HashMap;
-
-use panproto_gat::Name;
-
 use crate::Schema;
 use crate::schema::Constraint;
 
@@ -224,27 +220,6 @@ impl DecoratedSchema {
         Some(LayoutWitness { constraints: cs })
     }
 
-    /// Returns the per-vertex layout-fibre witness map.
-    ///
-    /// The returned map contains exactly the constraints whose sort
-    /// satisfies [`panproto_gat::is_layout_sort`], grouped by vertex
-    /// id. This is the snapshot the lens complement stores when the
-    /// forgetful U strips layout from a decorated schema.
-    #[must_use]
-    pub fn layout_constraint_map(&self) -> HashMap<Name, Vec<Constraint>> {
-        let mut map: HashMap<Name, Vec<Constraint>> = HashMap::new();
-        for (vid, cs) in &self.inner.constraints {
-            let kept: Vec<Constraint> = cs
-                .iter()
-                .filter(|c| panproto_gat::is_layout_sort(c.sort.as_ref()))
-                .cloned()
-                .collect();
-            if !kept.is_empty() {
-                map.insert(vid.clone(), kept);
-            }
-        }
-        map
-    }
 }
 
 impl<'a> LayoutWitness<'a> {
@@ -297,6 +272,7 @@ impl<'a> LayoutWitness<'a> {
 mod tests {
     use super::*;
     use crate::{EdgeRule, Protocol, SchemaBuilder};
+    use panproto_gat::Name;
 
     fn empty_protocol() -> Protocol {
         Protocol {
