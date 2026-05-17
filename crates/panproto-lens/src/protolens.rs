@@ -135,22 +135,26 @@ pub enum ComplementConstructor {
         /// The inner complement constructor.
         inner: Box<Self>,
     },
-    /// Complement captures a schema enrichment fibre stripped by the
-    /// get-direction (e.g. layout witnesses for the parse/emit lens).
+    /// Names a schema-enrichment fibre and the synthesis driver
+    /// registered to populate it.
     ///
-    /// The complement is a per-vertex map from constraint sort to value,
-    /// matching the constraint sorts that
-    /// [`panproto_gat::EnrichmentKind::is_member_sort`] identifies as
-    /// belonging to the enrichment fibre. The put-direction either
-    /// replays this witness (when round-tripping) or invokes the
-    /// registered synthesis driver (when running put-without-prior-get,
-    /// i.e. `decorate` against a fresh abstract schema).
+    /// This variant is descriptive only: the `Complement` struct in
+    /// [`crate::asymmetric`] holds `WInstance`-level discarded data
+    /// (dropped nodes, dropped arcs, contraction choices) and does
+    /// not have a per-vertex constraint-fibre field. For protolenses
+    /// whose source / target endofunctors are
+    /// [`TheoryTransform::StripEnrichment`] / `AddEnrichment`, the
+    /// schema-level fibre-shuffling happens in
+    /// `apply_theory_transform_to_schema` (via the registered
+    /// [`LayoutEnricher`](crate::enrichment_registry::LayoutEnricher));
+    /// the operational entry points for the parse/decorate/emit lens
+    /// live in `panproto-parse` rather than the asymmetric
+    /// `get` / `put` pair.
     Enrichment {
         /// The enrichment fibre being captured.
         kind: panproto_gat::EnrichmentKind,
-        /// Name of the registered synthesis driver, used by
-        /// put-without-prior-get to regenerate the witness from a
-        /// policy (e.g. a grammar name for `Layout`).
+        /// Name of the registered synthesis driver, looked up in the
+        /// `enrichment_registry` (e.g. a grammar name for `Layout`).
         enricher: Arc<str>,
     },
 }

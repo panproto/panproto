@@ -200,9 +200,10 @@ pub enum TheoryTransform {
     /// enrichment is the same theory as the base. At the schema level,
     /// every constraint whose sort belongs to the enrichment's fibre
     /// (per [`EnrichmentKind::is_member_sort`](crate::EnrichmentKind::is_member_sort))
-    /// is removed. Classified as `Lens`: the dropped constraints are
-    /// captured in the put-direction complement so the round-trip is
-    /// total.
+    /// is removed. Classified as `Lens`. The schema-level synthesis
+    /// driver is responsible for the put-direction; the lens-framework
+    /// complement names which fibre and which driver, not the per-
+    /// vertex witness data.
     StripEnrichment(crate::EnrichmentKind),
     /// Add a schema enrichment.
     ///

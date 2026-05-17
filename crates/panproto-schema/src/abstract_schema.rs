@@ -274,7 +274,7 @@ impl<'a> LayoutWitness<'a> {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::{EdgeRule, Protocol, SchemaBuilder};
+    use crate::{EdgeRule, Protocol, SchemaBuilder, SchemaError};
     use panproto_gat::Name;
 
     fn empty_protocol() -> Protocol {
@@ -341,5 +341,58 @@ mod tests {
         let w = decorated.layout_witness("v0").unwrap();
         assert_eq!(w.start_byte(), Some(3));
         assert_eq!(w.end_byte(), Some(7));
+    }
+
+    #[test]
+    fn build_abstract_accepts_layout_free_input() {
+        let p = empty_protocol();
+        let result = SchemaBuilder::new(&p)
+            .vertex("v0", "node", None)
+            .unwrap()
+            .constraint("v0", "literal-value", "hi")
+            .build_abstract();
+        assert!(result.is_ok(), "build_abstract should accept content-only constraints");
+        assert!(result.unwrap().as_schema().is_layout_free());
+    }
+
+    #[test]
+    fn build_abstract_rejects_layout_constraints() {
+        let p = empty_protocol();
+        let result = SchemaBuilder::new(&p)
+            .vertex("v0", "node", None)
+            .unwrap()
+            .constraint("v0", "start-byte", "0")
+            .build_abstract();
+        assert!(matches!(
+            result,
+            Err(SchemaError::LayoutConstraintsOnAbstractBuild)
+        ));
+    }
+
+    #[test]
+    fn build_decorated_accepts_any_constraint_set() {
+        let p = empty_protocol();
+        let result = SchemaBuilder::new(&p)
+            .vertex("v0", "node", None)
+            .unwrap()
+            .constraint("v0", "start-byte", "0")
+            .constraint("v0", "end-byte", "4")
+            .build_decorated();
+        assert!(result.is_ok(), "build_decorated does not validate the fibre");
+    }
+
+    #[test]
+    fn from_layout_free_reports_offending_count() {
+        let p = empty_protocol();
+        let schema = SchemaBuilder::new(&p)
+            .vertex("v0", "node", None)
+            .unwrap()
+            .constraint("v0", "start-byte", "0")
+            .constraint("v0", "end-byte", "4")
+            .constraint("v0", "chose-alt-fingerprint", "{")
+            .build()
+            .unwrap();
+        let err = AbstractSchema::from_layout_free(schema).unwrap_err();
+        assert_eq!(err.count, 3);
     }
 }

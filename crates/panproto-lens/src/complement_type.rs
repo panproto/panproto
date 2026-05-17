@@ -204,8 +204,10 @@ fn spec_from_constructor(constructor: &ComplementConstructor, schema: &Schema) -
             }
         }
         ComplementConstructor::Enrichment { kind, enricher } => {
-            // Count vertices that carry layout-fibre constraints in the
-            // current schema, so the spec reports an honest size estimate.
+            // Count vertices that currently carry constraints in the
+            // enrichment's fibre, so the spec reports an honest size
+            // estimate for the schema-level shuffling that the
+            // registered driver performs in `apply_theory_transform_to_schema`.
             let count = schema
                 .constraints
                 .values()
@@ -219,12 +221,15 @@ fn spec_from_constructor(constructor: &ComplementConstructor, schema: &Schema) -
                     element_kind: "enrichment".into(),
                     description: format!(
                         "{count} vertices carry constraints in the {kind:?} \
-                         enrichment fibre (driver '{enricher}'); captured for put."
+                         enrichment fibre; the registered driver \
+                         '{enricher}' is responsible for materialising \
+                         them in the put direction."
                     ),
                 }],
                 summary: format!(
-                    "Strips {kind:?} enrichment via '{enricher}': \
-                     per-vertex witness captured."
+                    "{kind:?} enrichment via driver '{enricher}'; \
+                     per-vertex fibre handled by the driver, not the \
+                     WInstance complement."
                 ),
             }
         }
