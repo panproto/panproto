@@ -64,12 +64,12 @@ pub mod parse_emit_lens;
 pub mod decorate;
 
 /// Runtime `LayoutPolicy` for the put-direction of the parse / emit
-/// lens; carries whitespace conventions and CHOICE disambiguators.
+/// lens; carries whitespace and indentation conventions.
 pub mod layout_policy;
 
 /// The parse / decorate / emit lens packaged as a first-class
-/// `panproto-lens::Protolens` for use in protolens chains and the
-/// generic law harness.
+/// `panproto-lens::Protolens` describing the schema-level
+/// relationship between abstract and decorated schemas.
 pub mod parse_emit_protolens;
 
 pub use decorate::decorate_with_parser;
