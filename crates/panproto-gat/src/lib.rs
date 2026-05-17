@@ -25,6 +25,7 @@ pub mod alg_struct;
 mod check_model;
 mod colimit;
 pub mod composition;
+mod enrichment;
 mod eq;
 mod error;
 mod factorize;
@@ -67,6 +68,7 @@ pub use nat_transform::{
 pub use op::{Implicit, Operation};
 pub use pullback::{PullbackResult, pullback};
 pub use quotient::quotient;
+pub use enrichment::{EnrichmentKind, LayoutPolicySpec, is_layout_sort};
 pub use schema_functor::{TheoryConstraint, TheoryEndofunctor, TheoryTransform};
 pub use sort::{
     CoercionClass, Sort, SortClosure, SortExpr, SortKind, SortParam, ValueKind,
