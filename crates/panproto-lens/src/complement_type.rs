@@ -203,6 +203,31 @@ fn spec_from_constructor(constructor: &ComplementConstructor, schema: &Schema) -
                 summary: format!("Scoped at '{focus}': {}", inner_spec.summary),
             }
         }
+        ComplementConstructor::Enrichment { kind, enricher } => {
+            // Count vertices that carry layout-fibre constraints in the
+            // current schema, so the spec reports an honest size estimate.
+            let count = schema
+                .constraints
+                .values()
+                .filter(|cs| cs.iter().any(|c| kind.is_member_sort(c.sort.as_ref())))
+                .count();
+            ComplementSpec {
+                kind: ComplementKind::DataCaptured,
+                forward_defaults: vec![],
+                captured_data: vec![CapturedField {
+                    element_name: Name::from(format!("enrichment/{kind:?}/{enricher}")),
+                    element_kind: "enrichment".into(),
+                    description: format!(
+                        "{count} vertices carry constraints in the {kind:?} \
+                         enrichment fibre (driver '{enricher}'); captured for put."
+                    ),
+                }],
+                summary: format!(
+                    "Strips {kind:?} enrichment via '{enricher}': \
+                     per-vertex witness captured."
+                ),
+            }
+        }
     }
 }
 

@@ -40,6 +40,7 @@ pub mod edit_laws;
 pub mod edit_lens;
 pub mod edit_pipeline;
 pub mod edit_provenance;
+pub mod enrichment_registry;
 pub mod error;
 pub mod fibration;
 pub mod graph;

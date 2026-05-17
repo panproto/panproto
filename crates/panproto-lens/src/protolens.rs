@@ -135,6 +135,24 @@ pub enum ComplementConstructor {
         /// The inner complement constructor.
         inner: Box<Self>,
     },
+    /// Complement captures a schema enrichment fibre stripped by the
+    /// get-direction (e.g. layout witnesses for the parse/emit lens).
+    ///
+    /// The complement is a per-vertex map from constraint sort to value,
+    /// matching the constraint sorts that
+    /// [`panproto_gat::EnrichmentKind::is_member_sort`] identifies as
+    /// belonging to the enrichment fibre. The put-direction either
+    /// replays this witness (when round-tripping) or invokes the
+    /// registered synthesis driver (when running put-without-prior-get,
+    /// i.e. `decorate` against a fresh abstract schema).
+    Enrichment {
+        /// The enrichment fibre being captured.
+        kind: panproto_gat::EnrichmentKind,
+        /// Name of the registered synthesis driver, used by
+        /// put-without-prior-get to regenerate the witness from a
+        /// policy (e.g. a grammar name for `Layout`).
+        enricher: Arc<str>,
+    },
 }
 
 /// A protolens: a dependent function from schemas to lenses.
@@ -2147,6 +2165,22 @@ fn apply_theory_transform_to_schema(
         TheoryTransform::Compose(first, second) => {
             let intermediate = apply_theory_transform_to_schema(first, schema, protocol)?;
             apply_theory_transform_to_schema(second, &intermediate, protocol)
+        }
+        TheoryTransform::StripEnrichment(kind) => {
+            let mut out = schema.clone();
+            for cs in out.constraints.values_mut() {
+                cs.retain(|c| !kind.is_member_sort(c.sort.as_ref()));
+            }
+            out.constraints.retain(|_, cs| !cs.is_empty());
+            Ok(out)
+        }
+        TheoryTransform::AddEnrichment {
+            kind,
+            enricher,
+            policy,
+        } => {
+            let driver = crate::enrichment_registry::lookup_enricher(*kind, enricher)?;
+            driver.enrich(schema, policy)
         }
     }
 }

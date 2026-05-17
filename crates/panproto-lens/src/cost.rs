@@ -39,6 +39,10 @@ pub fn complement_cost(complement: &ComplementConstructor) -> f64 {
         },
         ComplementConstructor::Composite(children) => children.iter().map(complement_cost).sum(),
         ComplementConstructor::Scoped { inner, .. } => complement_cost(inner),
+        // An enrichment fibre captures all per-vertex sort entries it
+        // strips; cost is proportional to typical fibre size. Layout
+        // enrichments carry a handful of constraints per vertex.
+        ComplementConstructor::Enrichment { .. } => 1.0,
     }
 }
 

@@ -98,6 +98,30 @@ pub enum LensError {
         /// Right fingerprint.
         right: u64,
     },
+
+    /// No enrichment synthesis driver is registered for the named
+    /// `(kind, enricher)` pair. The driver must be registered via
+    /// [`enrichment_registry::register_enricher`](crate::enrichment_registry::register_enricher)
+    /// before a protolens that adds this enrichment can be
+    /// instantiated.
+    #[error("no enrichment driver registered for ({kind:?}, {enricher:?})")]
+    UnknownEnricher {
+        /// The enrichment kind requested.
+        kind: panproto_gat::EnrichmentKind,
+        /// The enricher name (e.g. a grammar name for `Layout`).
+        enricher: String,
+    },
+
+    /// The registered enrichment synthesis driver rejected its input.
+    #[error("enrichment synthesis failed ({kind:?}, {enricher}): {detail}")]
+    EnrichmentSynthesisFailed {
+        /// The enrichment kind.
+        kind: panproto_gat::EnrichmentKind,
+        /// The enricher name.
+        enricher: String,
+        /// Human-readable failure.
+        detail: String,
+    },
 }
 
 /// A violation of a round-trip lens law.
