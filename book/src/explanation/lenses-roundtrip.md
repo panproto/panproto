@@ -50,9 +50,18 @@ You almost never write a lens from scratch. They are produced by:
 - **The lens DSL** ([panproto-lens-dsl](https://github.com/panproto/panproto/tree/main/crates/panproto-lens-dsl)). A declarative spec in Nickel, JSON, or YAML compiles to the lens combinator algebra.
 - **Protolenses** ([panproto-lens::protolens](https://docs.rs/panproto-lens/latest/panproto_lens/protolens/)). Schema-parameterized lens families whose instantiations cover whole fleets of related schemas at once.
 
+## Schema-level lenses: layout as an enrichment
+
+There is a second flavour of lens that lives one level up. parse / emit is not a WInstance lens; it is a relation between bytes and schemas, with `parse` recording the source layout into a fibre of constraints over each vertex and `emit_pretty` consuming that fibre to render bytes back. The relation has the shape of a lens at the schema level: stripping the layout fibre is the `get`, attaching it via a grammar walk is the `put`.
+
+panproto names this construction explicitly. The `EnrichmentKind::Layout` tag in `panproto-gat` classifies the constraint sorts that make up the fibre. `TheoryTransform::StripEnrichment` and `TheoryTransform::AddEnrichment` are the two directions at the protolens level; their schema-level interpretation runs in `apply_theory_transform_to_schema` (strip drops the fibre constraints; add dispatches to a registered synthesis driver). The `ComplementConstructor::Enrichment` variant names the fibre and the driver in the complement vocabulary.
+
+The schema-level lens does not plug into the WInstance-level `get` / `put` pair the way an elementary protolens does. The byte-level operational entry points live in `panproto-parse`: `ParserRegistry::decorate` for the put direction, `ParserRegistry::parse_with_protocol` for the get. The protolens captures the schema-level relationship those byte-level operations sit over; it composes with elementary protolenses for chain-law reasoning but is not the implementation of `decorate` or `parse`. See [Layout enrichment](./layout-enrichment.md) for the full treatment.
+
 ## See also
 
 - [Lens DSL: denotational semantics](./semantics/lens-dsl.md) for the formal lens model and the law statements.
 - [Protolens composition](./semantics/protolens-composition.md) for vertical and sequential composition.
+- [Layout enrichment](./layout-enrichment.md) for the schema-level lens between abstract and decorated schemas.
 - [Lens combinator reference](../reference/lens-combinators.md) for the algebra.
 - @foster2007combinators for the original asymmetric-lens treatment, and @littvanhardenberghenry2020cambria for the complement-tracking approach this builds on.

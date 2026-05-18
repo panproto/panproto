@@ -71,6 +71,7 @@ graph TD
     LENSDSL --> LENS
     IO --> INST
     PARSE --> INST
+    PARSE --> LENS
 
     LENS --> EXPR
     MIG --> EXPR
@@ -85,6 +86,8 @@ graph TD
 ```
 
 The diagram shows the *direction* of dependency, not every individual edge. The full set is in the workspace [`Cargo.toml`](https://github.com/panproto/panproto/blob/main/Cargo.toml).
+
+One arrow worth pointing out: `panproto-parse` depends on `panproto-lens`, not the other way around. The two crates meet through the `enrichment_registry` module in `panproto-lens`, a thin trait-and-registry pair the lens crate exposes for downstream crates to populate. `panproto-parse` installs an adapter for every parser it accepts so that protolens machinery in `panproto-lens` can dispatch grammar-driven enrichment synthesis without depending on tree-sitter. The mechanism is documented in [Layout enrichment](./layout-enrichment.md); the registry pattern keeps the lens crate grammar-agnostic and the dependency direction acyclic.
 
 ## The boundaries
 

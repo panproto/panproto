@@ -94,6 +94,12 @@ schema = reg.parse_with_protocol("qvr", source_bytes, "demo.qvr")  # uses the ne
 
 If a parser is already registered under `name`, it is dropped first (along with any extension mappings). Cannot run while a `ParseEmitLens` produced by `reg.lens(...)` is alive: drop outstanding lens handles, or construct a fresh registry, first. The byte payloads are leaked into `'static` storage on the Rust side — intended for dev-time work, not production.
 
+## Going the other way
+
+The schema you get back from `parse_with_protocol` carries a complete *layout fibre*: byte spans, the whitespace between every pair of adjacent tokens, and discriminators recording which CHOICE alternative the parser took at each branch point. The emitter consumes those constraints to render bytes back. A schema you build by hand from `SchemaBuilder` carries none of them; `emit_pretty_with_protocol` falls back to a grammar walk that may pick the wrong alternative or render an incomplete result.
+
+For generators that build a schema from scratch and want to render it to source bytes, see [Decorate an abstract schema](./decorate-schemas.md). The `decorate` operation takes an `AbstractSchema` (the hand-built half), attaches the layout fibre via a grammar walk, and returns a `DecoratedSchema` the emitter can render byte-for-byte.
+
 ## Verification
 
 Tree-sitter parsing is total: every byte sequence parses into *some* AST. `instance.diagnostic_count()` reports the number of error nodes; a clean parse has zero. The interstitial preservation property guarantees `emit(parse(bytes)) == bytes`.
@@ -105,5 +111,7 @@ Tree-sitter parsing is total: every byte sequence parses into *some* AST. `insta
 
 ## See also
 
+- [Decorate an abstract schema](./decorate-schemas.md) for the put-direction of the parse / emit lens.
 - [Reference: protocol catalogue](../reference/protocols.md).
 - [Round-trip with format preservation](./format-preserving.md).
+- [Layout enrichment](../explanation/layout-enrichment.md) for the categorical framing of the parse / decorate / emit pair.

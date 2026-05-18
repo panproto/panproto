@@ -19,7 +19,8 @@ Full type signatures, constructors, and method documentation live on docs.rs:
 | `project` | Pulls in `panproto-project` for multi-file project assembly. |
 | `git` | Pulls in `panproto-git` for the git bridge. |
 | `llvm` | Enables LLVM-backed lowering via `panproto-llvm`. |
-| `jit` | Enables JIT-compiled migration via `panproto-jit`. Requires `llvm`. |
+| `jit` | Enables JIT-compiled migration via `panproto-jit`. |
+| `tree-sitter` | Enables tree-sitter-based format-preserving parsing for built-in protocols (forwards to `panproto-io/tree-sitter`). |
 
 The default feature set is the minimal core: schema, instance, migration, lens, expression-language, and version control without extras.
 
@@ -38,6 +39,8 @@ For lower-level work, depend on individual crates rather than the facade. The [c
 | Use the expression language | `panproto-expr`, `panproto-expr-parser` |
 | Version-control schemas and data | `panproto-vcs`, `panproto-git` |
 | Parse full ASTs across 259 languages | `panproto-parse` |
+| Decorate an abstract schema with a layout fibre | `panproto-parse` (`ParserRegistry::decorate`, `ParserRegistry::pretty_with_protocol`) |
+| Distinguish abstract and decorated schemas at the type level | `panproto-schema` (`AbstractSchema`, `DecoratedSchema`, `LayoutWitness`) |
 
 ## See also
 
