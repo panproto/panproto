@@ -4,6 +4,15 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.48.1] - 2026-05-18
+
+### Fixed
+
+- **`pretty_with_protocol` preserves edge order on abstract schemas under `REPEAT(CHOICE(...))`** (`panproto-parse::emit_pretty`): two correlated bugs caused interleaved children of the same parent to re-fuse by kind when rendered through `decorate` / `pretty_with_protocol`. A lilypond `expression_block` whose children were `[symbol, punctuation, unsigned_integer, symbol, punctuation, unsigned_integer]` would emit `''c d 4 4` (all punctuation, then all symbols, then all integers) and re-parse as a single super-octave c followed by bare letters and bare integers. With the fix, the same abstract schema emits in insertion order, and `decorate` is a section of `forget_layout` at the granularity of `edge_multiset`, not just `kind_multiset`. Two changes:
+  - `emit_pretty::children_for` now walks the precomputed `schema.outgoing` index (insertion-ordered by `SchemaBuilder` via `SmallVec` append) rather than the unordered `schema.edges` `HashMap`. The previous implementation sorted edges lexicographically by `(kind, target id)` when no explicit `orderings` entries existed, which abstract schemas never set. Explicit `orderings` still override.
+  - `emit_pretty::pick_choice_with_cursor` cursor-driven dispatch now picks the alt whose SYMBOL set covers the *first unconsumed* edge in cursor order, rather than any alt whose SYMBOL set intersects the multiset of unconsumed children. The fingerprint / blob discriminator path used by parsed-schema round-trips is untouched, so existing `EmitParse` / round-trip tests are unaffected.
+- Regression test `lilypond_abstract_edge_order_preserved_through_pretty` in `crates/panproto-parse/tests/decorate_section_law.rs` builds the issue's reproducer and asserts the rendered byte order. Closes #104.
+
 ## [0.48.0] - 2026-05-18
 
 ### Added
