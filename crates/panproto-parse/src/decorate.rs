@@ -6,7 +6,8 @@
 //! `emit_pretty_with_protocol` can render byte-for-byte. It is a
 //! section of the schema-level forgetful U
 //! [`DecoratedSchema::forget_layout`](panproto_schema::DecoratedSchema::forget_layout)
-//! up to kind-multiset equivalence.
+//! at the granularity of kind- *and* edge-multiset equivalence (the
+//! ordering invariant — vertex IDs are reborn by the re-parse).
 //!
 //! ## Implementation strategy
 //!
@@ -34,11 +35,16 @@
 //!
 //! For every `a : AbstractSchema` and `p : LayoutPolicy`:
 //!
-//! - **Section law (mod kind-multiset):**
+//! - **Section law (mod kind- and edge-multiset):**
 //!   `kind_multiset(forget_layout(decorate(a, p)).as_schema()) ==
-//!    kind_multiset(a.as_schema())`
-//!   for every protocol with a vendored grammar — verified by the
-//!   `decorate_section_law` integration test.
+//!    kind_multiset(a.as_schema())` AND
+//!   `edge_multiset(forget_layout(decorate(a, p)).as_schema()) ==
+//!    edge_multiset(a.as_schema())`,
+//!   for every protocol with a vendored grammar. The edge-multiset
+//!   half is the load-bearing one for sequenced data: order of notes
+//!   in a `Pattern<MidiEvent>`, of tokens in a parsed AST, of items
+//!   in a homogeneous list, would all collapse without it. Verified
+//!   by the `decorate_section_law` integration test.
 //! - **Policy fidelity:** the bytes produced by `pretty_with_protocol`
 //!   honour every field of `p` (separator, newline, indent_width,
 //!   line_break_after, indent_open / close).

@@ -708,6 +708,18 @@ impl<'a> ChildCursor<'a> {
         None
     }
 
+    /// Whether any unconsumed edge satisfies `predicate`. Used by the
+    /// unit tests; the live emit path went through `has_matching` on
+    /// each alternative until cursor-driven dispatch was rewritten to
+    /// pick the first-unconsumed-edge's kind directly.
+    #[cfg(test)]
+    fn has_matching(&self, predicate: impl Fn(&Edge) -> bool) -> bool {
+        self.edges
+            .iter()
+            .enumerate()
+            .any(|(i, edge)| !self.consumed[i] && predicate(edge))
+    }
+
     /// Take the next unconsumed edge whose target vertex satisfies
     /// `predicate`. Returns the edge and the underlying production
     /// resolution path is the caller's job.
@@ -719,14 +731,6 @@ impl<'a> ChildCursor<'a> {
             }
         }
         None
-    }
-
-    /// Whether any unconsumed edge satisfies `predicate`.
-    fn has_matching(&self, predicate: impl Fn(&Edge) -> bool) -> bool {
-        self.edges
-            .iter()
-            .enumerate()
-            .any(|(i, edge)| !self.consumed[i] && predicate(edge))
     }
 }
 
@@ -1303,23 +1307,39 @@ fn pick_choice_with_cursor<'a>(
     }
 
     // Cursor-driven dispatch: pick the alternative whose body
-    // references at least one SYMBOL whose target kind is present in
-    // the unconsumed cursor edges. `referenced_symbols` walks the
-    // alternative recursively (across nested SEQs, REPEATs, OPTIONALs,
-    // FIELDs, etc.) so a leading optional like `attribute_item` does
-    // not block matching when only the trailing required symbol is
+    // references a SYMBOL covering the *first unconsumed* edge in
+    // cursor order. `referenced_symbols` walks the alternative
+    // recursively (across nested SEQs, REPEATs, OPTIONALs, FIELDs,
+    // etc.) so a leading optional like `attribute_item` does not
+    // block matching when only the trailing required symbol is
     // present on the schema.
-    for alt in alternatives {
-        let symbols = referenced_symbols(alt);
-        if !symbols.is_empty()
-            && cursor.has_matching(|edge| {
-                let tk = schema.vertices.get(&edge.tgt).map(|v| v.kind.as_ref());
-                symbols
+    //
+    // Ordering by the first unconsumed edge (rather than picking any
+    // alternative whose SYMBOL set intersects the unconsumed
+    // multiset) is what preserves schema edge order under
+    // REPEAT(CHOICE(...)) productions. Without this rule, alt order
+    // in the grammar's CHOICE determines the emission order, and a
+    // schema with interleaved kinds like `[symbol, punct, int,
+    // symbol, punct, int]` re-fuses to `[symbol, symbol, punct,
+    // punct, int, int]` when emitted then re-parsed. The fix is the
+    // categorical reading of REPEAT-over-list (list-shaped fold)
+    // rather than REPEAT-over-multiset (unordered fold).
+    let first_unconsumed_kind: Option<&str> = cursor
+        .edges
+        .iter()
+        .enumerate()
+        .find(|(i, _)| !cursor.consumed[*i])
+        .and_then(|(_, edge)| schema.vertices.get(&edge.tgt).map(|v| v.kind.as_ref()));
+    if let Some(target_kind) = first_unconsumed_kind {
+        for alt in alternatives {
+            let symbols = referenced_symbols(alt);
+            if !symbols.is_empty()
+                && symbols
                     .iter()
-                    .any(|s| kind_satisfies_symbol(grammar, tk, s))
-            })
-        {
-            return Some(alt);
+                    .any(|s| kind_satisfies_symbol(grammar, Some(target_kind), s))
+            {
+                return Some(alt);
+            }
         }
     }
 
@@ -1510,19 +1530,36 @@ fn has_relevant_constraint(
 }
 
 fn children_for<'a>(schema: &'a Schema, vertex_id: &panproto_gat::Name) -> Vec<&'a Edge> {
-    let mut edges: Vec<&Edge> = schema
-        .edges
-        .keys()
-        .filter(|e| &e.src == vertex_id)
+    // Walk `outgoing` (insertion-ordered by SchemaBuilder via SmallVec
+    // append) rather than the unordered `edges` HashMap so abstract
+    // schemas under REPEAT(CHOICE(...)) preserve the order their edges
+    // were inserted in. The previous implementation walked the HashMap
+    // and sorted lexicographically by (kind, target id), which fused
+    // interleaved children of the same kind into runs (e.g. a sequence
+    // [symbol, punct, int, symbol, punct, int] became [symbol, symbol,
+    // punct, punct, int, int] after the lex sort).
+    let Some(edges) = schema.outgoing.get(vertex_id) else {
+        return Vec::new();
+    };
+
+    // Look up the canonical Edge reference (the key in `schema.edges`)
+    // for each entry in `outgoing`. Falls back to the SmallVec entry if
+    // the canonical key is missing, which would indicate index drift.
+    let mut indexed: Vec<(usize, u32, &Edge)> = edges
+        .iter()
+        .enumerate()
+        .map(|(i, e)| {
+            let canonical = schema.edges.get_key_value(e).map_or(e, |(k, _)| k);
+            let pos = schema.orderings.get(canonical).copied().unwrap_or(u32::MAX);
+            (i, pos, canonical)
+        })
         .collect();
-    edges.sort_by_key(|e| {
-        // Edges with an explicit ordering position come first; remaining
-        // edges sort lexicographically by (kind, target id) for
-        // deterministic walks.
-        let pos = schema.orderings.get(*e).copied().unwrap_or(u32::MAX);
-        (pos, e.kind.clone(), e.tgt.clone())
-    });
-    edges
+
+    // Stable sort by (explicit-ordering, insertion-index). Edges with
+    // an explicit `orderings` entry come first in their declared order;
+    // the remainder fall through in insertion order.
+    indexed.sort_by_key(|(i, pos, _)| (*pos, *i));
+    indexed.into_iter().map(|(_, _, e)| e).collect()
 }
 
 fn vertex_id_kind<'a>(schema: &'a Schema, vertex_id: &panproto_gat::Name) -> Option<&'a str> {
