@@ -47,7 +47,7 @@ The 59 built-in operations are in `panproto_expr::BuiltinOp`, grouped by family 
 `DefaultVal`, `Clamp`, `TruncateStr`.
 
 ### Type coercion
-`IntToFloat`, `FloatToInt`, `IntToStr`, `FloatToStr`, `StrToInt`, `StrToFloat`. The `*ToInt` and `*ToFloat` parses raise `ParseFailure` on invalid input.
+`IntToFloat`, `FloatToInt`, `IntToStr`, `FloatToStr`, `StrToInt`, `StrToFloat`. The `*ToInt` and `*ToFloat` parses raise `ParseError` on invalid input.
 
 ### Type inspection
 `TypeOf`, `IsNull`, `IsList`.
@@ -71,7 +71,7 @@ The full list of `ExprError` variants is in [`crates/panproto-expr/src/error.rs`
 | `NonExhaustiveMatch` | No pattern arm matched the scrutinee. |
 | `DivisionByZero` | `Div` or `Mod` with a zero divisor. |
 | `ListLengthExceeded(usize)` | List operation exceeded the configured maximum length. |
-| `ParseError { value, target_type }` | A `*To*` coercion failed to parse its input. |
+| `ParseError { value, target_type }` | A `*ToInt` / `*ToFloat` coercion failed to parse its input. |
 | `NotAFunction` | Application of a non-function value. |
 | `Overflow` | Checked integer arithmetic overflowed. |
 | `FloatNotRepresentable(String)` | Float value (NaN, infinity, out-of-range) cannot be represented as an integer. |

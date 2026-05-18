@@ -25,11 +25,10 @@ schema scaffold --protocol atproto schemas/post.json
 ### Inspect
 
 ```sh
-schema show schemas/post.json
 schema diff schemas/post-v1.json schemas/post-v2.json
 ```
 
-`show` prints a structured rendering. `diff` reports vertex and edge changes between two schemas.
+`diff` reports vertex and edge changes between two schemas. Inside a panproto repository, `schema show <ref>` resolves a commit, schema, or migration object and prints its contents.
 
 ## Verification
 

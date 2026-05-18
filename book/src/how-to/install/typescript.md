@@ -20,10 +20,10 @@ yarn add @panproto/core
 import { Panproto } from '@panproto/core';
 
 const p = await Panproto.init();
-console.log(p.version());
+console.log(p.listProtocols());
 ```
 
-`Panproto.init()` loads the WASM module and returns the top-level handle. Calling `p.version()` confirms the binding is wired up.
+`Panproto.init()` loads the WASM module and returns the top-level handle. Calling `p.listProtocols()` enumerates the built-in protocols and confirms the binding is wired up.
 
 ## Common mistakes
 

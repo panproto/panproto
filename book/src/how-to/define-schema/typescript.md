@@ -26,10 +26,11 @@ const schema = proto.schema()
 ## Verification
 
 ```ts
-schema.validate();
+const result = schema.validate(proto);
+if (!result.isValid) throw new Error(JSON.stringify(result.issues));
 ```
 
-Returns void on success. On failure, throws a `ValidationError` with the failing equation and the offending vertex or edge.
+`validate(protocol)` returns a `ValidationResult` containing any issues. An empty issue list confirms the schema satisfies the protocol's edge rules and obj-kinds.
 
 ## Common mistakes
 

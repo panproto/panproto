@@ -66,7 +66,7 @@ pub enum Step {
 }
 ```
 
-The top-level type is `LensDocument`, not `LensSpec`. There is no `source`/`target` pair on the document: the source schema is supplied at compile time (via the resolver), and the target schema is computed by applying the steps. See `panproto_lens_dsl::compile`.
+The top-level type is `LensDocument`, not `LensSpec`. The document carries `source` and `target` NSID fields naming the two schemas; the resolver loads the source schema and the compiler applies the steps to it, then checks that the result matches the named `target`. See `panproto_lens_dsl::compile`.
 
 ## Semantic domain
 
@@ -153,7 +153,7 @@ Sequential composition of lenses requires composing their complements. `Compleme
 
 Pre-flight predicate: `Complement::is_compatible(c1, c2)`.
 
-The fingerprint is a blake3 hash of the source schema's normal form, so complements computed against syntactically distinct but structurally equal schemas are still compatible.
+The fingerprint is a 64-bit hash of the source schema (computed with the standard library's `DefaultHasher` in `panproto_lens::asymmetric::schema_fingerprint`), so complements computed against syntactically distinct but structurally equal schemas are still compatible.
 
 ## Soundness
 
