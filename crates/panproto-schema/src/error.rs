@@ -70,6 +70,16 @@ pub enum SchemaError {
     /// A declared entry vertex does not exist in the schema.
     #[error("entry vertex not found: {0}")]
     UnknownEntryVertex(String),
+
+    /// `SchemaBuilder::build_abstract` was called on a builder that
+    /// has accumulated constraints in the layout enrichment fibre.
+    /// Abstract schemas must carry no layout witnesses; call
+    /// `build_decorated` if a decorated schema was intended.
+    #[error(
+        "build_abstract called on a builder with layout-fibre constraints; \
+         use build_decorated for a decorated schema"
+    )]
+    LayoutConstraintsOnAbstractBuild,
 }
 
 /// An error found during schema validation against a protocol.

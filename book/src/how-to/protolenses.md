@@ -10,49 +10,73 @@ The Rust SDK ([`panproto-lens::protolens`](https://docs.rs/panproto-lens/latest/
 
 ### Declare
 
-```rust
-use panproto_lens::protolens::{Protolens, Precondition, Transform};
+A `Protolens` packages a precondition (a `TheoryConstraint` on the source theory) with a `TheoryTransform`. Build elementary protolenses via the `elementary` helpers, or compose them into a `ProtolensChain`:
 
-let rename_legacy_id = Protolens::new(
-    Precondition::has_edge_named("legacy_id"),
-    Transform::rename_edge("legacy_id", "id"),
+```rust,no_run
+use panproto_lens::protolens::{ProtolensChain, combinators};
+
+# fn main() {
+let rename_legacy_id: ProtolensChain = combinators::rename_field(
+    "user", "user:legacy_id", "legacy_id", "id",
 );
+# let _ = rename_legacy_id;
+# }
 ```
 
-The protolens captures: when does it apply (`Precondition`), and what does it do (`Transform`). It does not yet know which schemas it will run against.
+The chain captures a precondition on the source theory and a sequence of transforms. It does not yet know which concrete schema it will run against.
 
 ### Apply (fused)
 
-```rust
-let lens_for_users    = rename_legacy_id.instantiate(&user_schema)?;
-let lens_for_posts    = rename_legacy_id.instantiate(&post_schema)?;
+```rust,no_run
+# use panproto_lens::protolens::{ProtolensChain, combinators};
+# use panproto_core::schema::{Protocol, Schema, SchemaBuilder};
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+# let rename_legacy_id: ProtolensChain = combinators::rename_field("user", "user:legacy_id", "legacy_id", "id");
+# let protocol: Protocol = panproto_core::protocols::atproto::protocol();
+# let user_schema: Schema = SchemaBuilder::new(&protocol).vertex("user", "object", None)?.entry("user").build()?;
+# let post_schema: Schema = user_schema.clone();
+let lens_for_users = rename_legacy_id.instantiate(&user_schema, &protocol)?;
+let lens_for_posts = rename_legacy_id.instantiate(&post_schema, &protocol)?;
+# let _ = (lens_for_users, lens_for_posts);
+# Ok(()) }
 ```
 
-Each call produces a concrete lens against a specific schema, with the migration metadata preserved as a single fused morphism.
+Each call produces a concrete `Lens` against a specific schema, with the migration metadata preserved as a single fused morphism.
 
 ### Apply (sequential)
 
-```rust
-let lens_chain = chain.instantiate_sequential(&base_schema)?;
+```rust,no_run
+# use panproto_lens::protolens::{ProtolensChain, combinators};
+# use panproto_core::schema::{Protocol, Schema, SchemaBuilder};
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+# let rename_legacy_id: ProtolensChain = combinators::rename_field("user", "user:legacy_id", "legacy_id", "id");
+# let protocol: Protocol = panproto_core::protocols::atproto::protocol();
+# let base_schema: Schema = SchemaBuilder::new(&protocol).vertex("user", "object", None)?.entry("user").build()?;
+let stepwise = rename_legacy_id.instantiate_sequential(&base_schema, &protocol)?;
+# let _ = stepwise;
+# Ok(()) }
 ```
 
-Sequential instantiation is used by property tests when each intermediate step needs to be inspected.
+Sequential instantiation yields one lens per step; useful in property tests when each intermediate state needs to be inspected.
 
 ### Compose
 
-```rust
-let composed = first.vertical_compose(&second)?;
+```rust,no_run
+use panproto_lens::protolens::{Protolens, vertical_compose, elementary};
+
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let first:  Protolens = elementary::drop_sort("old_field");
+let second: Protolens = elementary::drop_sort("legacy_id");
+let composed = vertical_compose(&first, &second)?;
+# let _ = composed;
+# Ok(()) }
 ```
 
-`vertical_compose` requires the intermediate endofunctor of `first` to structurally match the source endofunctor of `second`. Mismatch raises `LensError::CompositionMismatch`.
+`vertical_compose` requires the target endofunctor of `first` to structurally match the source endofunctor of `second`. A mismatch returns `LensError`.
 
 ## Verification
 
-```rust
-panproto_lens::laws::check_lens(&lens, &samples, /*laws=*/Laws::ALL)?;
-```
-
-Property tests verify that each instantiation satisfies the three lens laws.
+After `instantiate` returns a `Lens`, exercise the round-trip laws on representative data via `Lens::get` / `Lens::put` (or use the higher-level lens-law harness in `panproto_lens::laws`). Property tests in `crates/panproto-lens/tests/` are the canonical examples.
 
 ## Common mistakes
 

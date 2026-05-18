@@ -34,7 +34,7 @@ The full grammar is in [`crates/panproto-theory-dsl/src/document.rs`](https://gi
 
 ## Abstract syntax
 
-```rust
+```rust,ignore
 pub struct TheoryDocument {
     pub id: String,
     pub description: String,
@@ -146,7 +146,7 @@ The interpretation of the composition body factors through the colimit construct
 A protocol registration is the construction of a colimit diagram. If any pushout step in the diagram fails to satisfy the universal property (because two equations contradict on a shared sort), registration panics with a message naming the failing intermediate step:
 
 ```text
-panic: could not push out `ThGraph + ThConstraint` along `Vertex`:
+panic: colimit ThGraph + ThConstraint over ThVertex failed:
        equation `src(id(v)) = v` contradicts `src(id(v)) = source(v)`
 ```
 

@@ -4,7 +4,7 @@ When you parse a JSON, YAML, TOML, XML, or CSV file and emit it back without cha
 
 ## Prerequisites
 
-A panproto build with the `format-preserving` feature flag (default on for the CLI; opt-in for `panproto-core` in Rust).
+A panproto build with the `tree-sitter` feature flag enabled on `panproto-core` (or directly on `panproto-io`). The CLI ships with tree-sitter enabled by default.
 
 ## The task
 
@@ -19,16 +19,21 @@ The diff is empty when the codec preserves the input. (For programmatic use, par
 
 In Rust:
 
-```rust
-use panproto_core::format_preserving::UnifiedCodec;
-
-let codec = UnifiedCodec::for_format("yaml")?;
-let (instance, complement) = codec.parse(bytes)?;
-let out = codec.emit(&instance, &complement)?;
+```rust,no_run
+use panproto_core::io::unified_codec::UnifiedCodec;
+# use panproto_core::schema::{Schema, SchemaBuilder};
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+# let proto = panproto_core::protocols::atproto::protocol();
+# let schema: Schema = SchemaBuilder::new(&proto).vertex("root", "object", None)?.entry("root").build()?;
+# let bytes: &[u8] = b"";
+let codec = UnifiedCodec::yaml("atproto")?;
+let (instance, complement) = codec.parse_wtype_preserving(&schema, bytes)?;
+let out = codec.emit_wtype_preserving(&schema, &instance, &complement)?;
 assert_eq!(out, bytes);
+# Ok(()) }
 ```
 
-The complement carries the CST data that the schema does not see. `emit` reconstructs the byte-for-byte original from `(instance, complement)`.
+The complement carries the CST data that the schema does not see. `emit_wtype_preserving` reconstructs the byte-for-byte original from `(instance, complement)`. Constructors exist for each supported format: `UnifiedCodec::json`, `xml`, `yaml`, `toml`, `csv`, and `tsv`.
 
 ## Verification
 

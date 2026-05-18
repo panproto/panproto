@@ -234,6 +234,38 @@ pub struct Schema {
 }
 
 impl Schema {
+    /// Strip every constraint whose sort belongs to the layout
+    /// enrichment fibre (per [`panproto_gat::is_layout_sort`]).
+    ///
+    /// This is the schema-level forgetful U sending a decorated schema
+    /// to its abstract base in the parse/decorate/emit lens. Idempotent.
+    #[must_use]
+    pub fn forget_layout(&self) -> Self {
+        let mut clone = self.clone();
+        clone.forget_layout_in_place();
+        clone
+    }
+
+    /// In-place variant of [`Self::forget_layout`].
+    pub fn forget_layout_in_place(&mut self) {
+        for constraints in self.constraints.values_mut() {
+            constraints.retain(|c| !panproto_gat::is_layout_sort(c.sort.as_ref()));
+        }
+        // Drop now-empty vertex entries so equality is structural.
+        self.constraints.retain(|_, cs| !cs.is_empty());
+    }
+
+    /// Returns `true` when no constraint sort belongs to the layout
+    /// enrichment fibre. This is the well-formedness predicate for an
+    /// [`AbstractSchema`](crate::AbstractSchema).
+    #[must_use]
+    pub fn is_layout_free(&self) -> bool {
+        self.constraints.values().all(|cs| {
+            cs.iter()
+                .all(|c| !panproto_gat::is_layout_sort(c.sort.as_ref()))
+        })
+    }
+
     /// Look up a vertex by ID.
     #[must_use]
     pub fn vertex(&self, id: &str) -> Option<&Vertex> {

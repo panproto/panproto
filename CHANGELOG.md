@@ -4,6 +4,30 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.48.0] - 2026-05-17
+
+### Added
+
+- **`decorate` as the put-direction of the parse / decorate / emit lens** (`panproto-parse`, `panproto-schema`, `panproto-lens`, `panproto-gat`): a generator that takes an abstract schema (vertex kinds, `child_of` edges, leaf `literal-value` constraints) and attaches the full layout enrichment fibre (`start-byte`, `end-byte`, every `interstitial-N`, `chose-alt-fingerprint`, `chose-alt-child-kinds`), producing a schema the emitter renders byte-for-byte. New typed surface: `AbstractSchema` and `DecoratedSchema` newtypes in `panproto-schema` with sealed constructors and a `LayoutWitness` read-only view; `Schema::forget_layout` / `forget_layout_in_place` / `is_layout_free` implementing the schema-level forgetful U; `SchemaBuilder::build_abstract` / `build_decorated` routing through the typed newtypes. New entry points: `ParserRegistry::decorate`, `ParserRegistry::pretty_with_protocol`, `ParserRegistry::parse_emit_protolens`, `panproto_parse::LayoutPolicy` (aliased to `FormatPolicy`), `panproto_parse::decorate_with_parser`. New machinery in `panproto-gat`: `EnrichmentKind::Layout`, `is_layout_sort` predicate, `LayoutPolicySpec` wire form, `TheoryTransform::StripEnrichment` / `AddEnrichment`. New cross-crate extension point in `panproto-lens`: `enrichment_registry` with the `LayoutEnricher` trait; `ComplementConstructor::Enrichment`. Closes #102.
+
+- **Book Rust code blocks are now compile-tested by CI** (`xtask/test-book`, `crates/book-doctest-stub`, `.github/workflows/ci.yml`, `.github/workflows/publish-book.yml`): every non-ignored ` ```rust ` block under `book/src/**/*.md` is fed to `rustdoc --test` with explicit `--extern` flags pointing at the workspace's compiled artifacts. The driver parses cargo's `--message-format=json` output to find one rmeta per crate and dispatches each block separately. Stale snippets surface as a CI failure rather than waiting for a reader to copy a broken example. The mechanism is documented in `book/CONTRIBUTING.md`.
+
+### Changed
+
+- **`emit_pretty` configurability**: `panproto_parse::emit_pretty::FormatPolicy` gains explicit `separator` and `newline` fields (formerly hardcoded as `b' '` and `b'\n'`); the policy is now honoured end-to-end through `pretty_with_protocol`. `AstParser` gains `emit_pretty_with_policy(schema, &FormatPolicy)`; the existing `emit_pretty` delegates to it with the default. Existing call sites are unchanged.
+
+- **`panproto-parse` depends on `panproto-lens`**: the dependency arrow is now `PARSE → LENS` (not the other way) because the layout-enrichment `LayoutEnricher` trait lives in `panproto-lens`'s `enrichment_registry` and parsers register adapters into it on `ParserRegistry::register`. The graph remains acyclic.
+
+- **Book updated for the typed parse / emit lens**: new pages `how-to/decorate-schemas.md` and `explanation/layout-enrichment.md`; updates to `how-to/parse-full-ast.md`, `explanation/lenses-roundtrip.md`, `explanation/architecture.md`, `reference/crate-map.md`, `reference/sdk-rust.md`, `reference/lens-combinators.md`. Tutorials and how-to walkthroughs switched from `json-schema` to `atproto` as the primary built-in protocol; SDK signatures (TypeScript `liftJson` / `getJson` / `putJson`, Python `Schema.validate` returning issue list, Rust free-function `validate`) aligned with the current API; CLI binary references corrected from `prot` to `schema`; `panproto-protocols` theory library table corrected to drop the nonexistent `ThVariant` / `ThNamed` / `ThOrder` entries and add `ThMeta`. Glossary populated with ten new layout-enrichment terms.
+
+### Fixed
+
+- **`strip_complement` semantics restored** (`panproto-parse::parse_emit_lens`): an intermediate refactor delegated `strip_complement` to `Schema::forget_layout`, which also strips `chose-alt-*` discriminators. The existing `EmitParse` law test relies on `chose-alt-fingerprint` surviving stripping (the emitter consumes it to dispatch CHOICE alternatives). `strip_complement` reverted to its original byte-positional-only semantics; `Schema::forget_layout` is the full-strip operation for the abstract-schema invariant.
+
+- **`enrichment_registry` lock-poison handling**: the `RwLock` guards now recover from poisoning transparently via `PoisonError::into_inner` (the critical sections do not invoke user code, so a poisoned lock cannot leave invariants broken). Previously `.expect("poisoned")` would panic, violating the workspace's `clippy::expect_used` lint.
+
+- **`enrichment_registry` lookup is allocation-free**: the inner map is now keyed by `(EnrichmentKind, String)` with a nested `HashMap` so `lookup_enricher` / `has_enricher` take `&str` directly with no per-call `Arc<str>` allocation.
+
 ## [0.47.3] - 2026-05-15
 
 ### Changed

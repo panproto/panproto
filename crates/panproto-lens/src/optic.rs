@@ -108,7 +108,9 @@ pub fn classify_transform(transform: &TheoryTransform) -> OpticKind {
         | TheoryTransform::MergeSorts { .. }
         | TheoryTransform::AddSortWithDefault { .. }
         | TheoryTransform::AddDirectedEquation(_)
-        | TheoryTransform::DropDirectedEquation(_) => OpticKind::Lens,
+        | TheoryTransform::DropDirectedEquation(_)
+        | TheoryTransform::StripEnrichment(_)
+        | TheoryTransform::AddEnrichment { .. } => OpticKind::Lens,
 
         // Scoped transform: conservative static classification.
         // The actual optic kind depends on the edge kind to the focus

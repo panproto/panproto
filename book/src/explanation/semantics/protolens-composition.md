@@ -44,7 +44,7 @@ $$
 
 The composition is well-defined only when the intermediate functor of $P$ matches the source functor of $Q$. In `panproto-lens`, this match is checked by `protolens_composable`:
 
-```rust
+```rust,ignore
 pub fn protolens_composable(p: &Protolens, q: &Protolens) -> bool {
     p.target_endofunctor() == q.source_endofunctor()
 }

@@ -20,7 +20,7 @@ Python 3.13 or newer is required. The wheel ships with eleven core tree-sitter g
 | `panproto-grammars-data` | SQL dialects, GraphQL, JSON variants, ... |
 | `panproto-grammars-devops` | Terraform, Dockerfile, Helm, ... |
 | `panproto-grammars-mobile` | Swift, Objective-C, Dart, ... |
-| `panproto-grammars-music` | Tidal, Strudel, QVR, ... |
+| `panproto-grammars-music` | SuperCollider, LilyPond, ABC, Csound, ChucK, Glicol, Tidal, Strudel |
 | `panproto-grammars-all` | Umbrella package containing every pack above. |
 
 Each pack auto-registers its grammars with `panproto.AstParserRegistry()` on import.

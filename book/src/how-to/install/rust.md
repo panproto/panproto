@@ -9,23 +9,29 @@ A Rust toolchain at edition 2024 (toolchain 1.85+).
 ```toml
 # Cargo.toml
 [dependencies]
-panproto-core = "0.46"
+panproto-core = "0.47"
 ```
 
-For specific feature flags (`full-parse`, `project`, `git`, `llvm`, `jit`), see [Reference: Rust SDK](../../reference/sdk-rust.md).
+For specific feature flags (`full-parse`, `project`, `git`, `llvm`, `jit`, `tree-sitter`), see [Reference: Rust SDK](../../reference/sdk-rust.md).
 
 ## Verification
 
-```rust
-use panproto_core::Panproto;
+```rust,no_run
+use panproto_core::protocols::atproto;
+use panproto_core::schema::SchemaBuilder;
 
-fn main() {
-    let p = Panproto::new();
-    println!("{}", p.version());
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let proto = atproto::protocol();
+    let schema = SchemaBuilder::new(&proto)
+        .vertex("root", "record", Some("app.example.root"))?
+        .entry("root")
+        .build()?;
+    println!("built {} vertex(es)", schema.vertices.len());
+    Ok(())
 }
 ```
 
-`cargo run` prints the linked panproto version.
+`cargo run` builds and links against the panproto facade.
 
 ## Common mistakes
 

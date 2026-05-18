@@ -127,9 +127,17 @@ pub enum LawViolation {
 
 /// Strip byte-position constraints from a schema.
 ///
-/// Removes `start-byte`, `end-byte`, and `interstitial-*` constraints:
-/// these are the "complement" portion that `emit_pretty` does not
-/// reconstruct, so they are projected out before comparing.
+/// Removes `start-byte`, `end-byte`, and `interstitial-*` constraints
+/// — the byte-positional portion of the layout fibre that
+/// `emit_pretty` cannot reconstruct (the parser invents fresh
+/// positions). `chose-alt-*` discriminators are **preserved** because
+/// they're the categorical witness of which CHOICE alternative the
+/// parser took and `emit_pretty` consumes them directly to dispatch
+/// without re-deriving the choice. This is the `EmitParse` law's
+/// "complement" projection — distinct from
+/// [`Schema::forget_layout`], which strips every layout-fibre sort
+/// including `chose-alt-*` to produce a truly abstract schema for
+/// the parse/decorate/emit lens.
 pub fn strip_complement(schema: &mut Schema) {
     for constraints in schema.constraints.values_mut() {
         constraints.retain(|c| {
@@ -139,51 +147,22 @@ pub fn strip_complement(schema: &mut Schema) {
     }
 }
 
-/// Vertex-kind multiset, half of the equivalence class used for law checks.
+/// Vertex-kind multiset re-exported from [`panproto_schema::kind_multiset`].
 ///
-/// See also [`edge_multiset`]; both are required for a faithful retraction
-/// witness because two schemas can share a vertex-kind multiset while
-/// differing in edge structure (e.g. a tree and its mirror).
+/// Hosted in `panproto-schema` so the equivalence witness can be used
+/// by both the lens framework's law harness and the parse module's
+/// law checkers without duplication.
 #[must_use]
 pub fn kind_multiset(schema: &Schema) -> BTreeMap<String, usize> {
-    let mut map = BTreeMap::new();
-    for v in schema.vertices.values() {
-        *map.entry(v.kind.to_string()).or_insert(0) += 1;
-    }
-    map
+    panproto_schema::kind_multiset(schema)
 }
 
-/// Edge-shape multiset: counts of `(src_kind, edge_kind, tgt_kind)` triples.
-///
-/// Combined with [`kind_multiset`] this is the full witness the retraction
-/// law requires — vertex kinds alone leave edge structure unconstrained.
-///
-/// Note: `Schema::edges` is a `HashMap<Edge, Name>` so distinct edges
-/// (different src/tgt vertex IDs) are kept apart, but two edges that
-/// happen to share `(src_id, tgt_id, kind, name)` collapse to one
-/// entry. The shape multiset projects these structurally-distinct
-/// edges onto a kind-level signature, which is the appropriate
-/// granularity for the retraction law: `emit_pretty` cannot be expected
-/// to preserve vertex IDs (the parser invents fresh ones) but it must
-/// preserve the kind-shape of every edge.
+/// Edge-shape multiset re-exported from
+/// [`panproto_schema::edge_multiset`]. See that module for the
+/// rationale on multiset granularity.
 #[must_use]
 pub fn edge_multiset(schema: &Schema) -> BTreeMap<(String, String, String), usize> {
-    let mut map: BTreeMap<(String, String, String), usize> = BTreeMap::new();
-    for edge in schema.edges.keys() {
-        let src_kind = schema
-            .vertices
-            .get(&edge.src)
-            .map(|v| v.kind.to_string())
-            .unwrap_or_default();
-        let tgt_kind = schema
-            .vertices
-            .get(&edge.tgt)
-            .map(|v| v.kind.to_string())
-            .unwrap_or_default();
-        *map.entry((src_kind, edge.kind.to_string(), tgt_kind))
-            .or_insert(0) += 1;
-    }
-    map
+    panproto_schema::edge_multiset(schema)
 }
 
 /// Verify the `EmitParse` law on a given schema:
@@ -316,7 +295,7 @@ mod tests {
             .spawn(|| {
                 let registry = ParserRegistry::new();
                 let lens = ParseEmitLens::new(&registry, "json");
-                let parsed = lens.parse(br#"[1, 2, 3]"#).expect("parse");
+                let parsed = lens.parse(b"[1, 2, 3]").expect("parse");
                 check_emit_parse(&lens, &parsed).expect("retraction holds for parsed schema");
             })
             .expect("spawn")
@@ -367,7 +346,7 @@ mod tests {
                 let registry = ParserRegistry::new();
                 let lens = ParseEmitLens::new(&registry, "json");
                 let s1 = lens.parse(br#"{"a": 1}"#).expect("parse");
-                let s2 = lens.parse(br#"[1]"#).expect("parse");
+                let s2 = lens.parse(b"[1]").expect("parse");
                 let m1 = edge_multiset(&s1);
                 let m2 = edge_multiset(&s2);
                 assert_ne!(

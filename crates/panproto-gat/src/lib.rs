@@ -25,6 +25,7 @@ pub mod alg_struct;
 mod check_model;
 mod colimit;
 pub mod composition;
+mod enrichment;
 mod eq;
 mod error;
 mod factorize;
@@ -51,6 +52,7 @@ pub use colimit::{ColimitResult, colimit, colimit_by_name, pushout_by_name};
 pub use composition::{CompositionSpec, CompositionStep, recompose};
 pub use factorize::{Factorization, factorize, validate_factorization};
 
+pub use enrichment::{EnrichmentKind, LayoutPolicySpec, is_layout_sort};
 pub use eq::{
     CaseBranch, DirectedEquation, Equation, Term, alpha_equivalent, alpha_equivalent_equation,
     compose_subst, match_pattern, normalize,

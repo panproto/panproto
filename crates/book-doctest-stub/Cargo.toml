@@ -1,0 +1,26 @@
+[package]
+name = "book-doctest-stub"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Stub dep aggregator: gives the test-book xtask a single cargo build whose --message-format=json output yields one rmeta per crate the book examples reference."
+
+[dependencies]
+panproto-core = { workspace = true, features = ["full-parse", "tree-sitter"] }
+panproto-gat = { workspace = true }
+panproto-schema = { workspace = true }
+panproto-lens = { workspace = true }
+panproto-inst = { workspace = true }
+panproto-mig = { workspace = true }
+panproto-io = { workspace = true }
+panproto-parse = { workspace = true }
+panproto-protocols = { workspace = true }
+miette = { workspace = true }
+anyhow = "1"
+serde_json = { workspace = true, features = ["preserve_order"] }
+smallvec = { workspace = true }
+
+[lints]
+workspace = true

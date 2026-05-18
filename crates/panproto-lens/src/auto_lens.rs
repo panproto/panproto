@@ -1788,6 +1788,14 @@ fn endofunctor_to_protolens(endofunctor: &TheoryEndofunctor) -> Result<Protolens
         TheoryTransform::ScopedTransform { .. } => Err(LensError::ProtolensError(
             "unexpected ScopedTransform in factorization (user-constructed only)".into(),
         )),
+        TheoryTransform::StripEnrichment(_) | TheoryTransform::AddEnrichment { .. } => {
+            // Enrichment-fibre transforms are constructed by hand at
+            // their use sites (e.g. parse_emit_protolens) and don't
+            // arise from automatic theory-morphism factorisation.
+            Err(LensError::ProtolensError(
+                "unexpected enrichment transform in factorization (user-constructed only)".into(),
+            ))
+        }
     }
 }
 

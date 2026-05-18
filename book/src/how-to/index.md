@@ -28,6 +28,7 @@ If you want to understand *why* a step works, follow the link to the explanation
 - [Convert data between formats](./convert-data.md)
 - [Round-trip with format preservation](./format-preserving.md)
 - [Parse full ASTs](./parse-full-ast.md)
+- [Decorate an abstract schema](./decorate-schemas.md)
 
 ### Version control
 - [Init and commit](./schema-vcs/init-and-commit.md), [branch and merge](./schema-vcs/branch-and-merge.md), [data versioning](./schema-vcs/data-versioning.md), [git bridge](./schema-vcs/git-bridge.md)

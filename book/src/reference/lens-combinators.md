@@ -34,6 +34,7 @@ The optic-kind classification follows from the structure of the schema edge a co
 | Optics | [`optic`](https://docs.rs/panproto-lens/latest/panproto_lens/optic/) | Optic-kind unification (Lens, Traversal, Prism). |
 | Fibration | [`fibration`](https://docs.rs/panproto-lens/latest/panproto_lens/fibration/) | The Grothendieck fibration of lenses over schemas. |
 | Protolens | [`protolens`](https://docs.rs/panproto-lens/latest/panproto_lens/protolens/) | Schema-parameterized lens families with vertical and sequential composition. |
+| Enrichment registry | [`enrichment_registry`](https://docs.rs/panproto-lens/latest/panproto_lens/enrichment_registry/) | Cross-crate `LayoutEnricher` trait and registry for schema-level enrichment fibres (e.g. the parse / decorate / emit lens; see [Layout enrichment](../explanation/layout-enrichment.md)). |
 | Laws | [`laws`](https://docs.rs/panproto-lens/latest/panproto_lens/laws/) | Property-test harness for the three lens laws. |
 
 ## Complement composition

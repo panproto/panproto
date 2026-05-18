@@ -1,3 +1,5 @@
+#![allow(clippy::redundant_closure_for_method_calls, clippy::type_complexity)]
+
 //! Structural-equality round-trip tests across every protocol fixture.
 //!
 //! The macro-generated `roundtrip.rs` tests check `node_count` parity

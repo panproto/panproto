@@ -16,7 +16,7 @@ Completed [Your first schema](./your-first-schema.md). The same `my-first-schema
 import { Panproto } from '@panproto/core';
 
 const p = await Panproto.init();
-const proto = p.protocol('json-schema');
+const proto = p.protocol('atproto');
 
 export const v2 = proto.schema()
   .vertex('user', 'object')
@@ -86,24 +86,24 @@ import { readFileSync, writeFileSync } from 'node:fs';
 
 const lines = readFileSync('data/v1.jsonl', 'utf8').split('\n').filter(Boolean);
 const newLines = lines.map((line) => {
-  const { data } = mig.lift(JSON.parse(line));
+  const data = mig.liftJson(JSON.parse(line), 'user');
   return JSON.stringify(data);
 });
 writeFileSync('data/v2.jsonl', newLines.join('\n'));
 ```
 
-`mig.lift(record)` returns a `LiftResult { data, _rawBytes? }`; `data` is the migrated record. The complement (the data discarded by the forward direction) is captured separately on the `get`/`put` path; see Step 6.
+`mig.liftJson(record, rootVertex)` round-trips a JSON-shaped record through the migration: the wrapper parses it as an instance of the source schema rooted at `rootVertex`, lifts it, and emits the target shape as a JS object. (The lower-level `mig.lift()` exists too, but it expects opaque pre-encoded `Instance` bytes rather than JSON-native records.) The complement (the data discarded by the forward direction) is captured separately on the `get`/`put` path; see Step 6.
 
 ## Step 6: confirm round-trip
 
 ```ts
 const original = JSON.parse(lines[0]);
-const { view, complement } = mig.get(original);
-const { data: back } = mig.put(view, complement);
+const { view, complement } = mig.getJson(original, 'user');
+const back = mig.putJson(view, complement, 'user');
 console.log('round-trip ok?', JSON.stringify(back) === JSON.stringify(original));
 ```
 
-`mig.get(record)` returns a `GetResult { view, complement }`; `mig.put(view, complement)` returns a `LiftResult { data, ... }`. The complement carries the data the v2 shape does not see; together, get and put satisfy the round-trip laws.
+`mig.getJson(record, rootVertex)` returns `{ view, complement }`; `mig.putJson(view, complement, rootVertex)` returns the restored record. The complement carries the data the v2 shape does not see; together, get and put satisfy the round-trip laws. (The lower-level `mig.get()` / `mig.put()` exist for already-encoded `Instance` bytes; the `*Json` wrappers handle the JSON-native path.)
 
 ## What you built
 

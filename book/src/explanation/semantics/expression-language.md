@@ -30,7 +30,7 @@ The parser desugars `if c then a else b` to a `Match` over a boolean scrutinee w
 
 ## Abstract syntax
 
-```rust
+```rust,ignore
 pub enum Expr {
     Lit(Literal),
     Var(Arc<str>),

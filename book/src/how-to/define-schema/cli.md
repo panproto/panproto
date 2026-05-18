@@ -9,7 +9,7 @@ The `schema` binary installed ([Install the CLI](../install/cli.md)). A schema f
 ### Validate an existing schema
 
 ```sh
-schema validate --protocol json-schema path/to/schema.json
+schema validate --protocol atproto path/to/schema.json
 ```
 
 Exits zero on success. On failure, prints the failing equation or constraint with the offending vertex and edge.
@@ -25,18 +25,17 @@ schema scaffold --protocol atproto schemas/post.json
 ### Inspect
 
 ```sh
-schema show schemas/post.json
 schema diff schemas/post-v1.json schemas/post-v2.json
 ```
 
-`show` prints a structured rendering. `diff` reports vertex and edge changes between two schemas.
+`diff` reports vertex and edge changes between two schemas. Inside a panproto repository, `schema show <ref>` resolves a commit, schema, or migration object and prints its contents.
 
 ## Verification
 
 After validation, run:
 
 ```sh
-schema verify --protocol json-schema path/to/schema.json
+schema verify --protocol atproto path/to/schema.json
 ```
 
 `verify` checks that the schema satisfies *every* equation in the protocol's theory, not just the constraints you wrote. A pass guarantees the schema is well-formed in the categorical sense.

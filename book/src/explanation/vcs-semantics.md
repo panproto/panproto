@@ -6,7 +6,7 @@ panproto-vcs is git, but for schemas. It tracks a history of schemas the way git
 
 Two things make it different from git applied to the schema files themselves:
 
-1. **The diff and merge operate on the schema, not the text.** `prot diff` does not show you a unified diff of the JSON; it shows you what changed structurally: which vertices were added, which edges renamed, which constraints tightened. Merge does not three-way-merge the bytes; it merges the schema graph at the structural level, so you cannot end up with a syntactically valid but semantically broken schema after a merge.
+1. **The diff and merge operate on the schema, not the text.** `schema diff` does not show you a unified diff of the JSON; it shows you what changed structurally: which vertices were added, which edges renamed, which constraints tightened. Merge does not three-way-merge the bytes; it merges the schema graph at the structural level, so you cannot end up with a syntactically valid but semantically broken schema after a merge.
 2. **Data and lenses are versioned alongside the schemas.** Every commit records a schema snapshot, the lenses generated against that schema, and (optionally) the data instances that conformed to it. Branches diverge with their data; merges reconcile both.
 
 The merge operation is the place where this gets interesting. Three-way text merge fails when both sides edit the same line. The schema-level analogue is two branches that both add a field with the same name but different types. panproto-vcs has a precise, well-defined operation for resolving this: the schemas are *pushed out* along their common ancestor. The result is the smallest schema containing both branches' additions, with the conflict surfaced as an explicit refinement constraint that the user resolves.
@@ -53,7 +53,7 @@ A merge conflict arises when the pushout would introduce an inconsistency: two b
 
 ## Data versioning
 
-Commits can carry data instances. When a branch's schema migrates, the data carried by its commits is automatically lifted forward by the migration's lens. Branches can therefore diverge in both schema and data; merging both kinds of divergence in one operation is what `prot merge` does.
+Commits can carry data instances. When a branch's schema migrates, the data carried by its commits is automatically lifted forward by the migration's lens. Branches can therefore diverge in both schema and data; merging both kinds of divergence in one operation is what `schema merge` does.
 
 A consequence: history rewriting (rebase, amend) on a branch carrying data must lift the data through the rewritten history. panproto-vcs does this; the data is *not* a passive blob.
 

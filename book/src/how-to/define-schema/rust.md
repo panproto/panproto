@@ -6,35 +6,45 @@
 
 ## The task
 
-```rust
-use panproto_core::{Panproto, ProtocolName};
+```rust,no_run
+use panproto_core::protocols::atproto;
+use panproto_core::schema::SchemaBuilder;
 
-fn main() -> anyhow::Result<()> {
-    let p = Panproto::new();
-    let proto = p.protocol(ProtocolName::JsonSchema)?;
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let proto = atproto::protocol();
 
-    let schema = proto.schema()
-        .vertex("user", "object")
-        .vertex("user.name", "string")
-        .vertex("user.age", "integer")
-        .edge("user", "user.name", "prop").named("name").required()
-        .edge("user", "user.age", "prop").named("age").optional()
+    let schema = SchemaBuilder::new(&proto)
+        .vertex("user", "object", Some("app.example.user"))?
+        .vertex("user:name", "string", None)?
+        .vertex("user:age", "integer", None)?
+        .edge("user", "user:name", "prop", Some("name"))?
+        .edge("user", "user:age", "prop", Some("age"))?
+        .entry("user")
         .build()?;
 
-    println!("{schema:?}");
+    println!("{} vertices, {} edges", schema.vertices.len(), schema.edges.len());
     Ok(())
 }
 ```
 
-`Panproto::new()` constructs the top-level handle. `protocol` returns a typed handle for the named protocol. The fluent builder produces a `Schema` on `.build()`.
+`SchemaBuilder::new(&protocol)` constructs the builder; each `vertex` and `edge` call validates against the protocol's edge rules and obj-kind list. `entry` declares basepoint vertices for instance rooting. `build` returns a `Schema` (or a `SchemaError`).
 
 ## Verification
 
-```rust
-schema.validate()?;
+```rust,no_run
+use panproto_core::schema::{SchemaBuilder, validate};
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+# let proto = panproto_core::protocols::atproto::protocol();
+# let schema = SchemaBuilder::new(&proto)
+#     .vertex("user", "object", Some("app.example.user"))?
+#     .entry("user")
+#     .build()?;
+let errors = validate(&schema, &proto);
+assert!(errors.is_empty(), "validation errors: {errors:?}");
+# Ok(()) }
 ```
 
-Returns `Result<(), ValidationError>`. The error carries the failing equation and the offending vertex or edge as structured fields.
+`validate` returns a `Vec<ValidationError>`. The error carries the failing equation and the offending vertex or edge as structured fields.
 
 ## Common mistakes
 

@@ -135,6 +135,28 @@ pub enum ComplementConstructor {
         /// The inner complement constructor.
         inner: Box<Self>,
     },
+    /// Names a schema-enrichment fibre and the synthesis driver
+    /// registered to populate it.
+    ///
+    /// This variant is descriptive only: the `Complement` struct in
+    /// [`crate::asymmetric`] holds `WInstance`-level discarded data
+    /// (dropped nodes, dropped arcs, contraction choices) and does
+    /// not have a per-vertex constraint-fibre field. For protolenses
+    /// whose source / target endofunctors are
+    /// [`TheoryTransform::StripEnrichment`] / `AddEnrichment`, the
+    /// schema-level fibre-shuffling happens in
+    /// `apply_theory_transform_to_schema` (via the registered
+    /// [`LayoutEnricher`](crate::enrichment_registry::LayoutEnricher));
+    /// the operational entry points for the parse/decorate/emit lens
+    /// live in `panproto-parse` rather than the asymmetric
+    /// `get` / `put` pair.
+    Enrichment {
+        /// The enrichment fibre being captured.
+        kind: panproto_gat::EnrichmentKind,
+        /// Name of the registered synthesis driver, looked up in the
+        /// `enrichment_registry` (e.g. a grammar name for `Layout`).
+        enricher: Arc<str>,
+    },
 }
 
 /// A protolens: a dependent function from schemas to lenses.
@@ -2042,7 +2064,7 @@ fn bfs_through_new(
 /// This is the bridge between GAT-level (Theory) and schema-level (Schema).
 /// The `protocol` parameter is threaded through for recursive calls but
 /// is not directly consulted by the current transform implementations.
-#[allow(clippy::only_used_in_recursion)]
+#[allow(clippy::only_used_in_recursion, clippy::too_many_lines)]
 fn apply_theory_transform_to_schema(
     transform: &TheoryTransform,
     schema: &Schema,
@@ -2148,7 +2170,27 @@ fn apply_theory_transform_to_schema(
             let intermediate = apply_theory_transform_to_schema(first, schema, protocol)?;
             apply_theory_transform_to_schema(second, &intermediate, protocol)
         }
+        TheoryTransform::StripEnrichment(kind) => Ok(apply_strip_enrichment(schema, *kind)),
+        TheoryTransform::AddEnrichment {
+            kind,
+            enricher,
+            policy,
+        } => {
+            let driver = crate::enrichment_registry::lookup_enricher(*kind, enricher)?;
+            driver.enrich(schema, policy)
+        }
     }
+}
+
+/// Drop every constraint whose sort is in `kind`'s fibre, and prune
+/// the now-empty per-vertex entries so equality is structural.
+fn apply_strip_enrichment(schema: &Schema, kind: panproto_gat::EnrichmentKind) -> Schema {
+    let mut out = schema.clone();
+    for cs in out.constraints.values_mut() {
+        cs.retain(|c| !kind.is_member_sort(c.sort.as_ref()));
+    }
+    out.constraints.retain(|_, cs| !cs.is_empty());
+    out
 }
 
 /// Schema-level counterpart of

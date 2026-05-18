@@ -26,6 +26,11 @@ pub trait ProtocolCodec: InstanceParser + InstanceEmitter {
     /// The default implementation falls back to canonical parsing with
     /// no complement. Codecs that support format preservation (such as
     /// [`UnifiedCodec`](crate::unified_codec::UnifiedCodec)) override this.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParseInstanceError`] when the underlying canonical
+    /// parse fails.
     #[cfg(feature = "tree-sitter")]
     fn parse_wtype_preserving(
         &self,
@@ -39,6 +44,11 @@ pub trait ProtocolCodec: InstanceParser + InstanceEmitter {
     /// Emit with format preservation using a CST complement.
     ///
     /// The default implementation ignores the complement and emits canonically.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EmitInstanceError`] when the underlying canonical
+    /// emit fails.
     #[cfg(feature = "tree-sitter")]
     fn emit_wtype_preserving(
         &self,
@@ -68,6 +78,10 @@ impl ProtocolCodec for crate::unified_codec::UnifiedCodec {
         schema: &Schema,
         input: &[u8],
     ) -> Result<(WInstance, Option<crate::cst_extract::CstComplement>), ParseInstanceError> {
+        // Disambiguate from the trait method of the same name to
+        // call the inherent method on UnifiedCodec; `Self::…` would
+        // recurse into the trait method we are implementing.
+        #[allow(clippy::use_self)]
         let (instance, complement) =
             crate::unified_codec::UnifiedCodec::parse_wtype_preserving(self, schema, input)?;
         Ok((instance, Some(complement)))
@@ -80,6 +94,7 @@ impl ProtocolCodec for crate::unified_codec::UnifiedCodec {
         complement: Option<&crate::cst_extract::CstComplement>,
     ) -> Result<Vec<u8>, EmitInstanceError> {
         if let Some(comp) = complement {
+            #[allow(clippy::use_self)]
             return crate::unified_codec::UnifiedCodec::emit_wtype_preserving(
                 self, schema, instance, comp,
             );
@@ -289,7 +304,8 @@ impl ProtocolRegistry {
     /// Parse with format preservation, returning both the instance and a
     /// CST complement that can be used for format-preserving emission.
     ///
-    /// If the codec for this protocol implements [`FormatPreservingCodec`],
+    /// If the codec for this protocol implements
+    /// [`FormatPreservingCodec`](crate::traits::FormatPreservingCodec),
     /// the complement captures formatting information. Otherwise, the
     /// complement is `None` and emission will produce canonical output.
     ///

@@ -35,7 +35,7 @@ Each step is a single-key object. The key picks the variant; the value carries i
 
 ```sh
 schema lens generate \
-  --protocol json-schema \
+  --protocol atproto \
   schemas/user-v1.json \
   schemas/user-v2.json \
   --save lenses/user-v1-to-v2.json
@@ -46,13 +46,13 @@ This auto-derives a chain. To author a chain by hand, write the lens DSL and cal
 ### Apply
 
 ```sh
-schema lens apply --protocol json-schema lenses/user-v1-to-v2.json data/users.json
+schema lens apply --protocol atproto lenses/user-v1-to-v2.json data/users.json
 ```
 
 ### Inspect
 
 ```sh
-schema lens inspect --protocol json-schema lenses/user-v1-to-v2.json
+schema lens inspect --protocol atproto lenses/user-v1-to-v2.json
 ```
 
 Prints the combinator chain. `--protocol` is required.
@@ -81,10 +81,10 @@ chain = panproto.ProtolensChain.from_dsl_nickel(nickel_source, "record:body")
 
 ```sh
 # Check the chain is applicable to every schema in a directory.
-schema lens check --protocol json-schema lenses/user-v1-to-v2.json schemas/
+schema lens check --protocol atproto lenses/user-v1-to-v2.json schemas/
 
 # Verify the lens laws on test data.
-schema lens verify --protocol json-schema data/users.json schemas/user-v2.json
+schema lens verify --protocol atproto data/users.json schemas/user-v2.json
 ```
 
 `lens check` reports applicability without instantiating; `lens verify` checks the round-trip laws on actual data.

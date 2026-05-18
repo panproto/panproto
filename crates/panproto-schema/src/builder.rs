@@ -303,6 +303,38 @@ impl SchemaBuilder {
         self
     }
 
+    /// Build an [`AbstractSchema`](crate::AbstractSchema), enforcing
+    /// the no-layout-fibre invariant.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SchemaError::EmptySchema`] if no vertices were added,
+    /// and [`SchemaError::LayoutConstraintsOnAbstractBuild`] if any
+    /// constraint added to the builder belongs to the layout
+    /// enrichment fibre (i.e. would fail
+    /// [`Schema::is_layout_free`](crate::Schema::is_layout_free)).
+    pub fn build_abstract(self) -> Result<crate::AbstractSchema, SchemaError> {
+        let schema = self.build()?;
+        crate::AbstractSchema::from_layout_free(schema)
+            .map_err(|_| SchemaError::LayoutConstraintsOnAbstractBuild)
+    }
+
+    /// Build a [`DecoratedSchema`](crate::DecoratedSchema).
+    ///
+    /// This is intended for callers that have hand-constructed a
+    /// complete layout fibre (the parse-side walker and `decorate`
+    /// synthesis driver use it). No structural check on the fibre is
+    /// performed here; well-formedness of the layout enrichment is the
+    /// responsibility of the construction site.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SchemaError::EmptySchema`] if no vertices were added.
+    pub fn build_decorated(self) -> Result<crate::DecoratedSchema, SchemaError> {
+        let schema = self.build()?;
+        Ok(crate::DecoratedSchema::wrap_unchecked(schema))
+    }
+
     /// Consume the builder and produce a validated [`Schema`] with
     /// precomputed adjacency indices.
     ///

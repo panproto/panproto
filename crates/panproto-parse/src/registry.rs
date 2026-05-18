@@ -1,11 +1,13 @@
 //! Parser registry mapping protocol names to full-AST parser implementations.
 
 use std::path::Path;
+use std::sync::Arc;
 
-use panproto_schema::Schema;
+use panproto_schema::{AbstractSchema, DecoratedSchema, Schema};
 use rustc_hash::FxHashMap;
 
 use crate::error::ParseError;
+use crate::layout_policy::LayoutPolicy;
 use crate::theory_extract::ExtractedTheoryMeta;
 
 /// A full-AST parser and emitter for a specific programming language.
@@ -53,11 +55,34 @@ pub trait AstParser: Send + Sync {
     /// vendored `grammar.json`, when a vertex's kind is not a grammar
     /// rule, or when a required field has no corresponding schema edge.
     fn emit_pretty(&self, schema: &Schema) -> Result<Vec<u8>, ParseError> {
-        let _ = schema;
+        self.emit_pretty_with_policy(schema, &crate::emit_pretty::FormatPolicy::default())
+    }
+
+    /// Render a by-construction [`Schema`] under a caller-supplied
+    /// [`FormatPolicy`](crate::emit_pretty::FormatPolicy).
+    ///
+    /// The policy governs every configurable aspect of the rendered
+    /// output: separator between glued tokens, newline byte sequence,
+    /// indent width, line-break and indent-open/close token sets. The
+    /// default policy (used by [`emit_pretty`](Self::emit_pretty))
+    /// targets syntactic validity with ASCII conventions; callers
+    /// supplying their own policy can pin idiomatic formatting.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParseError::EmitFailed`] when the language has no
+    /// vendored `grammar.json`, when a vertex's kind is not a grammar
+    /// rule, or when a required field has no corresponding schema edge.
+    fn emit_pretty_with_policy(
+        &self,
+        schema: &Schema,
+        policy: &crate::emit_pretty::FormatPolicy,
+    ) -> Result<Vec<u8>, ParseError> {
+        let _ = (schema, policy);
         Err(ParseError::EmitFailed {
             protocol: self.protocol_name().to_owned(),
             reason: format!(
-                "emit_pretty not implemented for protocol '{}'",
+                "emit_pretty_with_policy not implemented for protocol '{}'",
                 self.protocol_name()
             ),
         })
@@ -70,7 +95,12 @@ pub trait AstParser: Send + Sync {
 /// operations to the appropriate language parser.
 pub struct ParserRegistry {
     /// Parsers keyed by protocol name.
-    parsers: FxHashMap<String, Box<dyn AstParser>>,
+    ///
+    /// Held by `Arc` (not `Box`) so the same handle can be shared with
+    /// the layout-enrichment registry without re-wrapping at every
+    /// lookup. Registration installs both: the parser into `parsers`
+    /// and a thin adapter into the lens crate's enrichment registry.
+    parsers: FxHashMap<String, Arc<dyn AstParser>>,
     /// Extension → protocol name mapping.
     extension_map: FxHashMap<String, String>,
 }
@@ -118,12 +148,20 @@ impl ParserRegistry {
     }
 
     /// Register a parser implementation.
+    ///
+    /// In addition to keying the parser by its protocol name, this
+    /// installs a [`LayoutEnricher`](panproto_lens::enrichment_registry::LayoutEnricher)
+    /// adapter into the global enrichment registry so that a
+    /// `parse_emit_protolens(protocol, …)` instantiation finds a
+    /// synthesis driver without any further wiring.
     pub fn register(&mut self, parser: Box<dyn AstParser>) {
         let name = parser.protocol_name().to_owned();
         for ext in parser.supported_extensions() {
             self.extension_map.insert((*ext).to_owned(), name.clone());
         }
-        self.parsers.insert(name, parser);
+        let arc: Arc<dyn AstParser> = Arc::from(parser);
+        crate::decorate::register_layout_enricher(Arc::clone(&arc));
+        self.parsers.insert(name, arc);
     }
 
     /// Register a tree-sitter language as a full-AST parser.
@@ -358,6 +396,121 @@ impl ParserRegistry {
         parser.emit_pretty(schema)
     }
 
+    /// Decorate an [`AbstractSchema`] with the layout enrichment
+    /// fibre required by `emit_pretty_with_protocol` and friends.
+    ///
+    /// This is the put-direction of the parse / decorate / emit lens
+    /// at `protocol`. The implementation routes through the same
+    /// grammar walker as `emit_pretty` followed by `parse`, so the
+    /// resulting [`DecoratedSchema`] carries a complete layout fibre
+    /// recovered by the parse-side walker — `start-byte`, `end-byte`,
+    /// every `interstitial-N`, `chose-alt-fingerprint`, and
+    /// `chose-alt-child-kinds`.
+    ///
+    /// The section law holds up to kind- and edge-multiset
+    /// equivalence: `forget_layout(decorate(a)) ≅ a` modulo vertex-id
+    /// renaming. Grammars where parsing consolidates tokens that the
+    /// emitter rendered as separate sequences (e.g. lilypond's `c'4`
+    /// re-parses to a single note) do not preserve a one-to-one
+    /// vertex correspondence, so the result's vertex IDs are always
+    /// freshly minted by the parser.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParseError::UnknownLanguage`] when `protocol` is not
+    /// registered, [`ParseError::SchemaConstruction`] when the
+    /// abstract schema was built for a different protocol than
+    /// `protocol`, [`ParseError::EmitFailed`] when the grammar walker
+    /// cannot render the abstract schema (missing `grammar.json`,
+    /// vertex kind not a rule), or any other parser error if the
+    /// re-parse step rejects the canonical bytes (a regression in the
+    /// parse/emit pipeline, not a user bug).
+    pub fn decorate(
+        &self,
+        protocol: &str,
+        abstract_schema: &AbstractSchema,
+        policy: &LayoutPolicy,
+    ) -> Result<DecoratedSchema, ParseError> {
+        let parser = self
+            .parsers
+            .get(protocol)
+            .ok_or_else(|| ParseError::UnknownLanguage {
+                extension: protocol.to_owned(),
+            })?;
+        // `decorate_with_parser` enforces the protocol-match invariant
+        // between the parser and the abstract schema, so no extra guard
+        // is needed here.
+        crate::decorate::decorate_with_parser(parser.as_ref(), abstract_schema, policy)
+    }
+
+    /// Render an [`AbstractSchema`] to canonical source bytes under
+    /// `policy`.
+    ///
+    /// Implementation note: this is exactly the first emit step of
+    /// [`decorate`](Self::decorate) — `decorate` then re-parses to
+    /// recover the layout fibre, but if all the caller wants is the
+    /// bytes, the re-parse is wasted work. Going through
+    /// `emit_pretty_with_policy` directly preserves every field of
+    /// `policy` in the output (`separator`, `newline`, `indent_width`,
+    /// `line_break_after`, `indent_open` / `indent_close`).
+    ///
+    /// # Errors
+    ///
+    /// See [`decorate`](Self::decorate).
+    pub fn pretty_with_protocol(
+        &self,
+        protocol: &str,
+        abstract_schema: &AbstractSchema,
+        policy: &LayoutPolicy,
+    ) -> Result<Vec<u8>, ParseError> {
+        let parser = self
+            .parsers
+            .get(protocol)
+            .ok_or_else(|| ParseError::UnknownLanguage {
+                extension: protocol.to_owned(),
+            })?;
+        check_protocol_match(
+            protocol,
+            abstract_schema.as_schema(),
+            "pretty_with_protocol",
+        )?;
+        parser.emit_pretty_with_policy(abstract_schema.as_schema(), policy)
+    }
+
+    /// Return the canonical [`Protolens`](panproto_lens::Protolens)
+    /// describing the parse / decorate / emit relationship at
+    /// `protocol`.
+    ///
+    /// The protolens encodes the schema-level structure of the
+    /// relationship: source-side strips the layout enrichment fibre,
+    /// target-side adds it via the registered
+    /// [`LayoutEnricher`](panproto_lens::enrichment_registry::LayoutEnricher).
+    /// It composes with the rest of the `panproto-lens` protolens
+    /// algebra for chain-law reasoning. The operational entry points
+    /// for running the relationship on real schemas are
+    /// [`decorate`](Self::decorate),
+    /// [`pretty_with_protocol`](Self::pretty_with_protocol), and
+    /// [`emit_pretty_with_protocol`](Self::emit_pretty_with_protocol).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParseError::UnknownLanguage`] when `protocol` is not
+    /// registered.
+    pub fn parse_emit_protolens(
+        &self,
+        protocol: &str,
+        policy: &LayoutPolicy,
+    ) -> Result<panproto_lens::Protolens, ParseError> {
+        if !self.parsers.contains_key(protocol) {
+            return Err(ParseError::UnknownLanguage {
+                extension: protocol.to_owned(),
+            });
+        }
+        Ok(crate::parse_emit_protolens::parse_emit_protolens(
+            protocol, policy,
+        ))
+    }
+
     /// Get the theory metadata for a specific protocol.
     #[must_use]
     pub fn theory_meta(&self, protocol: &str) -> Option<&ExtractedTheoryMeta> {
@@ -397,5 +550,28 @@ impl ParserRegistry {
 impl Default for ParserRegistry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Guard against running parser-tied operations on a schema built
+/// for a different protocol. Catches the user-visible error of
+/// passing (say) a JSON schema to a Python parser before the
+/// underlying grammar walker would surface it as an opaque rule
+/// mismatch.
+fn check_protocol_match(
+    expected: &str,
+    schema: &Schema,
+    operation: &'static str,
+) -> Result<(), ParseError> {
+    if schema.protocol == expected {
+        Ok(())
+    } else {
+        Err(ParseError::SchemaConstruction {
+            reason: format!(
+                "{operation}: protocol mismatch — registry called with '{expected}' but \
+                 schema carries protocol '{}'",
+                schema.protocol,
+            ),
+        })
     }
 }

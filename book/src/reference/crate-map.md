@@ -8,10 +8,10 @@ The `panproto-*` crates in the workspace, with one-line descriptions and depende
 |---|---|
 | `panproto-gat` | Generalized algebraic theories: sorts, operations, equations, and the colimit machinery that composes them. |
 | `panproto-gat-macros` | `class!` and `inductive!` macros for declaring GATs in Rust source. |
-| `panproto-schema` | Schema representation: vertices, edges, the schema graph, validation. |
+| `panproto-schema` | Schema representation: vertices, edges, the schema graph, validation. Hosts the `AbstractSchema` / `DecoratedSchema` typed-newtype distinction and the layout-fibre forgetful U (`Schema::forget_layout`). |
 | `panproto-inst` | Instances: data records over a schema, including `Value::List` and the typed value lattice. |
 | `panproto-mig` | Migration engine: morphisms between schema theories, restrict and lift. |
-| `panproto-lens` | Bidirectional lenses: get/put/complement, the three round-trip laws, fibration over schemas, optic kinds, protolenses. |
+| `panproto-lens` | Bidirectional lenses: get/put/complement, the three round-trip laws, fibration over schemas, optic kinds, protolenses, the cross-crate `enrichment_registry` for layout and other schema-level fibres. |
 | `panproto-lens-dsl` | Declarative lens DSL with Nickel, JSON, and YAML surfaces. |
 | `panproto-theory-dsl` | Declarative theory DSL for defining custom protocols. |
 | `panproto-check` | Breaking-change detection: classifies schema diffs as fully compatible, backward compatible, or breaking. |
@@ -24,7 +24,7 @@ The `panproto-*` crates in the workspace, with one-line descriptions and depende
 | Crate | Description |
 |---|---|
 | `panproto-io` | Parse/emit codecs that bridge native formats (JSON, Avro, Protobuf, ...) to `panproto-inst`. |
-| `panproto-parse` | Tree-sitter full-AST parsing across 259 languages, with interstitial preservation. |
+| `panproto-parse` | Tree-sitter full-AST parsing across 259 languages, with interstitial preservation. Hosts the put-direction (`decorate`) of the parse / emit lens and the `LayoutEnricher` adapter installed in `panproto-lens`'s enrichment registry. |
 | `panproto-grammars` | Pre-compiled tree-sitter grammars used by `panproto-parse`. |
 | `panproto-grammars-all` | Umbrella grammar companion pack for the Python wheel. |
 | `panproto-grammars-functional` | Functional-language grammar pack. |
@@ -35,7 +35,7 @@ The `panproto-*` crates in the workspace, with one-line descriptions and depende
 | `panproto-grammars-data` | Data-language grammar pack. |
 | `panproto-grammars-devops` | DevOps-language grammar pack. |
 | `panproto-grammars-mobile` | Mobile-language grammar pack. |
-| `panproto-grammars-music` | Music-language grammar pack (Tidal, Strudel, QVR). |
+| `panproto-grammars-music` | Music-language grammar pack (SuperCollider, LilyPond, ABC, Csound, ChucK, Glicol, Tidal, Strudel). |
 | `panproto-project` | Multi-file project assembly via schema coproduct, manifest loading. |
 
 ## Version control

@@ -25,9 +25,9 @@ where each `+` is a pushout (a binary colimit) along the shared sort `Vertex`. T
 - The vertices, edges, and identity laws from `ThGraph`.
 - The constraint sort and predicate operations from `ThConstraint`.
 - The multi-edge labelling from `ThMulti`.
-- The W-type operations (recursive type constructors) from `ThWType`.
+- The instance-level W-type structure (tree-shaped data anchored at schema vertices) from `ThWType`.
 
-If a colimit step fails, registration panics with a message naming the failing intermediate step ("could not push out `ThGraph + ThConstraint` along `Vertex`: ..."). This is intentional: a failed registration is a build-time bug in the theory composition, not user input.
+If a colimit step fails, registration panics with a message naming the failing intermediate step (`colimit ThGraph + ThConstraint over ThVertex failed: ...`). This is intentional: a failed registration is a build-time bug in the theory composition, not user input.
 
 ## Why colimits, specifically
 
@@ -45,13 +45,13 @@ The shared theory library lives in [`crates/panproto-protocols/src/theories.rs`]
 
 | Theory | Purpose |
 |---|---|
-| `ThGraph` | Vertices and edges with identity. |
-| `ThMulti` | Multiple parallel edges between the same vertex pair. |
-| `ThConstraint` | Predicates carried on edges. |
-| `ThWType` | Recursive type constructors (W-types). |
-| `ThVariant` | Sum-typed alternatives between vertices. |
-| `ThNamed` | String labels on vertices and edges. |
-| `ThOrder` | Total ordering on items in a collection edge. |
+| `ThGraph` | Vertices and edges, with source and target operations. |
+| `ThConstraint` | Vertex-attached constraints (a dependent `Constraint(v: Vertex)` sort). |
+| `ThMulti` | Parallel edges distinguished by edge labels. |
+| `ThWType` | Recursive type constructors (W-types) at the instance level. |
+| `ThMeta` | Metadata edges on instance nodes. |
+
+The library also exposes higher-level pieces built by composing these (`ThSimpleGraph`, `ThHypergraph`, `ThInterface`, `ThFunctor`, `ThFlat`, `ThGraphInstance`) for protocols that want to start from a richer base.
 
 A protocol's registration function is a recipe for combining these. To define a new protocol, see [Build a custom protocol](../how-to/build-protocol.md).
 

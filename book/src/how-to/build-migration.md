@@ -27,8 +27,8 @@ schema check --src schemas/v1.json --tgt schemas/v2.json --mapping migrations/v1
 For schema-level diff classification, generate a lens between the two schemas:
 
 ```sh
-schema lens generate --protocol json-schema schemas/v1.json schemas/v2.json --save lens.json
-schema diff schemas/v1.json schemas/v2.json --lens
+schema lens generate --protocol atproto schemas/v1.json schemas/v2.json --save lens.json
+schema diff schemas/v1.json schemas/v2.json --lens --save lens.json
 ```
 
 To migrate data, use the VCS-driven path: commit `v1` and `v2` to a panproto repository, then run `schema data migrate <data-dir>` against the working tree (see [Schema VCS data versioning](./schema-vcs/data-versioning.md)).
@@ -41,9 +41,9 @@ const mig = p
   .map('user', 'user')
   .compile();
 
-mig.lift(oldRecord);          // forward (CompiledMigration is itself a lens)
-const { view, complement } = mig.get(oldRecord);
-mig.put(view, complement);    // backward
+const { data: forward } = mig.lift(oldRecord);   // forward
+const { view, complement } = mig.get(oldRecord); // forward, retaining complement
+mig.put(view, complement);                       // backward
 ```
 
 `p.checkExistence(src, tgt, builder)` runs the same existence check as the CLI. Python and Rust SDKs use the same shape with language-idiomatic naming.

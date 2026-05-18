@@ -57,7 +57,7 @@ schema lens apply --protocol <protocol> lenses/a-to-b.json data/user.json
 For data conversion *within* a single protocol's schema fleet (different schemas, same protocol), use `schema data convert`:
 
 ```sh
-schema data convert --protocol json-schema \
+schema data convert --protocol atproto \
   --from schemas/user-v1.json --to schemas/user-v2.json \
   data/users/
 ```

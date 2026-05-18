@@ -34,22 +34,41 @@ From Python, the same DSL document loads via `Theory.from_nickel(source)`, `Theo
 
 ### Implement parser and emitter
 
-Each protocol provides a `Parser: Bytes -> Schema` and an `Emitter: Schema -> Bytes`. Implement both in a new submodule of `panproto-protocols`. See existing modules (`serialization::avro`, `data_schema::json_schema`) for canonical structure.
+Each protocol provides a `Parser: Bytes -> Schema` and an `Emitter: Schema -> Bytes`. Implement both in a new submodule of `panproto-protocols`. See existing modules (`serialization::avro`, `data_schema::cddl`, `web_document::atproto`) for canonical structure.
 
 ### Register
 
-```rust
-// crates/panproto-protocols/src/lib.rs
-pub mod my_proto;
+Each protocol module exposes `protocol() -> Protocol` and `register_theories(&mut HashMap<String, Theory, _>)`:
 
-pub fn register_all(registry: &mut Registry) {
-    serialization::register(registry);
-    data_schema::register(registry);
-    my_proto::register(registry);   // <- new
+```rust,ignore
+// crates/panproto-protocols/src/my_proto.rs
+use std::collections::HashMap;
+use panproto_gat::Theory;
+use panproto_schema::Protocol;
+
+use crate::theories;
+
+pub fn protocol() -> Protocol {
+    Protocol {
+        name: "my_proto".into(),
+        schema_theory: "ThMyProtoSchema".into(),
+        instance_theory: "ThMyProtoInstance".into(),
+        ..Protocol::default()
+    }
+}
+
+pub fn register_theories<S: ::std::hash::BuildHasher>(
+    registry: &mut HashMap<String, Theory, S>,
+) {
+    theories::register_constrained_multigraph_wtype(
+        registry,
+        "ThMyProtoSchema",
+        "ThMyProtoInstance",
+    );
 }
 ```
 
-`my_proto::register` calls into `register_constrained_multigraph_wtype` (or another helper that reflects your theory shape). Colimit failures panic with a named intermediate step; this is a build-time bug to fix in the theory composition.
+Pick the `theories::register_*` helper that matches your theory shape (`register_constrained_multigraph_wtype`, `register_typed_graph_wtype`, `register_hypergraph_functor`, ...). Colimit failures during registration panic with a named intermediate step; that is a build-time bug to fix in the theory composition. To expose `my_proto` to the language SDKs and CLI, add it to the `lookup` table in `crates/panproto-py/src/protocols.rs` and the `lookup_builtin_protocol` table in `crates/panproto-wasm/src/api/helpers.rs`.
 
 ## Verification
 

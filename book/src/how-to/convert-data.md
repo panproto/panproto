@@ -11,7 +11,7 @@ The `schema` CLI installed, or the SDK in your language. The source and target p
 ### Single file or directory (within one protocol)
 
 ```sh
-schema data convert --protocol json-schema \
+schema data convert --protocol atproto \
   --from schemas/user-v1.json --to schemas/user-v2.json \
   data/users.json -o data/users-v2.json
 ```
@@ -40,16 +40,16 @@ const out = await p.convert(jsonBytes, {
 To verify round-trip fidelity, generate a chain explicitly and run `schema lens verify`:
 
 ```sh
-schema lens generate --protocol json-schema schemas/user-v1.json schemas/user-v2.json --save chain.json
-schema lens verify --protocol json-schema data/users.json schemas/user-v2.json
+schema lens generate --protocol atproto schemas/user-v1.json schemas/user-v2.json --save chain.json
+schema lens verify --protocol atproto data/users.json schemas/user-v2.json
 ```
 
 Lens verification on test data exercises the three round-trip laws (GetPut, PutGet, PutPut); a pass means the chain is loss-free for the sampled records.
 
 ## Common mistakes
 
-- Assuming all protocol pairs are loss-free. They are not. The diff classification (fully compatible, backward compatible, lossy) is reported in `--verify` output; treat anything other than fully compatible with care.
-- Omitting `--verify` in CI. Without it, silent loss is possible.
+- Assuming all schema pairs are loss-free. They are not. Run `schema lens verify` after conversion to exercise the round-trip laws on representative data, and run `schema check --src --tgt --mapping ... --typecheck` to classify the diff as fully compatible, backward compatible, or breaking.
+- Skipping lens verification in CI. Without it, silent loss is possible.
 
 ## See also
 

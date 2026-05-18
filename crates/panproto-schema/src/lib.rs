@@ -14,8 +14,10 @@
 //! - **[`normalize`]**: Ref-chain collapse for schemas with `Ref` vertices.
 //! - **[`validate`]**: Post-hoc validation of a schema against a protocol.
 
+mod abstract_schema;
 mod builder;
 mod colimit;
+pub mod equivalence;
 mod error;
 mod morphism;
 mod normalize;
@@ -24,8 +26,12 @@ mod schema;
 pub mod serde_helpers;
 mod validate;
 
+pub use abstract_schema::{
+    AbstractSchema, DecoratedSchema, LayoutConstraintsPresent, LayoutWitness,
+};
 pub use builder::SchemaBuilder;
 pub use colimit::{SchemaOverlap, schema_pushout};
+pub use equivalence::{edge_multiset, kind_multiset};
 pub use error::{SchemaError, ValidationError};
 pub use morphism::SchemaMorphism;
 pub use normalize::normalize;

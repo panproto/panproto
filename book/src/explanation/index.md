@@ -13,6 +13,7 @@ The pages here, in increasing order of formality:
 | [Schemas as theories](./schemas-as-theories.md) | Plain, with one formal section |
 | [Migrations as morphisms](./migrations-as-morphisms.md) | Plain, with one formal section |
 | [Lenses and round-trip laws](./lenses-roundtrip.md) | Plain, with the three laws stated formally |
+| [Layout enrichment](./layout-enrichment.md) | Plain, with the section law stated formally |
 | [Composing protocols by colimit](./protocol-colimits.md) | Plain, with one formal section |
 | [Schema version control semantics](./vcs-semantics.md) | Plain, with one formal section |
 | [What panproto verifies](./what-is-verified.md) | Catalogue of mechanically-checked properties |

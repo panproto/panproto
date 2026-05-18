@@ -205,7 +205,7 @@ impl UnifiedCodec {
         Ok((instance, complement))
     }
 
-    /// Emit bytes from a WInstance using the CST complement for format preservation.
+    /// Emit bytes from a `WInstance` using the CST complement for format preservation.
     ///
     /// If the complement is available, the instance data is injected back into
     /// the CST Schema and emitted with original formatting. Otherwise, falls
@@ -256,7 +256,7 @@ impl UnifiedCodec {
             })
     }
 
-    /// Parse raw bytes to an FInstance for tabular formats.
+    /// Parse raw bytes to an `FInstance` for tabular formats.
     fn parse_functor_from_cst(
         &self,
         schema: &Schema,

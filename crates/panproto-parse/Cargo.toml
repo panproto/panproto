@@ -11,6 +11,7 @@ repository.workspace = true
 panproto-gat = { workspace = true }
 panproto-schema = { workspace = true }
 panproto-protocols = { workspace = true }
+panproto-lens = { workspace = true }
 panproto-grammars = { workspace = true, optional = true }
 
 tree-sitter = { workspace = true }

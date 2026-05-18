@@ -194,6 +194,39 @@ pub enum TheoryTransform {
     },
     /// Sequential composition: T ↦ G(F(T))
     Compose(Box<Self>, Box<Self>),
+    /// Strip a schema enrichment.
+    ///
+    /// At the theory level this is identity: the GAT structure of an
+    /// enrichment is the same theory as the base. At the schema level,
+    /// every constraint whose sort belongs to the enrichment's fibre
+    /// (per [`EnrichmentKind::is_member_sort`](crate::EnrichmentKind::is_member_sort))
+    /// is removed. Classified as `Lens`. The schema-level synthesis
+    /// driver is responsible for the put-direction; the lens-framework
+    /// complement names which fibre and which driver, not the per-
+    /// vertex witness data.
+    StripEnrichment(crate::EnrichmentKind),
+    /// Add a schema enrichment.
+    ///
+    /// At the theory level this is identity. At the schema level, the
+    /// enrichment-specific synthesis procedure runs against the
+    /// schema's vertices and an enrichment-specific policy to attach
+    /// the fibre constraints. For [`crate::EnrichmentKind::Layout`] the
+    /// synthesis procedure walks the parser's grammar rules driven by
+    /// a `LayoutPolicySpec`. Classified as `Lens`.
+    ///
+    /// The `enricher` field names which registered synthesis driver
+    /// to call. For layout the convention is the grammar name (e.g.
+    /// `"lilypond"`, `"json"`); the lens crate's enrichment registry
+    /// resolves this to a concrete implementation supplied by
+    /// `panproto-parse`.
+    AddEnrichment {
+        /// The enrichment fibre to populate.
+        kind: crate::EnrichmentKind,
+        /// Name of the registered synthesis driver (e.g. a grammar name).
+        enricher: Arc<str>,
+        /// Wire-serialisable policy passed to the synthesis driver.
+        policy: crate::LayoutPolicySpec,
+    },
 }
 
 /// A theory endofunctor: maps theories to theories.
@@ -780,6 +813,13 @@ impl TheoryTransform {
             Self::Compose(first, second) => {
                 let intermediate = first.apply(theory)?;
                 second.apply(&intermediate)
+            }
+            Self::StripEnrichment(_) | Self::AddEnrichment { .. } => {
+                // Schema enrichments are theory-identity by construction:
+                // they extend the schema-level constraint fibre over an
+                // unchanged GAT theory. The schema-level mutation lives
+                // in apply_theory_transform_to_schema.
+                Ok(theory.clone())
             }
         }
     }
