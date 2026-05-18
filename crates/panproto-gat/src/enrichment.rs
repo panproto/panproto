@@ -22,9 +22,7 @@
 /// [`StripEnrichment`](crate::TheoryTransform::StripEnrichment) and
 /// target is [`AddEnrichment`](crate::TheoryTransform::AddEnrichment)
 /// realises the section of the corresponding forgetful functor.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum EnrichmentKind {
     /// Source-layout enrichment for grammar-driven parsers.
     ///

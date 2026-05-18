@@ -34,7 +34,7 @@ The full grammar is in [`crates/panproto-theory-dsl/src/document.rs`](https://gi
 
 ## Abstract syntax
 
-```rust
+```rust,ignore
 pub struct TheoryDocument {
     pub id: String,
     pub description: String,

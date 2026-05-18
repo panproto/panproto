@@ -23,7 +23,7 @@
 //! not preserve them through the round-trip.
 
 #![cfg(feature = "grammars")]
-#![allow(clippy::expect_used, clippy::unwrap_used)]
+#![allow(clippy::expect_used, clippy::unwrap_used, dead_code)]
 
 use panproto_parse::{LayoutPolicy, ParserRegistry};
 use panproto_schema::{DecoratedSchema, edge_multiset, kind_multiset};

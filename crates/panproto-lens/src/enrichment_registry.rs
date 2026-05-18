@@ -36,11 +36,7 @@ pub trait LayoutEnricher: Send + Sync + 'static {
     /// Returns [`LensError::EnrichmentSynthesisFailed`] if the input
     /// schema cannot be enriched (e.g. an unknown vertex kind, or an
     /// ambiguous CHOICE alternative that the policy does not resolve).
-    fn enrich(
-        &self,
-        schema: &Schema,
-        policy: &LayoutPolicySpec,
-    ) -> Result<Schema, LensError>;
+    fn enrich(&self, schema: &Schema, policy: &LayoutPolicySpec) -> Result<Schema, LensError>;
 }
 
 /// Nested registry: outer keyed by enrichment kind, inner keyed by

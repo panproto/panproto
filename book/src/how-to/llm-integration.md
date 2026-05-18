@@ -10,21 +10,34 @@ A language model accessible via API or local inference. A target schema for the 
 
 ### Use the LM to fill an instance
 
-Prompt the model with the target schema (the `schema show` output is a good rendering) and the freeform input. The model returns a candidate instance.
+Prompt the model with the target schema (read it from disk and serialize as JSON) and the freeform input. The model returns a candidate instance.
 
 ```sh
-schema show schemas/user.json > schema.txt
-# pipe schema.txt and the freeform input to your model
+cat schemas/user.json
+# pipe the schema and the freeform input to your model
 # capture the model's structured output as candidate.json
 ```
 
-### Validate the candidate
+### Validate the schema and parse the candidate
+
+`schema validate` checks a *schema* against a protocol's GAT, not an instance:
 
 ```sh
-schema validate --protocol json-schema candidate.json
+schema validate --protocol atproto schemas/user.json
 ```
 
-If validation fails, the model produced an instance that does not conform. Retry with the validation error in the prompt.
+To check that the model's candidate **instance** conforms to the schema, parse it through the language SDK and let the parse fail loudly. For example, with the Python binding:
+
+```python
+import panproto
+
+proto = panproto.get_builtin_protocol("atproto")
+schema = ... # load the target schema
+reg = panproto.IoRegistry()
+inst = reg.parse("atproto", schema, candidate_bytes)
+```
+
+A `panproto.IoError` (or `panproto.ParseError`) means the model produced an instance that does not conform. Retry with the error message in the prompt.
 
 ### Apply only verified transformations
 

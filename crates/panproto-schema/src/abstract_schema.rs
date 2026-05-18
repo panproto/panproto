@@ -351,7 +351,10 @@ mod tests {
             .unwrap()
             .constraint("v0", "literal-value", "hi")
             .build_abstract();
-        assert!(result.is_ok(), "build_abstract should accept content-only constraints");
+        assert!(
+            result.is_ok(),
+            "build_abstract should accept content-only constraints"
+        );
         assert!(result.unwrap().as_schema().is_layout_free());
     }
 
@@ -378,7 +381,10 @@ mod tests {
             .constraint("v0", "start-byte", "0")
             .constraint("v0", "end-byte", "4")
             .build_decorated();
-        assert!(result.is_ok(), "build_decorated does not validate the fibre");
+        assert!(
+            result.is_ok(),
+            "build_decorated does not validate the fibre"
+        );
     }
 
     #[test]

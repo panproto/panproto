@@ -21,7 +21,7 @@ A line that does not begin with `:` is treated as a term and routed through the 
 
 ## Abstract syntax
 
-```rust
+```rust,ignore
 pub enum ReplCommand {
     Load(PathBuf),
     Theories,

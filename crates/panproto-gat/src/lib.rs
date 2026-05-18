@@ -52,6 +52,7 @@ pub use colimit::{ColimitResult, colimit, colimit_by_name, pushout_by_name};
 pub use composition::{CompositionSpec, CompositionStep, recompose};
 pub use factorize::{Factorization, factorize, validate_factorization};
 
+pub use enrichment::{EnrichmentKind, LayoutPolicySpec, is_layout_sort};
 pub use eq::{
     CaseBranch, DirectedEquation, Equation, Term, alpha_equivalent, alpha_equivalent_equation,
     compose_subst, match_pattern, normalize,
@@ -68,7 +69,6 @@ pub use nat_transform::{
 pub use op::{Implicit, Operation};
 pub use pullback::{PullbackResult, pullback};
 pub use quotient::quotient;
-pub use enrichment::{EnrichmentKind, LayoutPolicySpec, is_layout_sort};
 pub use schema_functor::{TheoryConstraint, TheoryEndofunctor, TheoryTransform};
 pub use sort::{
     CoercionClass, Sort, SortClosure, SortExpr, SortKind, SortParam, ValueKind,

@@ -34,15 +34,18 @@ Parses then emits, useful for confirming a clean round-trip through the format-p
 
 ### From Rust
 
-```rust
+```rust,no_run
 use panproto_core::parse::ParserRegistry;
 
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
 let registry = ParserRegistry::new();
 let schema = registry.parse_with_protocol(
     "rust",
     std::fs::read("src/main.rs")?.as_slice(),
     "src/main.rs",
 )?;
+# let _ = schema;
+# Ok(()) }
 ```
 
 `panproto_core::parse` is the re-export of `panproto-parse`. `ParserRegistry::new()` populates with every grammar enabled at build time; for a specific file path, `registry.parse_file(path, content)` auto-detects the language by extension.
@@ -102,7 +105,7 @@ For generators that build a schema from scratch and want to render it to source 
 
 ## Verification
 
-Tree-sitter parsing is total: every byte sequence parses into *some* AST. `instance.diagnostic_count()` reports the number of error nodes; a clean parse has zero. The interstitial preservation property guarantees `emit(parse(bytes)) == bytes`.
+Tree-sitter parsing is total: every byte sequence parses into *some* AST, with error nodes inserted around unparseable spans. The interstitial preservation property guarantees `emit(parse(bytes)) == bytes` for accepted inputs; `schema parse emit <file>` is the smoke test.
 
 ## Common mistakes
 

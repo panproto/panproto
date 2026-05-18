@@ -24,7 +24,7 @@ schema check \
 
 # Generate a chain; non-zero exit means the change is breaking
 # (no auto-generated lens covers it).
-schema lens generate --protocol json-schema /tmp/user-base.json schemas/user.json --save /tmp/chain.json
+schema lens generate --protocol atproto /tmp/user-base.json schemas/user.json --save /tmp/chain.json
 ```
 
 Either step's non-zero exit fails the build. To allow an explicit override, gate on a commit-message marker or a PR label:
@@ -39,7 +39,7 @@ else
 fi
 ```
 
-For richer classification, use the SDK: `panproto-check`'s `diff_and_classify` returns a `CompatReport` with `fully_compatible | backward_compatible | breaking` and the offending elements.
+For richer classification, use the SDK: in Python, `panproto.diff_and_classify(old, new, protocol)` returns a `CompatReport`; in Rust, call `panproto_check::diff(...)` followed by `panproto_check::classify(&diff, &protocol)`; in TypeScript, `panproto.diffFull(old, new).classify(protocol)` returns the same report. Each carries a classification (`fully_compatible`, `backward_compatible`, or `breaking`) along with the offending elements.
 
 ## Verification
 

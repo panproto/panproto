@@ -4,45 +4,38 @@ A *dependent optic* is an optic-kind chosen by the schema edge it is applied at:
 
 ## Prerequisites
 
-The Rust SDK; the [`panproto-lens::optic`](https://docs.rs/panproto-lens/latest/panproto_lens/optic/) module.
+The Rust SDK. The `panproto-lens` crate (re-exported from `panproto-core::lens`).
 
 ## The task
 
 ### Apply a scoped transform
 
 ```rust
-use panproto_lens::optic::{ScopedTransform, OpticKind};
+use panproto_lens::protolens::elementary;
+use panproto_lens::optic::OpticKind;
 
-let transform = ScopedTransform::new(
-    "users",                         // path into the schema
-    rename_field("nickname", "handle"),
-);
+// An elementary step is itself a Protolens whose optic kind is derived
+// from the edge kind at the focus.
+let inner = elementary::rename_edge_name("post", "tags", "tags", "labels");
+let scoped = elementary::scoped("post:tags", inner);
 
-let optic = transform.into_optic(&schema)?;
-match optic.kind() {
-    OpticKind::Lens      => /* prop edge */ {},
-    OpticKind::Traversal => /* item edge */ {},
-    OpticKind::Prism     => /* variant edge */ {},
+match scoped.optic_kind() {
+    OpticKind::Lens      => { /* prop edge */ }
+    OpticKind::Traversal => { /* item edge */ }
+    OpticKind::Prism     => { /* variant edge */ }
+    other => panic!("unexpected optic kind: {other:?}"),
 }
 ```
 
-`into_optic` inspects the schema at the given path and selects the optic kind. The transform is then lifted into the chosen optic via the lens fibration.
+`elementary::scoped` wraps an inner protolens at the given focus vertex. At the instance level the optic kind follows from the edge kind connecting the parent to the focus vertex: `prop` -> Lens, `item` -> Traversal, `variant` -> Prism.
 
 ### Field-level combinators
 
-```rust
-use panproto_lens::optic::map_items;
-
-let lens = map_items(&schema, "tags", |item_lens| {
-    item_lens.then(rename_field("title", "name"))
-});
-```
-
-`map_items` produces a Traversal that applies the inner transform to each element of an `item` edge.
+The `panproto_lens::protolens::combinators` module exposes higher-level chains assembled from elementary steps; for instance `combinators::rename_field(parent, field, old_name, new_name)` returns a `ProtolensChain` that renames a JSON property key. To traverse an `item` edge and apply an inner transform per element, use `elementary::scoped` (or the `combinators::map_items` helper) targeting the array element's vertex; the result is a Traversal under the optic-kind classifier.
 
 ## Verification
 
-The lens laws apply uniformly across all three optic kinds. Run `check_lens(&optic.into_lens(), ...)` after instantiation.
+The lens laws apply uniformly across all three optic kinds. Build a `ProtolensChain` from the constructed step and use `ProtolensChain::verify_round_trip` (or the higher-level `Lens::verify_*` helpers) to exercise GetPut and PutGet on representative data.
 
 ## Common mistakes
 

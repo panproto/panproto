@@ -11,5 +11,13 @@ description = "Repository tasks for panproto. Not published."
 name = "gen-cli-docs"
 path = "src/bin/gen-cli-docs.rs"
 
+[[bin]]
+name = "test-book"
+path = "src/bin/test-book.rs"
+
 [lints]
 workspace = true
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }

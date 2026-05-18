@@ -40,7 +40,7 @@ Each protocol provides a `Parser: Bytes -> Schema` and an `Emitter: Schema -> By
 
 Each protocol module exposes `protocol() -> Protocol` and `register_theories(&mut HashMap<String, Theory, _>)`:
 
-```rust
+```rust,ignore
 // crates/panproto-protocols/src/my_proto.rs
 use std::collections::HashMap;
 use panproto_gat::Theory;

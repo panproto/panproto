@@ -38,9 +38,7 @@
 
 use std::sync::Arc;
 
-use panproto_gat::{
-    EnrichmentKind, TheoryConstraint, TheoryEndofunctor, TheoryTransform,
-};
+use panproto_gat::{EnrichmentKind, TheoryConstraint, TheoryEndofunctor, TheoryTransform};
 use panproto_lens::protolens::{ComplementConstructor, Protolens};
 
 use crate::layout_policy::{LayoutPolicy, policy_to_spec};

@@ -35,7 +35,7 @@ jobs:
       - name: Validate
         run: |
           for f in schemas/*.json; do
-            schema validate --protocol json-schema "$f"
+            schema validate --protocol atproto "$f"
           done
 
       - name: Breaking-change gate
@@ -44,7 +44,7 @@ jobs:
           git show $base:schemas/user.json > /tmp/base.json
           schema check --src /tmp/base.json --tgt schemas/user.json \
             --mapping migrations/user.json --typecheck
-          schema lens generate --protocol json-schema /tmp/base.json schemas/user.json \
+          schema lens generate --protocol atproto /tmp/base.json schemas/user.json \
             --save /tmp/chain.json
 ```
 

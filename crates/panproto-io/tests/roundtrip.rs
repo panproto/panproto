@@ -1,3 +1,5 @@
+#![allow(clippy::similar_names)]
+
 //! Round-trip tests with real fixture data for all 50 protocols.
 //!
 //! Each test verifies the presentation functor's faithfulness:

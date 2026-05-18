@@ -130,24 +130,25 @@ The Python builder uses statement-by-statement mutation (each `.vertex()` and `.
 
 `panproto-core` is a re-export facade over the sub-crates; there is no single `Panproto` entry-point struct. You compose the same flow directly from the sub-crates: build a `Schema` via `panproto_schema::SchemaBuilder`, validate it against a protocol from `panproto_protocols`, parse instances via `panproto_inst::parse_json`. The shape:
 
-```rust
+```rust,no_run
 use panproto_core::{protocols, schema::SchemaBuilder, inst};
 
-fn main() -> anyhow::Result<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let proto = protocols::atproto::protocol();
 
-    let mut b = SchemaBuilder::new(&proto);
-    b.vertex("user", "object", None);
-    b.vertex("user.name", "string", None);
-    b.vertex("user.age",  "integer", None);
-    b.edge("user", "user.name", "prop", Some("name"));
-    b.edge("user", "user.age",  "prop", Some("age"));
-    let schema = b.build()?;
+    let schema = SchemaBuilder::new(&proto)
+        .vertex("user", "object", Some("app.example.user"))?
+        .vertex("user:name", "string", None)?
+        .vertex("user:age",  "integer", None)?
+        .edge("user", "user:name", "prop", Some("name"))?
+        .edge("user", "user:age",  "prop", Some("age"))?
+        .entry("user")
+        .build()?;
 
     let bytes = std::fs::read("data/sample.json")?;
     let json: serde_json::Value = serde_json::from_slice(&bytes)?;
     let instance = inst::parse_json(&schema, "user", &json)?;
-    println!("{:?}", instance);
+    println!("{instance:?}");
     Ok(())
 }
 ```

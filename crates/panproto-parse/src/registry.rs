@@ -469,7 +469,11 @@ impl ParserRegistry {
             .ok_or_else(|| ParseError::UnknownLanguage {
                 extension: protocol.to_owned(),
             })?;
-        check_protocol_match(protocol, abstract_schema.as_schema(), "pretty_with_protocol")?;
+        check_protocol_match(
+            protocol,
+            abstract_schema.as_schema(),
+            "pretty_with_protocol",
+        )?;
         parser.emit_pretty_with_policy(abstract_schema.as_schema(), policy)
     }
 

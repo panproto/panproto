@@ -19,7 +19,7 @@ changed=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^schemas/.*
 [ -z "$changed" ] && exit 0
 
 for f in $changed; do
-  schema validate --protocol json-schema "$f"
+  schema validate --protocol atproto "$f"
 done
 
 # Optional breaking-change warning: try to auto-generate a chain
@@ -28,7 +28,7 @@ done
 for f in $changed; do
   base_blob=$(git show :@{u}:"$f" 2>/dev/null) || continue
   echo "$base_blob" > /tmp/base.json
-  if ! schema lens generate --protocol json-schema /tmp/base.json "$f" --save /tmp/chain.json 2>/dev/null; then
+  if ! schema lens generate --protocol atproto /tmp/base.json "$f" --save /tmp/chain.json 2>/dev/null; then
     echo "warning: $f introduces a breaking change (commit anyway? Ctrl-C to abort)"
   fi
 done
@@ -45,7 +45,7 @@ repos:
     hooks:
       - id: schema-validate
         name: panproto schema validate
-        entry: schema validate --protocol json-schema
+        entry: schema validate --protocol atproto
         language: system
         files: '^schemas/.*\.json$'
 ```

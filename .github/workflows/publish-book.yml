@@ -51,6 +51,15 @@ jobs:
             exit 1
           fi
 
+      - name: Test book Rust code blocks
+        # Compiles every non-ignored ```rust block in book/src/**/*.md
+        # against the workspace, fixing API drift the moment it lands
+        # instead of when a reader copies a stale snippet. Driver is
+        # xtask/src/bin/test-book.rs; book-doctest-stub aggregates the
+        # dep set the book examples can reference. See
+        # how-to/decorate-schemas.md for the idiom used.
+        run: cargo run -p xtask --bin test-book
+
       - name: Build book
         run: mdbook build book
 

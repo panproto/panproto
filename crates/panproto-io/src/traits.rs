@@ -108,7 +108,7 @@ pub trait InstanceEmitter: Send + Sync {
 /// This trait is only available when the `tree-sitter` feature is enabled.
 #[cfg(feature = "tree-sitter")]
 pub trait FormatPreservingCodec: InstanceParser + InstanceEmitter {
-    /// Parse bytes into a WInstance, capturing the CST complement for
+    /// Parse bytes into a `WInstance`, capturing the CST complement for
     /// format-preserving emission.
     ///
     /// # Errors
@@ -120,7 +120,7 @@ pub trait FormatPreservingCodec: InstanceParser + InstanceEmitter {
         input: &[u8],
     ) -> Result<(WInstance, CstComplement), ParseInstanceError>;
 
-    /// Emit bytes from a WInstance using the CST complement to preserve
+    /// Emit bytes from a `WInstance` using the CST complement to preserve
     /// original formatting.
     ///
     /// # Errors

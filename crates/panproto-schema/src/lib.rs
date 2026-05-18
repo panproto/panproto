@@ -30,8 +30,8 @@ pub use abstract_schema::{
     AbstractSchema, DecoratedSchema, LayoutConstraintsPresent, LayoutWitness,
 };
 pub use builder::SchemaBuilder;
-pub use equivalence::{edge_multiset, kind_multiset};
 pub use colimit::{SchemaOverlap, schema_pushout};
+pub use equivalence::{edge_multiset, kind_multiset};
 pub use error::{SchemaError, ValidationError};
 pub use morphism::SchemaMorphism;
 pub use normalize::normalize;

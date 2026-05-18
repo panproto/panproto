@@ -12,30 +12,38 @@ The Rust SDK with the `full-parse` feature, or the CLI. Python bindings are fort
 
 ### Build the abstract schema
 
-```rust
-use panproto_core::{Protocol, SchemaBuilder};
+```rust,no_run
+use panproto_core::schema::{Protocol, SchemaBuilder};
 
-let p: Protocol = /* a registered protocol */;
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let p: Protocol = panproto_core::protocols::atproto::protocol();
 let abstract_schema = SchemaBuilder::new(&p)
-    .vertex("$0", "lilypond_program", None)?
-    .vertex("$1", "expression_block", None)?
-    .edge("$0", "$1", "child_of", None)?
-    .vertex("$2", "symbol", None)?
-    .edge("$1", "$2", "child_of", None)?
-    .constraint("$2", "literal-value", "c")
+    .vertex("$0", "record", None)?
+    .vertex("$1", "object", None)?
+    .edge("$0", "$1", "record-schema", None)?
+    .vertex("$2", "string", None)?
+    .edge("$1", "$2", "prop", Some("title"))?
+    .constraint("$2", "literal-value", "hello")
     .build_abstract()?;
+# Ok(()) }
 ```
 
 `build_abstract` checks that no layout-fibre constraint was added during construction (no `start-byte`, no `interstitial-N`, no `chose-alt-*`) and returns an `AbstractSchema`. If a layout sort slipped in, you get `SchemaError::LayoutConstraintsOnAbstractBuild`; use `build_decorated` if a decorated schema was the intent.
 
 ### Decorate
 
-```rust
+```rust,no_run
 use panproto_core::parse::{LayoutPolicy, ParserRegistry};
+# use panproto_core::schema::{Protocol, SchemaBuilder};
 
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+# let p: Protocol = panproto_core::protocols::atproto::protocol();
+# let abstract_schema = SchemaBuilder::new(&p).vertex("$0", "record", None)?.entry("$0").build_abstract()?;
 let reg = ParserRegistry::new();
 let policy = LayoutPolicy::default();
 let decorated = reg.decorate("lilypond", &abstract_schema, &policy)?;
+# let _ = decorated;
+# Ok(()) }
 ```
 
 `decorate` runs `emit_pretty_with_policy` to render the abstract schema to canonical bytes under the policy, then re-parses those bytes. The re-parse attaches the complete layout fibre: every `start-byte`, every `end-byte`, every `interstitial-N`, plus the `chose-alt-fingerprint` and `chose-alt-child-kinds` discriminators that pin down which CHOICE alternative the parser took.
@@ -44,15 +52,31 @@ let decorated = reg.decorate("lilypond", &abstract_schema, &policy)?;
 
 If all you want is the rendered source, skip the re-parse:
 
-```rust
+```rust,no_run
+# use panproto_core::parse::{LayoutPolicy, ParserRegistry};
+# use panproto_core::schema::{Protocol, SchemaBuilder};
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+# let p: Protocol = panproto_core::protocols::atproto::protocol();
+# let abstract_schema = SchemaBuilder::new(&p).vertex("$0", "record", None)?.entry("$0").build_abstract()?;
+# let reg = ParserRegistry::new();
+# let policy = LayoutPolicy::default();
 let bytes = reg.pretty_with_protocol("lilypond", &abstract_schema, &policy)?;
+# let _ = bytes;
+# Ok(()) }
 ```
 
 `pretty_with_protocol` honours every field of the policy in the output: `separator`, `newline`, `indent_width`, `line_break_after`, and the indent open/close token sets. Two different policies render the same abstract schema to different bytes.
 
 ### Customise the policy
 
-```rust
+```rust,no_run
+use panproto_core::parse::LayoutPolicy;
+# use panproto_core::parse::ParserRegistry;
+# use panproto_core::schema::{Protocol, SchemaBuilder};
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+# let p: Protocol = panproto_core::protocols::atproto::protocol();
+# let abstract_schema = SchemaBuilder::new(&p).vertex("$0", "record", None)?.entry("$0").build_abstract()?;
+# let reg = ParserRegistry::new();
 let policy = LayoutPolicy {
     indent_width: 4,
     separator: "  ".into(),
@@ -60,14 +84,26 @@ let policy = LayoutPolicy {
     ..LayoutPolicy::default()
 };
 let bytes = reg.pretty_with_protocol("lilypond", &abstract_schema, &policy)?;
+# let _ = bytes;
+# Ok(()) }
 ```
 
 `LayoutPolicy` is an alias for the de-novo emitter's `FormatPolicy`; the put direction of the parse / emit lens and the emitter use the same configuration type.
 
 ### Strip layout back down
 
-```rust
+```rust,no_run
+# use panproto_core::parse::{LayoutPolicy, ParserRegistry};
+# use panproto_core::schema::{Protocol, SchemaBuilder};
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+# let p: Protocol = panproto_core::protocols::atproto::protocol();
+# let abstract_schema = SchemaBuilder::new(&p).vertex("$0", "record", None)?.entry("$0").build_abstract()?;
+# let reg = ParserRegistry::new();
+# let policy = LayoutPolicy::default();
+# let decorated = reg.decorate("lilypond", &abstract_schema, &policy)?;
 let stripped = decorated.forget_layout();   // -> AbstractSchema
+# let _ = stripped;
+# Ok(()) }
 ```
 
 `forget_layout` is the schema-level forgetful U: it drops every constraint whose sort is in the layout fibre (per `panproto_gat::is_layout_sort`) and returns an `AbstractSchema`. The section law `forget_layout(decorate(a)) ≅ a` holds up to vertex-id renaming and kind/edge-multiset equivalence, which is the granularity panproto's round-trip law machinery already uses.

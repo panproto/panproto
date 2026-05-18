@@ -2064,7 +2064,7 @@ fn bfs_through_new(
 /// This is the bridge between GAT-level (Theory) and schema-level (Schema).
 /// The `protocol` parameter is threaded through for recursive calls but
 /// is not directly consulted by the current transform implementations.
-#[allow(clippy::only_used_in_recursion)]
+#[allow(clippy::only_used_in_recursion, clippy::too_many_lines)]
 fn apply_theory_transform_to_schema(
     transform: &TheoryTransform,
     schema: &Schema,

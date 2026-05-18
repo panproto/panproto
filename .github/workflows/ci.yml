@@ -110,6 +110,19 @@ jobs:
         env:
           RUSTDOCFLAGS: "-D warnings"
 
+  book-doctest:
+    name: Book Doctests
+    runs-on: ubuntu-latest
+    # Compiles every non-ignored ```rust block in book/src/**/*.md
+    # against the workspace, surfacing API drift as soon as it lands
+    # rather than when a reader copies a stale snippet. Driver:
+    # xtask/src/bin/test-book.rs.
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo run -p xtask --bin test-book
+
   deny:
     name: Dependency Audit
     runs-on: ubuntu-latest

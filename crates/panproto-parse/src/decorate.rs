@@ -107,11 +107,7 @@ struct ParserLayoutEnricher {
 }
 
 impl LayoutEnricher for ParserLayoutEnricher {
-    fn enrich(
-        &self,
-        schema: &Schema,
-        policy: &LayoutPolicySpec,
-    ) -> Result<Schema, LensError> {
+    fn enrich(&self, schema: &Schema, policy: &LayoutPolicySpec) -> Result<Schema, LensError> {
         let runtime_policy = policy_from_spec(policy);
         decorate_schema(self.parser.as_ref(), schema, &runtime_policy).map_err(|e| {
             LensError::EnrichmentSynthesisFailed {
@@ -131,9 +127,6 @@ pub(crate) fn register_layout_enricher(parser: std::sync::Arc<dyn AstParser>) {
     register_enricher(
         EnrichmentKind::Layout,
         protocol.clone(),
-        std::sync::Arc::new(ParserLayoutEnricher {
-            protocol,
-            parser,
-        }),
+        std::sync::Arc::new(ParserLayoutEnricher { protocol, parser }),
     );
 }

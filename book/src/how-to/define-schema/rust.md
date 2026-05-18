@@ -6,11 +6,11 @@
 
 ## The task
 
-```rust
+```rust,no_run
 use panproto_core::protocols::atproto;
 use panproto_core::schema::SchemaBuilder;
 
-fn main() -> miette::Result<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let proto = atproto::protocol();
 
     let schema = SchemaBuilder::new(&proto)
@@ -31,11 +31,17 @@ fn main() -> miette::Result<()> {
 
 ## Verification
 
-```rust
-use panproto_core::schema::validate;
-
+```rust,no_run
+use panproto_core::schema::{SchemaBuilder, validate};
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+# let proto = panproto_core::protocols::atproto::protocol();
+# let schema = SchemaBuilder::new(&proto)
+#     .vertex("user", "object", Some("app.example.user"))?
+#     .entry("user")
+#     .build()?;
 let errors = validate(&schema, &proto);
 assert!(errors.is_empty(), "validation errors: {errors:?}");
+# Ok(()) }
 ```
 
 `validate` returns a `Vec<ValidationError>`. The error carries the failing equation and the offending vertex or edge as structured fields.

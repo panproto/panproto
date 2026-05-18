@@ -260,9 +260,10 @@ impl Schema {
     /// [`AbstractSchema`](crate::AbstractSchema).
     #[must_use]
     pub fn is_layout_free(&self) -> bool {
-        self.constraints
-            .values()
-            .all(|cs| cs.iter().all(|c| !panproto_gat::is_layout_sort(c.sort.as_ref())))
+        self.constraints.values().all(|cs| {
+            cs.iter()
+                .all(|c| !panproto_gat::is_layout_sort(c.sort.as_ref()))
+        })
     }
 
     /// Look up a vertex by ID.

@@ -24,7 +24,7 @@ Each step is a single-key object whose key selects the variant. The full step gr
 
 ## Abstract syntax
 
-```rust
+```rust,ignore
 pub struct LensDocument {
     pub id: String,
     pub description: String,

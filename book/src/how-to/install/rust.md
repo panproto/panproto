@@ -16,14 +16,17 @@ For specific feature flags (`full-parse`, `project`, `git`, `llvm`, `jit`, `tree
 
 ## Verification
 
-```rust
+```rust,no_run
 use panproto_core::protocols::atproto;
 use panproto_core::schema::SchemaBuilder;
 
-fn main() -> miette::Result<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let proto = atproto::protocol();
-    let schema = SchemaBuilder::new(&proto).build()?;
-    println!("built empty schema with {} vertices", schema.vertices.len());
+    let schema = SchemaBuilder::new(&proto)
+        .vertex("root", "record", Some("app.example.root"))?
+        .entry("root")
+        .build()?;
+    println!("built {} vertex(es)", schema.vertices.len());
     Ok(())
 }
 ```

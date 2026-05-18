@@ -68,8 +68,10 @@ pub mod decorate;
 pub mod layout_policy;
 
 /// The parse / decorate / emit lens packaged as a first-class
-/// `panproto-lens::Protolens` describing the schema-level
-/// relationship between abstract and decorated schemas.
+/// `panproto-lens::Protolens`.
+///
+/// The protolens describes the schema-level relationship between
+/// abstract and decorated schemas.
 pub mod parse_emit_protolens;
 
 pub use decorate::decorate_with_parser;
