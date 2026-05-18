@@ -7,7 +7,7 @@
     clippy::unwrap_used,
     clippy::uninlined_format_args,
     clippy::manual_assert,
-    clippy::missing_const_for_fn,
+    clippy::missing_const_for_fn
 )]
 
 //! Test Rust code blocks in `book/src/**/*.md` via `rustdoc --test`.

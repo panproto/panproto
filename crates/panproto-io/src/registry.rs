@@ -304,7 +304,8 @@ impl ProtocolRegistry {
     /// Parse with format preservation, returning both the instance and a
     /// CST complement that can be used for format-preserving emission.
     ///
-    /// If the codec for this protocol implements [`FormatPreservingCodec`],
+    /// If the codec for this protocol implements
+    /// [`FormatPreservingCodec`](crate::traits::FormatPreservingCodec),
     /// the complement captures formatting information. Otherwise, the
     /// complement is `None` and emission will produce canonical output.
     ///
