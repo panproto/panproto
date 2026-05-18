@@ -4,7 +4,7 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
-## [0.48.0] - 2026-05-17
+## [0.48.0] - 2026-05-18
 
 ### Added
 
