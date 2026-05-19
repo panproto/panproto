@@ -45,7 +45,6 @@
   - [Breaking-change gate](./how-to/ci/breaking-change-gate.md)
   - [GitHub Actions](./how-to/ci/github-actions.md)
   - [Pre-commit hooks](./how-to/ci/pre-commit-hooks.md)
-- [Integrate with language models](./how-to/llm-integration.md)
 
 # Reference
 
@@ -72,6 +71,7 @@
 - [Schema version control semantics](./explanation/vcs-semantics.md)
 - [What panproto verifies](./explanation/what-is-verified.md)
 - [Architecture](./explanation/architecture.md)
+- [Related work](./explanation/related-work.md)
 - [Denotational semantics](./explanation/semantics/index.md)
   - [Shared notation](./explanation/semantics/shared-notation.md)
   - [Expression language](./explanation/semantics/expression-language.md)

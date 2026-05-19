@@ -1332,13 +1332,13 @@ Options:
           
           Accepted case-insensitively for parity with the Python and WASM bindings, both of which trim and lowercase their input.
           
-          `strict` — only kind-exact name equality. `balanced` — alias dictionary + tight token similarity (default). `lenient` — span-search and structural priors. `exploratory` — lossy retraction witnesses and LM priors.
+          `strict` — only kind-exact name equality. `balanced` — alias dictionary + tight token similarity (default). `lenient` — span-search and structural priors. `exploratory` — lossy retraction witnesses.
 
           Possible values:
           - strict:      Kind-exact, edge-name-pruned CSP search; total morphism only
           - balanced:    Adds alias dictionary and tight token-similarity priors (default)
           - lenient:     Adds span-search and structural priors
-          - exploratory: Adds lossy retraction witnesses and LM-proposed alignments
+          - exploratory: Adds lossy retraction witnesses
 
       --top-n <N>
           Emit up to N ranked candidate lenses instead of the single best one. Output format switches to a JSON array when combined with `--json` or `--chain`

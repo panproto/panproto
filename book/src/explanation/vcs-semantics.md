@@ -57,6 +57,10 @@ Commits can carry data instances. When a branch's schema migrates, the data carr
 
 A consequence: history rewriting (rebase, amend) on a branch carrying data must lift the data through the rewritten history. panproto-vcs does this; the data is *not* a passive blob.
 
+## Related work
+
+Two threads sit directly behind panproto-vcs. The categorical-VCS lineage (Mimram and Di Giusto on patches as morphisms with merge as pushout [@mimramdigiusto2013categorical], Angiuli and colleagues' homotopical patch theory [@angiuli2014homotopical], Roundy's Darcs [@roundy2005darcs]) supplies the "merge is the pushout of the divergent patches against the common ancestor" semantics and the diagnosis of conflicts as failures of the pushout to exist. The schema-evolution lineage (Curino, Moon, and Zaniolo's PRISM workbench [@curinomoonzaniolo2008graceful] and Litt, van Hardenberg, and Henry's Cambria [@littvanhardenberghenry2020cambria; @littvanhardenberghenry2021cambria]) supplies the engineering vocabulary: schema-modification operators with forward and backward mappings, quasi-inverses for the operators that lose information, and a directed graph of schema versions connected by lenses. panproto-vcs is the four-artifact unification of these lines, with the protocol theory, schema, data, and lens complement committed together into a single content-addressed DAG. See [Related work](./related-work.md#4-schema-versioning-as-structured-merge) for the full discussion.
+
 ## See also
 
 - [Init and commit](../how-to/schema-vcs/init-and-commit.md) for the practical workflow.

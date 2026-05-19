@@ -35,7 +35,6 @@ If you want to understand *why* a step works, follow the link to the explanation
 
 ### Translation and integration
 - [Translate across protocols](./cross-protocol.md)
-- [Integrate with language models](./llm-integration.md)
 
 ### CI
 - [Breaking-change gate](./ci/breaking-change-gate.md), [GitHub Actions](./ci/github-actions.md), [pre-commit hooks](./ci/pre-commit-hooks.md)

@@ -30,6 +30,10 @@ This separation, schema-theory versus instance-theory, runs through the entire s
 
 The first two are handled by the format-preserving codec layer. The third is by design: panproto is precise about exactly what it can guarantee.
 
+## Related work
+
+The schemas-as-theories framing belongs to a lineage that runs from Cartmell's generalised algebraic theories through Spivak's functorial data model and the algebraic-databases programme of Schultz and Wisnesky to Patterson's ACSets and Lu's recent multi-model unification. panproto presents each protocol as its own GAT and takes a colimit in the category of GAT presentations; ACSets and the Spivak-Wisnesky tradition fix a single meta-theory and parameterise schemas inside it. See [Related work](./related-work.md) for the full discussion.
+
 ## See also
 
 - [Composing protocols by colimit](./protocol-colimits.md) for how protocols are built from shared building-block theories.

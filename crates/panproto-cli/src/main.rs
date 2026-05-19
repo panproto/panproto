@@ -32,7 +32,7 @@ pub enum StringencyArg {
     Balanced,
     /// Adds span-search and structural priors.
     Lenient,
-    /// Adds lossy retraction witnesses and LM-proposed alignments.
+    /// Adds lossy retraction witnesses.
     Exploratory,
 }
 
@@ -955,7 +955,7 @@ enum LensAction {
         /// `strict` — only kind-exact name equality.
         /// `balanced` — alias dictionary + tight token similarity (default).
         /// `lenient` — span-search and structural priors.
-        /// `exploratory` — lossy retraction witnesses and LM priors.
+        /// `exploratory` — lossy retraction witnesses.
         #[arg(long, value_name = "TIER", ignore_case = true)]
         stringency: Option<StringencyArg>,
         /// Emit up to N ranked candidate lenses instead of the single

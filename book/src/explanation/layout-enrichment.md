@@ -70,11 +70,14 @@ What it does *not* do is plug into the WInstance-level get / put pair the way an
 
 That asymmetry is intentional. Parse and emit are conversions between bytes and schema-typed data structures; they are not WInstance lenses. The protolens captures the schema-level relationship that those byte-level operations sit over, and the operational API is where the byte-level work happens.
 
+## Related work
+
+Two threads bear directly on the parse-emit fibration. The lens-based ancestry runs from @foster2007combinators through @bohannonfosterpiercepilkiewiczschmitt2008boomerang's resourceful lenses (dictionary skeletons, quasi-obliviousness) and @fosterpilkiewiczpierce2008quotient's quotient lenses (lenses modulo equivalences, canonizers via `lquot` and `rquot`), with @lutterkort2008augeas as the closest framework-level analogue. The grammar-based ancestry is @zhukozhanghu2015biyacc's BiYacc, whose reflective printer takes both the AST and the original concrete string. @jongevisser2012algorithm's token-stream-and-origin-tracking algorithm is the closest match to the byte-level reconstruction strategy panproto uses inside the layout enrichment driver. See [Related work](./related-work.md) for the full discussion.
+
 ## See also
 
 - [Decorate an abstract schema](../how-to/decorate-schemas.md) for the operational recipe.
 - [Lenses and round-trip laws](./lenses-roundtrip.md) for the lens machinery the enrichment rides on.
 - [Architecture](./architecture.md) for the crate-level dependency direction that makes the cross-crate registry necessary.
-- @littvanhardenberghenry2020cambria for the complement-tracking approach the layout fibre extends.
 
 [^section-granularity]: The kind / edge multiset granularity, rather than pointwise vertex-id equality, is the standard granularity throughout panproto's round-trip law machinery. The parse walker invents fresh vertex IDs at every call; insisting on pointwise identity would make even `parse ∘ emit_pretty ∘ parse` ill-typed. The multiset is the natural invariant: vertex kinds and edge-shape signatures are preserved by every layer of the parse / emit pipeline, and the section law is stated at the same level.

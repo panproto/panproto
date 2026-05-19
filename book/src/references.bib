@@ -21,6 +21,18 @@
   note      = {Verified via Oxford University Press product page for ISBN 9780199237180 at global.oup.com/academic/product/category-theory-9780199237180.}
 }
 
+@inproceedings{begolicamachorodriguezhydemiorlemire2018calcite,
+  author    = {Edmon Begoli and Jes{\'u}s Camacho-Rodr{\'\i}guez and Julian Hyde and Michael J. Mior and Daniel Lemire},
+  title     = {Apache {Calcite}: a foundational framework for optimized query processing over heterogeneous data sources},
+  booktitle = {Proceedings of the 2018 {ACM} {SIGMOD} International Conference on Management of Data ({SIGMOD} 2018)},
+  pages     = {221--230},
+  publisher = {{ACM}},
+  year      = {2018},
+  doi       = {10.1145/3183713.3190662},
+  url       = {https://dl.acm.org/doi/10.1145/3183713.3190662},
+  note      = {Verified via ACM DL DOI 10.1145/3183713.3190662; preprint at arXiv:1802.10233. Describes Calcite's modular query optimizer (rules, metadata providers, planner engines), the adapter architecture with calling conventions, and integrations with Hive, Drill, Flink, Storm, Druid, MapD, and a dozen other systems.}
+}
+
 @misc{brunsfeld2018treesitter,
   author       = {Max Brunsfeld},
   title        = {Tree-sitter: a new parsing system for programming tools},
@@ -67,12 +79,27 @@
   author        = {Bryce Clarke and Derek Elkins and Jeremy Gibbons and Fosco Loregian and Bartosz Milewski and Emily Pillmore and Mario Rom{\'a}n},
   title         = {Profunctor optics, a categorical update},
   journal       = {Compositionality},
+  volume        = {6},
+  pages         = {1},
   year          = {2024},
+  doi           = {10.32408/compositionality-6-1},
+  url           = {https://compositionality.episciences.org/13530},
   eprint        = {2001.07488},
   archiveprefix = {arXiv},
   primaryclass  = {cs.PL},
-  url           = {https://arxiv.org/abs/2001.07488},
-  note          = {Verified via arXiv abs page for 2001.07488. Submitted January 2020; final version February 2024. The definitive version appears in the Compositionality journal.}
+  note          = {Verified via Compositionality DOI 10.32408/compositionality-6-1 (published 23 February 2024, Volume 6 article 1) and arXiv abs 2001.07488. Originally submitted to arXiv January 2020; final version February 2024.}
+}
+
+@inproceedings{curinomoonzaniolo2008graceful,
+  author    = {Carlo A. Curino and Hyun J. Moon and Carlo Zaniolo},
+  title     = {Graceful database schema evolution: the {PRISM} workbench},
+  booktitle = {Proceedings of the {VLDB} Endowment, vol. 1, no. 1 ({VLDB} 2008)},
+  publisher = {{VLDB} Endowment},
+  pages     = {761--772},
+  year      = {2008},
+  doi       = {10.14778/1453856.1453939},
+  url       = {https://dl.acm.org/doi/10.14778/1453856.1453939},
+  note      = {Verified via ACM DL DOI 10.14778/1453856.1453939. The paper introduces Schema Modification Operators (SMOs) with forward and backward Disjunctive Embedded Dependencies, derives quasi-inverses in the sense of Fagin et al., and validates on 170+ schema versions from Wikipedia/MediaWiki over 4.5 years.}
 }
 
 @article{diskin2011from,
@@ -112,6 +139,31 @@
   note    = {Open-access PDF at the AMS URL above; bibliographic data also confirmed via nLab's General Theory of Natural Equivalences reference page.}
 }
 
+@inproceedings{faginkolaitispopa2005data,
+  author    = {Ronald Fagin and Phokion G. Kolaitis and Lucian Popa},
+  title     = {Data exchange: getting to the core},
+  journal   = {{ACM} Transactions on Database Systems},
+  volume    = {30},
+  number    = {1},
+  pages     = {174--210},
+  year      = {2005},
+  doi       = {10.1145/1061318.1061323},
+  url       = {https://dl.acm.org/doi/10.1145/1061318.1061323},
+  note      = {Verified via ACM DL DOI 10.1145/1061318.1061323. The TODS journal version of the PODS 2003 paper. Establishes the core of a universal solution as the canonical materialised target instance in data exchange, gives polynomial-time algorithms for computing the core in settings with source-to-target tgds and target egds, and proves DP-completeness of CORE IDENTIFICATION on undirected graphs.}
+}
+
+@inproceedings{faginkolaitispopatan2005composing,
+  author    = {Ronald Fagin and Phokion G. Kolaitis and Lucian Popa and Wang-Chiew Tan},
+  title     = {Composing schema mappings: second-order dependencies to the rescue},
+  booktitle = {Proceedings of the 23rd {ACM} {SIGACT}-{SIGMOD}-{SIGART} Symposium on Principles of Database Systems ({PODS} 2004)},
+  pages     = {83--94},
+  publisher = {{ACM}},
+  year      = {2004},
+  doi       = {10.1145/1055558.1055572},
+  url       = {https://dl.acm.org/doi/10.1145/1055558.1055572},
+  note      = {Verified via ACM DL DOI 10.1145/1055558.1055572. The TODS journal version (Vol.~30 No.~4, 2005, doi 10.1145/1114244.1114249) extends the PODS conference paper. Shows that the composition of finite sets of source-to-target tgds need not be definable by any (finite or infinite) set of source-to-target tgds, introduces second-order tgds as a closed-under-composition class, and gives an algorithm that produces an SO~tgd defining the composition together with a chase procedure for SO~tgds.}
+}
+
 @inproceedings{fiore1999abstract,
   author    = {Marcelo P. Fiore and Gordon D. Plotkin and Daniele Turi},
   title     = {Abstract syntax and variable binding},
@@ -147,6 +199,30 @@
   note    = {Verified via DBLP record journals/mscs/Goguen91.}
 }
 
+@inproceedings{burstallgoguen1977putting,
+  author    = {Rod M. Burstall and Joseph A. Goguen},
+  title     = {Putting theories together to make specifications},
+  booktitle = {Proceedings of the 5th International Joint Conference on Artificial Intelligence ({IJCAI} 1977)},
+  pages     = {1045--1058},
+  publisher = {William Kaufmann},
+  year      = {1977},
+  url       = {https://dl.acm.org/doi/10.5555/1622943.1622999},
+  note      = {Verified via DBLP record conf/ijcai/BurstallG77 and the IJCAI 1977 proceedings table of contents. The paper that introduces the theory-colimit construction (named pushouts of theories) as the basis for structured specifications; the construction is later developed in the {Clear} language paper @burstallgoguen1980semantics and institution-theoretically in @goguenburstall1992institutions.}
+}
+
+@inproceedings{burstallgoguen1980semantics,
+  author    = {Rod M. Burstall and Joseph A. Goguen},
+  title     = {The semantics of {Clear}, a specification language},
+  booktitle = {Abstract Software Specifications, 1979 Copenhagen Winter School},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {86},
+  pages     = {292--332},
+  publisher = {Springer},
+  year      = {1980},
+  doi       = {10.1007/3-540-10007-5_41},
+  note      = {Verified via DBLP record conf/asm/BurstallG80 and Springer DOI 10.1007/3-540-10007-5\_41. Extends @burstallgoguen1977putting with a full semantics for the {Clear} specification language, in which structured specifications are built from theory colimits.}
+}
+
 @article{goguenburstall1992institutions,
   author  = {Joseph A. Goguen and Rod M. Burstall},
   title   = {Institutions: abstract model theory for specification and programming},
@@ -171,6 +247,31 @@
   note      = {Verified via DBLP record conf/popl/HofmannPW11.}
 }
 
+@article{hofmann2012edit,
+  author    = {Martin Hofmann and Benjamin C. Pierce and Daniel Wagner},
+  title     = {Edit lenses},
+  booktitle = {Proceedings of the 39th {ACM} {SIGPLAN-SIGACT} Symposium on Principles of Programming Languages, {POPL 2012}},
+  pages     = {495--508},
+  publisher = {{ACM}},
+  year      = {2012},
+  journal   = {{SIGPLAN} Notices},
+  volume    = {47},
+  number    = {1},
+  doi       = {10.1145/2103656.2103715},
+  note      = {Verified via DBLP record conf/popl/HofmannPW12. Edit lenses operate on monoids of edits rather than whole states; theorem 7.1 establishes a correspondence between symmetric state-based lenses and edit lenses over canonical differ modules.}
+}
+
+@article{lu2025categorical,
+  author        = {Jiaheng Lu},
+  title         = {A categorical unification for multi-model data: {Part I} categorical model and normal forms},
+  year          = {2025},
+  eprint        = {2502.19131},
+  archiveprefix = {arXiv},
+  primaryclass  = {cs.DB},
+  url           = {https://arxiv.org/abs/2502.19131},
+  note          = {Verified via arXiv abs page for 2502.19131. The paper unifies relational, XML, and property-graph data inside a single thin-set category and develops a cross-model normal form theory via pullback, pushout, and limit constructions.}
+}
+
 @misc{littvanhardenberghenry2020cambria,
   author       = {Geoffrey Litt and Peter van Hardenberg and Orion Henry},
   title        = {Project {Cambria}: translate your data with lenses},
@@ -178,6 +279,17 @@
   howpublished = {Ink \& Switch technical report},
   url          = {https://www.inkandswitch.com/cambria/},
   note         = {Verified via inkandswitch.com. Authorship corrected from earlier drafts that incorrectly listed Martin Kleppmann as primary author; Kleppmann is credited as a collaborator but the principal authors are Litt, van Hardenberg, and Henry.}
+}
+
+@inproceedings{littvanhardenberghenry2021cambria,
+  author    = {Geoffrey Litt and Peter van Hardenberg and Orion Henry},
+  title     = {Schema evolution in distributed systems with edit lenses},
+  booktitle = {Proceedings of the 8th Workshop on Principles and Practice of Consistency for Distributed Data ({PaPoC} 2021)},
+  publisher = {{ACM}},
+  year      = {2021},
+  doi       = {10.1145/3447865.3457963},
+  url       = {https://dl.acm.org/doi/10.1145/3447865.3457963},
+  note      = {Verified via ACM DL DOI 10.1145/3447865.3457963 and MIT DSpace handle 1721.1/145983. The PaPoC workshop paper formalises the construction sketched in the 2020 Ink \& Switch essay, casts a Cambria lens as an instance of the Hofmann--Pierce--Wagner edit-lens framework, and reports an integration with the Automerge CRDT for peer-to-peer document editing.}
 }
 
 @phdthesis{lawvere1963functorial,
@@ -225,6 +337,17 @@
   note          = {Published in the MFPS 2013 proceedings through ENTCS. Verified via arXiv abs page for 1311.3903 and the ENTCS DOI.}
 }
 
+@inproceedings{pachecocunha2011calculating,
+  author    = {Hugo Pacheco and Alcino Cunha},
+  title     = {Calculating with lenses: optimising bidirectional transformations},
+  booktitle = {Proceedings of the 20th {ACM} {SIGPLAN} Workshop on Partial Evaluation and Program Manipulation, {PEPM 2011}},
+  pages     = {91--100},
+  publisher = {{ACM}},
+  year      = {2011},
+  doi       = {10.1145/1929501.1929515},
+  note      = {Verified via DBLP record conf/pepm/PachecoC11. Establishes an equational calculus for point-free lenses with fold/unfold uniqueness, mechanised in the pointless-lenses/pointless-rewrite Haskell libraries.}
+}
+
 @article{pachecocunhahu2012delta,
   author  = {Hugo Pacheco and Alcino Cunha and Zhenjiang Hu},
   title   = {Delta lenses over inductive types},
@@ -241,6 +364,22 @@
   year      = {2002},
   isbn      = {978-0-262-16209-8},
   note      = {Verified via DBLP record books/daglib/0005958.}
+}
+
+@article{spivakkent2012ologs,
+  author  = {David I. Spivak and Robert E. Kent},
+  title   = {Ologs: a categorical framework for knowledge representation},
+  journal = {{PLOS ONE}},
+  volume  = {7},
+  number  = {1},
+  pages   = {e24274},
+  year    = {2012},
+  doi     = {10.1371/journal.pone.0024274},
+  eprint  = {1102.1889},
+  archiveprefix = {arXiv},
+  primaryclass  = {cs.LO},
+  url     = {https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0024274},
+  note    = {Open-access publication. Verified via the PLOS ONE article landing page and arXiv abs 1102.1889. Olog = finite limit, finite colimit sketch with English-labelled boxes and arrows; almost identical to categorical databases.}
 }
 
 @article{spivak2012functorial,
@@ -398,6 +537,21 @@
   year    = {2010},
   doi     = {10.14778/1920841.1920886},
   note    = {Verified via DBLP record journals/pvldb/MelnikGLRSTV10.}
+}
+
+@article{pattersonlynchfairbanks2022categorical,
+  author  = {Evan Patterson and Owen Lynch and James Fairbanks},
+  title   = {Categorical data structures for technical computing},
+  journal = {Compositionality},
+  volume  = {4},
+  number  = {5},
+  year    = {2022},
+  doi     = {10.32408/compositionality-4-5},
+  eprint  = {2106.04703},
+  archiveprefix = {arXiv},
+  primaryclass  = {math.CT},
+  url     = {https://arxiv.org/abs/2106.04703},
+  note    = {Published in Compositionality 4(5), 2022, accepted 2022-02-27. Verified via arXiv abs page for 2106.04703 and the journal landing page. Introduces attributed C-sets (acsets) and their Julia implementation in Catlab.}
 }
 
 @article{pickeringgibbonswu2017profunctor,
@@ -610,6 +764,21 @@
   year    = {2010},
   doi     = {10.1145/1773912.1773922},
   note    = {Verified via DBLP record journals/sigops/LakshmanM10; a LADIS 2009 workshop version also circulates via cs.cornell.edu.}
+}
+
+@article{schultzwisnesky2017algebraic,
+  author  = {Patrick Schultz and Ryan Wisnesky},
+  title   = {Algebraic data integration},
+  journal = {Journal of Functional Programming},
+  volume  = {27},
+  pages   = {e24},
+  year    = {2017},
+  doi     = {10.1017/S0956796817000168},
+  eprint  = {1503.03571},
+  archiveprefix = {arXiv},
+  primaryclass  = {cs.DB},
+  url     = {https://arxiv.org/abs/1503.03571},
+  note    = {Verified via Cambridge Core record for JFP volume 27 (2017), article e24, doi 10.1017/S0956796817000168, and the corresponding arXiv 1503.03571 (v8 dated 27 March 2025 is an expanded, corrected version of the published article). Presents the algebraic data model implemented by CQL.}
 }
 
 @article{schultzspivakvasilakopoulouwisnesky2017algebraic,
@@ -949,4 +1118,75 @@
   year         = {2024},
   howpublished = {Standard},
   note         = {Verified at https://www.hl7.org/fhir/.}
+}
+
+@inproceedings{lutterkort2008augeas,
+  author    = {David Lutterkort},
+  title     = {{AUGEAS}---a configuration {API}},
+  booktitle = {Proceedings of the Linux Symposium},
+  volume    = {2},
+  pages     = {47--56},
+  year      = {2008},
+  url       = {https://www.kernel.org/doc/ols/2008/ols2008v2-pages-47-56.pdf},
+  note      = {Verified via the Linux Symposium 2008 proceedings, volume 2. Augeas presents config files as a tree under regex-based tree lenses (key, label, seq, store, del primitives; subtree, concat, union, iteration combinators) with a Boomerang-style typechecker enforcing unambiguous concatenation over regular languages.}
+}
+
+@inproceedings{fosterpilkiewiczpierce2008quotient,
+  author    = {J. Nathan Foster and Alexandre Pilkiewicz and Benjamin C. Pierce},
+  title     = {Quotient lenses},
+  booktitle = {Proceedings of the 13th {ACM} {SIGPLAN} International Conference on Functional Programming, {ICFP} 2008},
+  pages     = {383--396},
+  publisher = {{ACM}},
+  year      = {2008},
+  doi       = {10.1145/1411204.1411257},
+  note      = {Verified via DBLP record conf/icfp/FosterPP08. Lenses well-behaved modulo programmer-specified equivalences on source and view; canonizers (canonize/choose) can be inserted anywhere via lquot/rquot operators; typechecker uses a coarse Identity/Any approximation that scales to thousands of lines of real lenses.}
+}
+
+@inproceedings{bohannonfosterpiercepilkiewiczschmitt2008boomerang,
+  author    = {Aaron Bohannon and J. Nathan Foster and Benjamin C. Pierce and Alexandre Pilkiewicz and Alan Schmitt},
+  title     = {Boomerang: resourceful lenses for string data},
+  booktitle = {Proceedings of the 35th {ACM} {SIGPLAN-SIGACT} Symposium on Principles of Programming Languages, {POPL} 2008},
+  pages     = {407--419},
+  publisher = {{ACM}},
+  year      = {2008},
+  doi       = {10.1145/1328438.1328487},
+  note      = {Verified via DBLP record conf/popl/BohannonFPPS08. Extends Foster string lenses with dictionary lenses (key, match primitives) so put aligns reorderable chunks by key rather than position; quasi-oblivious lens characterisation (EquivPut law); finite-state transducer typechecker; applied to UniProtKB SwissProt as the real-world stress test.}
+}
+
+@inproceedings{jongevisser2012algorithm,
+  author    = {Maartje de Jonge and Eelco Visser},
+  editor    = {Anthony Sloane and Uwe A{\ss}mann},
+  title     = {An algorithm for layout preservation in refactoring transformations},
+  booktitle = {Software Language Engineering, {SLE} 2011},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {6940},
+  pages     = {40--59},
+  publisher = {Springer},
+  year      = {2012},
+  doi       = {10.1007/978-3-642-28830-2_3},
+  note      = {Verified via DBLP record conf/sle/JongeV11. Token-stream plus origin-tracking ConstrText algorithm reconstructs source text after AST refactoring; theorem PARSE(CT(t)) = t and a maximal-layout-preservation theorem; heuristic comment-binding patterns; implemented in Spoofax and compared against Eclipse JDT, HaRe, LS/2000.}
+}
+
+@inproceedings{pombriokrishnamurthi2014resugaring,
+  author    = {Justin Pombrio and Shriram Krishnamurthi},
+  title     = {Resugaring: lifting evaluation sequences through syntactic sugar},
+  booktitle = {Proceedings of the 35th {ACM} {SIGPLAN} Conference on Programming Language Design and Implementation, {PLDI} 2014},
+  pages     = {361--371},
+  publisher = {{ACM}},
+  year      = {2014},
+  doi       = {10.1145/2594291.2594319},
+  note      = {Verified via DBLP record conf/pldi/PombrioK14. Tagging-based desugar/resugar (CONFECTION) with Emulation, Abstraction, and Coverage properties; Section 6.1 frames the desugar/unexpand pair explicitly as a lens and proves PutGet iff a disjointness condition on the rule list; implemented for Racket, Pyret, and PLT Redex.}
+}
+
+@inproceedings{zhukozhanghu2015biyacc,
+  author    = {Zirun Zhu and Hsiang{-}Shang Ko and Pedro Martins and Jo{\~a}o Saraiva and Zhenjiang Hu},
+  editor    = {Alcino Cunha and Ekkart Kindler},
+  title     = {{BiYacc}: roll your parser and reflective printer into one},
+  booktitle = {Proceedings of the 4th International Workshop on Bidirectional Transformations, {Bx} 2015},
+  series    = {{CEUR} Workshop Proceedings},
+  volume    = {1396},
+  pages     = {43--50},
+  year      = {2015},
+  url       = {https://ceur-ws.org/Vol-1396/p43-zhu.pdf},
+  note      = {Verified via CEUR-WS volume 1396. A DSL whose single program denotes both a parser and a reflective printer (putback) sharing abstract-syntax, concrete-grammar, and view-pattern/source-pattern action declarations; lens pairs satisfy PutGet and GetPut; compiles to BiFluX for execution.}
 }

@@ -55,6 +55,10 @@ The library also exposes higher-level pieces built by composing these (`ThSimple
 
 A protocol's registration function is a recipe for combining these. To define a new protocol, see [Build a custom protocol](../how-to/build-protocol.md).
 
+## Related work
+
+Cross-protocol translation has two mature precedents. The data-exchange line (Fagin, Kolaitis, Miller, and Popa on universal solutions and the chase [@faginkolaitispopa2005data]; Fagin, Kolaitis, Popa, and Tan on second-order tgds as a closed-under-composition class [@faginkolaitispopatan2005composing]) sets the logical machinery: a universal solution is a colimit; composition needs a Skolemised second-order extension; cores pick out the canonical materialisation. The categorical version is the CQL line of @schultzwisnesky2017algebraic and @schultzspivakvasilakopoulouwisnesky2017algebraic, where a schema mapping is a functor, universal solutions are colimits in the category of instances, and data integration is a pushout. The engineering-IR line ([Apache Calcite](https://calcite.apache.org/) [@begolicamachorodriguezhydemiorlemire2018calcite], [Substrait](https://substrait.io/), [Apache Arrow](https://arrow.apache.org/), [MLIR](https://mlir.llvm.org/)) supplies the hub-and-spoke adapter pattern. panproto's `colimit` and `pushout_by_name` run the same construction over GAT-presented wire-format schemas. See [Related work](./related-work.md#5-cross-protocol-translation-and-data-exchange) for the full discussion.
+
 ## See also
 
 - [Schemas as theories](./schemas-as-theories.md) for what a single theory is.

@@ -58,10 +58,13 @@ panproto names this construction explicitly. The `EnrichmentKind::Layout` tag in
 
 The schema-level lens does not plug into the WInstance-level `get` / `put` pair the way an elementary protolens does. The byte-level operational entry points live in `panproto-parse`: `ParserRegistry::decorate` for the put direction, `ParserRegistry::parse_with_protocol` for the get. The protolens captures the schema-level relationship those byte-level operations sit over; it composes with elementary protolenses for chain-law reasoning but is not the implementation of `decorate` or `parse`. See [Layout enrichment](./layout-enrichment.md) for the full treatment.
 
+## Related work
+
+The asymmetric get/put/create triple is from @foster2007combinators, with totality and well-behavedness laws stated there. The first-class complement comes from the symmetric and edit-lens line of @hofmann2011symmetric and @hofmann2012edit, with the edit-lens module structure giving the partial-monoid merge that this chapter relies on. The dispatch from edge kind to optic kind (Lens, Prism, Affine, Traversal) is licensed by the profunctor-optics theorem of @pickeringgibbonswu2017profunctor, restated categorically by @clarke2020profunctor. The migration-as-lens-graph idiom is from @littvanhardenberghenry2020cambria. See [Related work](./related-work.md) for the full discussion.
+
 ## See also
 
 - [Lens DSL: denotational semantics](./semantics/lens-dsl.md) for the formal lens model and the law statements.
 - [Protolens composition](./semantics/protolens-composition.md) for vertical and sequential composition.
 - [Layout enrichment](./layout-enrichment.md) for the schema-level lens between abstract and decorated schemas.
 - [Lens combinator reference](../reference/lens-combinators.md) for the algebra.
-- @foster2007combinators for the original asymmetric-lens treatment, and @littvanhardenberghenry2020cambria for the complement-tracking approach this builds on.

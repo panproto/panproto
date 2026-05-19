@@ -95,6 +95,6 @@ A small composed theory over panproto's building blocks, two schemas against it,
 
 You have walked through the four core flows of panproto: defining schemas, evolving them via migrations, version-controlling the history, and translating between protocols. From here:
 
-- The [how-to guides](../how-to/index.md) cover specific workflows in depth (CI, lenses, format-preserving codecs, language-model integration).
+- The [how-to guides](../how-to/index.md) cover specific workflows in depth (CI, lenses, format-preserving codecs).
 - The [reference quadrant](../reference/index.md) is the lookup for everything: CLI, SDKs, protocols, expression language, lens combinators, configuration.
 - The [explanation quadrant](../explanation/index.md) is for understanding *why* the system is shaped the way it is.
