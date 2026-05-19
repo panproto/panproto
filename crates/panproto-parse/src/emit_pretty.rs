@@ -963,7 +963,37 @@ fn emit_production_inner(
             Ok(())
         }
         Production::Field { name, content } => {
-            if let Some(edge) = cursor.take_field(name) {
+            // Peel a top-level REPEAT / REPEAT1 off the field content
+            // and drive the iteration from the *outer* cursor, taking
+            // one field-named edge per iteration. The naive shape
+            // ("take_field once, walk REPEAT inside that one child's
+            // cursor") loses every sibling beyond the first: tree-
+            // sitter's `field('xs', repeat($.X))` produces one
+            // field-named edge per match on the parent vertex, so the
+            // repetition lives at the parent level, not inside any
+            // single matched child. Without this peel, `program_decl`'s
+            // `field('steps', repeat($._program_step))` body emits
+            // exactly one step and silently drops the rest.
+            let (repeat_inner, at_least_one): (Option<&Production>, bool) = match content.as_ref() {
+                Production::Repeat { content: inner } => (Some(inner.as_ref()), false),
+                Production::Repeat1 { content: inner } => (Some(inner.as_ref()), true),
+                _ => (None, false),
+            };
+            if let Some(inner) = repeat_inner {
+                let mut emitted_any = false;
+                while let Some(edge) = cursor.take_field(name) {
+                    emit_in_child_context(protocol, schema, grammar, &edge.tgt, inner, out)?;
+                    emitted_any = true;
+                }
+                // REPEAT1 minimum: if no field edges existed, fall back
+                // to emitting the inner once with the parent cursor so
+                // a required-but-empty repetition surfaces a token
+                // rather than silently dropping out.
+                if at_least_one && !emitted_any && first_symbol(inner).is_none() {
+                    emit_production(protocol, schema, grammar, vertex_id, inner, cursor, out)?;
+                }
+                Ok(())
+            } else if let Some(edge) = cursor.take_field(name) {
                 emit_in_child_context(protocol, schema, grammar, &edge.tgt, content, out)
             } else if first_symbol(content).is_none() {
                 // FIELD wraps a non-child production (e.g. a literal
