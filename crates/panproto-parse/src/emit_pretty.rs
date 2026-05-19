@@ -747,6 +747,47 @@ thread_local! {
     /// `_expression` ⊃ `binary_expression` ⊃ `_expression`.
     static EMIT_MU_FRAMES: std::cell::RefCell<std::collections::HashSet<(String, String)>> =
         std::cell::RefCell::new(std::collections::HashSet::new());
+    /// The name of the FIELD whose body the walker is currently inside,
+    /// or `None` at top level. Lets a SYMBOL nested arbitrarily deep
+    /// in the field's content (under SEQ, CHOICE, REPEAT, OPTIONAL)
+    /// consume from the *outer* cursor by edge-kind rather than from
+    /// the child's own cursor by symbol-match. Without this, shapes
+    /// like `field('args', commaSep1($.X))` — which expands to
+    /// `FIELD(SEQ(SYMBOL X, REPEAT(SEQ(',', SYMBOL X))))` — emit only
+    /// the first matched edge: the FIELD handler consumed one edge,
+    /// the inner REPEAT searched the consumed child's cursor (which
+    /// has no more sibling field edges), and the REPEAT broke after
+    /// one iteration. Setting the context here so the inner SYMBOL
+    /// pulls successive field-named edges from the outer cursor
+    /// recovers every matched edge across arbitrary nesting.
+    static EMIT_FIELD_CONTEXT: std::cell::RefCell<Option<String>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// RAII guard that restores the prior `EMIT_FIELD_CONTEXT` value on drop.
+struct FieldContextGuard(Option<String>);
+
+impl Drop for FieldContextGuard {
+    fn drop(&mut self) {
+        EMIT_FIELD_CONTEXT.with(|f| *f.borrow_mut() = self.0.take());
+    }
+}
+
+fn push_field_context(name: &str) -> FieldContextGuard {
+    let prev = EMIT_FIELD_CONTEXT.with(|f| f.borrow_mut().replace(name.to_owned()));
+    FieldContextGuard(prev)
+}
+
+/// Clear the field context for the duration of a child-context walk.
+/// The child's own production has its own FIELDs that set their own
+/// context; the outer field hint must not leak into them.
+fn clear_field_context() -> FieldContextGuard {
+    let prev = EMIT_FIELD_CONTEXT.with(|f| f.borrow_mut().take());
+    FieldContextGuard(prev)
+}
+
+fn current_field_context() -> Option<String> {
+    EMIT_FIELD_CONTEXT.with(|f| f.borrow().clone())
 }
 
 /// Walk a rule at a vertex inside a μ-binder. The wrapping frame is
@@ -834,6 +875,28 @@ fn emit_production_inner(
         }
         Production::Blank => Ok(()),
         Production::Symbol { name } => {
+            // Inside a FIELD body, a SYMBOL consumes by field-name on
+            // the outer cursor rather than searching by symbol-match.
+            // This covers the simple `FIELD(SYMBOL X)` case as well as
+            // every nesting under FIELD that contains SYMBOLs (SEQ,
+            // CHOICE, REPEAT, OPTIONAL, ALIAS). Without the override,
+            // shapes like `field('args', commaSep1($.X))` consume one
+            // field edge in the FIELD handler and then the REPEAT
+            // inside SEQ searches the consumed child's cursor — where
+            // no sibling field edges sit — and breaks after one
+            // iteration.
+            if let Some(field) = current_field_context() {
+                if let Some(edge) = cursor.take_field(&field) {
+                    return emit_in_child_context(
+                        protocol, schema, grammar, &edge.tgt, production, out,
+                    );
+                }
+                // No matching field-named edge left on the outer
+                // cursor. Surface nothing; the surrounding REPEAT /
+                // OPTIONAL / CHOICE backtracks the literal tokens it
+                // emitted on this iteration when it sees no progress.
+                return Ok(());
+            }
             if name.starts_with('_') {
                 // Hidden rule: not a vertex kind on the schema side.
                 // Inline-expand the rule body so its children take
@@ -855,14 +918,31 @@ fn emit_production_inner(
                 } else {
                     // External hidden rule (declared in the
                     // grammar's `externals` block, scanned by C code,
-                    // not listed in `rules`). Heuristic fallback:
-                    // line-ending / EOF externals are universally
-                    // newline-or-empty, so emitting a single newline
-                    // is the right default for grammars like TOML
-                    // whose `pair` SEQ trails into
-                    // `_line_ending_or_eof`. Anything else falls
-                    // through silently.
-                    if name.contains("line_ending")
+                    // not listed in `rules`). Heuristic fallback by
+                    // name:
+                    //
+                    // - `_indent` / `*_indent`: open an indent block.
+                    //   Indent-based grammars (Python, YAML, qvr)
+                    //   declare an `_indent` external scanner before
+                    //   the body of a block-bodied declaration; the
+                    //   emitted output is unparseable without the
+                    //   corresponding indentation jump.
+                    // - `_dedent` / `*_dedent`: close the matching
+                    //   indent block.
+                    // - `_newline` / `*_line_ending` / `*_or_eof`:
+                    //   universally newline-or-empty; emitting a
+                    //   single newline is the right default for
+                    //   grammars like TOML whose `pair` SEQ trails
+                    //   into `_line_ending_or_eof`.
+                    //
+                    // Anything else falls through silently — better
+                    // to drop an unknown external token than to
+                    // invent one that confuses re-parsing.
+                    if name == "_indent" || name.ends_with("_indent") {
+                        out.indent_open();
+                    } else if name == "_dedent" || name.ends_with("_dedent") {
+                        out.indent_close();
+                    } else if name.contains("line_ending")
                         || name.contains("newline")
                         || name.ends_with("_or_eof")
                     {
@@ -963,50 +1043,26 @@ fn emit_production_inner(
             Ok(())
         }
         Production::Field { name, content } => {
-            // Peel a top-level REPEAT / REPEAT1 off the field content
-            // and drive the iteration from the *outer* cursor, taking
-            // one field-named edge per iteration. The naive shape
-            // ("take_field once, walk REPEAT inside that one child's
-            // cursor") loses every sibling beyond the first: tree-
-            // sitter's `field('xs', repeat($.X))` produces one
-            // field-named edge per match on the parent vertex, so the
-            // repetition lives at the parent level, not inside any
-            // single matched child. Without this peel, `program_decl`'s
-            // `field('steps', repeat($._program_step))` body emits
-            // exactly one step and silently drops the rest.
-            let (repeat_inner, at_least_one): (Option<&Production>, bool) = match content.as_ref() {
-                Production::Repeat { content: inner } => (Some(inner.as_ref()), false),
-                Production::Repeat1 { content: inner } => (Some(inner.as_ref()), true),
-                _ => (None, false),
-            };
-            if let Some(inner) = repeat_inner {
-                let mut emitted_any = false;
-                while let Some(edge) = cursor.take_field(name) {
-                    emit_in_child_context(protocol, schema, grammar, &edge.tgt, inner, out)?;
-                    emitted_any = true;
-                }
-                // REPEAT1 minimum: if no field edges existed, fall back
-                // to emitting the inner once with the parent cursor so
-                // a required-but-empty repetition surfaces a token
-                // rather than silently dropping out.
-                if at_least_one && !emitted_any && first_symbol(inner).is_none() {
-                    emit_production(protocol, schema, grammar, vertex_id, inner, cursor, out)?;
-                }
-                Ok(())
-            } else if let Some(edge) = cursor.take_field(name) {
-                emit_in_child_context(protocol, schema, grammar, &edge.tgt, content, out)
-            } else if first_symbol(content).is_none() {
-                // FIELD wraps a non-child production (e.g. a literal
-                // STRING operator like `+` in a binary_expression, or
-                // a CHOICE of STRING tokens). The walker captures
-                // these as interstitials rather than vertices, so the
-                // schema has no field edge to consume; emit the
-                // content in place so the operator / keyword survives
-                // the round-trip.
-                emit_production(protocol, schema, grammar, vertex_id, content, cursor, out)
-            } else {
-                Ok(())
-            }
+            // Set the field context for the duration of `content`'s
+            // walk and emit the content against the *outer* cursor.
+            // The SYMBOL handler picks up the context and pulls
+            // successive `take_field(name)` edges as it encounters
+            // SYMBOLs anywhere under `content` (under SEQ, CHOICE,
+            // REPEAT, OPTIONAL, ALIAS — arbitrarily nested). This
+            // subsumes the prior carve-outs for FIELD(REPEAT(...)),
+            // FIELD(REPEAT1(...)), and the bare FIELD(SYMBOL ...)
+            // case, and adds coverage for
+            // `field('xs', commaSep1($.X))` which expands to
+            // FIELD(SEQ(SYMBOL X, REPEAT(SEQ(',', SYMBOL X)))) and
+            // any other shape where REPEAT/REPEAT1 sits inside SEQ /
+            // CHOICE / OPTIONAL under a FIELD. A FIELD that wraps a
+            // non-SYMBOL production (e.g. `field('op', '+')` or
+            // `field('op', CHOICE(STRING ...))`) still works: STRING
+            // handlers ignore the context and emit literals
+            // directly, so the operator token survives the round
+            // trip.
+            let _guard = push_field_context(name);
+            emit_production(protocol, schema, grammar, vertex_id, content, cursor, out)
         }
         Production::Alias {
             content,
@@ -1172,6 +1228,12 @@ fn emit_in_child_context(
     production: &Production,
     out: &mut Output<'_>,
 ) -> Result<(), ParseError> {
+    // The child walks under its own production tree, with its own
+    // FIELDs setting their own contexts. Clear the outer FIELD hint
+    // so it does not leak through and cause sibling SYMBOLs inside
+    // the child's body to mistakenly pull edges from the child's
+    // cursor by the parent's field name.
+    let _guard = clear_field_context();
     // If `production` is a structural wrapper (CHOICE / SEQ /
     // OPTIONAL / ...) whose referenced symbols cover the child's own
     // kind, the child IS the production's target node and the right
@@ -1480,6 +1542,7 @@ fn referenced_symbols(production: &Production) -> Vec<&str> {
     out
 }
 
+#[cfg(test)]
 fn first_symbol(production: &Production) -> Option<&str> {
     match production {
         Production::Symbol { name } => Some(name),
@@ -1727,6 +1790,20 @@ impl<'a> Output<'a> {
 
     fn newline(&mut self) {
         self.tokens.push(Token::LineBreak);
+    }
+
+    /// Open an indent scope: subsequent `LineBreak`s render at the
+    /// new depth until a matching `indent_close` pops it. Used by the
+    /// external-token fallback to render indent-based grammars'
+    /// `_indent` scanner outputs.
+    fn indent_open(&mut self) {
+        self.tokens.push(Token::IndentOpen);
+        self.tokens.push(Token::LineBreak);
+    }
+
+    /// Close one indent scope opened by `indent_open`.
+    fn indent_close(&mut self) {
+        self.tokens.push(Token::IndentClose);
     }
 
     fn snapshot(&self) -> OutputSnapshot {
