@@ -4,6 +4,14 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.48.3] - 2026-05-19
+
+### Fixed
+
+- **`emit_pretty` renders every iteration of repetition inside a `FIELD(...)` body, not only top-level `FIELD(REPEAT(...))`** (`panproto-parse::emit_pretty`): the previous fix peeled `Repeat` / `Repeat1` off the top of a FIELD's content, which handled `field('steps', repeat($._program_step))` but not `field('args', commaSep1($._draw_arg))` — the latter expands to `FIELD(SEQ(SYMBOL X, REPEAT(SEQ(',', SYMBOL X))))` and the SEQ wrapper defeated the peel. The inner REPEAT then walked the first consumed child's cursor (which has no sibling field edges) and broke after one iteration. The fix moves the field hint into a thread-local `EMIT_FIELD_CONTEXT` that the SYMBOL handler consults: when set, every SYMBOL under the FIELD body — at any depth, under SEQ / CHOICE / REPEAT / REPEAT1 / OPTIONAL / ALIAS — consumes successive edges via `take_field(name)` on the outer cursor instead of `take_symbol_match` against the inner. The new path subsumes the prior carve-outs for FIELD(REPEAT(...)), FIELD(REPEAT1(...)), and bare FIELD(SYMBOL ...). FIELD content with no SYMBOL (e.g. `field('op', '+')`, `field('op', CHOICE(STRING, STRING))`) still emits its literals: STRING handlers ignore the context.
+- **`emit_pretty` opens and closes indent scopes for grammars with `_indent` / `_dedent` external scanner tokens** (`panproto-parse::emit_pretty`): the SYMBOL handler's external-token fallback covered `*newline*` / `*line_ending*` / `*_or_eof` but ignored `*_indent` and `*_dedent`. For indent-based grammars (Python, YAML, and QVR-flavoured indent grammars whose vendored generation surfaces `_indent`/`_dedent` as externals) the rendered output was structurally well-formed but unparseable: the parser expected an INDENT token after `:` and got a content character at column 0. The fallback now dispatches `_indent` / `*_indent` to `Output::indent_open` and `_dedent` / `*_dedent` to `Output::indent_close`, reusing the existing indent-depth machinery the format policy already drives for `{` / `}` token pairs. Other external tokens still fall through silently.
+- Regression test `crates/panproto-parse/tests/emit_pretty_field_repeat.rs::emit_pretty_preserves_every_arg_in_field_commasep1` parses `f(1.0, 2.0, 3.0)` through a `commaSep1` field and asserts every arg survives `emit_pretty`. The pre-existing `emit_pretty_preserves_every_step_in_field_repeat` continues to cover the simpler `FIELD(REPEAT(SYMBOL))` shape.
+
 ## [0.48.2] - 2026-05-18
 
 ### Fixed
