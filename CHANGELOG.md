@@ -4,6 +4,12 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.48.2] - 2026-05-18
+
+### Fixed
+
+- **`emit_pretty` renders every iteration of `FIELD(REPEAT(...))` productions** (`panproto-parse::emit_pretty`): the `Field { content: Repeat(...) }` arm called `take_field(name)` once and walked the REPEAT against the consumed child's cursor, so every field-named sibling beyond the first was silently dropped. Tree-sitter's `field('xs', repeat($.X))` produces one field-named edge per match on the parent vertex, so the repetition lives at the parent level. QVR's `program_decl` body — `field('steps', repeat($._program_step))` — was the reported reproducer: a 3-line program with two `sample` steps emitted only one. The fix peels `Repeat` / `Repeat1` off the field content and drives the iteration from the outer cursor, taking one `take_field(name)` edge per iteration; the REPEAT1-minimum fallback still fires when the field is required-but-empty. Regression test: `crates/panproto-parse/tests/emit_pretty_field_repeat.rs::emit_pretty_preserves_every_step_in_field_repeat`. Closes #106.
+
 ## [0.48.1] - 2026-05-18
 
 ### Fixed
