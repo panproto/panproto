@@ -152,16 +152,18 @@
   note      = {Verified via ACM DL DOI 10.1145/1061318.1061323. The TODS journal version of the PODS 2003 paper. Establishes the core of a universal solution as the canonical materialised target instance in data exchange, gives polynomial-time algorithms for computing the core in settings with source-to-target tgds and target egds, and proves DP-completeness of CORE IDENTIFICATION on undirected graphs.}
 }
 
-@inproceedings{faginkolaitispopatan2005composing,
+@article{faginkolaitispopatan2005composing,
   author    = {Ronald Fagin and Phokion G. Kolaitis and Lucian Popa and Wang-Chiew Tan},
   title     = {Composing schema mappings: second-order dependencies to the rescue},
-  booktitle = {Proceedings of the 23rd {ACM} {SIGACT}-{SIGMOD}-{SIGART} Symposium on Principles of Database Systems ({PODS} 2004)},
-  pages     = {83--94},
+  journal   = {{ACM} Transactions on Database Systems},
+  volume    = {30},
+  number    = {4},
+  pages     = {994--1055},
   publisher = {{ACM}},
-  year      = {2004},
-  doi       = {10.1145/1055558.1055572},
-  url       = {https://dl.acm.org/doi/10.1145/1055558.1055572},
-  note      = {Verified via ACM DL DOI 10.1145/1055558.1055572. The TODS journal version (Vol.~30 No.~4, 2005, doi 10.1145/1114244.1114249) extends the PODS conference paper. Shows that the composition of finite sets of source-to-target tgds need not be definable by any (finite or infinite) set of source-to-target tgds, introduces second-order tgds as a closed-under-composition class, and gives an algorithm that produces an SO~tgd defining the composition together with a chase procedure for SO~tgds.}
+  year      = {2005},
+  doi       = {10.1145/1114244.1114249},
+  url       = {https://dl.acm.org/doi/10.1145/1114244.1114249},
+  note      = {Verified via DBLP record journals/tods/FaginKPT05 and ACM DL DOI 10.1145/1114244.1114249. The journal version of the PODS 2004 conference paper (doi 10.1145/1055558.1055572) with the author order Popa-then-Tan as preferred by the journal. Shows that the composition of finite sets of source-to-target tgds need not be definable by any (finite or infinite) set of source-to-target tgds, introduces second-order tgds as a closed-under-composition class, and gives an algorithm that produces an SO~tgd defining the composition together with a chase procedure for SO~tgds.}
 }
 
 @inproceedings{fiore1999abstract,
@@ -344,17 +346,19 @@
   pages     = {91--100},
   publisher = {{ACM}},
   year      = {2011},
-  doi       = {10.1145/1929501.1929515},
-  note      = {Verified via DBLP record conf/pepm/PachecoC11. Establishes an equational calculus for point-free lenses with fold/unfold uniqueness, mechanised in the pointless-lenses/pointless-rewrite Haskell libraries.}
+  doi       = {10.1145/1929501.1929520},
+  note      = {Verified via CrossRef DOI 10.1145/1929501.1929520 (PEPM 2011, pp. 91--100) and DBLP record conf/pepm/PachecoC11. The earlier doi 10.1145/1929501.1929515 in this entry resolved to a different paper (Consel, ``DiaSuite''); corrected on 2026-05-20. Establishes an equational calculus for point-free lenses with fold/unfold uniqueness, mechanised in the pointless-lenses/pointless-rewrite Haskell libraries.}
 }
 
 @article{pachecocunhahu2012delta,
   author  = {Hugo Pacheco and Alcino Cunha and Zhenjiang Hu},
   title   = {Delta lenses over inductive types},
   journal = {Electronic Communications of the EASST},
+  volume  = {49},
   year    = {2012},
+  doi     = {10.14279/tuj.eceasst.49.713},
   url     = {https://journal.ub.tu-berlin.de/eceasst/article/view/713},
-  note    = {Verified via the ECEASST journal page at journal.ub.tu-berlin.de/eceasst/article/view/713.}
+  note    = {Verified via the ECEASST journal page at journal.ub.tu-berlin.de/eceasst/article/view/713 and CrossRef DOI 10.14279/tuj.eceasst.49.713.}
 }
 
 @book{pierce2002types,
@@ -532,7 +536,7 @@
   title   = {Dremel: interactive analysis of web-scale datasets},
   journal = {Proceedings of the {VLDB} Endowment},
   volume  = {3},
-  number  = {1},
+  number  = {1-2},
   pages   = {330--339},
   year    = {2010},
   doi     = {10.14778/1920841.1920886},
@@ -633,6 +637,7 @@
   volume    = {64},
   publisher = {Cambridge University Press},
   year      = {1982},
+  isbn      = {978-0-521-28702-9},
   url       = {http://www.tac.mta.ca/tac/reprints/articles/10/tr10abs.html},
   note      = {Republished as Reprints in Theory and Applications of Categories, No. 10 (2005), pp. 1--136. Verified via the TAC Reprints page at tac.mta.ca/tac/reprints/articles/10.}
 }
@@ -652,6 +657,7 @@
   author    = {Carlo Angiuli and Edward Morehouse and Daniel R. Licata and Robert Harper},
   title     = {Homotopical patch theory},
   booktitle = {Proceedings of the 19th {ACM} {SIGPLAN} International Conference on Functional Programming, {ICFP} 2014},
+  pages     = {243--256},
   publisher = {{ACM}},
   year      = {2014},
   doi       = {10.1145/2692915.2628158},
@@ -1189,4 +1195,123 @@
   year      = {2015},
   url       = {https://ceur-ws.org/Vol-1396/p43-zhu.pdf},
   note      = {Verified via CEUR-WS volume 1396. A DSL whose single program denotes both a parser and a reflective printer (putback) sharing abstract-syntax, concrete-grammar, and view-pattern/source-pattern action declarations; lens pairs satisfy PutGet and GetPut; compiles to BiFluX for execution.}
+}
+
+%% Appended 2026-05-20: orphan PDFs that lacked bib entries, now with
+%% authoritative metadata from arXiv / DBLP / ACM DL. NOT alphabetically
+%% sorted with the rest of the file; sort them in if desired.
+
+@article{boisseaugibbons2018yoneda,
+  author    = {Guillaume Boisseau and Jeremy Gibbons},
+  title     = {What you needa know about {Yoneda}: profunctor optics and the {Yoneda} lemma (functional pearl)},
+  journal   = {Proceedings of the {ACM} on Programming Languages},
+  volume    = {2},
+  number    = {{ICFP}},
+  pages     = {84:1--84:27},
+  year      = {2018},
+  doi       = {10.1145/3236779},
+  url       = {https://dl.acm.org/doi/10.1145/3236779},
+  note      = {Verified via DBLP record journals/pacmpl/BoisseauG18 and ACM DL DOI 10.1145/3236779.}
+}
+
+@inproceedings{vertechi2022dependent,
+  author    = {Pietro Vertechi},
+  editor    = {Jade Master and Martha Lewis},
+  title     = {Dependent optics},
+  booktitle = {Proceedings of the 5th International Conference on Applied Category Theory ({ACT} 2022)},
+  series    = {{EPTCS}},
+  volume    = {380},
+  pages     = {128--144},
+  year      = {2022},
+  doi       = {10.4204/EPTCS.380.8},
+  eprint    = {2204.09547},
+  archiveprefix = {arXiv},
+  note      = {Verified via DBLP record journals/corr/abs-2204-09547 and EPTCS volume 380.}
+}
+
+@inproceedings{capucci2021cybernetics,
+  author    = {Matteo Capucci and Bruno Gavranovi{\'c} and Jules Hedges and Eigil Fjeldgren Rischel},
+  editor    = {Kohei Kishida},
+  title     = {Towards foundations of categorical cybernetics},
+  booktitle = {Proceedings of the 4th International Conference on Applied Category Theory ({ACT} 2021)},
+  series    = {{EPTCS}},
+  volume    = {372},
+  pages     = {235--248},
+  year      = {2021},
+  doi       = {10.4204/EPTCS.372.17},
+  eprint    = {2105.06332},
+  archiveprefix = {arXiv},
+  note      = {Verified via DBLP record journals/corr/abs-2105-06332 and EPTCS volume 372.}
+}
+
+@inproceedings{chollet2022limits,
+  author    = {Emma Chollet and Bryce Clarke and Michael Johnson and Maurine Songa and Vincent Wang and Gioele Zardini},
+  editor    = {Kohei Kishida},
+  title     = {Limits and colimits in a category of lenses},
+  booktitle = {Proceedings of the 4th International Conference on Applied Category Theory ({ACT} 2021)},
+  series    = {{EPTCS}},
+  volume    = {372},
+  pages     = {164--177},
+  year      = {2022},
+  doi       = {10.4204/EPTCS.372.12},
+  eprint    = {2105.05422},
+  archiveprefix = {arXiv},
+  note      = {Verified via arXiv abs page 2105.05422 and EPTCS volume 372.}
+}
+
+@article{kisspickeringwu2018generic,
+  author    = {Csongor Kiss and Matthew Pickering and Nicolas Wu},
+  title     = {Generic deriving of generic traversals},
+  journal   = {Proceedings of the {ACM} on Programming Languages},
+  volume    = {2},
+  number    = {{ICFP}},
+  pages     = {85:1--85:30},
+  year      = {2018},
+  doi       = {10.1145/3236780},
+  url       = {https://dl.acm.org/doi/10.1145/3236780},
+  note      = {Verified via DBLP record journals/pacmpl/KissPW18 and ACM DL DOI 10.1145/3236780.}
+}
+
+@book{niuspivak2023polynomial,
+  author    = {Nelson Niu and David I. Spivak},
+  title     = {Polynomial functors: a mathematical theory of interaction},
+  year      = {2023},
+  eprint    = {2312.00990},
+  archiveprefix = {arXiv},
+  primaryclass = {math.CT},
+  url       = {https://arxiv.org/abs/2312.00990},
+  note      = {Verified via arXiv abs page 2312.00990 (v1 submitted December 2023; v2 16 August 2024). Book draft, not yet formally published.}
+}
+
+@article{riley2018categories,
+  author    = {Mitchell Riley},
+  title     = {Categories of optics},
+  year      = {2018},
+  eprint    = {1809.00738},
+  archiveprefix = {arXiv},
+  primaryclass = {math.CT},
+  url       = {https://arxiv.org/abs/1809.00738},
+  note      = {Verified via arXiv abs page 1809.00738.}
+}
+
+@article{spivak2019generalized,
+  author    = {David I. Spivak},
+  title     = {Generalized lens categories via functors {$C^{\mathrm{op}} \to \mathrm{Cat}$}},
+  year      = {2019},
+  eprint    = {1908.02202},
+  archiveprefix = {arXiv},
+  primaryclass = {math.CT},
+  url       = {https://arxiv.org/abs/1908.02202},
+  note      = {Verified via DBLP record journals/corr/abs-1908-02202 and arXiv abs page 1908.02202.}
+}
+
+@article{capucci2022seeing,
+  author    = {Matteo Capucci},
+  title     = {Seeing double through dependent optics},
+  year      = {2022},
+  eprint    = {2204.10708},
+  archiveprefix = {arXiv},
+  primaryclass = {math.CT},
+  url       = {https://arxiv.org/abs/2204.10708},
+  note      = {Verified via arXiv abs page 2204.10708.}
 }
