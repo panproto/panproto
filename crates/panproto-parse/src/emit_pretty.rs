@@ -273,6 +273,19 @@ pub struct Grammar {
     /// supertype name when a SYMBOL references it.
     #[serde(default, deserialize_with = "deserialize_supertypes")]
     pub supertypes: std::collections::HashSet<String>,
+    /// Tree-sitter `extras` rules: the named symbols (typically comments)
+    /// that tree-sitter skips at parse time but records as children of the
+    /// surrounding vertex. They appear nowhere in the production grammar,
+    /// so the rule walker cannot reconcile them against the cursor — the
+    /// emit pass therefore drains them as a side channel: at vertex entry
+    /// and between REPEAT iterations any leading extras-kind edges are
+    /// consumed and emitted directly. The set is populated at
+    /// `Grammar::from_bytes` by collecting every `SYMBOL { name }` and
+    /// named `ALIAS { value, named: true }` under the top-level `extras`
+    /// array. Pattern-only extras (e.g. `\s` whitespace) are not vertex
+    /// kinds and are excluded.
+    #[serde(default, deserialize_with = "deserialize_extras")]
+    pub extras: std::collections::HashSet<String>,
     /// Precomputed subtyping closure: `subtypes[symbol_name]` is the
     /// set of vertex kinds that satisfy a SYMBOL `symbol_name`
     /// reference on the schema side.
@@ -309,6 +322,48 @@ where
                 }
             }
             _ => {}
+        }
+    }
+    Ok(out)
+}
+
+fn deserialize_extras<'de, D>(
+    deserializer: D,
+) -> Result<std::collections::HashSet<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let entries: Vec<serde_json::Value> = Vec::deserialize(deserializer)?;
+    let mut out = std::collections::HashSet::new();
+    for entry in entries {
+        if let serde_json::Value::Object(map) = entry {
+            let ty = map.get("type").and_then(serde_json::Value::as_str);
+            match ty {
+                // SYMBOL { name: K } — the extras rule is a named symbol
+                // (typically `line_comment` / `block_comment`). The kind
+                // K appears as a real child vertex on the schema side.
+                Some("SYMBOL") => {
+                    if let Some(serde_json::Value::String(name)) = map.get("name") {
+                        out.insert(name.clone());
+                    }
+                }
+                // ALIAS { content, value: V, named: true } — the extras
+                // rule renames its content; V is the kind on the schema.
+                Some("ALIAS") => {
+                    let named = map
+                        .get("named")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false);
+                    if named {
+                        if let Some(serde_json::Value::String(value)) = map.get("value") {
+                            out.insert(value.clone());
+                        }
+                    }
+                }
+                // PATTERN / STRING / TOKEN entries describe inter-token
+                // whitespace and have no vertex-side representation.
+                _ => {}
+            }
         }
     }
     Ok(out)
@@ -667,7 +722,12 @@ fn emit_vertex(
     let edges = children_for(schema, vertex_id);
     if let Some(rule) = grammar.rules.get(kind) {
         let mut cursor = ChildCursor::new(&edges);
-        return emit_production(protocol, schema, grammar, vertex_id, rule, &mut cursor, out);
+        emit_production(protocol, schema, grammar, vertex_id, rule, &mut cursor, out)?;
+        // Drain any extras left after the rule walk completed; tree-sitter
+        // may record trailing comments as children of the surrounding
+        // vertex (i.e. after the last structural child the rule matched).
+        drain_extras(protocol, schema, grammar, &mut cursor, out)?;
+        return Ok(());
     }
 
     // No rule for this kind. The parser produced it via an ALIAS
@@ -844,11 +904,52 @@ fn emit_production(
             ),
         });
     }
+    drain_extras(protocol, schema, grammar, cursor, out)?;
     let result = emit_production_inner(
         protocol, schema, grammar, vertex_id, production, cursor, out,
     );
     EMIT_DEPTH.with(|d| d.set(d.get() - 1));
     result
+}
+
+/// Consume and emit every leading edge on `cursor` whose target kind
+/// is in `grammar.extras` (typically `line_comment` / `block_comment`).
+/// Extras live outside the production grammar — tree-sitter skips them
+/// at parse time and records them as children of the surrounding
+/// vertex — so the rule walker cannot reconcile them against the
+/// cursor. Draining them as a side channel preserves their content in
+/// the output without confusing the structural matchers.
+fn drain_extras(
+    protocol: &str,
+    schema: &Schema,
+    grammar: &Grammar,
+    cursor: &mut ChildCursor<'_>,
+    out: &mut Output<'_>,
+) -> Result<(), ParseError> {
+    if grammar.extras.is_empty() {
+        return Ok(());
+    }
+    loop {
+        let next_extra: Option<usize> = cursor
+            .edges
+            .iter()
+            .enumerate()
+            .find(|(i, _)| !cursor.consumed[*i])
+            .and_then(|(i, edge)| {
+                let kind = schema.vertices.get(&edge.tgt).map(|v| v.kind.as_ref())?;
+                if grammar.extras.contains(kind) {
+                    Some(i)
+                } else {
+                    None
+                }
+            });
+        let Some(idx) = next_extra else {
+            return Ok(());
+        };
+        cursor.consumed[idx] = true;
+        let target = &cursor.edges[idx].tgt;
+        emit_vertex(protocol, schema, grammar, target, out)?;
+    }
 }
 
 fn emit_production_inner(
