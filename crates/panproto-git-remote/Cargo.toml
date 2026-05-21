@@ -19,7 +19,7 @@ panproto-vcs = { workspace = true }
 panproto-git = { workspace = true }
 panproto-xrpc = { workspace = true }
 
-git2 = { version = "0.20", features = ["vendored-libgit2", "vendored-openssl"] }
+git2 = { version = "0.21", features = ["vendored-libgit2", "vendored-openssl"] }
 rustc-hash = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 miette = { workspace = true }
