@@ -4,6 +4,12 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.48.13] - 2026-05-21
+
+### Fixed
+
+- **`emit_pretty` no longer emits phantom trailing punctuation when a CHOICE includes BLANK and the cursor is exhausted** (`panproto-parse::emit_pretty`): the `chose-alt-fingerprint` constraint is built per vertex from the concatenated interstitial fragments. A rule like QVR's `sample_step`, whose body ends in `..., REPEAT(SEQ(",", arg)), CHOICE(",", BLANK)` (the canonical `commaSep1`-with-optional-trailing-comma shape), deposits one `","` into the fingerprint blob per arg-separator gap. The trailing CHOICE then scored `","` over BLANK (one literal match per recorded separator vs zero), and `f(1.0, 2.0, 3.0)` rendered as `f(1.0, 2.0, 3.0,)` with a phantom trailing comma. The literal-blob discriminator is intrinsically position-blind across multiple positional CHOICEs at the same vertex, so the cursor-exhaustion gate now fires first: when no unconsumed edges remain AND `BLANK` is one of the alternatives, the only categorically correct alt is `BLANK`, regardless of what literal tokens appear earlier in the vertex's interstitials. Regression test at `crates/panproto-parse/tests/emit_pretty_trailing_punctuation.rs`. Improves #113 (commaSep1 trailing comma family across grammars).
+
 ## [0.48.12] - 2026-05-21
 
 ### Fixed
