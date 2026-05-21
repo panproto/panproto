@@ -1831,6 +1831,14 @@ fn layout(tokens: &[Token], policy: &FormatPolicy) -> Vec<u8> {
     let mut indent: usize = 0;
     let mut at_line_start = true;
     let mut last_lit: Option<&str> = None;
+    // True iff, at the moment `last_lit` was emitted, the cursor was at a
+    // position where the grammar expects an operand: start of stream / line,
+    // just after an open paren / bracket / brace, just after a separator like
+    // `,` or `;`, or just after a binary / assignment operator. Used by
+    // `needs_space_between` to recognise `last_lit` as a tight unary prefix
+    // (`f(-1.0)`) rather than a spaced binary operator (`a - b`).
+    let mut last_was_in_operand_position = true;
+    let mut expecting_operand = true;
     let newline = policy.newline.as_bytes();
     let separator = policy.separator.as_bytes();
 
@@ -1842,24 +1850,28 @@ fn layout(tokens: &[Token], policy: &FormatPolicy) -> Vec<u8> {
                 if !at_line_start {
                     bytes.extend_from_slice(newline);
                     at_line_start = true;
+                    expecting_operand = true;
                 }
             }
             Token::LineBreak => {
                 if !at_line_start {
                     bytes.extend_from_slice(newline);
                     at_line_start = true;
+                    expecting_operand = true;
                 }
             }
             Token::Lit(value) => {
                 if at_line_start {
                     bytes.extend(std::iter::repeat_n(b' ', indent * policy.indent_width));
                 } else if let Some(prev) = last_lit {
-                    if needs_space_between(prev, value) {
+                    if needs_space_between(prev, value, last_was_in_operand_position) {
                         bytes.extend_from_slice(separator);
                     }
                 }
                 bytes.extend_from_slice(value.as_bytes());
                 at_line_start = false;
+                last_was_in_operand_position = expecting_operand;
+                expecting_operand = leaves_operand_position(value);
                 last_lit = Some(value.as_str());
             }
         }
@@ -1871,7 +1883,32 @@ fn layout(tokens: &[Token], policy: &FormatPolicy) -> Vec<u8> {
     bytes
 }
 
-fn needs_space_between(last: &str, next: &str) -> bool {
+/// True iff emitting `tok` leaves the cursor in a position where the
+/// grammar expects an operand next. Operand-introducing tokens are open
+/// punctuation, separators, and operator-like strings; operand-terminating
+/// tokens are identifiers, literals, and closing punctuation.
+fn leaves_operand_position(tok: &str) -> bool {
+    if tok.is_empty() {
+        return true;
+    }
+    if is_punct_open(tok) {
+        return true;
+    }
+    if matches!(tok, "," | ";") {
+        return true;
+    }
+    if is_punct_close(tok) {
+        return false;
+    }
+    if first_is_alnum_or_underscore(tok) || last_ends_with_alnum(tok) {
+        return false;
+    }
+    // Pure punctuation/operator runs (`=`, `+`, `-`, `<=`, `>>`, …) leave
+    // the cursor expecting another operand.
+    true
+}
+
+fn needs_space_between(last: &str, next: &str, expecting_operand: bool) -> bool {
     if last.is_empty() || next.is_empty() {
         return false;
     }
@@ -1887,6 +1924,14 @@ fn needs_space_between(last: &str, next: &str) -> bool {
     if last == "." || next == "." {
         return false;
     }
+    // Tight unary prefix: `last` is a sign/logical-not operator emitted
+    // where the grammar expected an operand, so it glues to `next`.
+    // `expecting_operand` here means: just before `last` was emitted,
+    // the cursor expected an operand, which makes `last` a unary prefix.
+    // Examples: `f(-1.0)`, `[ -2, 3 ]`, `return -x`, `a = !flag`.
+    if expecting_operand && is_unary_prefix_operator(last) && first_is_operand_start(next) {
+        return false;
+    }
     if last_is_word_like(last) && first_is_word_like(next) {
         return true;
     }
@@ -1896,6 +1941,17 @@ fn needs_space_between(last: &str, next: &str) -> bool {
     // Adjacent operator runs: keep them apart so the lexer doesn't glue
     // `>` and `=` into `>=` unintentionally.
     true
+}
+
+fn is_unary_prefix_operator(s: &str) -> bool {
+    matches!(s, "-" | "+" | "!" | "~")
+}
+
+fn first_is_operand_start(s: &str) -> bool {
+    s.chars()
+        .next()
+        .map(|c| c.is_alphanumeric() || c == '_' || c == '.' || c == '(')
+        .unwrap_or(false)
 }
 
 fn is_punct_open(s: &str) -> bool {
