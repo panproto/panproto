@@ -12,7 +12,7 @@
 
 use panproto_parse::ParserRegistry;
 
-const STAN_MODEL: &[u8] = br#"
+const STAN_MODEL: &[u8] = br"
 data {
   int<lower=0> N;
   vector[N] y;
@@ -24,13 +24,13 @@ parameters {
 model {
   y ~ normal(mu, sigma);
 }
-"#;
+";
 
-const STAN_FUNCTIONS: &[u8] = br#"
+const STAN_FUNCTIONS: &[u8] = br"
 real square(real x) {
   return x * x;
 }
-"#;
+";
 
 fn vertex_kinds(schema: &panproto_schema::Schema) -> std::collections::BTreeSet<String> {
     schema

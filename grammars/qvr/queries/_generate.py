@@ -1,4 +1,44 @@
-; QVR syntax highlighting queries.
+"""Regenerate :file:`highlights.scm` from the current grammar.
+
+The QVR tree-sitter grammar is the single source of truth for surface
+syntax. This script reads :file:`grammars/qvr/src/grammar.json`, walks
+each rule's terminal strings, and emits a deterministic
+:file:`highlights.scm` consumed by every tree-sitter-driven
+highlighter (nvim-treesitter, Helix, Zed, Emacs treesit, ...).
+
+Run after any edit to :file:`grammars/qvr/grammar.js`:
+
+.. code-block:: shell
+
+    cd grammars/qvr
+    tree-sitter generate          # produces src/grammar.json
+    python queries/_generate.py   # rewrites queries/highlights.scm
+
+The hand-curated parts (declaration node patterns binding identifier
+roles like ``@type`` / ``@function``) live inline below; the literal
+keyword / operator / builtin lists at the top are derived.
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+THIS_DIR = Path(__file__).resolve().parent
+REPO_ROOT = THIS_DIR.parents[2]
+sys.path.insert(0, str(REPO_ROOT / "src"))
+
+from quivers.dsl._grammar_introspection import (  # noqa: E402
+    BUILTIN_FUNCTIONS,
+    BUILTIN_TYPES,
+    COMPOSITION_LEVELS,
+    KEYWORDS,
+    OPERATORS,
+    SORT_KINDS,
+)
+
+
+HEADER = """; QVR syntax highlighting queries.
 ;
 ; AUTO-GENERATED from grammars/qvr/src/grammar.json by
 ; grammars/qvr/queries/_generate.py. Do not edit by hand; rerun the
@@ -11,176 +51,9 @@
 ; Consumed by tree-sitter-driven highlighters: nvim-treesitter, Helix,
 ; Zed, Emacs treesit, and the in-tree Pygments lexer / REPL highlighter
 ; (which walk the same grammar through a shared mapping table).
+"""
 
-; ---------------------------------------------------------------------------
-; keywords (derived from grammar literals)
-; ---------------------------------------------------------------------------
-
-[
-  "as"
-  "atoms"
-  "attention"
-  "binary"
-  "binder_select"
-  "binders"
-  "binds"
-  "body"
-  "bundle"
-  "categories"
-  "category"
-  "ccg"
-  "change_base"
-  "composition"
-  "constructors"
-  "contraction"
-  "curry_left"
-  "curry_right"
-  "dagger"
-  "decoder"
-  "deduction"
-  "depth"
-  "dim"
-  "edge_kinds"
-  "effect_depth"
-  "encoder"
-  "export"
-  "factor"
-  "freeze"
-  "from"
-  "in"
-  "init"
-  "iterations"
-  "lambek"
-  "let"
-  "lex"
-  "lexicon"
-  "loss"
-  "marginalize"
-  "max_length"
-  "message"
-  "morphism"
-  "observe"
-  "ops"
-  "over"
-  "primitive"
-  "program"
-  "readout"
-  "recurrent"
-  "recursive"
-  "return"
-  "rules"
-  "sample"
-  "schema"
-  "score"
-  "signature"
-  "sorts"
-  "start"
-  "structure"
-  "terminal"
-  "trace"
-  "unary"
-  "update"
-  "var_init"
-  "vertex_kinds"
-  "where"
-] @keyword
-
-; Composition levels.
-[
-  "algebra"
-  "bilinear_form"
-  "rule"
-  "semigroupoid"
-] @keyword.modifier
-
-; Sort kinds in structural-compression signatures.
-[
-  "data"
-  "index"
-  "object"
-] @type.qualifier
-
-; Effect tokens carried by option-block values; not grammar literals.
-"!" @operator.special
-
-; ---------------------------------------------------------------------------
-; builtin types (constructor / param-kind heads)
-; ---------------------------------------------------------------------------
-
-[
-  "Ball"
-  "CholeskyFactor"
-  "Correlation"
-  "Covariance"
-  "Diagonal"
-  "FinSet"
-  "LowerTriangular"
-  "Mor"
-  "Nat"
-  "Object"
-  "Orthogonal"
-  "Real"
-  "Simplex"
-  "Space"
-  "Sphere"
-  "Stiefel"
-] @type.builtin
-
-; ---------------------------------------------------------------------------
-; builtin functions (combinators, intrinsics)
-; ---------------------------------------------------------------------------
-
-[
-  "FreeMonoid"
-  "FreeResiduated"
-  "cap"
-  "chart_fold"
-  "cup"
-  "fan"
-  "from_data"
-  "identity"
-  "parser"
-  "repeat"
-  "scan"
-  "stack"
-] @function.builtin
-
-; ---------------------------------------------------------------------------
-; operators
-; ---------------------------------------------------------------------------
-
-[
-  "$>"
-  "%>"
-  "&&>"
-  "*"
-  "*>"
-  "+"
-  "+>"
-  "-"
-  "--"
-  "->"
-  "."
-  "/"
-  ":"
-  "<-"
-  "<<"
-  "="
-  "=>"
-  ">=>"
-  ">>"
-  ">>>"
-  "?>"
-  "@"
-  "\"
-  "|-"
-  "|->"
-  "||>"
-  "~"
-  "~>"
-  "⊢"
-] @operator
-
+NODE_PATTERNS = """\
 ; ---------------------------------------------------------------------------
 ; declarations and identifiers
 ; ---------------------------------------------------------------------------
@@ -269,3 +142,68 @@
 (line_comment)  @comment
 (block_comment) @comment.block
 (doc_comment)   @comment.documentation
+"""
+
+
+def _quote_list(items: list[str]) -> str:
+    """Format a sorted Scheme string-array for a ``@keyword`` capture."""
+    rendered = "\n".join(f'  "{item}"' for item in sorted(items))
+    return f"[\n{rendered}\n]"
+
+
+def render() -> str:
+    keyword_lines = [
+        "; ---------------------------------------------------------------------------",
+        "; keywords (derived from grammar literals)",
+        "; ---------------------------------------------------------------------------",
+        "",
+        _quote_list(sorted(KEYWORDS - COMPOSITION_LEVELS - SORT_KINDS)) + " @keyword",
+        "",
+        "; Composition levels.",
+        _quote_list(sorted(COMPOSITION_LEVELS)) + " @keyword.modifier",
+        "",
+        "; Sort kinds in structural-compression signatures.",
+        _quote_list(sorted(SORT_KINDS)) + " @type.qualifier",
+        "",
+        "; Effect tokens carried by option-block values; not grammar literals.",
+        '"!" @operator.special',
+        "",
+        "; ---------------------------------------------------------------------------",
+        "; builtin types (constructor / param-kind heads)",
+        "; ---------------------------------------------------------------------------",
+        "",
+        _quote_list(sorted(BUILTIN_TYPES)) + " @type.builtin",
+        "",
+        "; ---------------------------------------------------------------------------",
+        "; builtin functions (combinators, intrinsics)",
+        "; ---------------------------------------------------------------------------",
+        "",
+        _quote_list(sorted(BUILTIN_FUNCTIONS)) + " @function.builtin",
+        "",
+        "; ---------------------------------------------------------------------------",
+        "; operators",
+        "; ---------------------------------------------------------------------------",
+        "",
+        _quote_list(sorted(OPERATORS)) + " @operator",
+    ]
+    return "\n".join([HEADER, *keyword_lines, "", NODE_PATTERNS])
+
+
+def main() -> int:
+    out = THIS_DIR / "highlights.scm"
+    out.write_text(render(), encoding="utf-8")
+    mirror = (
+        REPO_ROOT
+        / "editors"
+        / "zed-extension-qvr"
+        / "languages"
+        / "qvr"
+        / "highlights.scm"
+    )
+    if mirror.is_file():
+        mirror.write_text(render(), encoding="utf-8")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
