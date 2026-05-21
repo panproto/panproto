@@ -1523,11 +1523,28 @@ fn referenced_symbols(production: &Production) -> Vec<&str> {
                     walk(m, out);
                 }
             }
+            Production::Alias {
+                content,
+                named,
+                value,
+            } => {
+                // A named ALIAS produces a child vertex whose kind is
+                // the alias `value` (e.g. `ALIAS { content: STRING "=",
+                // value: "punctuation", named: true }` introduces a
+                // `punctuation` child). For cursor-driven dispatch to
+                // recognise alts that emit such children, yield the
+                // alias value as a referenced symbol. Anonymous aliases
+                // do not introduce a named node and only need their
+                // inner content's symbols.
+                if *named && !value.is_empty() {
+                    out.push(value.as_str());
+                }
+                walk(content, out);
+            }
             Production::Repeat { content }
             | Production::Repeat1 { content }
             | Production::Optional { content }
             | Production::Field { content, .. }
-            | Production::Alias { content, .. }
             | Production::Token { content }
             | Production::ImmediateToken { content }
             | Production::Prec { content, .. }

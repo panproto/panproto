@@ -4,6 +4,12 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.48.7] - 2026-05-21
+
+### Fixed
+
+- **`emit_pretty` recognises named-ALIAS children when picking CHOICE alternatives** (`panproto-parse::emit_pretty`): `referenced_symbols` previously walked into an `ALIAS { content, value, named }` production's content and discarded the alias `value`. A named ALIAS introduces a child vertex whose kind is the alias `value` (e.g. lilypond's `ALIAS { content: STRING "=", value: "punctuation", named: true }` introduces a `punctuation` child), but cursor-driven dispatch matched alts only on the inner SYMBOLs. The lilypond `named_context` rule's third arm (`SEQ(ALIAS_punctuation, CHOICE(symbol, string))`) was invisible to dispatch, so `\new Voice = "kick" { ... }` dropped the `=` punctuation and `"kick"` string in `emit_pretty`, losing the voice label. `referenced_symbols` now yields the alias `value` for named aliases, so dispatch can resolve the alt that produces a named-aliased child kind. Regression test at `crates/panproto-parse/tests/emit_pretty_lilypond_alias.rs`. Partially closes #113 (lilypond piece).
+
 ## [0.48.6] - 2026-05-21
 
 ### Fixed
