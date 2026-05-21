@@ -256,6 +256,7 @@ pub enum Production {
 /// Only the fields the emitter consumes are decoded; precedences,
 /// conflicts, externals, and other parser-only metadata are ignored.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct Grammar {
     /// Grammar name (e.g. `"rust"`, `"typescript"`).
     #[allow(dead_code)]
