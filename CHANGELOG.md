@@ -4,6 +4,12 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.48.4] - 2026-05-19
+
+### Changed
+
+- **Vendored QVR tree-sitter grammar upgraded to Quivers 0.11.1** (`grammars/qvr/`): re-vendored from FACTSlab/quivers `v0.11.1` (revision `b0940df1`), replacing the previous `76a8805d` snapshot. The 0.11 release homogenized the DSL surface around a single `KIND NAME : SIGNATURE [k = v, ...] [~ INIT] [BODY]` skeleton: per-role morphism keywords (`latent`, `kernel`, `observed`, `embed`, `discretize`) collapse into `morphism X : ... [role=ROLE]`; `algebra` becomes `composition NAME as algebra` (so `algebra_decl` is gone, `composition_decl` takes its place); `type` / `space` / type-alias declarations fold into the unified `object` surface (`type_alias_decl` and `space_decl` are gone, `object_decl` carries them); `kernel f : A -> B ~ Family [...]` becomes `morphism f : A -> B [role=kernel] ~ Family(...)` (so `kernel_decl` is gone); the program-step binder `x <- f` is now `sample x <- f` (`bind_step` becomes `sample_step`). The vendored grammar also gains a `scanner.c` for the new `_indent` / `_dedent` external tokens — picked up automatically by `panproto-grammars/build.rs`, no wiring change needed. Refreshed the `qvr_hmm_parses_with_expected_blocks` and `qvr_program_block_parses` integration tests to the 0.11 surface.
+
 ## [0.48.3] - 2026-05-19
 
 ### Fixed

@@ -10,30 +10,31 @@
 
 use panproto_parse::ParserRegistry;
 
-const QVR_HMM: &[u8] = br#"
-algebra product_fuzzy
+const QVR_HMM: &[u8] = br"
+composition product_fuzzy as algebra
 
-object State : 8
-object Obs   : 16
+object State : FinSet 8
+object Obs : FinSet 16
 
-latent transition : State -> State
-latent emission   : State -> Obs
+morphism initial : State -> State [role=latent]
+morphism transition : State -> State [role=latent]
+morphism emission : State -> Obs [role=latent]
 
 let n_step = repeat(transition) >> emission
-let hmm    = transition >> n_step
+let hmm = initial >> n_step
 
 export hmm
-"#;
+";
 
-const QVR_PROGRAM: &[u8] = br#"
-type State = Euclidean 16
+const QVR_PROGRAM: &[u8] = br"
+object State : Euclidean 16
 
-kernel transition : State -> State ~ Normal [scale=0.1]
+morphism transition : State -> State [role = kernel] ~ Normal(scale = 0.1)
 
 program step : State -> State
-    s <- transition
+    sample s <- transition
     return s
-"#;
+";
 
 fn vertex_kinds(schema: &panproto_schema::Schema) -> std::collections::BTreeSet<String> {
     schema
@@ -53,7 +54,7 @@ fn qvr_hmm_parses_with_expected_blocks() {
     let kinds = vertex_kinds(&schema);
     for required in [
         "source_file",
-        "algebra_decl",
+        "composition_decl",
         "object_decl",
         "morphism_decl",
         "let_decl",
@@ -77,10 +78,11 @@ fn qvr_program_block_parses() {
 
     let kinds = vertex_kinds(&schema);
     for required in [
-        "type_alias_decl",
-        "kernel_decl",
+        "object_decl",
+        "morphism_decl",
         "program_decl",
-        "bind_step",
+        "sample_step",
+        "return_step",
     ] {
         assert!(
             kinds.contains(required),

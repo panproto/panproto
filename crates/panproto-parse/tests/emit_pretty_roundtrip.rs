@@ -152,12 +152,12 @@ port = 8080
 fn yaml_roundtrip() {
     round_trip(
         "yaml",
-        br#"
+        br"
 title: demo
 server:
   host: localhost
   port: 8080
-"#,
+",
     );
 }
 
