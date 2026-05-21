@@ -868,6 +868,19 @@ fn emit_production_inner(
         Production::Pattern { value } => {
             if let Some(literal) = literal_value(schema, vertex_id) {
                 out.token(literal);
+            } else if is_newline_like_pattern(value) {
+                // Patterns like `\r?\n`, `\n`, `\r\n` are the structural
+                // newline tokens grammars use to separate top-level
+                // statements (csound's `_new_line`, ABC's line-end, etc.).
+                // Emitting them through the placeholder fallback rendered
+                // the bare `_` sentinel between siblings; route them to
+                // the layout pass's line-break instead so the output
+                // re-parses.
+                out.newline();
+            } else if is_whitespace_only_pattern(value) {
+                // `\s+`, `[ \t]+` and friends are interstitial whitespace
+                // tokens. Emit nothing: the layout pass inserts the
+                // policy separator between adjacent Lits if needed.
             } else {
                 out.token(&placeholder_for_pattern(value));
             }
@@ -1683,6 +1696,67 @@ fn literal_value<'a>(schema: &'a Schema, vertex_id: &panproto_gat::Name) -> Opti
         .iter()
         .find(|c| c.sort.as_ref() == "literal-value")
         .map(|c| c.value.as_str())
+}
+
+/// True iff `pattern` matches a (possibly optional / repeated) sequence
+/// of carriage-return and newline characters only. Examples: `\r?\n`,
+/// `\n`, `\r\n`, `\n+`, `\r?\n+`. Distinguishes structural newline
+/// terminals from generic whitespace and from other patterns that
+/// happen to contain a newline escape inside a larger class.
+fn is_newline_like_pattern(pattern: &str) -> bool {
+    if pattern.is_empty() {
+        return false;
+    }
+    let mut chars = pattern.chars().peekable();
+    let mut saw_newline_atom = false;
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => match chars.next() {
+                Some('n' | 'r') => saw_newline_atom = true,
+                _ => return false,
+            },
+            '?' | '*' | '+' => {} // quantifiers on the previous atom
+            _ => return false,
+        }
+    }
+    saw_newline_atom
+}
+
+/// True iff `pattern` matches a (possibly quantified) run of generic
+/// whitespace characters: `\s+`, `[ \t]+`, ` +`, `\s*`. Such patterns
+/// describe interstitial spacing rather than syntactic content, so the
+/// pretty emitter can drop them and let the layout pass insert the
+/// configured separator.
+fn is_whitespace_only_pattern(pattern: &str) -> bool {
+    if pattern.is_empty() {
+        return false;
+    }
+    // Strip an outer quantifier suffix.
+    let trimmed = pattern.trim_end_matches(['?', '*', '+']);
+    if trimmed.is_empty() {
+        return false;
+    }
+    // Bare `\s` / ` ` / `\t`.
+    if matches!(trimmed, "\\s" | " " | "\\t") {
+        return true;
+    }
+    // Character class containing only whitespace atoms.
+    if let Some(inner) = trimmed.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
+        let mut chars = inner.chars().peekable();
+        let mut saw_atom = false;
+        while let Some(c) = chars.next() {
+            match c {
+                '\\' => match chars.next() {
+                    Some('s' | 't' | 'r' | 'n') => saw_atom = true,
+                    _ => return false,
+                },
+                ' ' | '\t' => saw_atom = true,
+                _ => return false,
+            }
+        }
+        return saw_atom;
+    }
+    false
 }
 
 fn placeholder_for_pattern(pattern: &str) -> String {
