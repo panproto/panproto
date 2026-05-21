@@ -4,6 +4,12 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.48.6] - 2026-05-21
+
+### Fixed
+
+- **`emit_pretty` keeps tight unary prefixes glued to their operand** (`panproto-parse::emit_pretty`): the layout pass inserted the default separator between any `-` / `+` / `!` / `~` and the following token, turning `f(-1.0)` into `f(- 1.0)`. The split parses as a different AST (unary minus applied to a positive literal) rather than as a single signed literal, so the round-trip was semantically lossy on every grammar with a `signed_number` (or analogous) production. The pass now tracks an `expecting_operand` flag along the token stream: at start of stream / line, after open punctuation, after a separator (`,` / `;`), and after another operator-run, the cursor is in operand position. When the previous token was emitted in operand position and is one of `-` / `+` / `!` / `~`, it is recognised as a tight unary prefix and glues to the following operand. Binary `a - b` keeps its spaces because the cursor was not in operand position when `-` was emitted. Regression test at `crates/panproto-parse/tests/emit_pretty_signed_number.rs`. Closes #111.
+
 ## [0.48.5] - 2026-05-21
 
 ### Fixed
