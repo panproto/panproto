@@ -4,6 +4,12 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.48.5] - 2026-05-21
+
+### Fixed
+
+- **`panproto-parse`'s `grammars` feature no longer drags `panproto-grammars/default` into every consumer** (`crates/panproto-parse/Cargo.toml`): the `grammars` feature previously activated `panproto-grammars/default`, which in turn activated `panproto-grammars/group-core` (11 mainstream-programming grammars: bash, c, cpp, csharp, go, java, javascript, php, python, rust, typescript). Every `group-*` feature on panproto-parse inherits `grammars`, so a downstream consumer asking for `group-music + lang-haskell` ended up with 20 grammars instead of 9, including 11 unused for music applications. Downstream `default-features = false` on a direct `panproto-grammars` dep could not opt out, because panproto-parse's transitive activation re-enabled the default. Now `grammars` only activates the optional dep; group activation goes through the explicit `panproto-grammars/group-*` feature; the workspace `panproto-grammars` dependency is declared with `default-features = false` so the inner crate's own `default = ["group-core"]` does not leak transitively either. The user-visible behavior of `cargo add panproto-parse` is unchanged: `default` on panproto-parse now lists `group-core` directly, so top-level consumers still get the 11 mainstream grammars without configuration. Consumers who previously wrote `default-features = false, features = ["grammars"]` and expected `group-core` must switch to `features = ["group-core"]`. Closes #114.
+
 ## [0.48.4] - 2026-05-19
 
 ### Changed
