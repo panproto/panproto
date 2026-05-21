@@ -4,6 +4,12 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.48.10] - 2026-05-21
+
+### Fixed
+
+- **`emit_pretty` routes newline-valued grammar STRINGs through the layout `LineBreak` channel** (`panproto-parse::emit_pretty`): `Output::token` pushed every grammar STRING as a `Lit`. A `STRING "\n"` literal (abc's `_NL`, plus every grammar that uses a literal newline as a statement terminator) left the newline character in the output but the layout pass's `needs_space_between` then inserted the configured separator between the newline `Lit` and the following token, producing leading spaces on every line after the first and trailing spaces before every newline. `Output::token` now recognises `"\n"` / `"\r"` / `"\r\n"` and pushes `Token::LineBreak` directly so layout treats it as a line-state reset rather than a normal Lit pair. Regression test at `crates/panproto-parse/tests/emit_pretty_newline_string.rs` parses an abc header and asserts no trailing space precedes any newline. Partially closes #113 (abc whitespace piece).
+
 ## [0.48.9] - 2026-05-21
 
 ### Fixed
