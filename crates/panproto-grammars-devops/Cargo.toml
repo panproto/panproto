@@ -19,7 +19,7 @@ crate-type = ["cdylib"]
 # `group-devops` grammars, not the workspace-default `group-core`.
 # Workspace inheritance is bypassed because the workspace dep
 # doesn't pin default-features.
-panproto-grammars = { version = "=0.48.13", path = "../panproto-grammars", default-features = false, features = ["group-devops"] }
+panproto-grammars = { version = "=0.48.14", path = "../panproto-grammars", default-features = false, features = ["group-devops"] }
 pyo3 = { workspace = true }
 tree-sitter = { workspace = true }
 

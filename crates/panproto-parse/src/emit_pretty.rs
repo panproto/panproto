@@ -2080,6 +2080,30 @@ impl<'a> Output<'a> {
             return;
         }
 
+        // A captured literal value (typically a vertex's `literal-value`
+        // constraint covering the full source span of a terminal-like
+        // rule, e.g. abc's `reference_number_line` matching `"X:1\n"`)
+        // may contain trailing newlines. Splitting the trailing newlines
+        // off as a `LineBreak` lets the layout pass treat the next Lit
+        // as starting a new line; otherwise the next Lit pair would
+        // trigger `needs_space_between` against the embedded `\n` and
+        // insert the policy separator at column 0 of the new line.
+        let trimmed = value.trim_end_matches(|c: char| c == '\n' || c == '\r');
+        let trailing_newlines = value.len() - trimmed.len();
+        if trailing_newlines > 0 && !trimmed.is_empty() {
+            if self.policy.indent_close.iter().any(|t| t == trimmed) {
+                self.tokens.push(Token::IndentClose);
+            }
+            self.tokens.push(Token::Lit(trimmed.to_owned()));
+            if self.policy.indent_open.iter().any(|t| t == trimmed) {
+                self.tokens.push(Token::IndentOpen);
+            } else if self.policy.line_break_after.iter().any(|t| t == trimmed) {
+                // already emitting a LineBreak below for the trailing \n
+            }
+            self.tokens.push(Token::LineBreak);
+            return;
+        }
+
         if self.policy.indent_close.iter().any(|t| t == value) {
             self.tokens.push(Token::IndentClose);
         }
