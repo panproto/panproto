@@ -1,6 +1,6 @@
 {
   "name": "@panproto/core",
-  "version": "0.48.7",
+  "version": "0.48.8",
   "description": "Schematic version control with panproto (TypeScript SDK)",
   "type": "module",
   "main": "./dist/index.cjs",

@@ -4,6 +4,12 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.48.8] - 2026-05-21
+
+### Fixed
+
+- **`emit_pretty` renders newline-shaped PATTERN terminals as newlines, not the bare `_` placeholder** (`panproto-parse::emit_pretty`): csound's `_new_line` is `TOKEN(PATTERN "\r?\n")`. The pattern fell through `placeholder_for_pattern`'s final `else` arm (no `[0-9]` / `[a-zA-Z_]` / `"` / `'` markers) and returned the bare `"_"` sentinel. csound's `instrument_definition` SEQ has a REPEAT of `_statement` requiring `_new_line` between siblings, so the placeholder injected unparseable `_` characters between every pair of structural siblings (`endin _ </CsInstruments> _ </CsoundSynthesizer>`). The PATTERN handler now recognises `\r?\n`-shaped patterns and routes them through `Output::newline()` (`Token::LineBreak`), and recognises generic whitespace patterns (`\s+`, `[ \t]+`, ` *`) and drops them so the layout pass's policy separator inserts the actual spacing. Other patterns still fall through to the heuristic placeholder. Regression test at `crates/panproto-parse/tests/emit_pretty_csound_newline.rs`. Partially closes #113 (csound piece).
+
 ## [0.48.7] - 2026-05-21
 
 ### Fixed
