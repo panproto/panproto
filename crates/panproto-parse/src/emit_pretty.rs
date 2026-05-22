@@ -2088,7 +2088,7 @@ impl<'a> Output<'a> {
         // as starting a new line; otherwise the next Lit pair would
         // trigger `needs_space_between` against the embedded `\n` and
         // insert the policy separator at column 0 of the new line.
-        let trimmed = value.trim_end_matches(|c: char| c == '\n' || c == '\r');
+        let trimmed = value.trim_end_matches(['\n', '\r']);
         let trailing_newlines = value.len() - trimmed.len();
         if trailing_newlines > 0 && !trimmed.is_empty() {
             if self.policy.indent_close.iter().any(|t| t == trimmed) {
