@@ -1967,6 +1967,18 @@ impl<'a> Output<'a> {
             return;
         }
 
+        // A grammar STRING whose value is a newline (e.g. abc's `_NL = "\n"`
+        // or any rule that uses `"\n"` as a structural line terminator)
+        // must route through the layout's `LineBreak` channel. Emitting it
+        // as a `Lit` leaves the newline character in the byte stream but
+        // also makes `needs_space_between` insert the configured separator
+        // between the newline and the following token, producing leading
+        // spaces on every line after the first.
+        if value == "\n" || value == "\r\n" || value == "\r" {
+            self.tokens.push(Token::LineBreak);
+            return;
+        }
+
         if self.policy.indent_close.iter().any(|t| t == value) {
             self.tokens.push(Token::IndentClose);
         }
