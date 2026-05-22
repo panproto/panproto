@@ -1033,7 +1033,16 @@ extensions = []
 
 [xml]
 repo = "https://github.com/tree-sitter-grammars/tree-sitter-xml"
-extensions = ["xml", "xsl", "xslt"]
+# `musicxml` is the uncompressed file extension defined by the W3C
+# Music Notation Community Group's MusicXML 4.0 specification
+# (https://www.w3.org/2021/06/musicxml40/tutorial/file-extensions/).
+# Per that spec, a `.musicxml` file is plain XML with no additional
+# syntactic surface — the schema (DTD / XSD) constrains element names
+# and attribute values, not the lexical form — so the existing
+# tree-sitter-xml grammar parses it without modification. The `.mxl`
+# extension is the compressed ZIP-of-MusicXML container; that needs
+# unzipping before parse, so it is not registered here.
+extensions = ["xml", "xsl", "xslt", "musicxml"]
 directory = "xml"
 
 [yaml]
