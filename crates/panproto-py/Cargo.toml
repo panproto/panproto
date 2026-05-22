@@ -22,7 +22,7 @@ panproto-parse = { workspace = true }
 panproto-project = { workspace = true }
 panproto-git = { workspace = true }
 panproto-theory-dsl = { workspace = true }
-git2 = { version = "0.20", features = ["vendored-libgit2", "vendored-openssl"] }
+git2 = { version = "0.21", features = ["vendored-libgit2", "vendored-openssl"] }
 tree-sitter = { workspace = true }
 rustc-hash = { workspace = true }
 pyo3 = { workspace = true }
