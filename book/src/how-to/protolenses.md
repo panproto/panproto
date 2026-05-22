@@ -82,7 +82,7 @@ After `instantiate` returns a `Lens`, exercise the round-trip laws on representa
 
 - Composing protolenses whose intermediate schemas only happen to look the same. `protolens_composable` enforces structural equality, not name equality; build one against the other to be safe.
 - Reaching for sequential instantiation in production. Use fused (`instantiate`) by default; sequential exists for inspection and tests.
-- Treating preconditions as pure documentation. The precondition is checked at instantiation time; a schema that does not satisfy it raises `PreconditionFailed`.
+- Treating preconditions as pure documentation. The precondition is checked at instantiation time; a schema that does not satisfy it raises `LensError::ProtolensError` with a message listing the unmet constraints (use `Protolens::check_applicability` first if you want to surface the reasons separately).
 
 ## See also
 

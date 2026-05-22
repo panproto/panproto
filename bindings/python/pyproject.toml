@@ -13,7 +13,7 @@ name = "panproto"
 # `skip-existing: true`, so the publish step succeeded without
 # actually uploading anything new).
 dynamic = ["version"]
-description = "Automatic schema migration and version control for 51 schema languages and 248 programming languages"
+description = "Automatic schema migration and version control for 51 schema languages and 259 programming languages"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.13"
