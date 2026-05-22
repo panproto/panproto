@@ -4,6 +4,12 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.49.6] - 2026-05-22
+
+### Added
+
+- **`.musicxml` extension dispatches to the `xml` protocol** (`grammars.toml`): per the W3C Music Notation Community Group's MusicXML 4.0 specification (https://www.w3.org/2021/06/musicxml40/tutorial/file-extensions/), a `.musicxml` file is plain XML; the schema (DTD / XSD) constrains element names and attribute values, not the lexical form. The existing `tree-sitter-xml` grammar therefore parses MusicXML scores without modification — no new vendored grammar is required. The extension dispatcher now routes `.musicxml` files to the `xml` protocol so `parse_with_protocol("xml", bytes, "score.musicxml")` and `parse_file("score.musicxml", bytes)` both succeed. The compressed `.mxl` container (ZIP-of-MusicXML) is not registered: it requires unzipping before any parser can see the XML payload, which is a transformation outside the grammar surface. Regression test at `crates/panproto-parse/tests/musicxml_parse.rs` parses a representative MusicXML 4.0 "hello world" score (partwise score, one part, one measure, one C4 whole note) end-to-end and confirms structural recovery. Partially addresses #112.
+
 ## [0.49.5] - 2026-05-22
 
 ### Fixed
