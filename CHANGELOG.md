@@ -4,6 +4,12 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.49.5] - 2026-05-22
+
+### Fixed
+
+- **`emit_pretty` splits trailing newlines off `literal-value` Lits and routes them through `Token::LineBreak`** (`panproto-parse::emit_pretty`): a vertex carrying a `literal-value` constraint and no structural children emits its captured text directly via the leaf shortcut. For grammars whose terminal-like rules absorb a trailing newline (e.g. ABC's `reference_number_line` matching `"X:1\n"`), the captured value contained an embedded `\n`. Pushing it as `Lit("X:1\n")` left the newline character in the output but the layout pass then ran `needs_space_between("X:1\n", "T:")` against the next Lit; the fall-through "keep operator runs apart" rule inserted the policy separator at column 0 of the new line, rendering `X:1\n T:` instead of `X:1\nT:`. `Output::token` now strips trailing newlines off any non-pure-newline Lit value, emits the trimmed prefix as a `Lit`, and pushes a `LineBreak` for the newline tail. Layout treats `LineBreak` as a line-state reset, so the next Lit starts at column 0 with no intervening separator. Regression test at `crates/panproto-parse/tests/emit_pretty_literal_trailing_newline.rs`. Improves #113 (ABC tune-header leading-space piece).
+
 ## [0.49.4] - 2026-05-22
 
 ### Fixed
