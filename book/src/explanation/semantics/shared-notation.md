@@ -46,7 +46,7 @@ Common semantic functions:
 
 ## The bottom element
 
-In the expression language, evaluation is total within a step budget but the budget can be exceeded. We model this by adjoining a bottom element $\bot$ to the value domain: $D_\bot = D \cup \{\bot\}$. Reaching $\bot$ corresponds to `ExprError::BudgetExceeded` at runtime.
+In the expression language, evaluation is total within a step budget but the budget can be exceeded. We model this by adjoining a bottom element $\bot$ to the value domain: $D_\bot = D \cup \{\bot\}$. Reaching $\bot$ corresponds to `ExprError::StepLimitExceeded` at runtime.
 
 ## Equality
 

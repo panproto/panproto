@@ -18,8 +18,8 @@ If a property is in this list, the implementation enforces it. If you can constr
 | Protolens composition: structural equality of the intermediate endofunctor | Runtime, on `vertical_compose` | `LensError::CompositionMismatch` | `panproto-lens/src/protolens.rs` |
 | Pushout cocone commutativity | Runtime, on every colimit construction | Returned as part of `ColimitResult` | `panproto-gat/src/colimit.rs` |
 | Pushout universal property: every alternative cocone factors uniquely through the pushout | Runtime, on demand via `verify_universal` | `EquationNotPreserved` | `panproto-gat/src/colimit.rs` |
-| Schema merge universal property | Runtime, on `vcs::merge::verify_pushout_universal` | `MergeError::UniversalFactorizationFailure` | `panproto-vcs/src/merge.rs` |
-| Expression evaluation totality (within step budget) | Runtime, on every evaluation | `ExprError::BudgetExceeded` | `panproto-expr/src/eval.rs` |
+| Schema merge universal property | Runtime, on `vcs::merge::verify_pushout_universal` | `PushoutError::UniversalFactorizationFailure` | `panproto-vcs/src/merge.rs` |
+| Expression evaluation totality (within step budget) | Runtime, on every evaluation | `ExprError::StepLimitExceeded` | `panproto-expr/src/eval.rs` |
 | Expression arithmetic overflow check | Runtime, on every arithmetic op | `ExprError::Overflow` | `panproto-expr/src/builtin.rs` |
 | Expression division by zero check | Runtime, on `Div`/`Mod` | `ExprError::DivisionByZero` | `panproto-expr/src/builtin.rs` |
 

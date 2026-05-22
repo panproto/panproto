@@ -32,20 +32,21 @@ The parser desugars `if c then a else b` to a `Match` over a boolean scrutinee w
 
 ```rust,ignore
 pub enum Expr {
-    Lit(Literal),
     Var(Arc<str>),
-    App(Box<Expr>, Box<Expr>),
-    Lam(Arc<str>, Box<Expr>),
-    Let(Arc<str>, Box<Expr>, Box<Expr>),
-    Match(Box<Expr>, Vec<MatchArm>),
-    Builtin(BuiltinOp, Vec<Expr>),
-    List(Vec<Expr>),
-    Field(Box<Expr>, Arc<str>),
-    Index(Box<Expr>, Box<Expr>),
+    Lam(Arc<str>, Box<Self>),
+    App(Box<Self>, Box<Self>),
+    Lit(Literal),
+    Record(Vec<(Arc<str>, Self)>),
+    List(Vec<Self>),
+    Field(Box<Self>, Arc<str>),
+    Index(Box<Self>, Box<Self>),
+    Match { scrutinee: Box<Self>, arms: Vec<(Pattern, Self)> },
+    Let { name: Arc<str>, value: Box<Self>, body: Box<Self> },
+    Builtin(BuiltinOp, Vec<Self>),
 }
 ```
 
-`Match` covers both `if/then/else` and `case/of`; pattern matching is the only branching primitive. The full enum lives at [`crates/panproto-expr/src/expr.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-expr/src/expr.rs).
+`Match` covers both `if/then/else` and `case/of`; pattern matching is the only branching primitive. Each arm pairs a `Pattern` (whose variants include `Wildcard`, `Var`, `Lit`, `Record`, `List`, and `Constructor`) with a body expression. The full enum lives at [`crates/panproto-expr/src/expr.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-expr/src/expr.rs).
 
 ## Type system
 
