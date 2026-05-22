@@ -1113,13 +1113,83 @@ fn emit_production_inner(
             }
         }
         Production::Repeat { content } | Production::Repeat1 { content } => {
+            // Detect a "separator-leading SEQ" iteration body: SEQ whose
+            // first member is a CHOICE containing BLANK (or an OPTIONAL),
+            // i.e. the source-level separator between two iterations is
+            // syntactically optional. When the chosen alternative for
+            // that separator slot emits zero content tokens at runtime,
+            // there was no source-level separator between this iteration
+            // and the previous one; the layout pass must suppress its
+            // policy separator to match the source's tight adjacency.
+            //
+            // Categorical reading: REPEAT body `B = SEQ(SEP, BODY)` is
+            // the pullback of two halves. The bytes emitted in iteration
+            // k+1 are a concatenation of `SEP_k+1` and `BODY_k+1`; if
+            // `SEP_k+1` is the empty word, the concatenation of
+            // `BODY_k` and `BODY_k+1` must remain a single contiguous
+            // span. Hence the NoSpace marker.
+            let separator_leading_seq: Option<&[Production]> = match content.as_ref() {
+                Production::Seq { members } if members.len() >= 2 => {
+                    let first = &members[0];
+                    let is_separator_slot = match first {
+                        Production::Choice { members } => {
+                            members.iter().any(|m| matches!(m, Production::Blank))
+                        }
+                        Production::Optional { .. } => true,
+                        _ => false,
+                    };
+                    if is_separator_slot {
+                        Some(members.as_slice())
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+
             let mut emitted_any = false;
             loop {
                 let cursor_snap = cursor.consumed.clone();
                 let out_snap = out.snapshot();
                 let consumed_before = cursor.consumed.iter().filter(|&&c| c).count();
-                let result =
-                    emit_production(protocol, schema, grammar, vertex_id, content, cursor, out);
+                let result: Result<(), ParseError> =
+                    if let Some(seq_members) = separator_leading_seq {
+                        // Emit the separator slot first and observe
+                        // whether it contributed any Lit. If not, push
+                        // a NoSpace marker before walking the remaining
+                        // SEQ members. The OutputSnapshot here covers
+                        // only the separator's emission window.
+                        let pre_sep = out.snapshot();
+                        let sep_result = emit_production(
+                            protocol,
+                            schema,
+                            grammar,
+                            vertex_id,
+                            &seq_members[0],
+                            cursor,
+                            out,
+                        );
+                        match sep_result {
+                            Err(e) => Err(e),
+                            Ok(()) => {
+                                if !out.lit_emitted_since(pre_sep) {
+                                    out.no_space();
+                                }
+                                let mut rest_result = Ok(());
+                                for member in &seq_members[1..] {
+                                    rest_result = emit_production(
+                                        protocol, schema, grammar, vertex_id, member, cursor, out,
+                                    );
+                                    if rest_result.is_err() {
+                                        break;
+                                    }
+                                }
+                                rest_result
+                            }
+                        }
+                    } else {
+                        emit_production(protocol, schema, grammar, vertex_id, content, cursor, out)
+                    };
                 let consumed_after = cursor.consumed.iter().filter(|&&c| c).count();
                 if result.is_err() || consumed_after == consumed_before {
                     cursor.consumed = cursor_snap;
@@ -1942,6 +2012,12 @@ enum Token {
     /// "Break a line here if not already at line start" — used after
     /// statements/declarations and after open braces.
     LineBreak,
+    /// Suppress the next inter-Lit separator. Pushed by the REPEAT
+    /// walker when an iteration's "separator slot" (a CHOICE-with-BLANK
+    /// or OPTIONAL at SEQ position 0) emitted zero content tokens, so
+    /// the categorical reading is "no source-level separator existed
+    /// between these two sibling iterations of the body".
+    NoSpace,
 }
 
 struct Output<'a> {
@@ -2021,6 +2097,26 @@ impl<'a> Output<'a> {
         self.tokens.truncate(snap.tokens_len);
     }
 
+    /// True iff at least one `Token::Lit` was pushed since `snap`.
+    /// Control-only emissions (`LineBreak`, `IndentOpen` / `IndentClose`,
+    /// `NoSpace`) do not count as content. Used by the REPEAT walker
+    /// to detect that a "separator slot" CHOICE picked its BLANK
+    /// alternative, so the next iteration's content can be marked
+    /// tight against the previous iteration's content.
+    fn lit_emitted_since(&self, snap: OutputSnapshot) -> bool {
+        self.tokens[snap.tokens_len..]
+            .iter()
+            .any(|t| matches!(t, Token::Lit(_)))
+    }
+
+    /// Push a marker that suppresses the next inter-Lit separator the
+    /// layout pass would otherwise insert. Used to encode "no source-
+    /// level separator was emitted between these two Lits" without
+    /// having to make per-grammar adjacency decisions in the layout.
+    fn no_space(&mut self) {
+        self.tokens.push(Token::NoSpace);
+    }
+
     fn finish(self) -> Vec<u8> {
         layout(&self.tokens, self.policy)
     }
@@ -2044,6 +2140,10 @@ fn layout(tokens: &[Token], policy: &FormatPolicy) -> Vec<u8> {
     // (`f(-1.0)`) rather than a spaced binary operator (`a - b`).
     let mut last_was_in_operand_position = true;
     let mut expecting_operand = true;
+    // Set when a `Token::NoSpace` marker is seen; cleared when the next
+    // Lit consumes it. While set, suppress the policy separator that
+    // would otherwise be inserted before the next Lit.
+    let mut suppress_next_separator = false;
     let newline = policy.newline.as_bytes();
     let separator = policy.separator.as_bytes();
 
@@ -2065,14 +2165,20 @@ fn layout(tokens: &[Token], policy: &FormatPolicy) -> Vec<u8> {
                     expecting_operand = true;
                 }
             }
+            Token::NoSpace => {
+                suppress_next_separator = true;
+            }
             Token::Lit(value) => {
                 if at_line_start {
                     bytes.extend(std::iter::repeat_n(b' ', indent * policy.indent_width));
                 } else if let Some(prev) = last_lit {
-                    if needs_space_between(prev, value, last_was_in_operand_position) {
+                    if !suppress_next_separator
+                        && needs_space_between(prev, value, last_was_in_operand_position)
+                    {
                         bytes.extend_from_slice(separator);
                     }
                 }
+                suppress_next_separator = false;
                 bytes.extend_from_slice(value.as_bytes());
                 at_line_start = false;
                 last_was_in_operand_position = expecting_operand;
