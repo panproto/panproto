@@ -4,19 +4,23 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
-## [0.48.11] - 2026-05-21
+## [0.49.2] - 2026-05-22
 
 ### Fixed
 
 - **`panproto-jit` match codegen emits valid IR when arms include an irrefutable pattern** (`panproto-jit::codegen`): `compile_match` built the literal-arm `then` / `else` chain and then unconditionally emitted a fall-through default block. The wildcard / var-pattern handler at the same level already terminated its block with a branch to `merge_bb` and broke out of the loop, but the fall-through code ran anyway. It pushed a duplicate `(0, wildcard_block)` entry into the phi node and emitted a second unconditional branch on a basic block that already had a terminator. The IR was malformed and the phi resolved to the wildcard arm's value even when an earlier literal arm matched the scrutinee. `match 2 { 1 => 10, 2 => 20, _ => 0 }` returned `0` instead of `20`. The default block is now gated on whether any irrefutable arm has already terminated the cascade; when one has, the synthetic default is skipped entirely. Closes #115.
 
-## [0.48.10] - 2026-05-21
+## [0.49.1] - 2026-05-22
 
 ### Fixed
 
 - **`emit_pretty` routes newline-valued grammar STRINGs through the layout `LineBreak` channel** (`panproto-parse::emit_pretty`): `Output::token` pushed every grammar STRING as a `Lit`. A `STRING "\n"` literal (abc's `_NL`, plus every grammar that uses a literal newline as a statement terminator) left the newline character in the output but the layout pass's `needs_space_between` then inserted the configured separator between the newline `Lit` and the following token, producing leading spaces on every line after the first and trailing spaces before every newline. `Output::token` now recognises `"\n"` / `"\r"` / `"\r\n"` and pushes `Token::LineBreak` directly so layout treats it as a line-state reset rather than a normal Lit pair. Regression test at `crates/panproto-parse/tests/emit_pretty_newline_string.rs` parses an abc header and asserts no trailing space precedes any newline. Partially closes #113 (abc whitespace piece).
 
-## [0.48.9] - 2026-05-21
+## [0.49.0] - 2026-05-22
+
+### Changed
+
+- **`Grammar` is now `#[non_exhaustive]`** (`panproto-parse::emit_pretty`): the struct gained a new `extras` field (see Fixed below). Marking it `#[non_exhaustive]` prevents external struct-literal construction so further fields can be added without a semver break. Construct `Grammar` via `Grammar::from_bytes` instead.
 
 ### Fixed
 

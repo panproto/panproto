@@ -14,7 +14,7 @@
 //! and the following `"\n"` Lit.
 //!
 //! `Output::token` now recognises `"\n"` / `"\r"` / `"\r\n"` and pushes
-//! `Token::LineBreak` directly. The layout pass treats LineBreak as a
+//! `Token::LineBreak` directly. The layout pass treats `LineBreak` as a
 //! line-state reset, so neither leading nor trailing separators slip
 //! in around the structural line break.
 
