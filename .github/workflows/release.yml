@@ -266,16 +266,33 @@ jobs:
           # Remove the granular manifests
           rm -f artifacts/*-dist-manifest.json
       - name: Create GitHub Release
+        # NOTE: this step diverges from `dist generate-ci` output to give
+        # GitHub Releases a clean title and body:
+        #   * title is the tag (e.g. `v0.49.0`), not cargo-dist's default
+        #     `"<crate> X.Y.Z - YYYY-MM-DD"`.
+        #   * body strips the leading `## Release Notes` heading that
+        #     cargo-dist prepends, so the page begins directly with the
+        #     CHANGELOG entry's `### Fixed` / `### Changed` sections.
+        # Re-apply these substitutions if you rerun `dist generate-ci`.
         env:
           PRERELEASE_FLAG: "${{ fromJson(steps.host.outputs.manifest).announcement_is_prerelease && '--prerelease' || '' }}"
-          ANNOUNCEMENT_TITLE: "${{ fromJson(steps.host.outputs.manifest).announcement_title }}"
           ANNOUNCEMENT_BODY: "${{ fromJson(steps.host.outputs.manifest).announcement_github_body }}"
           RELEASE_COMMIT: "${{ github.sha }}"
+          RELEASE_TAG: "${{ needs.plan.outputs.tag }}"
         run: |
           # Write and read notes from a file to avoid quoting breaking things
-          echo "$ANNOUNCEMENT_BODY" > $RUNNER_TEMP/notes.txt
+          # Strip the leading `## Release Notes` heading that cargo-dist
+          # prepends to every release body.
+          printf '%s\n' "$ANNOUNCEMENT_BODY" \
+            | sed -E '1,/^## Release Notes[[:space:]]*$/d' \
+            > "$RUNNER_TEMP/notes.txt"
+          # Fall back to the full body if the sed pattern didn't match
+          # (i.e. cargo-dist changed its header format).
+          if [ ! -s "$RUNNER_TEMP/notes.txt" ]; then
+            printf '%s\n' "$ANNOUNCEMENT_BODY" > "$RUNNER_TEMP/notes.txt"
+          fi
 
-          gh release create "${{ needs.plan.outputs.tag }}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
+          gh release create "$RELEASE_TAG" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --title "$RELEASE_TAG" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
 
   publish-homebrew-formula:
     needs:
