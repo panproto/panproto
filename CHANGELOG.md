@@ -4,7 +4,11 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
-## [0.48.9] - 2026-05-21
+## [0.49.0] - 2026-05-22
+
+### Changed
+
+- **`Grammar` is now `#[non_exhaustive]`** (`panproto-parse::emit_pretty`): the struct gained a new `extras` field (see Fixed below). Marking it `#[non_exhaustive]` prevents external struct-literal construction so further fields can be added without a semver break. Construct `Grammar` via `Grammar::from_bytes` instead.
 
 ### Fixed
 
