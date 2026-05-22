@@ -12,10 +12,12 @@ The Nickel surface (canonical authoring form). JSON and YAML surfaces are isomor
 {
   id = "user.v3-to-v4",
   description = "Rename `name` and replace `age` with `years`",
+  source = "dev.example.user.v3",
+  target = "dev.example.user.v4",
   steps = [
-    { rename_field = { from = "name", to = "display_name" } },
+    { rename_field = { old = "name", new = "display_name" } },
     { remove_field = "age" },
-    { add_field = { name = "years", default = 0, expr = "old.age" } },
+    { add_field = { name = "years", kind = "integer", default = 0, expr = "old.age" } },
   ],
 }
 ```
@@ -28,10 +30,21 @@ Each step is a single-key object whose key selects the variant. The full step gr
 pub struct LensDocument {
     pub id: String,
     pub description: String,
-    pub steps: Vec<Step>,
-    pub constraints: Vec<Constraint>,
-    pub hints: Vec<HintSpec>,
-    pub preferences: Vec<PreferencePredicate>,
+    pub source: String,
+    pub target: String,
+
+    // Body: exactly one of the four variants is present.
+    pub steps:   Option<Vec<Step>>,
+    pub rules:   Option<Vec<Rule>>,
+    pub compose: Option<ComposeSpec>,
+    pub auto:    Option<AutoSpec>,
+
+    // Rule-variant metadata.
+    pub passthrough: Option<Passthrough>,
+    pub invertible:  Option<bool>,
+
+    // Protocol-specific extension metadata.
+    pub extensions: HashMap<String, serde_json::Value>,
 }
 
 pub enum Step {
@@ -66,7 +79,7 @@ pub enum Step {
 }
 ```
 
-The top-level type is `LensDocument`, not `LensSpec`. The document carries `source` and `target` NSID fields naming the two schemas; the resolver loads the source schema and the compiler applies the steps to it, then checks that the result matches the named `target`. See `panproto_lens_dsl::compile`.
+The top-level type is `LensDocument`, not `LensSpec`. The document carries `source` and `target` NSID fields naming the two schemas, and exactly one body variant (`steps`, `rules`, `compose`, or `auto`). The resolver loads the source schema and the compiler applies the body to it, then checks that the result matches the named `target`. See `panproto_lens_dsl::compile`.
 
 ## Semantic domain
 
@@ -76,7 +89,7 @@ $$
 \mathsf{Lens}(S, V, C) \;=\; (S \to V) \times (S \times V \times C \to S) \times (S \to C)
 $$
 
-with elements written as triples $(\mathsf{get},\, \mathsf{put},\, \mathsf{complement})$. The implementation in `panproto-lens` represents this triple by the `LensHandle` type; the categorical model is the standard asymmetric-lens construction of @foster2007combinators with complements after @littvanhardenberghenry2020cambria. The semantic function
+with elements written as triples $(\mathsf{get},\, \mathsf{put},\, \mathsf{complement})$. The implementation in `panproto-lens` represents this triple by the `Lens` struct; the categorical model is the standard asymmetric-lens construction of @foster2007combinators with complements after @littvanhardenberghenry2020cambria. The semantic function
 
 $$
 \llbracket \cdot \rrbracket : \mathsf{LensDocument} \to \mathsf{Sch} \to \mathsf{Lens}

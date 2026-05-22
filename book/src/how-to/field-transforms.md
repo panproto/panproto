@@ -58,9 +58,9 @@ schema check --src schemas/v1.json --tgt schemas/v2.json --mapping migration.jso
 
 ## Common mistakes
 
-- Omitting `backward`. Without it, the migration is one-way and cannot satisfy the round-trip laws. CI tests will reject it.
+- Expecting `expr_resolvers` to supply both directions. The mapping carries forward-only expressions; the backward leg comes from the lens/protolens layer (pair an `ApplyExpr` field transform with its inverse on the corresponding protolens step, or annotate a coercion on the schema and let the migration compiler emit both directions).
 - Using IO or random functions in the expression. The language is bounded-pure; non-deterministic builtins are not exposed.
-- Letting the budget exceed. Long string operations on large records can hit the step budget. Expressions that hit the budget raise `BudgetExceeded` at runtime.
+- Letting the budget exceed. Long string operations on large records can hit the step budget. Expressions that hit the budget raise `ExprError::StepLimitExceeded` at runtime.
 
 ## See also
 

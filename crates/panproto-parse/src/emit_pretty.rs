@@ -256,6 +256,7 @@ pub enum Production {
 /// Only the fields the emitter consumes are decoded; precedences,
 /// conflicts, externals, and other parser-only metadata are ignored.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct Grammar {
     /// Grammar name (e.g. `"rust"`, `"typescript"`).
     #[allow(dead_code)]
@@ -1177,8 +1178,7 @@ fn emit_production_inner(
                                 let mut rest_result = Ok(());
                                 for member in &seq_members[1..] {
                                     rest_result = emit_production(
-                                        protocol, schema, grammar, vertex_id, member, cursor,
-                                        out,
+                                        protocol, schema, grammar, vertex_id, member, cursor, out,
                                     );
                                     if rest_result.is_err() {
                                         break;
@@ -1904,7 +1904,7 @@ fn is_newline_like_pattern(pattern: &str) -> bool {
     if pattern.is_empty() {
         return false;
     }
-    let mut chars = pattern.chars().peekable();
+    let mut chars = pattern.chars();
     let mut saw_newline_atom = false;
     while let Some(c) = chars.next() {
         match c {
@@ -1939,7 +1939,7 @@ fn is_whitespace_only_pattern(pattern: &str) -> bool {
     }
     // Character class containing only whitespace atoms.
     if let Some(inner) = trimmed.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
-        let mut chars = inner.chars().peekable();
+        let mut chars = inner.chars();
         let mut saw_atom = false;
         while let Some(c) = chars.next() {
             match c {
@@ -2123,8 +2123,8 @@ impl<'a> Output<'a> {
     }
 
     /// True iff at least one `Token::Lit` was pushed since `snap`.
-    /// Control-only emissions (LineBreak, IndentOpen / IndentClose,
-    /// NoSpace) do not count as content. Used by the REPEAT walker
+    /// Control-only emissions (`LineBreak`, `IndentOpen` / `IndentClose`,
+    /// `NoSpace`) do not count as content. Used by the REPEAT walker
     /// to detect that a "separator slot" CHOICE picked its BLANK
     /// alternative, so the next iteration's content can be marked
     /// tight against the previous iteration's content.
