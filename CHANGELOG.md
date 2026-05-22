@@ -4,6 +4,22 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.50.0] - 2026-05-22
+
+### Changed
+
+- **`IdGenerator::named_id` and `IdGenerator::field_id` now take `&mut self`** (`panproto-parse::id_scheme`): both methods record per-scope occurrence counts so repeated calls disambiguate (see Fixed below), which requires interior mutation. Downstream callers were `&mut`-context already (the walker holds `&mut IdGenerator`), so call sites compile unchanged.
+- **`IdGenerator::push_named_scope` now returns the disambiguated leaf `String`** (`panproto-parse::id_scheme`): callers that need both a vertex ID and a matching scope-stack frame can use the returned leaf instead of re-deriving the suffix. The walker uses the new `record_name` / `push_recorded_scope` split to record the occurrence once and reuse the leaf at two sites. `push_named_scope` itself remains available as a convenience for callers that only need the scope push.
+
+### Added
+
+- **`IdGenerator::record_name(&mut self, name) -> String`** (`panproto-parse::id_scheme`): records an occurrence of `name` in the current scope frame and returns the disambiguated leaf (`name`, `name#1`, `name#2`, …). Public so callers (like the walker) can compose a vertex ID and a matching scope-stack push without double-recording.
+- **`IdGenerator::push_recorded_scope(&mut self, leaf: String)`** (`panproto-parse::id_scheme`): pushes a scope frame using an already-disambiguated leaf, skipping the record step.
+
+### Fixed
+
+- **`IdGenerator` disambiguates repeated names at the same scope, unblocking `@typing.overload` and every grammar with same-named siblings** (`panproto-parse::id_scheme`): tree-sitter's tag set for Python (and for several other languages) tags each `function_definition` as `@definition.function` regardless of name, so two `def foo` declarations at the same scope produced the same vertex ID `{scope}::foo` and `SchemaBuilder::vertex` rejected the second with `duplicate vertex id`. Any Python file using `@typing.overload` was unparseable. The generator now records, per scope frame, how many times each name has been requested, and suffixes repeats `#1`, `#2`, …. The disambiguated leaf is also threaded into the scope stack via the new `record_name` / `push_recorded_scope` pair so descendants of the second `foo` are prefixed `foo#1::…`, never re-colliding with descendants of the first. Field IDs share the same disambiguation: a second `field_id(parent, "args")` on the same parent yields `parent.args#1`, fixing a silent collision under tree-sitter `field('xs', repeat($.X))` shapes (`commaSep1`, `commaSep`, etc.). `pop_scope` at the root now debug-asserts so walker push/pop imbalance surfaces immediately instead of as mis-shaped IDs. Walker (`crates/panproto-parse/src/walker.rs`) is updated at the single vertex-ID-derivation site to thread the disambiguated leaf into both the vertex ID and the matching scope-stack frame. Regression tests at `crates/panproto-parse/tests/python_overload_duplicate_id.rs` (issue #134 reproducer) and seven new unit tests in `crates/panproto-parse/src/id_scheme.rs` cover the duplicate-name, scope-disambiguation, field-collision, anonymous-vs-named interleaving, sibling-scope independence, and pop-balance defects. Closes #134.
+
 ## [0.49.6] - 2026-05-22
 
 ### Added

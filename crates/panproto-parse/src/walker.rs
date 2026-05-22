@@ -192,14 +192,28 @@ impl<'a> AstWalker<'a> {
         };
 
         // Determine vertex ID.
-        let vertex_id = if is_root_wrapper {
+        //
+        // For a node that is *both* named-scope and scope-introducing
+        // (the common case: a `function_definition`, `class_definition`,
+        // `module`, etc.) we must disambiguate the name exactly once
+        // and reuse the same disambiguated leaf for both the vertex ID
+        // here and the scope-stack frame pushed below. The
+        // `record_name` / `push_recorded_scope` split on `IdGenerator`
+        // makes that explicit: `record_name` is the side-effecting
+        // step that bumps the parent frame's `seen` counter, the leaf
+        // it returns becomes the trailing component of the vertex ID,
+        // and `push_recorded_scope` later takes the same leaf without
+        // re-recording.
+        let (vertex_id, recorded_named_leaf) = if is_root_wrapper {
             // Root wrappers get the file path as their ID.
-            id_gen.current_prefix()
+            (id_gen.current_prefix(), None)
         } else if let Some(scope) = named_scope {
-            id_gen.named_id(&scope.name)
+            let leaf = id_gen.record_name(&scope.name);
+            let prefix = id_gen.current_prefix();
+            (format!("{prefix}::{leaf}"), Some(leaf))
         } else {
             // All other nodes get positional IDs.
-            id_gen.anonymous_id()
+            (id_gen.anonymous_id(), None)
         };
 
         // Determine the effective vertex kind. If the theory has extracted vertex kinds,
@@ -280,9 +294,13 @@ impl<'a> AstWalker<'a> {
             builder = self.emit_formatting_constraints(node, &vertex_id, builder);
         }
 
-        // Enter scope if this is a scope-introducing node.
-        let entered_scope = if let Some(scope) = named_scope {
-            id_gen.push_named_scope(&scope.name);
+        // Enter scope if this is a scope-introducing node. For a
+        // named scope we reuse the disambiguated leaf computed above
+        // (so the frame name matches the trailing component of
+        // `vertex_id`); for an anonymous block we push a fresh
+        // positional frame.
+        let entered_scope = if let Some(leaf) = recorded_named_leaf {
+            id_gen.push_recorded_scope(leaf);
             true
         } else if !is_root_wrapper && self.block_kinds.contains(kind) {
             id_gen.push_anonymous_scope();
