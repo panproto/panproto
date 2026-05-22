@@ -437,6 +437,14 @@ mod inner {
             let i64_type = self.context.i64_type();
             let mut results: Vec<(BasicValueEnum<'ctx>, inkwell::basic_block::BasicBlock<'ctx>)> =
                 Vec::new();
+            // Tracks whether an irrefutable arm (Wildcard / Var) has
+            // already terminated the cascade. The synthetic fall-through
+            // default block at the end is only inserted when no
+            // irrefutable arm covered the residual case; otherwise the
+            // wildcard's branch has already terminated the chain and
+            // appending another (phi-edge, branch) pair on a block that
+            // already has a terminator produces malformed IR.
+            let mut saw_irrefutable_arm = false;
 
             for (i, (pattern, body)) in arms.iter().enumerate() {
                 match pattern {
@@ -456,7 +464,8 @@ mod inner {
                         builder
                             .build_unconditional_branch(merge_bb)
                             .map_err(Self::cg_err)?;
-                        break; // Wildcard is always last.
+                        saw_irrefutable_arm = true;
+                        break; // Wildcard / var is always last.
                     }
                     panproto_expr::Pattern::Lit(lit) => {
                         let lit_val = self.compile_literal(lit)?;
@@ -504,17 +513,27 @@ mod inner {
                 }
             }
 
-            // If we fell through all arms without matching, return 0.
-            let current_bb = builder
-                .get_insert_block()
-                .ok_or_else(|| JitError::CodegenFailed {
-                    reason: "no insert block".to_owned(),
-                })?;
-            let default_val = i64_type.const_int(0, false);
-            results.push((default_val.into(), current_bb));
-            builder
-                .build_unconditional_branch(merge_bb)
-                .map_err(Self::cg_err)?;
+            // Fall-through default: only emitted when no irrefutable arm
+            // terminated the cascade. Without this gate, a wildcard arm
+            // followed by the default block would push a duplicate phi
+            // edge into the same wildcard block and emit a second
+            // unconditional branch on a basic block that already has a
+            // terminator, leaving the IR malformed and the phi resolving
+            // to the wildcard's value instead of the matching literal
+            // arm's value.
+            if !saw_irrefutable_arm {
+                let current_bb =
+                    builder
+                        .get_insert_block()
+                        .ok_or_else(|| JitError::CodegenFailed {
+                            reason: "no insert block".to_owned(),
+                        })?;
+                let default_val = i64_type.const_int(0, false);
+                results.push((default_val.into(), current_bb));
+                builder
+                    .build_unconditional_branch(merge_bb)
+                    .map_err(Self::cg_err)?;
+            }
 
             // Build phi node in merge block.
             builder.position_at_end(merge_bb);
