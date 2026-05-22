@@ -256,6 +256,7 @@ pub enum Production {
 /// Only the fields the emitter consumes are decoded; precedences,
 /// conflicts, externals, and other parser-only metadata are ignored.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct Grammar {
     /// Grammar name (e.g. `"rust"`, `"typescript"`).
     #[allow(dead_code)]
@@ -1808,7 +1809,7 @@ fn is_newline_like_pattern(pattern: &str) -> bool {
     if pattern.is_empty() {
         return false;
     }
-    let mut chars = pattern.chars().peekable();
+    let mut chars = pattern.chars();
     let mut saw_newline_atom = false;
     while let Some(c) = chars.next() {
         match c {
@@ -1843,7 +1844,7 @@ fn is_whitespace_only_pattern(pattern: &str) -> bool {
     }
     // Character class containing only whitespace atoms.
     if let Some(inner) = trimmed.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
-        let mut chars = inner.chars().peekable();
+        let mut chars = inner.chars();
         let mut saw_atom = false;
         while let Some(c) = chars.next() {
             match c {
