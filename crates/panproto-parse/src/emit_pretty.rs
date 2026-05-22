@@ -1505,6 +1505,31 @@ fn pick_choice_with_cursor<'a>(
                 .map(|c| c.value.split_whitespace().collect())
         })
         .unwrap_or_default();
+    // Cursor-exhaustion BLANK-preference: when all cursor edges have
+    // been consumed AND `BLANK` is one of the alternatives, the only
+    // alt that won't introduce a non-existent child is `BLANK`.
+    //
+    // This gate fires before the literal-blob discriminator because
+    // the fingerprint is shared across every CHOICE position in the
+    // vertex's rule body: a vertex like `sample_step` that ends in
+    // `..., REPEAT(SEQ(",", arg)), CHOICE(",", BLANK)` records all of
+    // its `","` interstitials in a single blob, so the literal-score
+    // matcher would otherwise prefer `","` for the trailing CHOICE
+    // even when the source had no trailing comma. By the time the
+    // emitter reaches the trailing CHOICE, the REPEAT has consumed
+    // every arg edge in cursor order; the residual unconsumed multiset
+    // is empty; and the categorical reading of a CHOICE-with-BLANK at
+    // a position with no remaining children is the no-op alternative.
+    let any_unconsumed = cursor
+        .edges
+        .iter()
+        .enumerate()
+        .any(|(i, _)| !cursor.consumed[i]);
+    let blank_present = alternatives.iter().any(|a| matches!(a, Production::Blank));
+    if !any_unconsumed && blank_present {
+        return alternatives.iter().find(|a| matches!(a, Production::Blank));
+    }
+
     if !constraint_blob.is_empty() {
         // Primary score: literal-token match length. This dominates
         // alt selection so existing language tests that depend on
