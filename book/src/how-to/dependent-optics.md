@@ -35,12 +35,12 @@ The `panproto_lens::protolens::combinators` module exposes higher-level chains a
 
 ## Verification
 
-The lens laws apply uniformly across all three optic kinds. Build a `ProtolensChain` from the constructed step and use `ProtolensChain::verify_round_trip` (or the higher-level `Lens::verify_*` helpers) to exercise GetPut and PutGet on representative data.
+The lens laws apply uniformly across all three optic kinds. Instantiate the protolens into a `Lens` against a concrete schema, then call `panproto_lens::laws::check_laws(&lens, &instance)` (or `check_get_put` / `check_put_get` individually) on representative data; each returns `Result<(), LawViolation>`.
 
 ## Common mistakes
 
-- Hand-coding the optic kind. The point of dependent optics is that the kind follows from the edge; if you find yourself branching on it manually, prefer `into_optic` and let the schema decide.
-- Applying a Lens combinator at an `item` edge. The kind mismatch raises `OpticKindMismatch` at instantiation.
+- Hand-coding the optic kind. The point of dependent optics is that the kind follows from the edge; if you find yourself branching on it manually, read it off `Protolens::optic_kind()` (or `ProtolensChain::composed_optic_kind()` for chains) and let the schema decide.
+- Applying a `prop`-style combinator at an `item` edge. The carrier optic at an `item` edge is a Traversal, so `refine_scoped_optic` composes the inner Lens with Traversal to yield Traversal: the round-trip laws still hold, but the result is a multi-focus traversal rather than a single-focus lens, which is rarely what the call site meant.
 
 ## See also
 

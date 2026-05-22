@@ -61,7 +61,7 @@ Helper accessors `merge_mediator_assignments` and `pushout_by_name` expose the i
 
 `ColimitResult::verify_universal` takes an alternative cocone $(M', k_O, k_T)$ and computes the unique mediator $m : M \to M'$. It then checks that $m \circ j_O = k_O$ and $m \circ j_T = k_T$. If either equation fails, the check returns `EquationNotPreserved` carrying the offending sort or operation.
 
-In the VCS layer, `vcs::merge::verify_pushout_universal` runs the check against a constructed alternative cocone derived from the merge candidates. Failure raises `MergeError::UniversalFactorizationFailure` and the merge does not produce a result.
+In the VCS layer, `vcs::merge::verify_pushout_universal` runs the check against a constructed alternative cocone derived from the merge candidates. Failure raises `PushoutError::UniversalFactorizationFailure` and the merge does not produce a result.
 
 This is the new behaviour introduced in `a7fb636` (the correctness pass). Previously, panproto-vcs computed the pushout but did not verify it. The merge could produce an object satisfying cocone commutativity (the pushout square commutes) without satisfying the universal property (without being the *minimal* such object). Cocone commutativity is necessary for a pushout but not sufficient. Verifying the universal property is what makes the result *the* pushout rather than *a* cocone.
 

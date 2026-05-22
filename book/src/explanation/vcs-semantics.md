@@ -7,7 +7,7 @@ panproto-vcs is git, but for schemas. It tracks a history of schemas the way git
 Two things make it different from git applied to the schema files themselves:
 
 1. **The diff and merge operate on the schema, not the text.** `schema diff` does not show you a unified diff of the JSON; it shows you what changed structurally: which vertices were added, which edges renamed, which constraints tightened. Merge does not three-way-merge the bytes; it merges the schema graph at the structural level, so you cannot end up with a syntactically valid but semantically broken schema after a merge.
-2. **Data and lenses are versioned alongside the schemas.** Every commit records a schema snapshot, the lenses generated against that schema, and (optionally) the data instances that conformed to it. Branches diverge with their data; merges reconcile both.
+2. **Data and migrations are versioned alongside the schemas.** Every commit records a schema snapshot and (optionally) the data instances that conformed to it; migrations between schemas are stored as their own content-addressed objects, paired with the complements needed to invert them. Branches diverge with their data; merges reconcile both.
 
 The merge operation is the place where this gets interesting. Three-way text merge fails when both sides edit the same line. The schema-level analogue is two branches that both add a field with the same name but different types. panproto-vcs has a precise, well-defined operation for resolving this: the schemas are *pushed out* along their common ancestor. The result is the smallest schema containing both branches' additions, with the conflict surfaced as an explicit refinement constraint that the user resolves.
 
@@ -17,15 +17,17 @@ panproto-vcs is structured exactly like git: a content-addressed DAG of immutabl
 
 | Object | What it holds |
 |---|---|
-| Schema | The schema graph at a point in time, hashed with blake3. |
-| Migration | A morphism between two schemas. |
-| Lens | A bidirectional transform between two schemas. |
-| Data | An instance of a schema; an instance graph also content-addressed. |
-| Commit | A pointer to a schema, an optional pointer to data, a parent commit list, an author, a message. |
-| Tag | A named pointer to a commit. |
-| Branch | A mutable reference to a commit. |
+| `FileSchema` / `SchemaTree` / `FlatSchema` | A schema at a point in time, in per-file, tree, or migration-endpoint form. |
+| `Migration` | A morphism between two schemas, identified by their object IDs. |
+| `Complement` | The complement data needed to invert a data migration. |
+| `DataSet` | A set of instances conforming to a specific schema. |
+| `CstComplement` | The format-preserving CST data for byte-identical reconstruction. |
+| `Protocol` / `Theory` / `TheoryMorphism` / `Expr` / `EditLog` | Supporting objects referenced by commits and migrations. |
+| `Commit` | A pointer to a schema, an optional pointer to data, a parent commit list, an author, a message. |
+| `Tag` | An annotated tag object pointing to another object. |
+| Branch | A mutable reference to a commit; lives under `.panproto/refs/heads/`. |
 
-Refs (branches and tags) live under `.panproto/refs/`. Objects live under `.panproto/objects/`. The structural similarity to `.git/` is intentional: the existing mental model transfers.
+Every object is content-addressed with a blake3 hash of its canonical serialisation. Refs (branches under `refs/heads/`, tags under `refs/tags/`) live under `.panproto/refs/`. Objects live under `.panproto/objects/`. The structural similarity to `.git/` is intentional: the existing mental model transfers.
 
 ## Merge as pushout
 
@@ -43,7 +45,7 @@ The schema analogue: $B$, $O$, $T$ are schemas; $O$ and $T$ are both descendants
 
 The pushout is the *unique smallest* schema containing both $O$ and $T$ and respecting their shared structure from $B$. "Unique smallest" is made precise by a *universal property*: any other schema $M'$ that also contains $O$ and $T$ admits a unique morphism from $M$ to $M'$.
 
-panproto-vcs does not just compute the pushout: it *verifies* the universal property. `vcs::merge::verify_pushout_universal` checks that the merge result mediates uniquely from any alternative cocone, returning the mediator vertex map. If the universal-property check fails, the merge raises `UniversalFactorizationFailure` rather than producing a wrong result.
+panproto-vcs does not just compute the pushout: it *verifies* the universal property. `vcs::merge::verify_pushout_universal` checks that the merge result mediates uniquely from any alternative cocone, returning the mediator vertex map. If the universal-property check fails, the merge raises `PushoutError::UniversalFactorizationFailure` rather than producing a wrong result.
 
 For the formal pushout construction, the cocone definition, and exactly what is checked, see [Pushouts and merge](./semantics/pushouts-and-merge.md).
 

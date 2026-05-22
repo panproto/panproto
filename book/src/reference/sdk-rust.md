@@ -4,7 +4,7 @@ The Rust surface of panproto is the `panproto-core` facade. Add it to your `Carg
 
 ```toml
 [dependencies]
-panproto-core = "0.47"
+panproto-core = "0.49"
 ```
 
 Full type signatures, constructors, and method documentation live on docs.rs:
@@ -22,7 +22,7 @@ Full type signatures, constructors, and method documentation live on docs.rs:
 | `jit` | Enables JIT-compiled migration via `panproto-jit`. |
 | `tree-sitter` | Enables tree-sitter-based format-preserving parsing for built-in protocols (forwards to `panproto-io/tree-sitter`). |
 
-The default feature set is the minimal core: schema, instance, migration, lens, expression-language, and version control without extras.
+The default feature set re-exports the always-on crates: `panproto-gat`, `panproto-schema`, `panproto-inst`, `panproto-mig`, `panproto-lens`, `panproto-check`, `panproto-protocols`, `panproto-io`, and `panproto-vcs`. The feature flags above pull in the optional crates on top.
 
 ## Sub-crate lookup
 
