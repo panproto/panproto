@@ -2098,8 +2098,8 @@ impl<'a> Output<'a> {
     }
 
     /// True iff at least one `Token::Lit` was pushed since `snap`.
-    /// Control-only emissions (LineBreak, IndentOpen / IndentClose,
-    /// NoSpace) do not count as content. Used by the REPEAT walker
+    /// Control-only emissions (`LineBreak`, `IndentOpen` / `IndentClose`,
+    /// `NoSpace`) do not count as content. Used by the REPEAT walker
     /// to detect that a "separator slot" CHOICE picked its BLANK
     /// alternative, so the next iteration's content can be marked
     /// tight against the previous iteration's content.
