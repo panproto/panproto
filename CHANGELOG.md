@@ -4,7 +4,17 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
-## [0.49.7] - 2026-05-22
+## [0.50.0] - 2026-05-22
+
+### Changed
+
+- **`IdGenerator::named_id` and `IdGenerator::field_id` now take `&mut self`** (`panproto-parse::id_scheme`): both methods record per-scope occurrence counts so repeated calls disambiguate (see Fixed below), which requires interior mutation. Downstream callers were `&mut`-context already (the walker holds `&mut IdGenerator`), so call sites compile unchanged.
+- **`IdGenerator::push_named_scope` now returns the disambiguated leaf `String`** (`panproto-parse::id_scheme`): callers that need both a vertex ID and a matching scope-stack frame can use the returned leaf instead of re-deriving the suffix. The walker uses the new `record_name` / `push_recorded_scope` split to record the occurrence once and reuse the leaf at two sites. `push_named_scope` itself remains available as a convenience for callers that only need the scope push.
+
+### Added
+
+- **`IdGenerator::record_name(&mut self, name) -> String`** (`panproto-parse::id_scheme`): records an occurrence of `name` in the current scope frame and returns the disambiguated leaf (`name`, `name#1`, `name#2`, …). Public so callers (like the walker) can compose a vertex ID and a matching scope-stack push without double-recording.
+- **`IdGenerator::push_recorded_scope(&mut self, leaf: String)`** (`panproto-parse::id_scheme`): pushes a scope frame using an already-disambiguated leaf, skipping the record step.
 
 ### Fixed
 
