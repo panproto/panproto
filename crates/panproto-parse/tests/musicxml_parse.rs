@@ -1,6 +1,6 @@
 //! `.musicxml` files dispatch to the existing tree-sitter-xml grammar.
 //!
-//! Per the W3C Music Notation Community Group's MusicXML 4.0
+//! Per the W3C Music Notation Community Group's `MusicXML` 4.0
 //! specification, a `.musicxml` file is plain XML; the schema
 //! (DTD / XSD) constrains element names and attribute values, not the
 //! lexical form. So a fresh grammar is unnecessary — the existing
@@ -13,9 +13,9 @@
 
 use panproto_parse::ParserRegistry;
 
-/// A minimal but well-formed MusicXML excerpt: declaration, partwise
+/// A minimal but well-formed `MusicXML` excerpt: declaration, partwise
 /// score with one part containing one measure of a single C4 quarter
-/// note. Drawn from the MusicXML 4.0 "hello world" sample at
+/// note. Drawn from the `MusicXML` 4.0 "hello world" sample at
 /// https://www.w3.org/2021/06/musicxml40/tutorial/hello-world/.
 const HELLO_MUSICXML: &[u8] = br#"<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <!DOCTYPE score-partwise PUBLIC
@@ -72,7 +72,7 @@ fn musicxml_parses_through_xml_grammar() {
     let reg = ParserRegistry::new();
     let schema = reg
         .parse_with_protocol("xml", HELLO_MUSICXML, "hello.musicxml")
-        .expect("xml parser must accept a well-formed MusicXML score");
+        .expect("xml parser must accept a well-formed `MusicXML` score");
 
     let kinds: std::collections::BTreeSet<String> = schema
         .vertices
@@ -94,5 +94,5 @@ fn musicxml_parses_through_xml_grammar() {
     );
     // Non-trivial structural recovery: the score has many nested
     // elements, attributes, and a doctype.
-    assert!(schema.vertices.len() >= 20, "non-trivial MusicXML schema");
+    assert!(schema.vertices.len() >= 20, "non-trivial `MusicXML` schema");
 }
