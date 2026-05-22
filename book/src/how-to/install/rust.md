@@ -9,7 +9,7 @@ A Rust toolchain at edition 2024 (toolchain 1.85+).
 ```toml
 # Cargo.toml
 [dependencies]
-panproto-core = "0.47"
+panproto-core = "0.49"
 ```
 
 For specific feature flags (`full-parse`, `project`, `git`, `llvm`, `jit`, `tree-sitter`), see [Reference: Rust SDK](../../reference/sdk-rust.md).

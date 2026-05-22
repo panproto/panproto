@@ -20,8 +20,7 @@
 
 use panproto_parse::ParserRegistry;
 
-const LILY_NAMED_CONTEXT: &[u8] =
-    b"\\version \"2.24.0\"\n\\new Voice = \"kick\" { c,4 r4 }\n";
+const LILY_NAMED_CONTEXT: &[u8] = b"\\version \"2.24.0\"\n\\new Voice = \"kick\" { c,4 r4 }\n";
 
 #[test]
 fn emit_pretty_preserves_named_context_punctuation_and_string() {

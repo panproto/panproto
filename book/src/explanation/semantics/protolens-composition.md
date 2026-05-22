@@ -45,12 +45,13 @@ $$
 The composition is well-defined only when the intermediate functor of $P$ matches the source functor of $Q$. In `panproto-lens`, this match is checked by `protolens_composable`:
 
 ```rust,ignore
-pub fn protolens_composable(p: &Protolens, q: &Protolens) -> bool {
-    p.target_endofunctor() == q.source_endofunctor()
+pub fn protolens_composable(eta: &Protolens, theta: &Protolens) -> bool {
+    matches!(theta.source.transform, TheoryTransform::Identity)
+        || theory_endofunctor_equiv(&eta.target, &theta.source)
 }
 ```
 
-The equality is *structural*: the endofunctors agree iff their preconditions and their transforms agree. A trivial special case: when $H$ is the identity functor (i.e., $Q$ is an identity-sourced protolens), the match is automatic regardless of $G$.
+A `Protolens` carries its `source` and `target` `TheoryEndofunctor`s as public fields. The equality `theory_endofunctor_equiv` is *structural*: the endofunctors agree iff their preconditions and their transforms agree, ignoring the human-readable `name` field. A trivial special case: when the source of $Q$ is the identity functor (i.e., $G$ is the identity), the match is automatic regardless of $\eta$'s target.
 
 `vertical_compose` enforces the check at construction time and returns `LensError::CompositionMismatch` on failure, naming the offending intermediate functor. This catches an entire class of bug at the type-construction stage rather than at instantiation time.
 

@@ -14,15 +14,17 @@ For the model behind these combinators, see [Lenses and round-trip laws](../expl
 
 ## Optic kinds
 
-The optic-kind classification follows from the structure of the schema edge a combinator is applied at:
+Each protolens or protolens chain is classified into an [`OpticKind`](https://docs.rs/panproto-lens/latest/panproto_lens/optic/enum.OpticKind.html). The classification is structural: it follows from the shape of the underlying [`TheoryTransform`](https://docs.rs/panproto-gat/latest/panproto_gat/enum.TheoryTransform.html), which in turn reflects the schema edge a combinator is applied at.
 
-| Optic | Schema edge | Constructor family |
+| `OpticKind` | Typical schema edge | Complement |
 |---|---|---|
-| Lens | `prop` (single value) | `Lens::*` |
-| Traversal | `item` (collection) | `Traversal::*`, `Lens::map_items` |
-| Prism | `variant` (sum) | `Prism::*` |
+| `Iso` | bijective relabeling (e.g. edge rename) | `Unit` |
+| `Lens` | `prop` (single-value projection) | dropped data |
+| `Prism` | sum / variant injection | variant tag |
+| `Affine` | `Lens` composed with `Prism` | `(variant tag, dropped data)` |
+| `Traversal` | `item` (collection, multi-focus) | per-position complements |
 
-`panproto-lens` exposes the algebra under [`panproto_lens`](https://docs.rs/panproto-lens). Browse the module index there for full signatures.
+Composition follows the standard optics lattice: `Iso` is the identity, `Traversal` is absorbing, `Lens + Prism` collapses to `Affine`. The constructor functions for these kinds live in [`protolens::elementary`](https://docs.rs/panproto-lens/latest/panproto_lens/protolens/elementary/) (atomic steps: `add_edge`, `drop_edge`, `rename_edge_name`, ...) and [`protolens::combinators`](https://docs.rs/panproto-lens/latest/panproto_lens/protolens/combinators/) (composite builders: `pipeline`, `map_items`, ...). Browse the [`panproto_lens`](https://docs.rs/panproto-lens) module index for full signatures.
 
 ## Combinator families
 
@@ -31,7 +33,7 @@ The optic-kind classification follows from the structure of the schema edge a co
 | Asymmetric lenses | [`asymmetric`](https://docs.rs/panproto-lens/latest/panproto_lens/asymmetric/) | Classical S → V transforms with put. |
 | Symmetric lenses | [`symmetric`](https://docs.rs/panproto-lens/latest/panproto_lens/symmetric/) | A ↔ B transforms with shared complement. |
 | Composition | [`compose`](https://docs.rs/panproto-lens/latest/panproto_lens/compose/) | Sequential and parallel composition of lenses. |
-| Optics | [`optic`](https://docs.rs/panproto-lens/latest/panproto_lens/optic/) | Optic-kind unification (Lens, Traversal, Prism). |
+| Optics | [`optic`](https://docs.rs/panproto-lens/latest/panproto_lens/optic/) | `OpticKind` enum (Iso, Lens, Prism, Affine, Traversal) and the composition lattice. |
 | Fibration | [`fibration`](https://docs.rs/panproto-lens/latest/panproto_lens/fibration/) | The Grothendieck fibration of lenses over schemas. |
 | Protolens | [`protolens`](https://docs.rs/panproto-lens/latest/panproto_lens/protolens/) | Schema-parameterized lens families with vertical and sequential composition. |
 | Enrichment registry | [`enrichment_registry`](https://docs.rs/panproto-lens/latest/panproto_lens/enrichment_registry/) | Cross-crate `LayoutEnricher` trait and registry for schema-level enrichment fibres (e.g. the parse / decorate / emit lens; see [Layout enrichment](../explanation/layout-enrichment.md)). |
