@@ -4,7 +4,7 @@ You will define a schema for a small data model (users with names and ages), val
 
 By the end you will have: a working `panproto` setup, a schema you wrote, an instance of that schema parsed from a JSON file, and a sense of how the four pieces (protocol, schema, instance, validation) fit together.
 
-We use `atproto` because it is the most fully-built-out protocol in the current registry; the same code shape applies to any of the [protocols](../reference/protocols.md) listed by `Panproto.builtinProtocols()`.
+We use `atproto` because it is the most fully-built-out protocol in the current registry; the same code shape applies to any of the [protocols](../reference/protocols.md) listed by `Panproto.listProtocols()`.
 
 No prior knowledge of category theory or schema theory is assumed. We use ordinary words for everything; if you want the formal treatment of any concept, the explanation chapters are linked at the end.
 
@@ -73,9 +73,12 @@ import { readFileSync } from 'node:fs';
 const bytes = readFileSync('data/sample.json');
 const instance = p.parseJson(schema, bytes);
 console.log('parsed:', new TextDecoder().decode(p.toJson(schema, instance)));
+
+const validation = instance.validate();
+console.log('valid?', validation.isValid, validation.errors);
 ```
 
-Run it. You see the parsed record echoed back. The schema validated the JSON during parsing; if `data/sample.json` violated the schema (a missing `name`, a non-integer `age`), you would get a structured error with the offending field. `Panproto.parseJson(schema, bytes)` returns an `Instance`; `Panproto.toJson(schema, instance)` serialises it back out.
+Run it. You see the parsed record echoed back and `valid? true []`. `Panproto.parseJson(schema, bytes)` returns an `Instance` by walking the JSON against the schema graph (a non-integer `age`, or JSON not matching the schema's shape, raises during this call). `Panproto.toJson(schema, instance)` serialises it back out. `instance.validate()` runs the separate required-fields/constraints pass.
 
 ## Step 4: catch a violation
 
@@ -85,7 +88,7 @@ Edit `data/sample.json` to remove `name`:
 { "age": 30 }
 ```
 
-Run again. The output now includes a validation error pointing to the missing required field. The schema is doing real work: every parse is a check.
+Run again. The parse still succeeds (parsing only walks the structure that is present), but `validation.isValid` is now `false` and `validation.errors` carries `MissingRequiredEdge { ..., edge: "name (prop)" }`. Required-field enforcement is performed by `instance.validate()`, not by `parseJson` itself; run both whenever you want a hard check.
 
 ## What you built
 
@@ -95,7 +98,7 @@ Three things:
 2. A *schema* (a graph of vertices and edges) within that protocol.
 3. *Instances* (data) parsed and validated against the schema.
 
-This same pattern works for every protocol panproto supports. Swap `'atproto'` for any other name in the built-in registry (`Panproto.builtinProtocols()` lists them), and the rest of the code is identical.
+This same pattern works for every protocol panproto supports. Swap `'atproto'` for any other name in the built-in registry (`Panproto.listProtocols()` lists them), and the rest of the code is identical.
 
 ## Next
 

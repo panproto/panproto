@@ -4,37 +4,41 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
-## [0.48.14] - 2026-05-21
+## [0.49.5] - 2026-05-22
 
 ### Fixed
 
 - **`emit_pretty` splits trailing newlines off `literal-value` Lits and routes them through `Token::LineBreak`** (`panproto-parse::emit_pretty`): a vertex carrying a `literal-value` constraint and no structural children emits its captured text directly via the leaf shortcut. For grammars whose terminal-like rules absorb a trailing newline (e.g. ABC's `reference_number_line` matching `"X:1\n"`), the captured value contained an embedded `\n`. Pushing it as `Lit("X:1\n")` left the newline character in the output but the layout pass then ran `needs_space_between("X:1\n", "T:")` against the next Lit; the fall-through "keep operator runs apart" rule inserted the policy separator at column 0 of the new line, rendering `X:1\n T:` instead of `X:1\nT:`. `Output::token` now strips trailing newlines off any non-pure-newline Lit value, emits the trimmed prefix as a `Lit`, and pushes a `LineBreak` for the newline tail. Layout treats `LineBreak` as a line-state reset, so the next Lit starts at column 0 with no intervening separator. Regression test at `crates/panproto-parse/tests/emit_pretty_literal_trailing_newline.rs`. Improves #113 (ABC tune-header leading-space piece).
 
-## [0.48.13] - 2026-05-21
+## [0.49.4] - 2026-05-22
 
 ### Fixed
 
 - **`emit_pretty` no longer emits phantom trailing punctuation when a CHOICE includes BLANK and the cursor is exhausted** (`panproto-parse::emit_pretty`): the `chose-alt-fingerprint` constraint is built per vertex from the concatenated interstitial fragments. A rule like QVR's `sample_step`, whose body ends in `..., REPEAT(SEQ(",", arg)), CHOICE(",", BLANK)` (the canonical `commaSep1`-with-optional-trailing-comma shape), deposits one `","` into the fingerprint blob per arg-separator gap. The trailing CHOICE then scored `","` over BLANK (one literal match per recorded separator vs zero), and `f(1.0, 2.0, 3.0)` rendered as `f(1.0, 2.0, 3.0,)` with a phantom trailing comma. The literal-blob discriminator is intrinsically position-blind across multiple positional CHOICEs at the same vertex, so the cursor-exhaustion gate now fires first: when no unconsumed edges remain AND `BLANK` is one of the alternatives, the only categorically correct alt is `BLANK`, regardless of what literal tokens appear earlier in the vertex's interstitials. Regression test at `crates/panproto-parse/tests/emit_pretty_trailing_punctuation.rs`. Improves #113 (commaSep1 trailing comma family across grammars).
 
-## [0.48.12] - 2026-05-21
+## [0.49.3] - 2026-05-22
 
 ### Fixed
 
 - **`emit_pretty` keeps sibling REPEAT iterations tight when the separator slot is empty** (`panproto-parse::emit_pretty`): when a `REPEAT` / `REPEAT1` body is `SEQ(SEP, BODY)` and `SEP` is `CHOICE` containing `BLANK` (or an `OPTIONAL`), the categorical reading is that the source-level separator between two iterations is syntactically optional. When the runtime alternative chosen for the separator slot emits zero content tokens (BLANK picked), the source had no separator between this iteration and the previous one; the layout pass must not inject the policy separator either. Pre-fix, ABC's `beam` rule (`SEQ(_nte_or_chrd, REPEAT1(SEQ(CHOICE(BEAM_SEPARATOR, BLANK), _nte_or_chrd)))`) rendered consecutive note letters as `C D E F` (source was `CDEF`) because layout had no signal that the iteration boundary carried no source-level separator. The REPEAT walker now structurally recognises separator-leading SEQ bodies, emits the separator slot first while observing whether any content token was produced, and pushes a `Token::NoSpace` marker before the remaining SEQ members when the slot was empty. The layout pass consumes the marker and suppresses the inter-Lit separator for that pair. Bodies whose first SEQ member is not a `CHOICE`-with-`BLANK` / `OPTIONAL` (e.g. `commaSep1`'s `SEQ(STRING ",", SYMBOL)`) take the original code path unchanged. Regression test at `crates/panproto-parse/tests/emit_pretty_tight_repeat.rs`. Improves #113 (ABC beam piece).
 
-## [0.48.11] - 2026-05-21
+## [0.49.2] - 2026-05-22
 
 ### Fixed
 
 - **`panproto-jit` match codegen emits valid IR when arms include an irrefutable pattern** (`panproto-jit::codegen`): `compile_match` built the literal-arm `then` / `else` chain and then unconditionally emitted a fall-through default block. The wildcard / var-pattern handler at the same level already terminated its block with a branch to `merge_bb` and broke out of the loop, but the fall-through code ran anyway. It pushed a duplicate `(0, wildcard_block)` entry into the phi node and emitted a second unconditional branch on a basic block that already had a terminator. The IR was malformed and the phi resolved to the wildcard arm's value even when an earlier literal arm matched the scrutinee. `match 2 { 1 => 10, 2 => 20, _ => 0 }` returned `0` instead of `20`. The default block is now gated on whether any irrefutable arm has already terminated the cascade; when one has, the synthetic default is skipped entirely. Closes #115.
 
-## [0.48.10] - 2026-05-21
+## [0.49.1] - 2026-05-22
 
 ### Fixed
 
 - **`emit_pretty` routes newline-valued grammar STRINGs through the layout `LineBreak` channel** (`panproto-parse::emit_pretty`): `Output::token` pushed every grammar STRING as a `Lit`. A `STRING "\n"` literal (abc's `_NL`, plus every grammar that uses a literal newline as a statement terminator) left the newline character in the output but the layout pass's `needs_space_between` then inserted the configured separator between the newline `Lit` and the following token, producing leading spaces on every line after the first and trailing spaces before every newline. `Output::token` now recognises `"\n"` / `"\r"` / `"\r\n"` and pushes `Token::LineBreak` directly so layout treats it as a line-state reset rather than a normal Lit pair. Regression test at `crates/panproto-parse/tests/emit_pretty_newline_string.rs` parses an abc header and asserts no trailing space precedes any newline. Partially closes #113 (abc whitespace piece).
 
-## [0.48.9] - 2026-05-21
+## [0.49.0] - 2026-05-22
+
+### Changed
+
+- **`Grammar` is now `#[non_exhaustive]`** (`panproto-parse::emit_pretty`): the struct gained a new `extras` field (see Fixed below). Marking it `#[non_exhaustive]` prevents external struct-literal construction so further fields can be added without a semver break. Construct `Grammar` via `Grammar::from_bytes` instead.
 
 ### Fixed
 

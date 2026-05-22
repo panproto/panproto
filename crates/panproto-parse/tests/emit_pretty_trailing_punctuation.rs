@@ -49,9 +49,6 @@ fn emit_pretty_does_not_emit_phantom_trailing_comma_in_commasep1() {
     );
     // Sanity: all three args still survive.
     for arg in ["1.0", "2.0", "3.0"] {
-        assert!(
-            text.contains(arg),
-            "arg {arg:?} dropped: {text:?}"
-        );
+        assert!(text.contains(arg), "arg {arg:?} dropped: {text:?}");
     }
 }

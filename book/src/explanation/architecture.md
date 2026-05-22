@@ -21,8 +21,15 @@ graph TD
     subgraph "Higher operations"
         VCS[panproto-vcs]
         GIT[panproto-git]
+        XRPC[panproto-xrpc]
+        GITREMOTE[panproto-git-remote]
         PROJ[panproto-project]
         CHECK[panproto-check]
+    end
+
+    subgraph "Codegen"
+        LLVM[panproto-llvm]
+        JIT[panproto-jit]
     end
 
     subgraph "Pipeline"
@@ -31,6 +38,7 @@ graph TD
         LENSDSL[panproto-lens-dsl]
         IO[panproto-io]
         PARSE[panproto-parse]
+        GRAMMARS[panproto-grammars<br/>+ grammars-{all,web,data,jvm,<br/>scripting,systems,functional,<br/>devops,mobile,music}]
     end
 
     subgraph "Protocols and theories"
@@ -42,6 +50,7 @@ graph TD
 
     subgraph "Foundation"
         GAT[panproto-gat]
+        GATMACROS[panproto-gat-macros]
         SCHEMA[panproto-schema]
         INST[panproto-inst]
     end
@@ -60,9 +69,16 @@ graph TD
     CORE --> LENS
     CORE --> IO
     CORE --> PARSE
+    CORE --> LLVM
+    CORE --> JIT
 
     VCS --> MIG
     GIT --> VCS
+    XRPC --> VCS
+    XRPC --> SCHEMA
+    GITREMOTE --> VCS
+    GITREMOTE --> GIT
+    GITREMOTE --> XRPC
     PROJ --> SCHEMA
     CHECK --> MIG
     MIG --> LENS
@@ -72,6 +88,11 @@ graph TD
     IO --> INST
     PARSE --> INST
     PARSE --> LENS
+    PARSE --> GRAMMARS
+
+    LLVM --> PROTOS
+    LLVM --> SCHEMA
+    JIT --> EXPR
 
     LENS --> EXPR
     MIG --> EXPR
@@ -79,13 +100,14 @@ graph TD
     PROTOS --> SCHEMA
     PROTOS --> INST
     THEORYDSL --> GAT
+    GATMACROS --> GAT
 
     SCHEMA --> GAT
     INST --> GAT
     EXPR --> GAT
 ```
 
-The diagram shows the *direction* of dependency, not every individual edge. The full set is in the workspace [`Cargo.toml`](https://github.com/panproto/panproto/blob/main/Cargo.toml).
+The diagram shows the *direction* of dependency, not every individual edge. The full set is in the workspace [`Cargo.toml`](https://github.com/panproto/panproto/blob/main/Cargo.toml). The ten `panproto-grammars-*` pack crates are grouped together in the diagram: each is a leaf re-exporting a subset of the tree-sitter grammars under feature flags, consumed transitively by `panproto-parse`.
 
 One arrow worth pointing out: `panproto-parse` depends on `panproto-lens`, not the other way around. The two crates meet through the `enrichment_registry` module in `panproto-lens`, a thin trait-and-registry pair the lens crate exposes for downstream crates to populate. `panproto-parse` installs an adapter for every parser it accepts so that protolens machinery in `panproto-lens` can dispatch grammar-driven enrichment synthesis without depending on tree-sitter. The mechanism is documented in [Layout enrichment](./layout-enrichment.md); the registry pattern keeps the lens crate grammar-agnostic and the dependency direction acyclic.
 
