@@ -4,6 +4,16 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.49.0] - 2026-05-22
+
+### Changed
+
+- **`Grammar` is now `#[non_exhaustive]`** (`panproto-parse::emit_pretty`): the struct gained a new `extras` field (see Fixed below). Marking it `#[non_exhaustive]` prevents external struct-literal construction so further fields can be added without a semver break. Construct `Grammar` via `Grammar::from_bytes` instead.
+
+### Fixed
+
+- **`emit_pretty` drains tree-sitter `extras` children as a side channel** (`panproto-parse::emit_pretty`): extras (typically `line_comment` / `block_comment`) live outside the production grammar — tree-sitter skips them at parse time and records them as children of the surrounding vertex — but the rule walker had no way to reconcile them against the cursor. Cursor-driven CHOICE dispatch returned `None` for an extras-kind child and the surrounding `REPEAT` loop terminated after zero iterations with no progress, producing **empty output** for supercollider's `source_file` (and any other grammar whose top-level rule's REPEAT body was reached with a leading comment). `Grammar` now records the set of named-symbol / aliased extras kinds; `emit_production` drains leading extras edges from the cursor at every entry, and `emit_vertex` drains trailing extras after the rule walk completes. Each drained extra is emitted via `emit_vertex`, preserving its content. Regression test at `crates/panproto-parse/tests/emit_pretty_extras.rs` parses a supercollider source with a leading `//` comment and asserts both the comment and the `Pdef` / `Pbind` calls survive. Partially closes #113 (supercollider piece).
+
 ## [0.48.8] - 2026-05-21
 
 ### Fixed
