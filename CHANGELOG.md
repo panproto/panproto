@@ -4,6 +4,19 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.50.1] - 2026-05-23
+
+### Fixed
+
+- **Bundled `lens.ncl` contract parses in the embedded Nickel evaluator** (`panproto-lens-dsl`): the contract used `match` as a record field name and `default` as a function parameter, both reserved words in the bundled Nickel 2.0 evaluator. Renamed to `pattern` and `fallback` respectively. Serde aliases (`alias = "match"`, `alias = "default"`) preserve backward compatibility with existing JSON and YAML lens specs. Closes #144.
+- **`_native.pyi` stubs match runtime API** (`panproto-py`): `Vertex` now exposes `id`, `kind`, `nsid` (was `name`, `kind`); `Edge` exposes `src`, `tgt`, `kind`, `name` (was `name`, `source`, `target`); `Constraint` exposes `sort`, `value` (was `name`, `to_dict`); `Schema.vertices`, `.edges`, `.vertex_count`, `.edge_count`, `.protocol` are properties not methods; `Protocol.from_theories` accepts `Theory | str` for `schema_theory` and `instance_theory`; all `object` type hints replaced with a recursive `JsonValue` type alias; all catch-all `*args` signatures replaced with concrete parameter types. Closes #147.
+
+### Added
+
+- **`get_builtin_protocol` resolves tree-sitter grammar protocols** (`panproto-py`): `get_builtin_protocol("stan")`, `get_builtin_protocol("python")`, etc. now succeed by falling back to the grammar registry before raising `KeyError`. `list_builtin_protocols()` includes grammar names alongside the 50 semantic protocols. Closes #145.
+- **`hom_search` and `cascade` exposed in Python bindings** (`panproto-py`): new `TheoryMorphism`, `SchemaMorphism`, `FoundMorphism` classes and `find_morphisms`, `find_best_morphism`, `induce_schema_morphism`, `induce_migration_from_theory` functions enable programmatic cross-protocol morphism discovery and theory-induced migration from Python. Closes #146.
+- **`lang-bugs` and `lang-jags` tree-sitter grammars** (`panproto-grammars`): panproto-hosted grammars for the BUGS (WinBUGS/OpenBUGS) and JAGS probabilistic programming languages. Both support stochastic (`~`) and deterministic (`<-`) relations, `for` loops, distribution calls with truncation, indexed variables, and arithmetic expressions. JAGS additionally supports `var` declarations and `data { }` blocks. Included in `group-all` (261 languages total). Closes #148.
+
 ## [0.50.0] - 2026-05-22
 
 ### Changed
