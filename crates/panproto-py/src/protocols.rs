@@ -13,6 +13,18 @@ use pyo3::prelude::*;
 
 use crate::schema::PyProtocol;
 
+fn grammar_protocol(name: &str) -> Option<Protocol> {
+    if !panproto_grammars::has_grammar(name) {
+        return None;
+    }
+    Some(Protocol {
+        name: name.to_owned(),
+        schema_theory: name.to_owned(),
+        instance_theory: name.to_owned(),
+        ..Protocol::default()
+    })
+}
+
 /// Look up a built-in protocol by name.
 ///
 /// Returns ``None`` if the name is not recognized.
@@ -151,7 +163,13 @@ const BUILTIN_NAMES: &[&str] = &[
 /// List all built-in protocol names.
 #[pyfunction]
 pub fn list_builtin_protocols() -> Vec<String> {
-    BUILTIN_NAMES.iter().map(|s| (*s).to_owned()).collect()
+    let mut names: Vec<String> = BUILTIN_NAMES.iter().map(|s| (*s).to_owned()).collect();
+    for g in panproto_grammars::grammars() {
+        if !names.iter().any(|n| n == g.name) {
+            names.push(g.name.to_owned());
+        }
+    }
+    names
 }
 
 /// Get a built-in protocol by name.
@@ -173,6 +191,7 @@ pub fn list_builtin_protocols() -> Vec<String> {
 #[pyfunction]
 pub fn get_builtin_protocol(name: &str) -> PyResult<PyProtocol> {
     lookup(name)
+        .or_else(|| grammar_protocol(name))
         .map(|p| PyProtocol { inner: p })
         .ok_or_else(|| pyo3::exceptions::PyKeyError::new_err(format!("unknown protocol: {name}")))
 }

@@ -1,7 +1,7 @@
 #![allow(unsafe_code)]
 //! Pre-compiled tree-sitter grammars for panproto.
 //!
-//! This crate bundles up to 259 tree-sitter grammars, compiled from vendored C sources.
+//! This crate bundles up to 261 tree-sitter grammars, compiled from vendored C sources.
 //! Each grammar is gated behind a `lang-{name}` feature flag. Group features like
 //! `group-core`, `group-web`, `group-all` etc. enable sets of languages at once.
 //!

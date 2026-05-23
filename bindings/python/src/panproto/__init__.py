@@ -206,6 +206,14 @@ __all__ = [
     "pipeline",
     "remove_field",
     "rename_field",
+    # Hom search + cascade
+    "FoundMorphism",
+    "SchemaMorphism",
+    "TheoryMorphism",
+    "find_best_morphism",
+    "find_morphisms",
+    "induce_migration_from_theory",
+    "induce_schema_morphism",
     # Check
     "CompatReport",
     "SchemaDiff",

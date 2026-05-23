@@ -23,6 +23,7 @@ mod error;
 mod expr;
 mod gat;
 mod git;
+mod hom;
 mod inst;
 mod io;
 mod lens;
@@ -51,6 +52,9 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Migration: Migration, MigrationBuilder, CompiledMigration, compile, check_existence
     mig::register(m)?;
+
+    // Hom search + cascade: TheoryMorphism, SchemaMorphism, FoundMorphism, find_morphisms, etc.
+    hom::register(m)?;
 
     // Check: SchemaDiff, CompatReport, diff_schemas, diff_and_classify
     check::register(m)?;
