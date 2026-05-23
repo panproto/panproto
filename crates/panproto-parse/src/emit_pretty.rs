@@ -1323,10 +1323,37 @@ fn kind_satisfies_symbol(grammar: &Grammar, target_kind: Option<&str>, name: &st
     if target == name {
         return true;
     }
-    grammar
+    if grammar
         .subtypes
         .get(target)
         .is_some_and(|set| set.contains(name))
+    {
+        return true;
+    }
+    grammar
+        .subtypes
+        .get(name)
+        .is_some_and(|set| set.contains(target))
+}
+
+/// Direct match only: `target_kind` equals `name` or is in `name`'s
+/// subtype set, without the reverse lookup. Used by the first pass of
+/// cursor-driven CHOICE dispatch to prefer exact matches.
+fn kind_directly_satisfies_symbol(
+    grammar: &Grammar,
+    target_kind: Option<&str>,
+    name: &str,
+) -> bool {
+    let Some(target) = target_kind else {
+        return false;
+    };
+    if target == name {
+        return true;
+    }
+    grammar
+        .subtypes
+        .get(name)
+        .is_some_and(|set| set.contains(target))
 }
 
 /// Emit a child reached through an ALIAS production using the
@@ -1633,6 +1660,27 @@ fn pick_choice_with_cursor<'a>(
         .find(|(i, _)| !cursor.consumed[*i])
         .and_then(|(_, edge)| schema.vertices.get(&edge.tgt).map(|v| v.kind.as_ref()));
     if let Some(target_kind) = first_unconsumed_kind {
+        // Prefer an alternative with a direct symbol match before
+        // accepting a subtype match. Without this two-pass approach,
+        // a CHOICE like `[ALIAS(_qualified_macro_identifier, ...),
+        // SYMBOL macro_identifier]` incorrectly picks the ALIAS
+        // alternative when the cursor holds a `macro_identifier`
+        // child: the subtype closure records `macro_identifier` as
+        // reachable from `_qualified_macro_identifier` (because the
+        // hidden rule's SEQ contains it), so the first alt's symbol
+        // set satisfies the cursor. The direct-match pass ensures the
+        // second alt (which references `macro_identifier` directly)
+        // wins.
+        for alt in alternatives {
+            let symbols = referenced_symbols(alt);
+            if !symbols.is_empty()
+                && symbols
+                    .iter()
+                    .any(|s| kind_directly_satisfies_symbol(grammar, Some(target_kind), s))
+            {
+                return Some(alt);
+            }
+        }
         for alt in alternatives {
             let symbols = referenced_symbols(alt);
             if !symbols.is_empty()

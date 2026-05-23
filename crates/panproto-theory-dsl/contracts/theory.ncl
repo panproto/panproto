@@ -265,61 +265,61 @@ let edge_rule = fun edge_kind src_kind tgt_kind => {
 
 {
   # Sort kind constructors
-  Structural,
-  Val,
-  Coercion,
-  Merger,
+  Structural = Structural,
+  Val = Val,
+  Coercion = Coercion,
+  Merger = Merger,
 
   # Contracts
-  ParamSpec,
-  SortKindSpec,
-  SortSpec,
-  OpSpec,
-  EquationSpec,
-  DirectedEqSpec,
-  StrategySpec,
-  PolicySpec,
-  EdgeRuleSpec,
-  ColimitStepSpec,
+  ParamSpec = ParamSpec,
+  SortKindSpec = SortKindSpec,
+  SortSpec = SortSpec,
+  OpSpec = OpSpec,
+  EquationSpec = EquationSpec,
+  DirectedEqSpec = DirectedEqSpec,
+  StrategySpec = StrategySpec,
+  PolicySpec = PolicySpec,
+  EdgeRuleSpec = EdgeRuleSpec,
+  ColimitStepSpec = ColimitStepSpec,
 
   # Document contracts
-  Theory,
-  Morphism,
-  Composition,
-  Protocol,
-  Bundle,
-  Class,
-  Instance,
+  Theory = Theory,
+  Morphism = Morphism,
+  Composition = Composition,
+  Protocol = Protocol,
+  Bundle = Bundle,
+  Class = Class,
+  Instance = Instance,
 
   # Sort combinators
-  simple,
-  dependent,
-  val_sort,
-  coercion_sort,
-  merger_sort,
-  param,
+  simple = simple,
+  dependent = dependent,
+  val_sort = val_sort,
+  coercion_sort = coercion_sort,
+  merger_sort = merger_sort,
+  param = param,
 
   # Operation combinators
-  unary,
-  binary,
-  nullary,
-  nary,
+  unary = unary,
+  binary = binary,
+  nullary = nullary,
+  nary = nary,
 
   # Equation combinators
-  eq,
-  directed_eq,
-  directed_eq_invertible,
+  eq = eq,
+  directed_eq = directed_eq,
+  directed_eq_invertible = directed_eq_invertible,
 
   # Policy combinators
-  keep_left,
-  keep_right,
-  fail_on_conflict,
-  custom_policy,
+  keep_left = keep_left,
+  keep_right = keep_right,
+  fail_on_conflict = fail_on_conflict,
+  custom_policy = custom_policy,
 
   # Composition combinators
-  colimit,
-  colimit_with_ops,
+  colimit = colimit,
+  colimit_with_ops = colimit_with_ops,
 
   # Edge rule combinators
-  edge_rule,
+  edge_rule = edge_rule,
 }
