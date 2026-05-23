@@ -217,7 +217,7 @@ pub struct AddFieldSpec {
     /// Vertex kind (e.g. `"string"`, `"integer"`, `"boolean"`, `"object"`).
     pub kind: String,
     /// Default value for the field.
-    #[serde(default)]
+    #[serde(default, rename = "fallback", alias = "default")]
     pub default: serde_json::Value,
     /// Optional expression to compute the field value.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -355,7 +355,7 @@ pub struct AddSortSpec {
     /// Vertex kind.
     pub kind: String,
     /// Default value.
-    #[serde(default)]
+    #[serde(default, rename = "fallback", alias = "default")]
     pub default: serde_json::Value,
 }
 
@@ -418,7 +418,7 @@ impl CoercionKind {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Rule {
     /// The pattern to match.
-    #[serde(rename = "match")]
+    #[serde(rename = "pattern", alias = "match")]
     pub match_: FeaturePattern,
 
     /// The replacement, or `None` to drop the matched feature.

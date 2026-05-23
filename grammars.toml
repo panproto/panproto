@@ -75,6 +75,14 @@ extensions = ["beancount"]
 repo = "https://github.com/latex-lsp/tree-sitter-bibtex"
 extensions = ["bib"]
 
+[bugs]
+repo = "https://github.com/aaronstevenwhite/panproto"
+extensions = ["bug", "bugs"]
+
+[jags]
+repo = "https://github.com/aaronstevenwhite/panproto"
+extensions = ["jag", "jags"]
+
 [bicep]
 repo = "https://github.com/tree-sitter-grammars/tree-sitter-bicep"
 extensions = ["bicep"]

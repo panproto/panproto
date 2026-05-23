@@ -25,7 +25,7 @@ let RenameSpec = {
 let AddFieldSpec = {
   name | String,
   kind | String,
-  default | optional,
+  fallback | optional,
   expr | String | optional,
 } in
 
@@ -55,9 +55,9 @@ let NestSpec = {
   intermediate | String,
   intermediate_kind | String,
   edge_kind | String,
-  old_edge_name | String | default = "",
-  parent_to_intermediate | String | default = "",
-  intermediate_to_child | String | default = "",
+  old_edge_name | String | optional,
+  parent_to_intermediate | String | optional,
+  intermediate_to_child | String | optional,
 } in
 
 let PullbackSpec = {
@@ -86,7 +86,7 @@ let MergeSortsSpec = {
 let AddSortSpec = {
   name | String,
   kind | String,
-  default | optional,
+  fallback | optional,
 } in
 
 let AddOpSpec = {
@@ -144,7 +144,7 @@ let Replacement = {
 } in
 
 let Rule = {
-  match | FeaturePattern,
+  pattern | FeaturePattern,
   replace | Replacement | optional,
 } in
 
@@ -237,14 +237,14 @@ let remove = fun field => { remove_field = field } in
 # Rename a field's JSON property key.
 let rename = fun old new => { rename_field = { old = old, new = new } } in
 
-# Add a field with a default value.
-let add = fun name kind default => {
-  add_field = { name = name, kind = kind, default = default }
+# Add a field with a fallback value.
+let add = fun name kind fallback => {
+  add_field = { name = name, kind = kind, fallback = fallback }
 } in
 
 # Add a field with a computed expression.
-let add_computed = fun name kind default expr => {
-  add_field = { name = name, kind = kind, default = default, expr = expr }
+let add_computed = fun name kind fallback expr => {
+  add_field = { name = name, kind = kind, fallback = fallback, expr = expr }
 } in
 
 # Apply an expression to an existing field.
@@ -340,8 +340,8 @@ let merge = fun sort_a sort_b merged expr => {
 } in
 
 # Add a sort to the theory.
-let add_sort = fun name kind default => {
-  add_sort = { name = name, kind = kind, default = default }
+let add_sort = fun name kind fallback => {
+  add_sort = { name = name, kind = kind, fallback = fallback }
 } in
 
 # Drop a sort from the theory.
@@ -420,13 +420,13 @@ in
 
 # Build a rule mapping one name to another.
 let map_name = fun from to => {
-  match = { name = from },
+  pattern = { name = from },
   replace = { name = to },
 } in
 
 # Build a rule that drops a matched feature.
 let drop_feature = fun name => {
-  match = { name = name },
+  pattern = { name = name },
 } in
 
 # =====================================================================

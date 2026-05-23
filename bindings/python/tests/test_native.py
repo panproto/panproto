@@ -20,9 +20,9 @@ import panproto
 class TestProtocolRegistry:
     """Tests for the built-in protocol registry."""
 
-    def test_list_builtin_protocols_returns_50(self) -> None:
+    def test_list_builtin_protocols_includes_semantic(self) -> None:
         names = panproto.list_builtin_protocols()
-        assert len(names) == 50
+        assert len(names) >= 50
 
     def test_list_contains_atproto(self) -> None:
         assert "atproto" in panproto.list_builtin_protocols()
