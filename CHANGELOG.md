@@ -4,6 +4,13 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.50.2] - 2026-05-25
+
+### Fixed
+
+- **Bundled Nickel contract exports are now reachable from downstream specs** (`panproto-lens-dsl`, `panproto-theory-dsl`): the `lens.ncl` and `theory.ncl` export records used field-shorthand syntax (`Lens,` meaning `Lens = Lens,`), which the embedded Nickel 2.0 evaluator does not resolve against enclosing `let`-bindings at the import boundary. Every `L.<name>` access from a user spec reported "missing definition". All exports are now explicit assignments (`Lens = Lens,`). Closes #151.
+- **`emit_pretty` renders Julia `macrocall_expression` bodies** (`panproto-parse`): the CHOICE dispatcher in the grammar-walker picked `BLANK` over `macro_argument_list` because an ALIAS wrapping `_qualified_macro_identifier` (a hidden rule whose SEQ contains `macro_identifier`) shadowed the direct `SYMBOL "macro_identifier"` alternative via the subtype closure. The cursor-driven CHOICE picker now runs a direct-match pass before the subtype-closure pass, and `kind_satisfies_symbol` gained a reverse subtype lookup. Output was `.@ <macro>\n`; now correctly emits `@model function model(y) ... end`. Closes #150.
+
 ## [0.50.1] - 2026-05-23
 
 ### Fixed
