@@ -4,6 +4,18 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.50.9] - 2026-05-26
+
+### Fixed
+
+- **Line comments no longer swallow the following line** (`panproto-parse`): the `layout` pass inserts a newline after any `Lit` token starting with a line-comment prefix (`//` or `#`). Fixes comment-swallowing across JavaScript, Python, Stan, Julia, BUGS, and JAGS grammars.
+- **Yield-set cache restricted to hidden/supertype rules** (`panproto-parse`): `compute_yield_sets` no longer caches concrete named rules. Fixes JS object literal pairs, spread elements, new-expression arguments, Python single-kwarg calls, and Stan function parameters being dropped.
+- **`has_repeat` recursion for inline-brace identification** (`panproto-parse`): the structural check for REPEAT/REPEAT1 between `{` and `}` now recurses into CHOICE and SEQ wrappers, preventing JS `object` from being misclassified as an interpolation-like inline-brace rule.
+
+### Added
+
+- **14 comprehensive regression tests** (`panproto-parse`): covering comment-newline preservation, object literals, arrow functions, spread elements, new-expression arguments, single-kwarg calls, string literals, anonymous functions, and Stan/BUGS/JAGS-specific constructs across 5 grammars.
+
 ## [0.50.8] - 2026-05-26
 
 ### Fixed

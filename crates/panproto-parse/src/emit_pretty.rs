@@ -832,11 +832,15 @@ fn augment_subtypes_from_node_types(grammar: &mut Grammar) {
                 .map(|rule| referenced_symbols(rule))
                 .unwrap_or_default();
             let mut out = Vec::new();
-            for sym_name in &symbols {
-                for child_kind in allowed_children {
-                    if !kind_satisfies_symbol(grammar, Some(child_kind), sym_name) {
-                        out.push((child_kind.clone(), (*sym_name).to_owned()));
-                    }
+            for child_kind in allowed_children {
+                let already_satisfies_some = symbols
+                    .iter()
+                    .any(|s| kind_satisfies_symbol(grammar, Some(child_kind), s));
+                if already_satisfies_some {
+                    continue;
+                }
+                for sym_name in &symbols {
+                    out.push((child_kind.clone(), (*sym_name).to_owned()));
                 }
             }
             out
