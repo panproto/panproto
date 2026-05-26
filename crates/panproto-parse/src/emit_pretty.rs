@@ -320,6 +320,26 @@ pub struct Grammar {
     /// Epsilon is represented as the empty string `""`.
     #[serde(skip)]
     pub yield_sets: std::collections::HashMap<String, std::collections::HashSet<String>>,
+    /// Child kinds allowed per parent kind, derived from node-types.json.
+    /// Maps parent kind to the set of ALL named child kinds that tree-sitter's
+    /// parser can produce for that parent (from both `children.types` and
+    /// `fields.*.types`). Used by `augment_subtypes_from_node_types` to
+    /// close the grammar/parser divergence gap.
+    #[serde(skip)]
+    pub node_type_children: std::collections::HashMap<String, std::collections::HashSet<String>>,
+    /// Anonymous ALIAS values for external scanner tokens. Maps external
+    /// symbol name (e.g. `_ternary_qmark`) to the ALIAS value string
+    /// (e.g. `"?"`). Built by scanning grammar.json rule bodies for
+    /// `ALIAS { content: SYMBOL S, named: false, value: V }` where S
+    /// has no grammar rule.
+    #[serde(skip)]
+    pub external_alias_map: std::collections::HashMap<String, String>,
+    /// Rules whose `{`/`}` STRING tokens are inline delimiters (e.g.
+    /// string interpolation) rather than block scopes. Identified
+    /// structurally: a rule whose SEQ contains `{` and `}` but no
+    /// REPEAT/REPEAT1 between them.
+    #[serde(skip)]
+    pub inline_brace_rules: std::collections::HashSet<String>,
 }
 
 fn deserialize_supertypes<'de, D>(
@@ -409,12 +429,33 @@ impl Grammar {
     /// Returns [`ParseError::EmitFailed`] when the bytes are not a
     /// valid `grammar.json` document.
     pub fn from_bytes(protocol: &str, bytes: &[u8]) -> Result<Self, ParseError> {
+        Self::from_bytes_with_node_types(protocol, bytes, None)
+    }
+
+    /// Parse a grammar from both `grammar.json` and optionally
+    /// `node-types.json` bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParseError::EmitFailed`] when `grammar_bytes` is
+    /// not a valid `grammar.json` document.
+    pub fn from_bytes_with_node_types(
+        protocol: &str,
+        grammar_bytes: &[u8],
+        node_types_bytes: Option<&[u8]>,
+    ) -> Result<Self, ParseError> {
         let mut grammar: Self =
-            serde_json::from_slice(bytes).map_err(|e| ParseError::EmitFailed {
+            serde_json::from_slice(grammar_bytes).map_err(|e| ParseError::EmitFailed {
                 protocol: protocol.to_owned(),
                 reason: format!("grammar.json deserialization failed: {e}"),
             })?;
         grammar.subtypes = compute_subtype_closure(&grammar);
+        if let Some(nt_bytes) = node_types_bytes {
+            grammar.node_type_children = build_node_type_children(nt_bytes);
+            augment_subtypes_from_node_types(&mut grammar);
+        }
+        grammar.external_alias_map = build_external_alias_map(&grammar);
+        grammar.inline_brace_rules = identify_inline_brace_rules(&grammar);
         grammar.yield_sets = compute_yield_sets(&grammar);
         Ok(grammar)
     }
@@ -722,6 +763,197 @@ fn yield_of_production(
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// node-types.json integration
+// ═══════════════════════════════════════════════════════════════════
+
+/// Parse node-types.json and build a map from parent kind to the set
+/// of all named child kinds the parser can produce for that parent.
+fn build_node_type_children(
+    nt_bytes: &[u8],
+) -> std::collections::HashMap<String, std::collections::HashSet<String>> {
+    let node_types: Vec<crate::theory_extract::NodeType> = match serde_json::from_slice(nt_bytes) {
+        Ok(v) => v,
+        Err(_) => return std::collections::HashMap::new(),
+    };
+    let mut map: std::collections::HashMap<String, std::collections::HashSet<String>> =
+        std::collections::HashMap::new();
+    for entry in &node_types {
+        if !entry.named {
+            continue;
+        }
+        let mut child_kinds = std::collections::HashSet::new();
+        for field_value in entry.fields.values() {
+            if let Some(types) = field_value.get("types").and_then(|t| t.as_array()) {
+                for t in types {
+                    if let (Some(name), Some(true)) = (
+                        t.get("type").and_then(|n| n.as_str()),
+                        t.get("named").and_then(serde_json::Value::as_bool),
+                    ) {
+                        child_kinds.insert(name.to_owned());
+                    }
+                }
+            }
+        }
+        if let Some(ref children) = entry.children {
+            for t in &children.types {
+                if t.named {
+                    child_kinds.insert(t.node_type.clone());
+                }
+            }
+        }
+        if !child_kinds.is_empty() {
+            map.insert(entry.node_type.clone(), child_kinds);
+        }
+    }
+    map
+}
+
+/// Augment `grammar.subtypes` with child-kind data from node-types.json.
+///
+/// For each parent kind P with node-type children, for each SYMBOL S
+/// referenced in P's grammar rule, for each child kind C in
+/// `node_type_children[P]`: if C does not already satisfy S, record
+/// C satisfies S. This closes the grammar/parser divergence where
+/// tree-sitter's parser produces child kinds not reachable from
+/// grammar.json's production rules.
+fn augment_subtypes_from_node_types(grammar: &mut Grammar) {
+    let pairs: Vec<(String, String)> = grammar
+        .node_type_children
+        .iter()
+        .flat_map(|(parent_kind, allowed_children)| {
+            let symbols: Vec<&str> = grammar
+                .rules
+                .get(parent_kind)
+                .map(|rule| referenced_symbols(rule))
+                .unwrap_or_default();
+            let mut out = Vec::new();
+            for sym_name in &symbols {
+                for child_kind in allowed_children {
+                    if !kind_satisfies_symbol(grammar, Some(child_kind), sym_name) {
+                        out.push((child_kind.clone(), (*sym_name).to_owned()));
+                    }
+                }
+            }
+            out
+        })
+        .collect();
+    for (child_kind, sym_name) in pairs {
+        grammar
+            .subtypes
+            .entry(child_kind)
+            .or_default()
+            .insert(sym_name);
+    }
+}
+
+/// Build a map from external scanner symbol names to their anonymous
+/// ALIAS values by walking every rule body in the grammar.
+fn build_external_alias_map(grammar: &Grammar) -> std::collections::HashMap<String, String> {
+    let mut map = std::collections::HashMap::new();
+    fn walk(
+        grammar: &Grammar,
+        prod: &Production,
+        map: &mut std::collections::HashMap<String, String>,
+    ) {
+        match prod {
+            Production::Alias {
+                content,
+                named,
+                value,
+            } => {
+                if !*named && !value.is_empty() {
+                    if let Production::Symbol { name } = content.as_ref() {
+                        if name.starts_with('_') && !grammar.rules.contains_key(name) {
+                            map.entry(name.clone()).or_insert_with(|| value.clone());
+                        }
+                    }
+                }
+                walk(grammar, content, map);
+            }
+            Production::Choice { members } | Production::Seq { members } => {
+                for m in members {
+                    walk(grammar, m, map);
+                }
+            }
+            Production::Repeat { content }
+            | Production::Repeat1 { content }
+            | Production::Optional { content }
+            | Production::Field { content, .. }
+            | Production::Token { content }
+            | Production::ImmediateToken { content }
+            | Production::Prec { content, .. }
+            | Production::PrecLeft { content, .. }
+            | Production::PrecRight { content, .. }
+            | Production::PrecDynamic { content, .. }
+            | Production::Reserved { content, .. } => walk(grammar, content, map),
+            _ => {}
+        }
+    }
+    for rule in grammar.rules.values() {
+        walk(grammar, rule, &mut map);
+    }
+    map
+}
+
+/// Identify rules whose `{`/`}` tokens are inline delimiters (e.g.
+/// interpolation) rather than block scopes. A rule is inline-brace
+/// iff its production SEQ contains both an opening brace token and
+/// `}`, and the members between them contain no REPEAT/REPEAT1
+/// (which would indicate a statement-list block).
+fn identify_inline_brace_rules(grammar: &Grammar) -> std::collections::HashSet<String> {
+    fn is_inline_brace_body(prod: &Production) -> bool {
+        match prod {
+            Production::Seq { members } => {
+                let open_idx = members.iter().position(|m| match m {
+                    Production::String { value } => value.contains('{'),
+                    _ => false,
+                });
+                let close_idx = members
+                    .iter()
+                    .rposition(|m| matches!(m, Production::String { value } if value == "}"));
+                if let (Some(open), Some(close)) = (open_idx, close_idx) {
+                    if open < close {
+                        let between = &members[open + 1..close];
+                        return !has_repeat(between);
+                    }
+                }
+                false
+            }
+            Production::Prec { content, .. }
+            | Production::PrecLeft { content, .. }
+            | Production::PrecRight { content, .. }
+            | Production::PrecDynamic { content, .. }
+            | Production::Token { content }
+            | Production::ImmediateToken { content }
+            | Production::Reserved { content, .. } => is_inline_brace_body(content),
+            _ => false,
+        }
+    }
+    fn has_repeat(members: &[Production]) -> bool {
+        members.iter().any(|m| match m {
+            Production::Repeat { .. } | Production::Repeat1 { .. } => true,
+            Production::Prec { content, .. }
+            | Production::PrecLeft { content, .. }
+            | Production::PrecRight { content, .. }
+            | Production::PrecDynamic { content, .. } => {
+                matches!(
+                    content.as_ref(),
+                    Production::Repeat { .. } | Production::Repeat1 { .. }
+                )
+            }
+            _ => false,
+        })
+    }
+    let mut result = std::collections::HashSet::new();
+    for (name, rule) in &grammar.rules {
+        if is_inline_brace_body(rule) {
+            result.insert(name.clone());
+        }
+    }
+    result
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // Format policy
 // ═══════════════════════════════════════════════════════════════════
 
@@ -867,26 +1099,17 @@ fn emit_vertex(
     let kind = vertex.kind.as_ref();
     let edges = children_for(schema, vertex_id);
     if let Some(rule) = grammar.rules.get(kind) {
+        let old_suppress = out.suppress_brace_indent;
+        if grammar.inline_brace_rules.contains(kind) {
+            out.suppress_brace_indent = true;
+        }
         let mut cursor = ChildCursor::new(&edges);
         emit_production(protocol, schema, grammar, vertex_id, rule, &mut cursor, out)?;
         // Drain any extras left after the rule walk completed; tree-sitter
         // may record trailing comments as children of the surrounding
         // vertex (i.e. after the last structural child the rule matched).
         drain_extras(protocol, schema, grammar, &mut cursor, out)?;
-        // Emit remaining unconsumed structural children that the grammar
-        // rule did not match. This covers cases where tree-sitter's parser
-        // produces child kinds not reachable from grammar.json's production
-        // rules (e.g. Julia's macrocall_expression can have an
-        // `argument_list` child even though the grammar only references
-        // `macro_argument_list`).
-        for (i, edge) in cursor.edges.iter().enumerate() {
-            if !cursor.consumed[i] {
-                let child_kind = schema.vertices.get(&edge.tgt).map(|v| v.kind.as_ref());
-                if child_kind.is_some_and(|k| !grammar.extras.contains(k)) {
-                    emit_vertex(protocol, schema, grammar, &edge.tgt, out)?;
-                }
-            }
-        }
+        out.suppress_brace_indent = old_suppress;
         return Ok(());
     }
 
@@ -1209,9 +1432,14 @@ fn emit_production_inner(
                     //   grammars like TOML whose `pair` SEQ trails
                     //   into `_line_ending_or_eof`.
                     //
-                    // Anything else falls through silently — better
-                    // to drop an unknown external token than to
-                    // invent one that confuses re-parsing.
+                    // Check the precomputed alias map first: if this
+                    // external token appears as the content of an
+                    // anonymous ALIAS elsewhere in the grammar, emit
+                    // the alias value as the token text.
+                    if let Some(alias_value) = grammar.external_alias_map.get(name) {
+                        out.token(alias_value);
+                        return Ok(());
+                    }
                     if name == "_indent" || name.ends_with("_indent") {
                         out.indent_open();
                     } else if name == "_dedent" || name.ends_with("_dedent") {
@@ -1438,6 +1666,20 @@ fn emit_production_inner(
                         .unwrap_or(false)
                 }) {
                     return emit_aliased_child(protocol, schema, grammar, &edge.tgt, content, out);
+                }
+            }
+            // For anonymous aliases (named: false) whose content is an
+            // external scanner token with no grammar rule (e.g.
+            // JavaScript's `_ternary_qmark` aliased to `"?"`), emit the
+            // alias value directly. The content's SYMBOL handler would
+            // fall through the external-token heuristic and produce
+            // nothing; the alias value IS the token text.
+            if !*named && !value.is_empty() {
+                if let Production::Symbol { name: sym } = content.as_ref() {
+                    if sym.starts_with('_') && !grammar.rules.contains_key(sym) {
+                        out.token(value);
+                        return Ok(());
+                    }
                 }
             }
             emit_production(protocol, schema, grammar, vertex_id, content, cursor, out)
@@ -1900,19 +2142,51 @@ fn pick_choice_with_cursor<'a>(
         }
     }
 
-    // No cursor-driven match. Fall back to:
+    // Indented-form preference: when no dispatch tier uniquely
+    // identified an alternative and the cursor has children, prefer
+    // the alternative whose production body contains an `_indent`
+    // SYMBOL. The indented form is always valid for by-construction
+    // schemas and round-trips cleanly; the inline form (e.g. Python's
+    // `;`-separated `_simple_statements`) is a source-level
+    // abbreviation that requires parse-time context to select correctly.
+    if first_unconsumed_kind.is_some() {
+        let indent_alt = alternatives.iter().find(|alt| {
+            referenced_symbols(alt)
+                .iter()
+                .any(|s| *s == "_indent" || s.ends_with("_indent"))
+        });
+        if let Some(alt) = indent_alt {
+            return Some(alt);
+        }
+    }
+
+    // No dispatch tier matched. The final selection follows the
+    // categorical semantics of CHOICE-with-BLANK: BLANK represents ε
+    // (produce nothing at this position). It is correct if and only
+    // if no child remains to consume at this cursor position.
     //
-    // - BLANK (the explicit empty alternative) when present, so an
-    //   OPTIONAL-shaped CHOICE compiles to nothing.
-    // - The first non-`BLANK` alternative as a last resort, used by
-    //   STRING-only alternatives (keyword tokens) and other choices
-    //   that don't reach the cursor.
-    //
-    // The previous "match own_kind" branch is intentionally absent:
-    // when an alt's first SYMBOL equals the current vertex's kind, the
-    // caller is already emitting that vertex's own rule. Recursing
-    // into the alt would cause a self-loop in the rule walk.
+    // When unconsumed non-extra children remain, selecting BLANK
+    // would silently drop them. Select the first non-BLANK
+    // alternative instead so the production walk can attempt to
+    // consume them (the grammar rule may reference a symbol name
+    // that doesn't exactly match the parse output's child kind,
+    // e.g. Julia's macrocall_expression receives `argument_list`
+    // children when grammar.json only references
+    // `macro_argument_list`).
     let _ = (schema, vertex_id);
+    let has_unconsumed_structural = cursor.edges.iter().enumerate().any(|(i, edge)| {
+        !cursor.consumed[i]
+            && schema
+                .vertices
+                .get(&edge.tgt)
+                .map(|v| !grammar.extras.contains(v.kind.as_ref()))
+                .unwrap_or(false)
+    });
+    if has_unconsumed_structural {
+        return alternatives
+            .iter()
+            .find(|alt| !matches!(alt, Production::Blank));
+    }
     if alternatives.iter().any(|a| matches!(a, Production::Blank)) {
         return alternatives.iter().find(|a| matches!(a, Production::Blank));
     }
@@ -2288,6 +2562,7 @@ enum Token {
 struct Output<'a> {
     tokens: Vec<Token>,
     policy: &'a FormatPolicy,
+    suppress_brace_indent: bool,
 }
 
 #[derive(Clone)]
@@ -2300,6 +2575,7 @@ impl<'a> Output<'a> {
         Self {
             tokens: Vec::new(),
             policy,
+            suppress_brace_indent: false,
         }
     }
 
@@ -2331,11 +2607,12 @@ impl<'a> Output<'a> {
         let trimmed = value.trim_end_matches(['\n', '\r']);
         let trailing_newlines = value.len() - trimmed.len();
         if trailing_newlines > 0 && !trimmed.is_empty() {
-            if self.policy.indent_close.iter().any(|t| t == trimmed) {
+            if !self.suppress_brace_indent && self.policy.indent_close.iter().any(|t| t == trimmed)
+            {
                 self.tokens.push(Token::IndentClose);
             }
             self.tokens.push(Token::Lit(trimmed.to_owned()));
-            if self.policy.indent_open.iter().any(|t| t == trimmed) {
+            if !self.suppress_brace_indent && self.policy.indent_open.iter().any(|t| t == trimmed) {
                 self.tokens.push(Token::IndentOpen);
             } else if self.policy.line_break_after.iter().any(|t| t == trimmed) {
                 // already emitting a LineBreak below for the trailing \n
@@ -2344,13 +2621,13 @@ impl<'a> Output<'a> {
             return;
         }
 
-        if self.policy.indent_close.iter().any(|t| t == value) {
+        if !self.suppress_brace_indent && self.policy.indent_close.iter().any(|t| t == value) {
             self.tokens.push(Token::IndentClose);
         }
 
         self.tokens.push(Token::Lit(value.to_owned()));
 
-        if self.policy.indent_open.iter().any(|t| t == value) {
+        if !self.suppress_brace_indent && self.policy.indent_open.iter().any(|t| t == value) {
             self.tokens.push(Token::IndentOpen);
             self.tokens.push(Token::LineBreak);
         } else if self.policy.line_break_after.iter().any(|t| t == value) {
