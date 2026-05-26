@@ -4,6 +4,24 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.50.5] - 2026-05-26
+
+### Fixed
+
+- **`emit_pretty` integrates node-types.json to close grammar/parser divergence** (`panproto-parse`): the Grammar struct now accepts node-types.json alongside grammar.json. A new `build_node_type_children` function parses the authoritative child-kind data, and `augment_subtypes_from_node_types` adds parser-produced child kinds to the subtype closure. This fixes Julia macrocall short-form `@trace(args)` (#153), Julia multi-arg macrocall `@info "msg" foo bar` (#167), and Julia function body re-emit corruption (#164).
+- **`emit_pretty` reverts unconsumed-children fallback** (`panproto-parse`): the v0.50.3 fallback that emitted remaining children after the grammar rule walk caused JavaScript object literal contents to appear outside braces (#159), Stan array sizes to split to the next line (#165), and Stan function parameters to migrate outside parentheses (#166). Removed; the CHOICE fallback now correctly selects non-BLANK when structural children remain.
+- **`emit_pretty` resolves external scanner tokens via precomputed alias map** (`panproto-parse`): `build_external_alias_map` walks all grammar rule bodies at construction time, collecting anonymous ALIAS values for external tokens. The SYMBOL handler checks this map before falling through to name-matching heuristics, fixing JavaScript ternary `?` (#162) and generalizing to all external-token ALIASes.
+- **`emit_pretty` prefers indented CHOICE alternative for by-construction schemas** (`panproto-parse`): when no dispatch tier uniquely identifies a CHOICE alternative and the alternatives include an indented form (containing `_indent` SYMBOL), prefer it over the inline form. The indented form always produces valid output; the inline form (Python `;`-separated statements) is a source-level abbreviation requiring parse-time context. Fixes Julia function body block structure (#164).
+- **`emit_pretty` suppresses brace indentation in interpolation rules** (`panproto-parse`): `identify_inline_brace_rules` structurally identifies rules whose `{`/`}` tokens are inline delimiters (no REPEAT between them) rather than block scopes. The Output struct carries a `suppress_brace_indent` flag threaded through `emit_vertex`.
+
+### Added
+
+- **`Grammar.node_type_children`** (`panproto-parse`): maps parent kind to the set of all named child kinds from node-types.json.
+- **`Grammar.external_alias_map`** (`panproto-parse`): maps external scanner symbol names to their anonymous ALIAS value strings.
+- **`Grammar.inline_brace_rules`** (`panproto-parse`): set of rule names whose `{`/`}` tokens should not trigger block indentation.
+- **`Grammar::from_bytes_with_node_types`** (`panproto-parse`): constructor accepting both grammar.json and node-types.json bytes.
+- **9 regression tests** (`panproto-parse`): one per issue #159-#167, covering JS objects, Python function bodies, f-strings, JS ternaries, template literals, Julia functions/macrocalls, and Stan declarations.
+
 ## [0.50.4] - 2026-05-26
 
 ### Fixed

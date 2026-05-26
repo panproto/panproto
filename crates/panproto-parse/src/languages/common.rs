@@ -54,6 +54,9 @@ pub struct LanguageParser {
     /// when the upstream grammar does not ship `grammar.json` and
     /// `tools/fetch-grammar-json.py` could not regenerate one.
     grammar_json: Option<&'static [u8]>,
+    /// Raw `node-types.json` bytes for augmenting the Grammar's subtype
+    /// closure with parser-produced child kinds not in grammar.json.
+    node_types_json_for_emit: Option<Vec<u8>>,
     /// Lazily-parsed grammar. Populated on first call to `emit_pretty`.
     grammar_cache: OnceLock<Result<EmitGrammar, ParseError>>,
 }
@@ -126,6 +129,7 @@ impl LanguageParser {
             walker_config,
             scope_detector: Mutex::new(scope_detector),
             grammar_json,
+            node_types_json_for_emit: Some(node_types_json.to_vec()),
             grammar_cache: OnceLock::new(),
         })
     }
@@ -228,9 +232,10 @@ impl AstParser for LanguageParser {
                      run tools/fetch-grammar-json.py to populate it"
                 .to_owned(),
         })?;
-        let cached = self
-            .grammar_cache
-            .get_or_init(|| EmitGrammar::from_bytes(&self.protocol_name, bytes));
+        let nt = self.node_types_json_for_emit.as_deref();
+        let cached = self.grammar_cache.get_or_init(|| {
+            EmitGrammar::from_bytes_with_node_types(&self.protocol_name, bytes, nt)
+        });
         let grammar = match cached {
             Ok(g) => g,
             Err(e) => {
