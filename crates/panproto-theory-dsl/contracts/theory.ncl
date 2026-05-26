@@ -7,319 +7,260 @@
 #   let { Theory, Morphism, Sort, Op, simple, unary, eq, colimit, .. }
 #     = import "panproto/theory.ncl" in
 #   { id = "dev.my-domain.my-theory", description = "...", ... }
-
-# ═══════════════════════════════════════════════════════════════════
-# Sort kind constructors
-# ═══════════════════════════════════════════════════════════════════
-
-let Structural = { type = "structural" } in
-let Val = fun kind => { type = "val", value_kind = kind } in
-let Coercion = fun from to class => {
-  type = "coercion", from = from, to = to, class = class
-} in
-let Merger = fun kind => { type = "merger", value_kind = kind } in
-
-# ═══════════════════════════════════════════════════════════════════
-# Contracts
-# ═══════════════════════════════════════════════════════════════════
-
-let ParamSpec = {
-  name | String,
-  sort | String,
-  implicit | Bool | optional,
-} in
-
-let SortKindSpec = {
-  type | String,
-  ..
-} in
-
-let SortSpec = {
-  name | String,
-  params | Array ParamSpec | default = [],
-  kind | default = Structural,
-} in
-
-let OpSpec = {
-  name | String,
-  input | String | optional,
-  inputs | Array ParamSpec | optional,
-  output | String,
-} in
-
-let EquationSpec = {
-  name | String,
-  lhs | String,
-  rhs | String,
-} in
-
-let DirectedEqSpec = {
-  name | String,
-  lhs | String,
-  rhs | String,
-  impl_expr | String,
-  inverse | String | optional,
-  source_kind | String | optional,
-  target_kind | String | optional,
-  coercion_class | String | default = "iso",
-} in
-
-let StrategySpec = {
-  type | String,
-  ..
-} in
-
-let PolicySpec = {
-  name | String,
-  value_kind | String,
-  strategy | StrategySpec,
-} in
-
-let EdgeRuleSpec = {
-  edge_kind | String,
-  src_kind | String,
-  tgt_kind | String,
-} in
-
-let ColimitStepSpec = {
-  left | String,
-  right | String,
-  shared_sorts | Array String,
-  shared_ops | Array String | default = [],
-} in
-
-# ═══════════════════════════════════════════════════════════════════
-# Document contracts
-# ═══════════════════════════════════════════════════════════════════
-
-let Theory = {
-  id | String,
-  description | String,
-  theory | String,
-  extends | Array String | default = [],
-  sorts | Array SortSpec | default = [],
-  ops | Array OpSpec | default = [],
-  equations | Array EquationSpec | default = [],
-  directed_equations | Array DirectedEqSpec | default = [],
-  policies | Array PolicySpec | default = [],
-} in
-
-let Morphism = {
-  id | String,
-  description | String,
-  morphism | String,
-  domain | String,
-  codomain | String,
-  sort_map | { _ : String },
-  op_map | { _ : String },
-} in
-
-let Composition = {
-  id | String,
-  description | String,
-  compose | {
-    result | String,
-    bases | Array String | default = [],
-    steps | Array ColimitStepSpec,
-  },
-} in
-
-let Protocol = {
-  id | String,
-  description | String,
-  protocol | String,
-  schema_theory | String | { theory | String, .. } | { result | String, .. },
-  instance_theory | String | { theory | String, .. } | { result | String, .. },
-  edge_rules | Array EdgeRuleSpec | default = [],
-} in
-
-let Bundle = {
-  id | String,
-  description | String,
-  bundle | String,
-  theories | Array { theory | String, .. } | default = [],
-  morphisms | Array { morphism | String, .. } | default = [],
-  compositions | Array { result | String, .. } | default = [],
-  protocols | Array { protocol | String, .. } | default = [],
-} in
-
-let Class = {
-  id | String,
-  description | String,
-  class | String,
-  params | Array String,
-  signatures | Array OpSpec,
-  axioms | Array EquationSpec | default = [],
-} in
-
-let Instance = {
-  id | String,
-  description | String,
-  instance | String,
-  class | String,
-  target | String,
-  bindings | { _ : String },
-} in
-
-# ═══════════════════════════════════════════════════════════════════
-# Sort combinators
-# ═══════════════════════════════════════════════════════════════════
-
-let simple = fun name => { name = name } in
-let dependent = fun name params => { name = name, params = params } in
-let val_sort = fun name kind => { name = name, kind = Val kind } in
-let coercion_sort = fun name from to class => {
-  name = name, kind = Coercion from to class
-} in
-let merger_sort = fun name kind => { name = name, kind = Merger kind } in
-let param = fun name sort => { name = name, sort = sort } in
-
-# ═══════════════════════════════════════════════════════════════════
-# Operation combinators
-# ═══════════════════════════════════════════════════════════════════
-
-let unary = fun name input output => {
-  name = name, input = input, output = output,
-} in
-
-let binary = fun name in1 in2 output => {
-  name = name,
-  inputs = [param in1.0 in1.1, param in2.0 in2.1],
-  output = output,
-} in
-
-let nullary = fun name output => {
-  name = name, inputs = [], output = output,
-} in
-
-let nary = fun name inputs output => {
-  name = name, inputs = inputs, output = output,
-} in
-
-# ═══════════════════════════════════════════════════════════════════
-# Equation combinators
-# ═══════════════════════════════════════════════════════════════════
-
-let eq = fun name lhs rhs => {
-  name = name, lhs = lhs, rhs = rhs,
-} in
-
-let directed_eq = fun name lhs rhs impl_expr => {
-  name = name, lhs = lhs, rhs = rhs, impl_expr = impl_expr,
-} in
-
-let directed_eq_invertible = fun name lhs rhs impl_expr inverse => {
-  name = name, lhs = lhs, rhs = rhs,
-  impl_expr = impl_expr, inverse = inverse,
-} in
-
-# ═══════════════════════════════════════════════════════════════════
-# Policy combinators
-# ═══════════════════════════════════════════════════════════════════
-
-let keep_left = fun name value_kind => {
-  name = name, value_kind = value_kind,
-  strategy = { type = "keep_left" },
-} in
-
-let keep_right = fun name value_kind => {
-  name = name, value_kind = value_kind,
-  strategy = { type = "keep_right" },
-} in
-
-let fail_on_conflict = fun name value_kind => {
-  name = name, value_kind = value_kind,
-  strategy = { type = "fail" },
-} in
-
-let custom_policy = fun name value_kind expr => {
-  name = name, value_kind = value_kind,
-  strategy = { type = "custom", expr = expr },
-} in
-
-# ═══════════════════════════════════════════════════════════════════
-# Composition combinators
-# ═══════════════════════════════════════════════════════════════════
-
-let colimit = fun left right shared_sorts => {
-  left = left, right = right,
-  shared_sorts = shared_sorts, shared_ops = [],
-} in
-
-let colimit_with_ops = fun left right shared_sorts shared_ops => {
-  left = left, right = right,
-  shared_sorts = shared_sorts, shared_ops = shared_ops,
-} in
-
-# ═══════════════════════════════════════════════════════════════════
-# Edge rule combinators
-# ═══════════════════════════════════════════════════════════════════
-
-let edge_rule = fun edge_kind src_kind tgt_kind => {
-  edge_kind = edge_kind, src_kind = src_kind, tgt_kind = tgt_kind,
-} in
-
-# ═══════════════════════════════════════════════════════════════════
-# Exports
-# ═══════════════════════════════════════════════════════════════════
+#
+# Parameter names use a _ prefix to avoid colliding with the record
+# field names they populate (Nickel's record scope shadows enclosing
+# bindings when the names coincide, causing infinite recursion).
 
 {
+  # ═══════════════════════════════════════════════════════════════════
   # Sort kind constructors
-  Structural = Structural,
-  Val = Val,
-  Coercion = Coercion,
-  Merger = Merger,
+  # ═══════════════════════════════════════════════════════════════════
 
+  Structural = { type = "structural" },
+  Val = fun _kind => { type = "val", value_kind = _kind },
+  Coercion = fun _from _to _class => {
+    type = "coercion", from = _from, to = _to, class = _class
+  },
+  Merger = fun _kind => { type = "merger", value_kind = _kind },
+
+  # ═══════════════════════════════════════════════════════════════════
   # Contracts
-  ParamSpec = ParamSpec,
-  SortKindSpec = SortKindSpec,
-  SortSpec = SortSpec,
-  OpSpec = OpSpec,
-  EquationSpec = EquationSpec,
-  DirectedEqSpec = DirectedEqSpec,
-  StrategySpec = StrategySpec,
-  PolicySpec = PolicySpec,
-  EdgeRuleSpec = EdgeRuleSpec,
-  ColimitStepSpec = ColimitStepSpec,
+  # ═══════════════════════════════════════════════════════════════════
 
+  ParamSpec = {
+    name | String,
+    sort | String,
+    implicit | Bool | optional,
+  },
+
+  SortKindSpec = {
+    type | String,
+    ..
+  },
+
+  SortSpec = {
+    name | String,
+    params | Array ParamSpec | optional,
+    kind | optional,
+  },
+
+  OpSpec = {
+    name | String,
+    input | String | optional,
+    inputs | Array ParamSpec | optional,
+    output | String,
+  },
+
+  EquationSpec = {
+    name | String,
+    lhs | String,
+    rhs | String,
+  },
+
+  DirectedEqSpec = {
+    name | String,
+    lhs | String,
+    rhs | String,
+    impl_expr | String,
+    inverse | String | optional,
+    source_kind | String | optional,
+    target_kind | String | optional,
+    coercion_class | String | optional,
+  },
+
+  StrategySpec = {
+    type | String,
+    ..
+  },
+
+  PolicySpec = {
+    name | String,
+    value_kind | String,
+    strategy | StrategySpec,
+  },
+
+  EdgeRuleSpec = {
+    edge_kind | String,
+    src_kind | String,
+    tgt_kind | String,
+  },
+
+  ColimitStepSpec = {
+    left | String,
+    right | String,
+    shared_sorts | Array String,
+    shared_ops | Array String | optional,
+  },
+
+  # ═══════════════════════════════════════════════════════════════════
   # Document contracts
-  Theory = Theory,
-  Morphism = Morphism,
-  Composition = Composition,
-  Protocol = Protocol,
-  Bundle = Bundle,
-  Class = Class,
-  Instance = Instance,
+  # ═══════════════════════════════════════════════════════════════════
 
+  Theory = {
+    id | String,
+    description | String,
+    theory | String,
+    extends | Array String | optional,
+    sorts | Array SortSpec | optional,
+    ops | Array OpSpec | optional,
+    equations | Array EquationSpec | optional,
+    directed_equations | Array DirectedEqSpec | optional,
+    policies | Array PolicySpec | optional,
+  },
+
+  Morphism = {
+    id | String,
+    description | String,
+    morphism | String,
+    domain | String,
+    codomain | String,
+    sort_map | { _ : String },
+    op_map | { _ : String },
+  },
+
+  Composition = {
+    id | String,
+    description | String,
+    compose | {
+      result | String,
+      bases | Array String | optional,
+      steps | Array ColimitStepSpec,
+    },
+  },
+
+  Protocol = {
+    id | String,
+    description | String,
+    protocol | String,
+    schema_theory | String | { theory | String, .. } | { result | String, .. },
+    instance_theory | String | { theory | String, .. } | { result | String, .. },
+    edge_rules | Array EdgeRuleSpec | optional,
+  },
+
+  Bundle = {
+    id | String,
+    description | String,
+    bundle | String,
+    theories | Array { theory | String, .. } | optional,
+    morphisms | Array { morphism | String, .. } | optional,
+    compositions | Array { result | String, .. } | optional,
+    protocols | Array { protocol | String, .. } | optional,
+  },
+
+  Class = {
+    id | String,
+    description | String,
+    class | String,
+    params | Array String,
+    signatures | Array OpSpec,
+    axioms | Array EquationSpec | optional,
+  },
+
+  Instance = {
+    id | String,
+    description | String,
+    instance | String,
+    class | String,
+    target | String,
+    bindings | { _ : String },
+  },
+
+  # ═══════════════════════════════════════════════════════════════════
   # Sort combinators
-  simple = simple,
-  dependent = dependent,
-  val_sort = val_sort,
-  coercion_sort = coercion_sort,
-  merger_sort = merger_sort,
-  param = param,
+  # ═══════════════════════════════════════════════════════════════════
 
+  simple = fun _name => { name = _name },
+  dependent = fun _name _params => { name = _name, params = _params },
+  val_sort = fun _name _kind => { name = _name, kind = Val _kind },
+  coercion_sort = fun _name _from _to _class => {
+    name = _name, kind = Coercion _from _to _class
+  },
+  merger_sort = fun _name _kind => { name = _name, kind = Merger _kind },
+  param = fun _name _sort => { name = _name, sort = _sort },
+
+  # ═══════════════════════════════════════════════════════════════════
   # Operation combinators
-  unary = unary,
-  binary = binary,
-  nullary = nullary,
-  nary = nary,
+  # ═══════════════════════════════════════════════════════════════════
 
+  unary = fun _name _input _output => {
+    name = _name, input = _input, output = _output,
+  },
+
+  binary = fun _name _in1 _in2 _output => {
+    name = _name,
+    inputs = [{ name = _in1.0, sort = _in1.1 }, { name = _in2.0, sort = _in2.1 }],
+    output = _output,
+  },
+
+  nullary = fun _name _output => {
+    name = _name, inputs = [], output = _output,
+  },
+
+  nary = fun _name _inputs _output => {
+    name = _name, inputs = _inputs, output = _output,
+  },
+
+  # ═══════════════════════════════════════════════════════════════════
   # Equation combinators
-  eq = eq,
-  directed_eq = directed_eq,
-  directed_eq_invertible = directed_eq_invertible,
+  # ═══════════════════════════════════════════════════════════════════
 
+  eq = fun _name _lhs _rhs => {
+    name = _name, lhs = _lhs, rhs = _rhs,
+  },
+
+  directed_eq = fun _name _lhs _rhs _impl_expr => {
+    name = _name, lhs = _lhs, rhs = _rhs, impl_expr = _impl_expr,
+  },
+
+  directed_eq_invertible = fun _name _lhs _rhs _impl_expr _inverse => {
+    name = _name, lhs = _lhs, rhs = _rhs,
+    impl_expr = _impl_expr, inverse = _inverse,
+  },
+
+  # ═══════════════════════════════════════════════════════════════════
   # Policy combinators
-  keep_left = keep_left,
-  keep_right = keep_right,
-  fail_on_conflict = fail_on_conflict,
-  custom_policy = custom_policy,
+  # ═══════════════════════════════════════════════════════════════════
 
+  keep_left = fun _name _value_kind => {
+    name = _name, value_kind = _value_kind,
+    strategy = { type = "keep_left" },
+  },
+
+  keep_right = fun _name _value_kind => {
+    name = _name, value_kind = _value_kind,
+    strategy = { type = "keep_right" },
+  },
+
+  fail_on_conflict = fun _name _value_kind => {
+    name = _name, value_kind = _value_kind,
+    strategy = { type = "fail" },
+  },
+
+  custom_policy = fun _name _value_kind _expr => {
+    name = _name, value_kind = _value_kind,
+    strategy = { type = "custom", expr = _expr },
+  },
+
+  # ═══════════════════════════════════════════════════════════════════
   # Composition combinators
-  colimit = colimit,
-  colimit_with_ops = colimit_with_ops,
+  # ═══════════════════════════════════════════════════════════════════
 
+  colimit = fun _left _right _shared_sorts => {
+    left = _left, right = _right,
+    shared_sorts = _shared_sorts, shared_ops = [],
+  },
+
+  colimit_with_ops = fun _left _right _shared_sorts _shared_ops => {
+    left = _left, right = _right,
+    shared_sorts = _shared_sorts, shared_ops = _shared_ops,
+  },
+
+  # ═══════════════════════════════════════════════════════════════════
   # Edge rule combinators
-  edge_rule = edge_rule,
+  # ═══════════════════════════════════════════════════════════════════
+
+  edge_rule = fun _edge_kind _src_kind _tgt_kind => {
+    edge_kind = _edge_kind, src_kind = _src_kind, tgt_kind = _tgt_kind,
+  },
 }

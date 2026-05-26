@@ -728,6 +728,20 @@ fn emit_vertex(
         // may record trailing comments as children of the surrounding
         // vertex (i.e. after the last structural child the rule matched).
         drain_extras(protocol, schema, grammar, &mut cursor, out)?;
+        // Emit remaining unconsumed structural children that the grammar
+        // rule did not match. This covers cases where tree-sitter's parser
+        // produces child kinds not reachable from grammar.json's production
+        // rules (e.g. Julia's macrocall_expression can have an
+        // `argument_list` child even though the grammar only references
+        // `macro_argument_list`).
+        for (i, edge) in cursor.edges.iter().enumerate() {
+            if !cursor.consumed[i] {
+                let child_kind = schema.vertices.get(&edge.tgt).map(|v| v.kind.as_ref());
+                if child_kind.is_some_and(|k| !grammar.extras.contains(k)) {
+                    emit_vertex(protocol, schema, grammar, &edge.tgt, out)?;
+                }
+            }
+        }
         return Ok(());
     }
 
@@ -1062,6 +1076,8 @@ fn emit_production_inner(
                         || name.ends_with("_or_eof")
                     {
                         out.newline();
+                    } else if name.contains("semicolon") {
+                        out.token(";");
                     }
                     Ok(())
                 }
@@ -2363,7 +2379,7 @@ fn first_is_operand_start(s: &str) -> bool {
 }
 
 fn is_punct_open(s: &str) -> bool {
-    matches!(s, "(" | "[" | "{" | "\"" | "'" | "`")
+    matches!(s, "(" | "[" | "{" | "\"" | "'" | "`" | "@" | "#")
 }
 
 fn is_punct_close(s: &str) -> bool {

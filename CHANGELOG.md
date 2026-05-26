@@ -4,6 +4,15 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.50.3] - 2026-05-25
+
+### Fixed
+
+- **Nickel contract modules no longer infinite-recurse on import** (`panproto-lens-dsl`, `panproto-theory-dsl`): the 0.50.1 fix (#151) replaced field-shorthand exports with explicit assignments (`Lens = Lens,`), but Nickel's record scope shadows enclosing `let`-bindings when field and variable names coincide, turning every export into a self-referential binding. Restructured both `lens.ncl` and `theory.ncl` as flat records with all definitions inline (no `let`-chain), and prefixed combinator parameters with `_` to avoid field-name collisions (`fun _old _new => { old = _old, new = _new }`). Six new Nickel evaluation regression tests cover individual combinators, rule patterns, and exhaustive export accessibility. Closes #154.
+- **`emit_pretty` renders Julia parenthesised macrocall arguments** (`panproto-parse`): the grammar rule for `macrocall_expression` references `macro_argument_list`, but tree-sitter's parser also produces `argument_list` children for the short form `@trace(args)`. Unconsumed structural children left after the grammar-rule walk are now emitted as a fallback, so the argument list survives even when no grammar alternative matches it. Closes #153.
+- **`emit_pretty` inserts semicolons for JavaScript ASI** (`panproto-parse`): the `_automatic_semicolon` external scanner token was falling through the heuristic fallback silently. External hidden rules whose name contains "semicolon" now emit `;`. Two regression tests verify semicolon presence and error-free re-parse. Closes #155.
+- **`@` sigil no longer inserts a spurious space before the macro name** (`panproto-parse`): added `@` and `#` to the set of prefix-sigil punctuation that suppresses trailing whitespace in the layout policy.
+
 ## [0.50.2] - 2026-05-25
 
 ### Fixed
