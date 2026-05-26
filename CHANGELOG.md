@@ -4,6 +4,15 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.50.6] - 2026-05-26
+
+### Fixed
+
+- **`emit_pretty` CHOICE dispatch no longer emits phantom tokens** (`panproto-parse`): the BLANK-over-non-BLANK fallback (introduced in v0.50.5) incorrectly selected non-BLANK alternatives for CHOICE positions whose children belonged to later SEQ members, inserting phantom tokens like `async` and `->` in Python function definitions. Removed the fallback: BLANK is now always selected when no dispatch tier matches, which is categorically correct (children that don't match this CHOICE position belong to a later SEQ member). The node-types.json augmentation from v0.50.5 handles the Julia macrocall case that originally motivated the fallback.
+- **`emit_pretty` inline-brace suppression now covers `line_break_after`** (`panproto-parse`): `{` and `}` tokens inside inline-brace rules (interpolation, template substitution) no longer trigger `LineBreak` from the `line_break_after` policy vector. Previously, even with `suppress_brace_indent` active, the `line_break_after` check still fired as a fallback. Fixes Python f-string interpolation (#161) and JavaScript template literal interpolation (#163).
+- **`is_punct_open` recognizes compound opening tokens** (`panproto-parse`): tokens ending with `{`, `(`, or `[` (e.g. `${`, `#{`) are now treated as opening punctuation, suppressing the inter-token space. Fixes `${ name}` → `${name}` in JS template literals.
+- **`emit_pretty` indented-form CHOICE preference fires before standard dispatch** (`panproto-parse`): when multiple CHOICE alternatives yield the same child kind (e.g. Python `_suite` where all three alternatives produce `block`), the alternative containing `_indent` is selected before the standard direct-match pass that would pick the first grammar-order match. Selects the indented block form for Python function bodies instead of the inline `;`-separated form.
+
 ## [0.50.5] - 2026-05-26
 
 ### Fixed
