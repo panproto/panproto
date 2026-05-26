@@ -4,491 +4,386 @@
 #   let L = import "panproto/lens.ncl" in
 #   { ... } | L.Lens
 
-# -- Coercion classification --
-# Use as: coercion = L.iso, coercion = L.projection, etc.
-let iso = "iso" in
-let retraction = "retraction" in
-let projection = "projection" in
-let opaque = "opaque" in
-
-let Coercion = std.contract.from_predicate (fun x =>
-  x == "iso" || x == "retraction" || x == "projection" || x == "opaque"
-) in
-
-# -- Step contracts --
-
-let RenameSpec = {
-  old | String,
-  new | String,
-} in
-
-let AddFieldSpec = {
-  name | String,
-  kind | String,
-  fallback | optional,
-  expr | String | optional,
-} in
-
-let ApplyExprSpec = {
-  field | String,
-  expr | String,
-  inverse | String | optional,
-  coercion | Coercion | optional,
-} in
-
-let ComputeFieldSpec = {
-  target | String,
-  expr | String,
-  inverse | String | optional,
-  coercion | Coercion | optional,
-} in
-
-let HoistSpec = {
-  parent | String,
-  intermediate | String,
-  child | String,
-} in
-
-let NestSpec = {
-  parent | String,
-  child | String,
-  intermediate | String,
-  intermediate_kind | String,
-  edge_kind | String,
-  old_edge_name | String | optional,
-  parent_to_intermediate | String | optional,
-  intermediate_to_child | String | optional,
-} in
-
-let PullbackSpec = {
-  name | String,
-  domain | String,
-  codomain | String,
-  sort_map | { _ : String } | default = {},
-  op_map | { _ : String } | default = {},
-} in
-
-let CoerceSortSpec = {
-  sort | String,
-  target_kind | String,
-  expr | String,
-  inverse | String | optional,
-  coercion | Coercion,
-} in
-
-let MergeSortsSpec = {
-  sort_a | String,
-  sort_b | String,
-  merged | String,
-  expr | String,
-} in
-
-let AddSortSpec = {
-  name | String,
-  kind | String,
-  fallback | optional,
-} in
-
-let AddOpSpec = {
-  name | String,
-  src | String,
-  tgt | String,
-  kind | String,
-} in
-
-let EquationSpec = {
-  name | String,
-  lhs | String,
-  rhs | String,
-} in
-
-# A step is a record with exactly one of these keys set.
-# We use an open contract: each field is optional, and users
-# provide exactly one per step object.
-let Step = {
-  remove_field | String | optional,
-  rename_field | RenameSpec | optional,
-  add_field | AddFieldSpec | optional,
-  apply_expr | ApplyExprSpec | optional,
-  compute_field | ComputeFieldSpec | optional,
-  hoist_field | HoistSpec | optional,
-  nest_field | NestSpec | optional,
-  scoped | { focus | String, inner | Array Dyn } | optional,
-  pullback | PullbackSpec | optional,
-  coerce_sort | CoerceSortSpec | optional,
-  merge_sorts | MergeSortsSpec | optional,
-  add_sort | AddSortSpec | optional,
-  drop_sort | String | optional,
-  rename_sort | RenameSpec | optional,
-  add_op | AddOpSpec | optional,
-  drop_op | String | optional,
-  rename_op | RenameSpec | optional,
-  add_equation | EquationSpec | optional,
-  drop_equation | String | optional,
-} in
-
-# -- Rule contracts --
-
-let FeaturePattern = {
-  name | String | optional,
-  type_id | String | optional,
-} in
-
-let Replacement = {
-  name | optional,
-  rename_attrs | { _ : String } | optional,
-  add_attrs | { _ : Dyn } | optional,
-  drop_attrs | Array String | optional,
-  keep_attrs | Array String | optional,
-  map_attr_value | { _ : Dyn } | optional,
-} in
-
-let Rule = {
-  pattern | FeaturePattern,
-  replace | Replacement | optional,
-} in
-
-# -- Compose contracts --
-
-let ComposeMode = std.contract.from_predicate (fun x =>
-  x == "vertical" || x == "horizontal"
-) in
-
-let LensRef =
-  std.contract.from_predicate (fun x =>
-    std.is_record x
-    && (std.record.has_field "ref" x || std.record.has_field "inline" x)
-  )
-in
-
-let ComposeSpec = {
-  mode | ComposeMode,
-  lenses | Array LensRef,
-} in
-
-# -- Auto contracts --
-
-let PreferenceKind = std.contract.from_predicate (fun x =>
-  x == "same_edge_name" || x == "similar_name" || x == "same_kind"
-) in
-
-let PreferencePredicate = {
-  kind | PreferenceKind,
-  threshold | Number | optional,
-} in
-
-let ConstraintType = std.contract.from_predicate (fun x =>
-  x == "scope" || x == "exclude_targets" || x == "exclude_sources" || x == "prefer"
-) in
-
-let Constraint = {
-  type | ConstraintType,
-  under | String | optional,
-  targets | String | optional,
-  vertices | Array String | optional,
-  predicate | PreferencePredicate | optional,
-  weight | Number | optional,
-} in
-
-let HintSpec = {
-  anchors | { _ : String } | optional,
-  constraints | Array Constraint | optional,
-} in
-
-let AutoSpec = {
-  quality_threshold | Number | optional,
-  enable_overlap | Bool | optional,
-  max_search_depth | Number | optional,
-  hints | HintSpec | optional,
-} in
-
-# -- Passthrough --
-
-let Passthrough = std.contract.from_predicate (fun x =>
-  x == "keep" || x == "drop"
-) in
-
-# -- The lens document contract --
-
-let Lens = {
-  id | String,
-  description | String | optional,
-  source | String,
-  target | String,
-
-  steps | Array Step | optional,
-  rules | Array Rule | optional,
-  compose | ComposeSpec | optional,
-  auto | AutoSpec | optional,
-
-  passthrough | Passthrough | optional,
-  invertible | Bool | optional,
-
-  extensions | { _ : Dyn } | optional,
-} in
-
-# =====================================================================
-# Combinator functions
-# =====================================================================
-
-# Remove a field (drop a sort).
-let remove = fun field => { remove_field = field } in
-
-# Rename a field's JSON property key.
-let rename = fun old new => { rename_field = { old = old, new = new } } in
-
-# Add a field with a fallback value.
-let add = fun name kind fallback => {
-  add_field = { name = name, kind = kind, fallback = fallback }
-} in
-
-# Add a field with a computed expression.
-let add_computed = fun name kind fallback expr => {
-  add_field = { name = name, kind = kind, fallback = fallback, expr = expr }
-} in
-
-# Apply an expression to an existing field.
-let apply = fun field expr => {
-  apply_expr = { field = field, expr = expr }
-} in
-
-# Apply an expression with inverse for round-tripping.
-let apply_invertible = fun field expr inverse => {
-  apply_expr = { field = field, expr = expr, inverse = inverse, coercion = iso }
-} in
-
-# Compute a new field from an expression.
-let compute = fun target expr => {
-  compute_field = { target = target, expr = expr }
-} in
-
-# Compute a new field with an inverse expression.
-let compute_invertible = fun target expr inverse => {
-  compute_field = { target = target, expr = expr, inverse = inverse, coercion = iso }
-} in
-
-# Hoist a nested field up one level.
-let hoist = fun parent intermediate child => {
-  hoist_field = { parent = parent, intermediate = intermediate, child = child }
-} in
-
-# Nest a direct child under a new intermediate vertex.
-#
-# Positional args (shorthand): parent, child, intermediate, intermediate_kind, edge_kind.
-# Resulting graph: parent --(intermediate)--> intermediate --(child)--> child
-# with the original parent → child edge dropped.
-#
-# For schemas where the original edge's label differs from the child
-# vertex id (common when vertex ids are path-qualified), build the
-# NestSpec record directly and set `old_edge_name`, `parent_to_intermediate`,
-# and `intermediate_to_child` explicitly.
-let nest = fun parent child intermediate intermediate_kind edge_kind => {
-  nest_field = {
-    parent = parent,
-    child = child,
-    intermediate = intermediate,
-    intermediate_kind = intermediate_kind,
-    edge_kind = edge_kind,
-  }
-} in
-
-# Apply inner steps to each element of an array.
-let map_items = fun focus inner => {
-  scoped = { focus = focus, inner = inner }
-} in
-
-# Pullback along a theory morphism.
-let pullback = fun name domain codomain sort_map op_map => {
-  pullback = {
-    name = name,
-    domain = domain,
-    codomain = codomain,
-    sort_map = sort_map,
-    op_map = op_map,
-  }
-} in
-
-# Coerce a sort's value kind.
-let coerce = fun sort target_kind expr coercion => {
-  coerce_sort = {
-    sort = sort,
-    target_kind = target_kind,
-    expr = expr,
-    coercion = coercion,
-  }
-} in
-
-# Coerce with an inverse.
-let coerce_invertible = fun sort target_kind expr inverse => {
-  coerce_sort = {
-    sort = sort,
-    target_kind = target_kind,
-    expr = expr,
-    inverse = inverse,
-    coercion = iso,
-  }
-} in
-
-# Merge two sorts into one.
-let merge = fun sort_a sort_b merged expr => {
-  merge_sorts = {
-    sort_a = sort_a,
-    sort_b = sort_b,
-    merged = merged,
-    expr = expr,
-  }
-} in
-
-# Add a sort to the theory.
-let add_sort = fun name kind fallback => {
-  add_sort = { name = name, kind = kind, fallback = fallback }
-} in
-
-# Drop a sort from the theory.
-let drop_sort = fun name => { drop_sort = name } in
-
-# Rename a sort.
-let rename_sort = fun old new => { rename_sort = { old = old, new = new } } in
-
-# Add an operation to the theory.
-let add_op = fun name src tgt kind => {
-  add_op = { name = name, src = src, tgt = tgt, kind = kind }
-} in
-
-# Drop an operation from the theory.
-let drop_op = fun name => { drop_op = name } in
-
-# Rename an operation.
-let rename_op = fun old new => { rename_op = { old = old, new = new } } in
-
-# Add an equation.
-let add_equation = fun name lhs rhs => {
-  add_equation = { name = name, lhs = lhs, rhs = rhs }
-} in
-
-# Drop an equation.
-let drop_equation = fun name => { drop_equation = name } in
-
-# -- Hint combinators --
-
-# Build an anchor constraint: source vertex maps to target vertex.
-let anchor = fun src tgt => { "%{src}" = tgt } in
-
-# Build a scope constraint: children of `under` map to children of `targets`.
-let scope = fun under targets => {
-  type = "scope",
-  under = under,
-  targets = targets,
-} in
-
-# Build an exclude_targets constraint.
-let exclude_targets = fun vertices => {
-  type = "exclude_targets",
-  vertices = vertices,
-} in
-
-# Build an exclude_sources constraint.
-let exclude_sources = fun vertices => {
-  type = "exclude_sources",
-  vertices = vertices,
-} in
-
-# Build a prefer constraint with a predicate and weight.
-let prefer_same_edge_name = fun weight => {
-  type = "prefer",
-  predicate = { kind = "same_edge_name" },
-  weight = weight,
-} in
-
-let prefer_similar_name = fun threshold weight => {
-  type = "prefer",
-  predicate = { kind = "similar_name", threshold = threshold },
-  weight = weight,
-} in
-
-# -- Template helpers --
-
-# Generate counter fields (integer fields with default 0).
-let counter_fields = fun fields =>
-  fields |> std.array.map (fun f => add f "integer" 0)
-in
-
-# Generate string fields with empty defaults.
-let string_fields = fun fields =>
-  fields |> std.array.map (fun f => add f "string" "")
-in
-
-# Build a rule mapping one name to another.
-let map_name = fun from to => {
-  pattern = { name = from },
-  replace = { name = to },
-} in
-
-# Build a rule that drops a matched feature.
-let drop_feature = fun name => {
-  pattern = { name = name },
-} in
-
-# =====================================================================
-# Exports
-# =====================================================================
-
 {
-  # Contracts
-  Lens = Lens,
-  Step = Step,
-  Rule = Rule,
-  FeaturePattern = FeaturePattern,
-  Replacement = Replacement,
-  ComposeSpec = ComposeSpec,
-  AutoSpec = AutoSpec,
-  HintSpec = HintSpec,
-  Constraint = Constraint,
-  PreferencePredicate = PreferencePredicate,
-  Coercion = Coercion,
+  # -- Coercion classification --
 
-  # Coercion values
-  iso = iso,
-  retraction = retraction,
-  projection = projection,
-  opaque = opaque,
+  iso = "iso",
+  retraction = "retraction",
+  projection = "projection",
+  opaque = "opaque",
 
-  # Step combinators
-  remove = remove,
-  rename = rename,
-  add = add,
-  add_computed = add_computed,
-  apply = apply,
-  apply_invertible = apply_invertible,
-  compute = compute,
-  compute_invertible = compute_invertible,
-  hoist = hoist,
-  nest = nest,
-  map_items = map_items,
-  pullback = pullback,
-  coerce = coerce,
-  coerce_invertible = coerce_invertible,
-  merge = merge,
-  add_sort = add_sort,
-  drop_sort = drop_sort,
-  rename_sort = rename_sort,
-  add_op = add_op,
-  drop_op = drop_op,
-  rename_op = rename_op,
-  add_equation = add_equation,
-  drop_equation = drop_equation,
+  Coercion = std.contract.from_predicate (fun x =>
+    x == "iso" || x == "retraction" || x == "projection" || x == "opaque"
+  ),
 
-  # Hint combinators
-  anchor = anchor,
-  scope = scope,
-  exclude_targets = exclude_targets,
-  exclude_sources = exclude_sources,
-  prefer_same_edge_name = prefer_same_edge_name,
-  prefer_similar_name = prefer_similar_name,
+  # -- Step contracts --
 
-  # Template helpers
-  counter_fields = counter_fields,
-  string_fields = string_fields,
-  map_name = map_name,
-  drop_feature = drop_feature,
+  RenameSpec = {
+    old | String,
+    new | String,
+  },
+
+  AddFieldSpec = {
+    name | String,
+    kind | String,
+    fallback | optional,
+    expr | String | optional,
+  },
+
+  ApplyExprSpec = {
+    field | String,
+    expr | String,
+    inverse | String | optional,
+    coercion | Coercion | optional,
+  },
+
+  ComputeFieldSpec = {
+    target | String,
+    expr | String,
+    inverse | String | optional,
+    coercion | Coercion | optional,
+  },
+
+  HoistSpec = {
+    parent | String,
+    intermediate | String,
+    child | String,
+  },
+
+  NestSpec = {
+    parent | String,
+    child | String,
+    intermediate | String,
+    intermediate_kind | String,
+    edge_kind | String,
+    old_edge_name | String | optional,
+    parent_to_intermediate | String | optional,
+    intermediate_to_child | String | optional,
+  },
+
+  PullbackSpec = {
+    name | String,
+    domain | String,
+    codomain | String,
+    sort_map | { _ : String } | optional,
+    op_map | { _ : String } | optional,
+  },
+
+  CoerceSortSpec = {
+    sort | String,
+    target_kind | String,
+    expr | String,
+    inverse | String | optional,
+    coercion | Coercion,
+  },
+
+  MergeSortsSpec = {
+    sort_a | String,
+    sort_b | String,
+    merged | String,
+    expr | String,
+  },
+
+  AddSortSpec = {
+    name | String,
+    kind | String,
+    fallback | optional,
+  },
+
+  AddOpSpec = {
+    name | String,
+    src | String,
+    tgt | String,
+    kind | String,
+  },
+
+  EquationSpec = {
+    name | String,
+    lhs | String,
+    rhs | String,
+  },
+
+  Step = {
+    remove_field | String | optional,
+    rename_field | RenameSpec | optional,
+    add_field | AddFieldSpec | optional,
+    apply_expr | ApplyExprSpec | optional,
+    compute_field | ComputeFieldSpec | optional,
+    hoist_field | HoistSpec | optional,
+    nest_field | NestSpec | optional,
+    scoped | { focus | String, inner | Array Dyn } | optional,
+    pullback | PullbackSpec | optional,
+    coerce_sort | CoerceSortSpec | optional,
+    merge_sorts | MergeSortsSpec | optional,
+    add_sort | AddSortSpec | optional,
+    drop_sort | String | optional,
+    rename_sort | RenameSpec | optional,
+    add_op | AddOpSpec | optional,
+    drop_op | String | optional,
+    rename_op | RenameSpec | optional,
+    add_equation | EquationSpec | optional,
+    drop_equation | String | optional,
+  },
+
+  # -- Rule contracts --
+
+  FeaturePattern = {
+    name | String | optional,
+    type_id | String | optional,
+  },
+
+  Replacement = {
+    name | optional,
+    rename_attrs | { _ : String } | optional,
+    add_attrs | { _ : Dyn } | optional,
+    drop_attrs | Array String | optional,
+    keep_attrs | Array String | optional,
+    map_attr_value | { _ : Dyn } | optional,
+  },
+
+  Rule = {
+    pattern | FeaturePattern,
+    replace | Replacement | optional,
+  },
+
+  # -- Compose contracts --
+
+  ComposeMode = std.contract.from_predicate (fun x =>
+    x == "vertical" || x == "horizontal"
+  ),
+
+  LensRef =
+    std.contract.from_predicate (fun x =>
+      std.is_record x
+      && (std.record.has_field "ref" x || std.record.has_field "inline" x)
+    ),
+
+  ComposeSpec = {
+    mode | ComposeMode,
+    lenses | Array LensRef,
+  },
+
+  # -- Auto contracts --
+
+  PreferenceKind = std.contract.from_predicate (fun x =>
+    x == "same_edge_name" || x == "similar_name" || x == "same_kind"
+  ),
+
+  PreferencePredicate = {
+    kind | PreferenceKind,
+    threshold | Number | optional,
+  },
+
+  ConstraintType = std.contract.from_predicate (fun x =>
+    x == "scope" || x == "exclude_targets" || x == "exclude_sources" || x == "prefer"
+  ),
+
+  Constraint = {
+    type | ConstraintType,
+    under | String | optional,
+    targets | String | optional,
+    vertices | Array String | optional,
+    predicate | PreferencePredicate | optional,
+    weight | Number | optional,
+  },
+
+  HintSpec = {
+    anchors | { _ : String } | optional,
+    constraints | Array Constraint | optional,
+  },
+
+  AutoSpec = {
+    quality_threshold | Number | optional,
+    enable_overlap | Bool | optional,
+    max_search_depth | Number | optional,
+    hints | HintSpec | optional,
+  },
+
+  # -- Passthrough --
+
+  Passthrough = std.contract.from_predicate (fun x =>
+    x == "keep" || x == "drop"
+  ),
+
+  # -- The lens document contract --
+
+  Lens = {
+    id | String,
+    description | String | optional,
+    source | String,
+    target | String,
+
+    steps | Array Step | optional,
+    rules | Array Rule | optional,
+    compose | ComposeSpec | optional,
+    auto | AutoSpec | optional,
+
+    passthrough | Passthrough | optional,
+    invertible | Bool | optional,
+
+    extensions | { _ : Dyn } | optional,
+  },
+
+  # =====================================================================
+  # Combinator functions
+  #
+  # Parameter names use a _ prefix to avoid colliding with the record
+  # field names they populate (Nickel's record scope shadows enclosing
+  # bindings when the names coincide, causing infinite recursion).
+  # =====================================================================
+
+  remove = fun _field => { remove_field = _field },
+
+  rename = fun _old _new => { rename_field = { old = _old, new = _new } },
+
+  add = fun _name _kind _fallback => {
+    add_field = { name = _name, kind = _kind, fallback = _fallback }
+  },
+
+  add_computed = fun _name _kind _fallback _expr => {
+    add_field = { name = _name, kind = _kind, fallback = _fallback, expr = _expr }
+  },
+
+  apply = fun _field _expr => {
+    apply_expr = { field = _field, expr = _expr }
+  },
+
+  apply_invertible = fun _field _expr _inverse => {
+    apply_expr = { field = _field, expr = _expr, inverse = _inverse, coercion = "iso" }
+  },
+
+  compute = fun _target _expr => {
+    compute_field = { target = _target, expr = _expr }
+  },
+
+  compute_invertible = fun _target _expr _inverse => {
+    compute_field = { target = _target, expr = _expr, inverse = _inverse, coercion = "iso" }
+  },
+
+  hoist = fun _parent _intermediate _child => {
+    hoist_field = { parent = _parent, intermediate = _intermediate, child = _child }
+  },
+
+  nest = fun _parent _child _intermediate _intermediate_kind _edge_kind => {
+    nest_field = {
+      parent = _parent,
+      child = _child,
+      intermediate = _intermediate,
+      intermediate_kind = _intermediate_kind,
+      edge_kind = _edge_kind,
+    }
+  },
+
+  map_items = fun _focus _inner => {
+    scoped = { focus = _focus, inner = _inner }
+  },
+
+  pullback = fun _name _domain _codomain _sort_map _op_map => {
+    pullback = {
+      name = _name,
+      domain = _domain,
+      codomain = _codomain,
+      sort_map = _sort_map,
+      op_map = _op_map,
+    }
+  },
+
+  coerce = fun _sort _target_kind _expr _coercion => {
+    coerce_sort = {
+      sort = _sort,
+      target_kind = _target_kind,
+      expr = _expr,
+      coercion = _coercion,
+    }
+  },
+
+  coerce_invertible = fun _sort _target_kind _expr _inverse => {
+    coerce_sort = {
+      sort = _sort,
+      target_kind = _target_kind,
+      expr = _expr,
+      inverse = _inverse,
+      coercion = "iso",
+    }
+  },
+
+  merge = fun _sort_a _sort_b _merged _expr => {
+    merge_sorts = {
+      sort_a = _sort_a,
+      sort_b = _sort_b,
+      merged = _merged,
+      expr = _expr,
+    }
+  },
+
+  add_sort = fun _name _kind _fallback => {
+    add_sort = { name = _name, kind = _kind, fallback = _fallback }
+  },
+
+  drop_sort = fun _name => { drop_sort = _name },
+
+  rename_sort = fun _old _new => { rename_sort = { old = _old, new = _new } },
+
+  add_op = fun _name _src _tgt _kind => {
+    add_op = { name = _name, src = _src, tgt = _tgt, kind = _kind }
+  },
+
+  drop_op = fun _name => { drop_op = _name },
+
+  rename_op = fun _old _new => { rename_op = { old = _old, new = _new } },
+
+  add_equation = fun _name _lhs _rhs => {
+    add_equation = { name = _name, lhs = _lhs, rhs = _rhs }
+  },
+
+  drop_equation = fun _name => { drop_equation = _name },
+
+  # -- Hint combinators --
+
+  anchor = fun _src _tgt => { "%{_src}" = _tgt },
+
+  scope = fun _under _targets => {
+    type = "scope",
+    under = _under,
+    targets = _targets,
+  },
+
+  exclude_targets = fun _vertices => {
+    type = "exclude_targets",
+    vertices = _vertices,
+  },
+
+  exclude_sources = fun _vertices => {
+    type = "exclude_sources",
+    vertices = _vertices,
+  },
+
+  prefer_same_edge_name = fun _weight => {
+    type = "prefer",
+    predicate = { kind = "same_edge_name" },
+    weight = _weight,
+  },
+
+  prefer_similar_name = fun _threshold _weight => {
+    type = "prefer",
+    predicate = { kind = "similar_name", threshold = _threshold },
+    weight = _weight,
+  },
+
+  # -- Template helpers --
+
+  counter_fields = fun _fields =>
+    _fields |> std.array.map (fun _f => { add_field = { name = _f, kind = "integer", fallback = 0 } }),
+
+  string_fields = fun _fields =>
+    _fields |> std.array.map (fun _f => { add_field = { name = _f, kind = "string", fallback = "" } }),
+
+  map_name = fun _from _to => {
+    pattern = { name = _from },
+    replace = { name = _to },
+  },
+
+  drop_feature = fun _name => {
+    pattern = { name = _name },
+  },
 }
