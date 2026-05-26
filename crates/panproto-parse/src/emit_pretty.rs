@@ -647,6 +647,10 @@ fn compute_yield_sets(
     let mut cache: std::collections::HashMap<String, std::collections::HashSet<String>> =
         std::collections::HashMap::new();
     for (name, rule) in &grammar.rules {
+        let expand = name.starts_with('_') || grammar.supertypes.contains(name.as_str());
+        if !expand {
+            continue;
+        }
         if cache.contains_key(name) {
             continue;
         }
@@ -672,11 +676,16 @@ fn yield_of_production(
 ) -> std::collections::HashSet<String> {
     match production {
         Production::Symbol { name } => {
+            let expand = name.starts_with('_') || grammar.supertypes.contains(name.as_str());
+            if !expand {
+                let mut set = std::collections::HashSet::new();
+                set.insert(name.clone());
+                return set;
+            }
             if let Some(cached) = cache.get(name) {
                 return cached.clone();
             }
-            let expand = name.starts_with('_') || grammar.supertypes.contains(name.as_str());
-            if expand {
+            {
                 if !visited.insert(name.clone()) {
                     return std::collections::HashSet::new();
                 }
@@ -688,10 +697,6 @@ fn yield_of_production(
                 visited.remove(name);
                 cache.insert(name.clone(), result.clone());
                 result
-            } else {
-                let mut set = std::collections::HashSet::new();
-                set.insert(name.clone());
-                set
             }
         }
         Production::Alias {
@@ -827,21 +832,11 @@ fn augment_subtypes_from_node_types(grammar: &mut Grammar) {
                 .map(|rule| referenced_symbols(rule))
                 .unwrap_or_default();
             let mut out = Vec::new();
-            for child_kind in allowed_children {
-                // Only augment if this child kind doesn't already
-                // satisfy ANY symbol referenced by this parent's rule.
-                // If it already has a home (e.g. `integer` satisfies
-                // `_right_hand_side`), adding it as satisfying `type`
-                // would cause CHOICE dispatch to pick the wrong
-                // alternative.
-                let already_satisfies_some = symbols
-                    .iter()
-                    .any(|s| kind_satisfies_symbol(grammar, Some(child_kind), s));
-                if already_satisfies_some {
-                    continue;
-                }
-                for sym_name in &symbols {
-                    out.push((child_kind.clone(), (*sym_name).to_owned()));
+            for sym_name in &symbols {
+                for child_kind in allowed_children {
+                    if !kind_satisfies_symbol(grammar, Some(child_kind), sym_name) {
+                        out.push((child_kind.clone(), (*sym_name).to_owned()));
+                    }
                 }
             }
             out
@@ -924,7 +919,7 @@ fn identify_inline_brace_rules(grammar: &Grammar) -> std::collections::HashSet<S
                 if let (Some(open), Some(close)) = (open_idx, close_idx) {
                     if open < close {
                         let between = &members[open + 1..close];
-                        return !has_repeat(between);
+                        return !between.iter().any(has_repeat);
                     }
                 }
                 false
@@ -939,20 +934,23 @@ fn identify_inline_brace_rules(grammar: &Grammar) -> std::collections::HashSet<S
             _ => false,
         }
     }
-    fn has_repeat(members: &[Production]) -> bool {
-        members.iter().any(|m| match m {
+    fn has_repeat(prod: &Production) -> bool {
+        match prod {
             Production::Repeat { .. } | Production::Repeat1 { .. } => true,
+            Production::Choice { members } | Production::Seq { members } => {
+                members.iter().any(has_repeat)
+            }
             Production::Prec { content, .. }
             | Production::PrecLeft { content, .. }
             | Production::PrecRight { content, .. }
-            | Production::PrecDynamic { content, .. } => {
-                matches!(
-                    content.as_ref(),
-                    Production::Repeat { .. } | Production::Repeat1 { .. }
-                )
-            }
+            | Production::PrecDynamic { content, .. }
+            | Production::Optional { content }
+            | Production::Field { content, .. }
+            | Production::Token { content }
+            | Production::ImmediateToken { content }
+            | Production::Reserved { content, .. } => has_repeat(content),
             _ => false,
-        })
+        }
     }
     let mut result = std::collections::HashSet::new();
     for (name, rule) in &grammar.rules {
@@ -2762,6 +2760,16 @@ fn layout(tokens: &[Token], policy: &FormatPolicy) -> Vec<u8> {
                 last_was_in_operand_position = expecting_operand;
                 expecting_operand = leaves_operand_position(value);
                 last_lit = Some(value.as_str());
+                // Line comments consume text to end-of-line but the
+                // newline terminator is not part of their literal
+                // value. Force a line break after any Lit that starts
+                // with a line-comment prefix so subsequent tokens
+                // don't appear on the comment line.
+                if value.starts_with("//") || value.starts_with('#') {
+                    bytes.extend_from_slice(newline);
+                    at_line_start = true;
+                    expecting_operand = true;
+                }
             }
         }
     }

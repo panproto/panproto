@@ -4,6 +4,18 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.50.8] - 2026-05-26
+
+### Fixed
+
+- **Line comments no longer swallow the following line** (`panproto-parse`): the `layout` pass now inserts a newline after any `Lit` token that starts with a line-comment prefix (`//` or `#`). This is derived from the grammar structure (line comments are `TOKEN(SEQ [STRING prefix, PATTERN ".*"])` where `.*` matches to end-of-line but not the newline itself). Fixes comment-swallowing across JavaScript, Python, Stan, Julia, BUGS, and JAGS grammars.
+- **Yield-set cache restricted to hidden/supertype rules** (`panproto-parse`): `compute_yield_sets` no longer caches concrete named rules. The Yield of a concrete SYMBOL `S` is always `{S}` (the symbol name IS the vertex kind); caching the internal yield of S's rule body caused CHOICE dispatch to miss children whose kind is the symbol itself (e.g. `pair` children of JS `object` were not found because the cache stored `pair`'s internal yield `{computed_property_name, string, ...}` instead of `{"pair"}`). Fixes JS object literal pairs dropped, JS spread elements dropped, JS new-expression arguments dropped, Python single-kwarg calls dropped, and Stan function parameters dropped.
+- **`has_repeat` recursion for inline-brace identification** (`panproto-parse`): the check for REPEAT/REPEAT1 between `{` and `}` now recurses into CHOICE and SEQ wrappers. Previously, JS `object` (whose REPEAT is nested inside a CHOICE) was incorrectly classified as inline-brace, suppressing block indentation for object literals.
+
+### Added
+
+- **14 comprehensive regression tests** (`panproto-parse`): covering comment-newline, object literals, arrow functions, spread, new-expression, single-kwarg calls, string literals, anonymous functions, and Stan/BUGS/JAGS-specific constructs.
+
 ## [0.50.7] - 2026-05-26
 
 ### Fixed
