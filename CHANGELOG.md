@@ -4,6 +4,13 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.50.7] - 2026-05-26
+
+### Fixed
+
+- **node-types.json subtype augmentation restricted to unmatched children** (`panproto-parse`): `augment_subtypes_from_node_types` now skips child kinds that already satisfy at least one symbol in the parent's grammar rule. The v0.50.5 augmentation was too aggressive: it added every node-types.json child kind as satisfying every referenced symbol, causing CHOICE dispatch to pick wrong alternatives (Python assignment `x = 1` emitted as `x: = 1` because `integer` was added as satisfying `type` in addition to `_right_hand_side`; Stan `vector[N] y` emitted as `vector N[] y`; Scheme produced empty output).
+- **Removed issue-number references from doc comments and test assertions** (`panproto-parse`, `panproto-lens-dsl`).
+
 ## [0.50.6] - 2026-05-26
 
 ### Fixed

@@ -1,8 +1,8 @@
 //! Regression tests for the bundled lens.ncl Nickel contract module.
 //!
 //! These tests exercise the full Nickel evaluation path to catch
-//! reserved-word collisions (#144), missing-definition errors (#151),
-//! and infinite-recursion regressions (#154) before they ship.
+//! reserved-word collisions, missing-definition errors,
+//! and infinite-recursion regressions before they ship.
 
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 

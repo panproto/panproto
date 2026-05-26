@@ -1,4 +1,4 @@
-//! Regression tests for Julia macrocall `emit_pretty` (#150, #153).
+//! Regression tests for Julia macrocall `emit_pretty`.
 //!
 //! Verifies that both long-form (`@model function ... end`) and
 //! short-form (`@trace(args)`) macrocall expressions round-trip

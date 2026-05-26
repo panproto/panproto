@@ -1,4 +1,4 @@
-//! Regression test for Python `with X as Y:` `emit_pretty` (#157).
+//! Regression test for Python `with X as Y:` `emit_pretty`.
 //!
 //! Verifies that the `as_pattern_target` identifier survives the
 //! `emit_pretty` round-trip.
