@@ -65,7 +65,7 @@ fn js_object_literal_contents_inside_braces() {
 // ---------------------------------------------------------------
 
 #[test]
-#[ignore = "pre-existing: Python _simple_statements grammar uses ';' as REPEAT separator (#160)"]
+#[ignore = "Python _simple_statements uses ';' as grammar-valid separator; eliminating requires per-rule format policy (#160)"]
 fn python_function_body_no_semicolons() {
     with_big_stack(|| {
         let reg = registry();
@@ -82,7 +82,6 @@ fn python_function_body_no_semicolons() {
 // ---------------------------------------------------------------
 
 #[test]
-#[ignore = "pre-existing: interpolation expressions formatted as blocks (#161)"]
 fn python_fstring_interpolation_inline() {
     with_big_stack(|| {
         let reg = registry();
@@ -115,7 +114,6 @@ fn js_ternary_preserves_question_mark() {
 // ---------------------------------------------------------------
 
 #[test]
-#[ignore = "pre-existing: template literal interpolation formatted as blocks (#163)"]
 fn js_template_literal_interpolation_inline() {
     with_big_stack(|| {
         let reg = registry();

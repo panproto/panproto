@@ -2076,6 +2076,37 @@ fn pick_choice_with_cursor<'a>(
         //      for non-SYMBOL alternatives (ALIAS, SEQ, etc.)
         let target_supers = grammar.subtypes.get(target_kind);
 
+        // Indented-form preference: when multiple alternatives match
+        // the target kind (e.g. Python _suite where all three alts
+        // produce `block`), prefer the alternative containing an
+        // `_indent` SYMBOL. Check this BEFORE the standard passes
+        // since they would pick the first match in grammar order.
+        {
+            let mut match_count = 0usize;
+            let mut indent_alt_idx: Option<usize> = None;
+            let mut visited = std::collections::HashSet::new();
+            let mut yield_cache = grammar.yield_sets.clone();
+            for (i, alt) in alternatives.iter().enumerate() {
+                let ys = yield_of_production(grammar, alt, &mut visited, &mut yield_cache);
+                if ys.contains(target_kind) {
+                    match_count += 1;
+                    if indent_alt_idx.is_none()
+                        && referenced_symbols(alt)
+                            .iter()
+                            .any(|s| *s == "_indent" || s.ends_with("_indent"))
+                    {
+                        indent_alt_idx = Some(i);
+                    }
+                }
+                visited.clear();
+            }
+            if match_count > 1 {
+                if let Some(idx) = indent_alt_idx {
+                    return Some(&alternatives[idx]);
+                }
+            }
+        }
+
         // Pass 1: direct name match
         for alt in alternatives {
             if let Production::Symbol { name } = alt {
@@ -2142,24 +2173,6 @@ fn pick_choice_with_cursor<'a>(
         }
     }
 
-    // Indented-form preference: when no dispatch tier uniquely
-    // identified an alternative and the cursor has children, prefer
-    // the alternative whose production body contains an `_indent`
-    // SYMBOL. The indented form is always valid for by-construction
-    // schemas and round-trips cleanly; the inline form (e.g. Python's
-    // `;`-separated `_simple_statements`) is a source-level
-    // abbreviation that requires parse-time context to select correctly.
-    if first_unconsumed_kind.is_some() {
-        let indent_alt = alternatives.iter().find(|alt| {
-            referenced_symbols(alt)
-                .iter()
-                .any(|s| *s == "_indent" || s.ends_with("_indent"))
-        });
-        if let Some(alt) = indent_alt {
-            return Some(alt);
-        }
-    }
-
     // No dispatch tier matched. The final selection follows the
     // categorical semantics of CHOICE-with-BLANK: BLANK represents ε
     // (produce nothing at this position). It is correct if and only
@@ -2174,19 +2187,6 @@ fn pick_choice_with_cursor<'a>(
     // children when grammar.json only references
     // `macro_argument_list`).
     let _ = (schema, vertex_id);
-    let has_unconsumed_structural = cursor.edges.iter().enumerate().any(|(i, edge)| {
-        !cursor.consumed[i]
-            && schema
-                .vertices
-                .get(&edge.tgt)
-                .map(|v| !grammar.extras.contains(v.kind.as_ref()))
-                .unwrap_or(false)
-    });
-    if has_unconsumed_structural {
-        return alternatives
-            .iter()
-            .find(|alt| !matches!(alt, Production::Blank));
-    }
     if alternatives.iter().any(|a| matches!(a, Production::Blank)) {
         return alternatives.iter().find(|a| matches!(a, Production::Blank));
     }
@@ -2630,7 +2630,9 @@ impl<'a> Output<'a> {
         if !self.suppress_brace_indent && self.policy.indent_open.iter().any(|t| t == value) {
             self.tokens.push(Token::IndentOpen);
             self.tokens.push(Token::LineBreak);
-        } else if self.policy.line_break_after.iter().any(|t| t == value) {
+        } else if self.policy.line_break_after.iter().any(|t| t == value)
+            && !(self.suppress_brace_indent && (value == "{" || value == "}"))
+        {
             self.tokens.push(Token::LineBreak);
         }
     }
@@ -2833,6 +2835,9 @@ fn first_is_operand_start(s: &str) -> bool {
 
 fn is_punct_open(s: &str) -> bool {
     matches!(s, "(" | "[" | "{" | "\"" | "'" | "`" | "@" | "#")
+        || s.ends_with('{')
+        || s.ends_with('(')
+        || s.ends_with('[')
 }
 
 fn is_punct_close(s: &str) -> bool {
