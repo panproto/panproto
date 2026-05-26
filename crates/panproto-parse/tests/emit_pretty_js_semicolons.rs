@@ -1,4 +1,4 @@
-//! Regression test for JavaScript automatic semicolon insertion (#155).
+//! Regression test for JavaScript automatic semicolon insertion.
 //!
 //! Verifies that `emit_pretty` inserts semicolons between sibling
 //! statements in a `statement_block`, producing output that JavaScript's
