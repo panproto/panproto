@@ -4,6 +4,20 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.50.4] - 2026-05-26
+
+### Fixed
+
+- **`emit_pretty` CHOICE dispatch replaced with subtype-relation preimage** (`panproto-parse`): the cursor-driven CHOICE alternative picker used heuristic scoring (literal fingerprints, Yield-set computation) that failed when multiple alternatives transitively reached the same vertex kind. Replaced with a three-pass subtype-based dispatch: (1) direct name match, (2) supertype match via the precomputed `subtypes[target_kind]` set, (3) Yield-set fallback. The subtype relation is the formally correct preimage: `subtypes[K]` contains exactly the symbol names S such that a vertex of kind K can appear where the grammar says `SYMBOL S`. Added Yield-set precomputation (`Grammar.yield_sets`) for the fallback pass. Fixes Python `with X as Y:` dropping the alias identifier (#157), and subsumes prior CHOICE dispatch fixes (#150).
+- **`emit_pretty` field context no longer leaks through ALIAS dispatch** (`panproto-parse`): `emit_aliased_child` now clears the enclosing FIELD context before walking the aliased child's production. Previously, a `FIELD("alias")` containing an `ALIAS { SYMBOL "expression" }` caused the inner SYMBOL handler to attempt field-based edge lookup (by name "alias") instead of symbol-based dispatch, silently dropping the child's content.
+- **`take_symbol_match` prefers non-field edges** (`panproto-parse`): when consuming a cursor edge outside a FIELD context, the symbol matcher now prefers `child_of` edges over field-named edges. This prevents a SYMBOL from accidentally consuming a field-named edge intended for a later FIELD handler in the same SEQ.
+
+### Added
+
+- **Yield-set precomputation on `Grammar`** (`panproto-parse`): `Grammar.yield_sets` maps each rule name to the set of vertex kinds that can appear as the first named child when that rule's production is taken. Defined inductively with `Yield(SEQ)` descending only into the first named-child-producing member (skipping leading STRING/PATTERN terminals). Used as a fallback in CHOICE dispatch when the subtype relation alone is insufficient.
+- **Nickel contract regression tests** (`panproto-lens-dsl`): 6 tests exercising the full Nickel evaluation path through `lens.ncl` (rename, add, remove, rules, multiple combinators, exhaustive export accessibility).
+- **Python `with X as Y:` regression tests** (`panproto-parse`): 2 tests verifying the alias identifier survives `emit_pretty` and round-trips without ERROR nodes.
+
 ## [0.50.3] - 2026-05-25
 
 ### Fixed

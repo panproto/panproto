@@ -302,6 +302,24 @@ pub struct Grammar {
     /// non-supertype rule references.
     #[serde(skip)]
     pub subtypes: std::collections::HashMap<String, std::collections::HashSet<String>>,
+    /// Precomputed Yield sets: `yield_sets[rule_name]` is the set of
+    /// concrete vertex kinds that can appear as the **first named
+    /// child** when that rule's production is taken.
+    ///
+    /// Defined inductively:
+    /// - `Yield(SYMBOL S)` where S is hidden/supertype = `Yield(rules[S])`
+    /// - `Yield(SYMBOL S)` where S is concrete = `{S}`
+    /// - `Yield(SEQ [M1, ...])` = `Yield(M1)` (only first member)
+    /// - `Yield(CHOICE [M1, ..., Mn])` = `⋃ Yield(Mi)`
+    /// - `Yield(OPTIONAL { c })` = `Yield(c) ∪ {ε}`
+    /// - `Yield(BLANK)` = `{ε}`
+    /// - Wrappers (PREC*, TOKEN, FIELD, REPEAT, etc.) = `Yield(content)`
+    /// - `Yield(STRING)` = `Yield(PATTERN)` = `∅`
+    /// - `Yield(ALIAS { value: V, named: true })` = `{V}`
+    ///
+    /// Epsilon is represented as the empty string `""`.
+    #[serde(skip)]
+    pub yield_sets: std::collections::HashMap<String, std::collections::HashSet<String>>,
 }
 
 fn deserialize_supertypes<'de, D>(
@@ -397,6 +415,7 @@ impl Grammar {
                 reason: format!("grammar.json deserialization failed: {e}"),
             })?;
         grammar.subtypes = compute_subtype_closure(&grammar);
+        grammar.yield_sets = compute_yield_sets(&grammar);
         Ok(grammar)
     }
 }
@@ -574,6 +593,132 @@ fn compute_subtype_closure(
     }
 
     subtypes
+}
+
+/// Compute the Yield set for every rule in the grammar.
+///
+/// `Yield(P)` is the set of concrete vertex kinds that can appear as
+/// the first named child when production P is taken. See the
+/// `Grammar::yield_sets` doc comment for the inductive definition.
+fn compute_yield_sets(
+    grammar: &Grammar,
+) -> std::collections::HashMap<String, std::collections::HashSet<String>> {
+    let mut cache: std::collections::HashMap<String, std::collections::HashSet<String>> =
+        std::collections::HashMap::new();
+    for (name, rule) in &grammar.rules {
+        if cache.contains_key(name) {
+            continue;
+        }
+        let mut visited = std::collections::HashSet::new();
+        let ys = yield_of_production(grammar, rule, &mut visited, &mut cache);
+        cache.insert(name.clone(), ys);
+    }
+    cache
+}
+
+/// Compute the Yield set of an arbitrary production node.
+///
+/// Uses `cache` (the partially-built `yield_sets` map) as
+/// memoization. `visited` tracks the current recursion path to
+/// detect cycles through hidden/supertype rules; a cycle returns ∅
+/// (a cycle that never passes through a concrete named symbol
+/// cannot produce a first child).
+fn yield_of_production(
+    grammar: &Grammar,
+    production: &Production,
+    visited: &mut std::collections::HashSet<String>,
+    cache: &mut std::collections::HashMap<String, std::collections::HashSet<String>>,
+) -> std::collections::HashSet<String> {
+    match production {
+        Production::Symbol { name } => {
+            if let Some(cached) = cache.get(name) {
+                return cached.clone();
+            }
+            let expand = name.starts_with('_') || grammar.supertypes.contains(name.as_str());
+            if expand {
+                if !visited.insert(name.clone()) {
+                    return std::collections::HashSet::new();
+                }
+                let result = if let Some(rule) = grammar.rules.get(name) {
+                    yield_of_production(grammar, rule, visited, cache)
+                } else {
+                    std::collections::HashSet::new()
+                };
+                visited.remove(name);
+                cache.insert(name.clone(), result.clone());
+                result
+            } else {
+                let mut set = std::collections::HashSet::new();
+                set.insert(name.clone());
+                set
+            }
+        }
+        Production::Alias {
+            content,
+            named,
+            value,
+        } => {
+            if *named && !value.is_empty() {
+                let mut set = std::collections::HashSet::new();
+                set.insert(value.clone());
+                set
+            } else {
+                yield_of_production(grammar, content, visited, cache)
+            }
+        }
+        Production::Seq { members } => {
+            if members.is_empty() {
+                let mut set = std::collections::HashSet::new();
+                set.insert(String::new());
+                set
+            } else {
+                // Walk the SEQ members left-to-right, returning the
+                // Yield of the first member that can produce a named
+                // child. STRING and PATTERN yield ∅ (anonymous
+                // tokens); skip them to reach the first named-child-
+                // producing position.  This handles hidden rules like
+                // `_initializer = SEQ ["=", FIELD { value, ... }]`
+                // where the leading "=" is a STRING.
+                for m in members {
+                    let ys = yield_of_production(grammar, m, visited, cache);
+                    if !ys.is_empty() {
+                        return ys;
+                    }
+                }
+                std::collections::HashSet::new()
+            }
+        }
+        Production::Choice { members } => {
+            let mut union = std::collections::HashSet::new();
+            for m in members {
+                union.extend(yield_of_production(grammar, m, visited, cache));
+            }
+            union
+        }
+        Production::Optional { content } => {
+            let mut set = yield_of_production(grammar, content, visited, cache);
+            set.insert(String::new());
+            set
+        }
+        Production::Blank => {
+            let mut set = std::collections::HashSet::new();
+            set.insert(String::new());
+            set
+        }
+        Production::String { .. } | Production::Pattern { .. } => std::collections::HashSet::new(),
+        Production::Repeat { content }
+        | Production::Repeat1 { content }
+        | Production::Field { content, .. }
+        | Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Reserved { content, .. } => {
+            yield_of_production(grammar, content, visited, cache)
+        }
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1081,7 +1226,7 @@ fn emit_production_inner(
                     }
                     Ok(())
                 }
-            } else if let Some(edge) = take_symbol_match(grammar, schema, cursor, name) {
+            } else if let Some(edge) = { take_symbol_match(grammar, schema, cursor, name) } {
                 // For supertype / hidden-rule dispatch the child's
                 // own kind names the actual production to walk
                 // (`child.kind` IS the subtype). For ALIAS the
@@ -1317,6 +1462,21 @@ fn take_symbol_match<'a>(
     cursor: &mut ChildCursor<'a>,
     name: &str,
 ) -> Option<&'a Edge> {
+    // Prefer non-field edges (`child_of`) to avoid consuming a
+    // field-named edge that a later FIELD handler should claim.
+    // Field-named edges (edge.kind != "child_of") are reserved for
+    // the FIELD production that names them; consuming one here would
+    // steal it from its intended handler (e.g. `as_pattern`'s
+    // `alias` field edge consumed by the leading `expression`
+    // SYMBOL instead of the trailing FIELD "alias" handler).
+    if let Some(edge) = cursor.take_matching(|edge| {
+        edge.kind.as_ref() == "child_of" && {
+            let target_kind = schema.vertices.get(&edge.tgt).map(|v| v.kind.as_ref());
+            kind_satisfies_symbol(grammar, target_kind, name)
+        }
+    }) {
+        return Some(edge);
+    }
     cursor.take_matching(|edge| {
         let target_kind = schema.vertices.get(&edge.tgt).map(|v| v.kind.as_ref());
         kind_satisfies_symbol(grammar, target_kind, name)
@@ -1339,37 +1499,10 @@ fn kind_satisfies_symbol(grammar: &Grammar, target_kind: Option<&str>, name: &st
     if target == name {
         return true;
     }
-    if grammar
+    grammar
         .subtypes
         .get(target)
         .is_some_and(|set| set.contains(name))
-    {
-        return true;
-    }
-    grammar
-        .subtypes
-        .get(name)
-        .is_some_and(|set| set.contains(target))
-}
-
-/// Direct match only: `target_kind` equals `name` or is in `name`'s
-/// subtype set, without the reverse lookup. Used by the first pass of
-/// cursor-driven CHOICE dispatch to prefer exact matches.
-fn kind_directly_satisfies_symbol(
-    grammar: &Grammar,
-    target_kind: Option<&str>,
-    name: &str,
-) -> bool {
-    let Some(target) = target_kind else {
-        return false;
-    };
-    if target == name {
-        return true;
-    }
-    grammar
-        .subtypes
-        .get(name)
-        .is_some_and(|set| set.contains(target))
 }
 
 /// Emit a child reached through an ALIAS production using the
@@ -1423,6 +1556,13 @@ fn emit_aliased_child(
             return Ok(());
         }
     }
+
+    // Clear the enclosing FIELD context so it does not leak into the
+    // aliased child's production walk. Without this, a FIELD("alias")
+    // containing an ALIAS whose content is SYMBOL "expression" would
+    // cause the inner SYMBOL handler to pull by field name "alias"
+    // instead of by symbol match, failing to find the child edge.
+    let _guard = clear_field_context();
 
     // Resolve `content` to a rule when it's a SYMBOL (the dominant
     // shape: `ALIAS { content: SYMBOL real_rule, value: "kind_x" }`).
@@ -1572,6 +1712,17 @@ fn pick_choice_with_cursor<'a>(
     if !any_unconsumed && blank_present {
         return alternatives.iter().find(|a| matches!(a, Production::Blank));
     }
+    if !any_unconsumed && !blank_present {
+        let mut visited = std::collections::HashSet::new();
+        let mut yield_cache = grammar.yield_sets.clone();
+        for alt in alternatives {
+            let ys = yield_of_production(grammar, alt, &mut visited, &mut yield_cache);
+            if ys.contains("") {
+                return Some(alt);
+            }
+            visited.clear();
+        }
+    }
 
     if !constraint_blob.is_empty() {
         // Primary score: literal-token match length. This dominates
@@ -1651,24 +1802,14 @@ fn pick_choice_with_cursor<'a>(
         }
     }
 
-    // Cursor-driven dispatch: pick the alternative whose body
-    // references a SYMBOL covering the *first unconsumed* edge in
-    // cursor order. `referenced_symbols` walks the alternative
-    // recursively (across nested SEQs, REPEATs, OPTIONALs, FIELDs,
-    // etc.) so a leading optional like `attribute_item` does not
-    // block matching when only the trailing required symbol is
-    // present on the schema.
+    // Cursor-driven dispatch via Yield-set preimage.
     //
-    // Ordering by the first unconsumed edge (rather than picking any
-    // alternative whose SYMBOL set intersects the unconsumed
-    // multiset) is what preserves schema edge order under
-    // REPEAT(CHOICE(...)) productions. Without this rule, alt order
-    // in the grammar's CHOICE determines the emission order, and a
-    // schema with interleaved kinds like `[symbol, punct, int,
-    // symbol, punct, int]` re-fuses to `[symbol, symbol, punct,
-    // punct, int, int]` when emitted then re-parsed. The fix is the
-    // categorical reading of REPEAT-over-list (list-shaped fold)
-    // rather than REPEAT-over-multiset (unordered fold).
+    // For a CHOICE C = A1 | ... | An, Yield(Ai) is the set of vertex
+    // kinds that can appear as the first named child when Ai is taken
+    // (see `yield_of_production`). Given the first unconsumed cursor
+    // edge with target kind K, select the first Ai (grammar order)
+    // where K ∈ Yield(Ai). This is deterministic: grammar order is
+    // the tiebreak, matching tree-sitter's own disambiguation.
     let first_unconsumed_kind: Option<&str> = cursor
         .edges
         .iter()
@@ -1676,36 +1817,71 @@ fn pick_choice_with_cursor<'a>(
         .find(|(i, _)| !cursor.consumed[*i])
         .and_then(|(_, edge)| schema.vertices.get(&edge.tgt).map(|v| v.kind.as_ref()));
     if let Some(target_kind) = first_unconsumed_kind {
-        // Prefer an alternative with a direct symbol match before
-        // accepting a subtype match. Without this two-pass approach,
-        // a CHOICE like `[ALIAS(_qualified_macro_identifier, ...),
-        // SYMBOL macro_identifier]` incorrectly picks the ALIAS
-        // alternative when the cursor holds a `macro_identifier`
-        // child: the subtype closure records `macro_identifier` as
-        // reachable from `_qualified_macro_identifier` (because the
-        // hidden rule's SEQ contains it), so the first alt's symbol
-        // set satisfies the cursor. The direct-match pass ensures the
-        // second alt (which references `macro_identifier` directly)
-        // wins.
+        // The subtype closure `subtypes[target_kind]` contains every
+        // symbol name S such that a vertex of kind `target_kind` can
+        // appear where the grammar says `SYMBOL S`. For a CHOICE
+        // C = A1 | ... | An, the correct alternative is the one whose
+        // top-level symbol is in `subtypes[target_kind]` (the target
+        // kind IS a subtype of that symbol, so the symbol's rule body
+        // dispatches to the target kind at parse time). This is an
+        // O(1) set-membership check per alternative — no recursive
+        // Yield computation needed.
+        //
+        // Preference order:
+        //   1. Direct name match (target_kind == symbol name)
+        //   2. Subtype match (symbol name ∈ subtypes[target_kind])
+        //   3. Yield-set match (target_kind ∈ Yield(alt)) as fallback
+        //      for non-SYMBOL alternatives (ALIAS, SEQ, etc.)
+        let target_supers = grammar.subtypes.get(target_kind);
+
+        // Pass 1: direct name match
         for alt in alternatives {
-            let symbols = referenced_symbols(alt);
-            if !symbols.is_empty()
-                && symbols
-                    .iter()
-                    .any(|s| kind_directly_satisfies_symbol(grammar, Some(target_kind), s))
+            if let Production::Symbol { name } = alt {
+                if name.as_str() == target_kind {
+                    return Some(alt);
+                }
+            }
+            if let Production::Alias {
+                named: true, value, ..
+            } = alt
             {
-                return Some(alt);
+                if value.as_str() == target_kind {
+                    return Some(alt);
+                }
             }
         }
+
+        // Pass 2: subtype match (the target kind's supertype set
+        // tells us which SYMBOL names it satisfies)
+        if let Some(supers) = target_supers {
+            for alt in alternatives {
+                if let Production::Symbol { name } = alt {
+                    if supers.contains(name.as_str()) {
+                        return Some(alt);
+                    }
+                }
+                if let Production::Alias {
+                    named: true, value, ..
+                } = alt
+                {
+                    if supers.contains(value.as_str()) {
+                        return Some(alt);
+                    }
+                }
+            }
+        }
+
+        // Pass 3: Yield-set fallback for alternatives that are not
+        // plain SYMBOLs or named ALIASes (e.g. SEQ, PREC wrappers
+        // around SYMBOLs that the above passes don't unwrap).
+        let mut visited = std::collections::HashSet::new();
+        let mut yield_cache = grammar.yield_sets.clone();
         for alt in alternatives {
-            let symbols = referenced_symbols(alt);
-            if !symbols.is_empty()
-                && symbols
-                    .iter()
-                    .any(|s| kind_satisfies_symbol(grammar, Some(target_kind), s))
-            {
+            let ys = yield_of_production(grammar, alt, &mut visited, &mut yield_cache);
+            if ys.contains(target_kind) {
                 return Some(alt);
             }
+            visited.clear();
         }
     }
 
@@ -2419,6 +2595,7 @@ fn first_is_alnum_or_underscore(s: &str) -> bool {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -2838,5 +3015,112 @@ mod tests {
         assert!(has_field_in(&prod, &["lhs"]));
         let symbols = referenced_symbols(&prod);
         assert!(symbols.contains(&"expr"));
+    }
+
+    // -- Yield-set tests --
+
+    fn yield_of(grammar: &Grammar, prod: &Production) -> std::collections::HashSet<String> {
+        let mut visited = std::collections::HashSet::new();
+        let mut cache = grammar.yield_sets.clone();
+        yield_of_production(grammar, prod, &mut visited, &mut cache)
+    }
+
+    #[test]
+    fn yield_set_seq_only_first_member() {
+        let prod: Production = serde_json::from_str(
+            r#"{
+                "type": "SEQ",
+                "members": [
+                    {"type": "SYMBOL", "name": "identifier"},
+                    {"type": "STRING", "value": "as"},
+                    {"type": "SYMBOL", "name": "target"}
+                ]
+            }"#,
+        )
+        .expect("valid SEQ");
+        let g = Grammar::from_bytes("test", b"{}").unwrap_or_else(|_| {
+            serde_json::from_str::<Grammar>(r#"{"name":"t","rules":{}}"#).unwrap()
+        });
+        let ys = yield_of(&g, &prod);
+        assert!(ys.contains("identifier"), "SEQ yields first member");
+        assert!(
+            !ys.contains("target"),
+            "SEQ must NOT yield non-first members"
+        );
+    }
+
+    #[test]
+    fn yield_set_choice_union() {
+        let prod: Production = serde_json::from_str(
+            r#"{
+                "type": "CHOICE",
+                "members": [
+                    {"type": "SYMBOL", "name": "a"},
+                    {"type": "SYMBOL", "name": "b"}
+                ]
+            }"#,
+        )
+        .expect("valid CHOICE");
+        let g = serde_json::from_str::<Grammar>(r#"{"name":"t","rules":{}}"#).unwrap();
+        let ys = yield_of(&g, &prod);
+        assert_eq!(ys.len(), 2);
+        assert!(ys.contains("a"));
+        assert!(ys.contains("b"));
+    }
+
+    #[test]
+    fn yield_set_hidden_expansion() {
+        let g = serde_json::from_str::<Grammar>(
+            r#"{"name":"t","rules":{
+                "_value": {
+                    "type": "CHOICE",
+                    "members": [
+                        {"type": "SYMBOL", "name": "number"},
+                        {"type": "SYMBOL", "name": "object"}
+                    ]
+                }
+            }}"#,
+        )
+        .unwrap();
+        let mut g = g;
+        g.subtypes = compute_subtype_closure(&g);
+        g.yield_sets = compute_yield_sets(&g);
+        let sym: Production =
+            serde_json::from_str(r#"{"type": "SYMBOL", "name": "_value"}"#).unwrap();
+        let ys = yield_of(&g, &sym);
+        assert!(
+            ys.contains("number"),
+            "hidden rule expands into its CHOICE members"
+        );
+        assert!(ys.contains("object"));
+        assert!(
+            !ys.contains("_value"),
+            "hidden rule name is not in yield set"
+        );
+    }
+
+    #[test]
+    fn yield_set_optional_includes_epsilon() {
+        let prod: Production = serde_json::from_str(
+            r#"{"type": "OPTIONAL", "content": {"type": "SYMBOL", "name": "x"}}"#,
+        )
+        .unwrap();
+        let g = serde_json::from_str::<Grammar>(r#"{"name":"t","rules":{}}"#).unwrap();
+        let ys = yield_of(&g, &prod);
+        assert!(ys.contains("x"));
+        assert!(ys.contains(""), "OPTIONAL includes epsilon");
+    }
+
+    #[test]
+    fn yield_set_alias_uses_value() {
+        let prod: Production = serde_json::from_str(
+            r#"{"type": "ALIAS", "content": {"type": "SYMBOL", "name": "real"},
+                "named": true, "value": "alias_name"}"#,
+        )
+        .unwrap();
+        let g = serde_json::from_str::<Grammar>(r#"{"name":"t","rules":{}}"#).unwrap();
+        let ys = yield_of(&g, &prod);
+        assert_eq!(ys.len(), 1);
+        assert!(ys.contains("alias_name"), "named ALIAS yields its value");
     }
 }
