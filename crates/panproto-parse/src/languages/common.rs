@@ -9,7 +9,7 @@
 //! 3. Language-specific [`WalkerConfig`](crate::walker::WalkerConfig) overrides
 //! 4. File extension mapping
 
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use panproto_schema::{Protocol, Schema};
 
@@ -59,6 +59,8 @@ pub struct LanguageParser {
     node_types_json_for_emit: Option<Vec<u8>>,
     /// Lazily-parsed grammar. Populated on first call to `emit_pretty`.
     grammar_cache: OnceLock<Result<EmitGrammar, ParseError>>,
+    /// Per-grammar defaults for opaque external scanner tokens.
+    cassette: Arc<dyn super::cassettes::GrammarCassette>,
 }
 
 impl LanguageParser {
@@ -131,6 +133,7 @@ impl LanguageParser {
             grammar_json,
             node_types_json_for_emit: Some(node_types_json.to_vec()),
             grammar_cache: OnceLock::new(),
+            cassette: super::cassettes::cassette_for(protocol_name),
         })
     }
 
@@ -245,7 +248,13 @@ impl AstParser for LanguageParser {
                 });
             }
         };
-        emit_pretty_inner(&self.protocol_name, schema, grammar, policy)
+        emit_pretty_inner(
+            &self.protocol_name,
+            schema,
+            grammar,
+            policy,
+            Some(&*self.cassette),
+        )
     }
 }
 

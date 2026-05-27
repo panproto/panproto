@@ -1163,9 +1163,10 @@ fn classify_seq(
             if !roles.contains_key(&value) {
                 if is_word_like(&value) {
                     roles.insert(value.clone(), TokenRole::Keyword);
-                } else if !in_choice && first_content_idx.is_some_and(|fc| i < fc) {
-                    // STRING before any content in a non-CHOICE context:
-                    // prefix sigil (e.g. @, #, ..., $)
+                } else if !in_choice
+                    && first_content_idx.is_some_and(|fc| i < fc)
+                    && is_prefix_sigil(&value)
+                {
                     roles.insert(value.clone(), TokenRole::BracketOpen);
                 } else if last_content_idx.is_some_and(|lc| i > lc) {
                     // STRING after all content: suffix (tight before).
@@ -1213,6 +1214,101 @@ fn classify_repeat_body(
     }
 }
 
+/// Classify STRING tokens within a SEQ by structural position, returning
+/// a role for each member position. Non-STRING positions get `None`.
+/// This is the inline variant of `classify_seq` used at emission time
+/// to avoid the flat per-rule map's conflation of same-text tokens.
+fn classify_seq_positions(members: &[Production], in_choice: bool) -> Vec<Option<TokenRole>> {
+    let mut roles: Vec<Option<TokenRole>> = vec![None; members.len()];
+
+    let string_positions: Vec<(usize, &str)> = members
+        .iter()
+        .enumerate()
+        .filter_map(|(i, m)| unwrap_to_string(m).map(|s| (i, s)))
+        .collect();
+
+    let content_count = members
+        .iter()
+        .filter(|m| unwrap_to_string(m).is_none())
+        .count();
+
+    // Bracket pair detection: first and last STRING with content between.
+    let mut bracket_open_idx: Option<usize> = None;
+    let mut bracket_close_idx: Option<usize> = None;
+    if string_positions.len() >= 2 {
+        let (first_idx, first_val) = string_positions[0];
+        let (last_idx, last_val) = string_positions[string_positions.len() - 1];
+
+        let has_content_between = members[first_idx + 1..last_idx]
+            .iter()
+            .any(|m| unwrap_to_string(m).is_none());
+
+        let both_punct = !is_word_like(first_val) && !is_word_like(last_val);
+        let both_word = is_word_like(first_val) && is_word_like(last_val);
+        if has_content_between && first_val != last_val && (both_punct || both_word) {
+            roles[first_idx] = Some(TokenRole::BracketOpen);
+            roles[last_idx] = Some(TokenRole::BracketClose);
+            bracket_open_idx = Some(first_idx);
+            bracket_close_idx = Some(last_idx);
+        }
+    }
+
+    let first_content_idx = members.iter().position(|m| unwrap_to_string(m).is_none());
+    let last_content_idx = members.iter().rposition(|m| unwrap_to_string(m).is_none());
+
+    for (i, m) in members.iter().enumerate() {
+        if roles[i].is_some() {
+            continue;
+        }
+        if let Some(value) = unwrap_to_string(m) {
+            roles[i] = Some(if is_word_like(value) {
+                TokenRole::Keyword
+            } else if !in_choice && first_content_idx.is_some_and(|fc| i < fc) {
+                if is_prefix_sigil(value) {
+                    TokenRole::BracketOpen
+                } else {
+                    TokenRole::Operator
+                }
+            } else if last_content_idx.is_some_and(|lc| i > lc) {
+                TokenRole::BracketClose
+            } else if !in_choice && string_positions.len() == 1 && content_count == 2 {
+                TokenRole::Connector
+            } else {
+                TokenRole::Operator
+            });
+        }
+    }
+
+    // Override: in a REPEAT body's inner SEQ, the first STRING is a
+    // separator. This is checked by the caller (REPEAT handler), not here.
+    // But we do store bracket indices for the caller to use.
+    let _ = (bracket_open_idx, bracket_close_idx);
+
+    roles
+}
+
+/// Check if a SEQ's bracket at position `idx` triggers indentation.
+fn seq_bracket_triggers_indent(
+    members: &[Production],
+    open_idx: usize,
+    _grammar: &Grammar,
+) -> bool {
+    let string_positions: Vec<(usize, &str)> = members
+        .iter()
+        .enumerate()
+        .filter_map(|(i, m)| unwrap_to_string(m).map(|s| (i, s)))
+        .collect();
+    if string_positions.len() < 2 {
+        return false;
+    }
+    let last_idx = string_positions[string_positions.len() - 1].0;
+    if open_idx >= last_idx {
+        return false;
+    }
+    let between = &members[open_idx + 1..last_idx];
+    has_repeat_recursive(between)
+}
+
 /// Check if any member of a slice contains REPEAT/REPEAT1 recursively.
 fn has_repeat_recursive(members: &[Production]) -> bool {
     members.iter().any(has_repeat_in)
@@ -1243,6 +1339,35 @@ fn is_word_like(s: &str) -> bool {
     !s.is_empty()
         && s.chars().all(|c| c.is_alphanumeric() || c == '_')
         && s.starts_with(|c: char| c.is_alphabetic() || c == '_')
+}
+
+/// A prefix `STRING` (position before all content in a non-`CHOICE` SEQ) is a
+/// tight sigil (`BracketOpen`) only when it is NOT a common binary/assignment
+/// operator. Single-character ASCII operators like `=`, `+`, `-` need space;
+/// multi-character prefixes (`...`, `::`, `@`, `#`, `$`) and non-ASCII
+/// prefixes are tight.
+fn is_prefix_sigil(s: &str) -> bool {
+    if s.len() == 1 {
+        let c = s.as_bytes()[0];
+        !matches!(
+            c,
+            b'=' | b'+'
+                | b'-'
+                | b'*'
+                | b'/'
+                | b'<'
+                | b'>'
+                | b'!'
+                | b'?'
+                | b'|'
+                | b'&'
+                | b'^'
+                | b'%'
+                | b'~'
+        )
+    } else {
+        true
+    }
 }
 
 /// Unwrap wrapper productions (`Token`, `ImmediateToken`, `Prec`, `PrecLeft`,
@@ -1444,6 +1569,7 @@ pub fn emit_pretty(
     schema: &Schema,
     grammar: &Grammar,
     policy: &FormatPolicy,
+    cassette: Option<&dyn crate::languages::cassettes::GrammarCassette>,
 ) -> Result<Vec<u8>, ParseError> {
     let roots = collect_roots(schema);
     if roots.is_empty() {
@@ -1453,7 +1579,7 @@ pub fn emit_pretty(
         });
     }
 
-    let mut out = Output::new(policy, grammar);
+    let mut out = Output::new(policy, grammar, cassette);
     for (i, root) in roots.iter().enumerate() {
         if i > 0 {
             out.newline();
@@ -1765,6 +1891,58 @@ fn drain_extras(
     }
 }
 
+/// Emit a SEQ production with positionally classified token roles.
+///
+/// Instead of looking up roles from a precomputed flat map (which
+/// conflates the same token text across structural contexts within
+/// one rule), this function computes roles for each STRING position
+/// from the SEQ's own structure at emission time.
+fn emit_seq_with_roles(
+    protocol: &str,
+    schema: &Schema,
+    grammar: &Grammar,
+    vertex_id: &panproto_gat::Name,
+    members: &[Production],
+    cursor: &mut ChildCursor<'_>,
+    out: &mut Output<'_>,
+    in_choice: bool,
+) -> Result<(), ParseError> {
+    let positional_roles = classify_seq_positions(members, in_choice);
+
+    // Detect which bracket-open position triggers indentation so we can
+    // emit the matching IndentClose for the bracket-close.
+    let indent_open_idx: Option<usize> = positional_roles.iter().enumerate().position(|(i, r)| {
+        *r == Some(TokenRole::BracketOpen) && seq_bracket_triggers_indent(members, i, grammar)
+    });
+
+    for (i, member) in members.iter().enumerate() {
+        if let Some(value) = unwrap_to_string(member) {
+            let role = positional_roles[i].unwrap_or_else(|| {
+                if is_word_like(value) {
+                    TokenRole::Keyword
+                } else {
+                    TokenRole::Operator
+                }
+            });
+
+            if indent_open_idx == Some(i) && !is_word_like(value) {
+                out.token_with_indent_open(value, role);
+            } else if role == TokenRole::BracketClose
+                && indent_open_idx.is_some()
+                && !is_word_like(value)
+            {
+                out.tokens.push(Token::IndentClose);
+                out.tokens.push(Token::Lit(value.to_owned(), role));
+            } else {
+                out.token_with_role(value, Some(role));
+            }
+        } else {
+            emit_production(protocol, schema, grammar, vertex_id, member, cursor, out)?;
+        }
+    }
+    Ok(())
+}
+
 fn emit_production_inner(
     protocol: &str,
     schema: &Schema,
@@ -1882,6 +2060,12 @@ fn emit_production_inner(
                         out.newline();
                     } else if grammar.external_semicolons.contains(name) {
                         out.token_with_role(";", Some(TokenRole::Separator));
+                    } else if let Some(default) =
+                        out.cassette.and_then(|c| c.external_token_default(name))
+                    {
+                        if !default.is_empty() {
+                            out.token(default);
+                        }
                     }
                     Ok(())
                 }
@@ -1923,17 +2107,30 @@ fn emit_production_inner(
                 Ok(())
             }
         }
-        Production::Seq { members } => {
-            for member in members {
-                emit_production(protocol, schema, grammar, vertex_id, member, cursor, out)?;
-            }
-            Ok(())
-        }
+        Production::Seq { members } => emit_seq_with_roles(
+            protocol, schema, grammar, vertex_id, members, cursor, out, false,
+        ),
         Production::Choice { members } => {
             if let Some(matched) =
                 pick_choice_with_cursor(schema, grammar, vertex_id, cursor, members)
             {
-                emit_production(protocol, schema, grammar, vertex_id, matched, cursor, out)
+                match matched {
+                    Production::Seq {
+                        members: seq_members,
+                    } => emit_seq_with_roles(
+                        protocol,
+                        schema,
+                        grammar,
+                        vertex_id,
+                        seq_members,
+                        cursor,
+                        out,
+                        true,
+                    ),
+                    _ => {
+                        emit_production(protocol, schema, grammar, vertex_id, matched, cursor, out)
+                    }
+                }
             } else {
                 Ok(())
             }
@@ -3027,6 +3224,7 @@ struct Output<'a> {
     policy: &'a FormatPolicy,
     grammar: &'a Grammar,
     current_rule: Option<String>,
+    cassette: Option<&'a dyn crate::languages::cassettes::GrammarCassette>,
 }
 
 #[derive(Clone)]
@@ -3035,12 +3233,17 @@ struct OutputSnapshot {
 }
 
 impl<'a> Output<'a> {
-    fn new(policy: &'a FormatPolicy, grammar: &'a Grammar) -> Self {
+    fn new(
+        policy: &'a FormatPolicy,
+        grammar: &'a Grammar,
+        cassette: Option<&'a dyn crate::languages::cassettes::GrammarCassette>,
+    ) -> Self {
         Self {
             tokens: Vec::new(),
             policy,
             grammar,
             current_rule: None,
+            cassette,
         }
     }
 
@@ -3130,6 +3333,24 @@ impl<'a> Output<'a> {
             TokenRole::Keyword
         } else {
             TokenRole::Operator
+        }
+    }
+
+    /// Emit a bracket-open token that triggers indentation. This is the
+    /// inline-classification counterpart to the `indent_triggers` check
+    /// in `token_with_role`: the SEQ walker computes indent-triggering
+    /// from the SEQ structure directly rather than from a precomputed map.
+    fn token_with_indent_open(&mut self, value: &str, role: TokenRole) {
+        if value.is_empty() {
+            return;
+        }
+        if role == TokenRole::BracketClose && self.policy.indent_close.iter().any(|t| t == value) {
+            self.tokens.push(Token::IndentClose);
+        }
+        self.tokens.push(Token::Lit(value.to_owned(), role));
+        if role == TokenRole::BracketOpen {
+            self.tokens.push(Token::IndentOpen);
+            self.tokens.push(Token::LineBreak);
         }
     }
 
@@ -3347,7 +3568,7 @@ mod tests {
     fn output_emits_punctuation_without_leading_space() {
         let policy = FormatPolicy::default();
         let g = test_grammar();
-        let mut out = Output::new(&policy, &g);
+        let mut out = Output::new(&policy, &g, None);
         out.token_with_role("foo", Some(TokenRole::Terminal));
         out.token_with_role("(", Some(TokenRole::BracketOpen));
         out.token_with_role(")", Some(TokenRole::BracketClose));
@@ -3372,7 +3593,7 @@ mod tests {
     fn output_indents_after_open_brace() {
         let policy = FormatPolicy::default();
         let g = test_grammar();
-        let mut out = Output::new(&policy, &g);
+        let mut out = Output::new(&policy, &g, None);
         out.token_with_role("fn", Some(TokenRole::Keyword));
         out.token_with_role("foo", Some(TokenRole::Terminal));
         out.token_with_role("(", Some(TokenRole::BracketOpen));
@@ -3391,7 +3612,7 @@ mod tests {
     fn output_no_space_between_word_and_dot() {
         let policy = FormatPolicy::default();
         let g = test_grammar();
-        let mut out = Output::new(&policy, &g);
+        let mut out = Output::new(&policy, &g, None);
         out.token_with_role("foo", Some(TokenRole::Terminal));
         out.token_with_role(".", Some(TokenRole::Operator));
         out.token_with_role("bar", Some(TokenRole::Terminal));
@@ -3411,7 +3632,7 @@ mod tests {
     fn output_snapshot_restore_truncates_bytes() {
         let policy = FormatPolicy::default();
         let g = test_grammar();
-        let mut out = Output::new(&policy, &g);
+        let mut out = Output::new(&policy, &g, None);
         out.token("keep");
         let snap = out.snapshot();
         out.token("drop");

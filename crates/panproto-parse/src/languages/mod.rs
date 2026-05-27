@@ -7,6 +7,9 @@
 //! Per-language `WalkerConfig` overrides (extra scope/block kinds) are stored
 //! in `walker_configs`. Languages without overrides use the default config.
 
+/// Grammar cassettes: per-grammar external token defaults.
+pub mod cassettes;
+
 /// Shared language parser implementation.
 pub mod common;
 

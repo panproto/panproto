@@ -100,7 +100,7 @@ fn js_template_literal_interpolation_inline() {
 
 #[test]
 #[cfg(feature = "lang-julia")]
-#[ignore = "grammar/parser divergence: augmentation restriction prevents correct CHOICE dispatch"]
+#[ignore = "function/end bracket pair wraps block through SYMBOL indirection; has_repeat_recursive does not follow SYMBOL references to detect REPEAT in block rule body"]
 fn julia_function_body_not_inline() {
     with_big_stack(|| {
         let reg = registry();

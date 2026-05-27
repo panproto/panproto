@@ -61,7 +61,6 @@ fn julia_macrocall_long_form_preserves_body() {
 }
 
 #[test]
-#[ignore = "grammar/parser divergence: argument_list satisfies a different symbol first"]
 fn julia_macrocall_short_form_preserves_args() {
     with_big_stack(|| {
         let reg = registry();
