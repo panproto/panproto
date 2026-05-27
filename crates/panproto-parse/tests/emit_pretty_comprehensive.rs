@@ -278,4 +278,86 @@ mod jags {
             );
         });
     }
+
+    #[test]
+    fn jags_censoring_preserved() {
+        with_big_stack(|| {
+            let reg = registry();
+            let text = emit_stripped(&reg, "jags", b"model{\n  y ~ dnorm(mu, tau) I(0, 1)\n}\n");
+            assert!(
+                text.contains("I(") || text.contains("I ("),
+                "JAGS I(...) censoring must be preserved, got: {text}"
+            );
+        });
+    }
+}
+
+// =================================================================
+// Additional BUGS tests
+// =================================================================
+
+#[cfg(feature = "lang-bugs")]
+mod bugs_extra {
+    use super::*;
+
+    #[test]
+    fn data_keyword_preserved() {
+        with_big_stack(|| {
+            let reg = registry();
+            let text = emit_stripped(
+                &reg,
+                "bugs",
+                b"data{\n  x[1] <- 1\n}\nmodel{\n  y ~ dnorm(0, 1)\n}\n",
+            );
+            assert!(
+                text.contains("data"),
+                "BUGS data keyword must be preserved, got: {text}"
+            );
+        });
+    }
+}
+
+// =================================================================
+// Additional Stan tests
+// =================================================================
+
+#[cfg(feature = "lang-stan")]
+mod stan_extra {
+    use super::*;
+
+    #[test]
+    fn constraint_brackets_tight() {
+        with_big_stack(|| {
+            let reg = registry();
+            let text = emit_stripped(
+                &reg,
+                "stan",
+                b"parameters{\n  real<lower=0> x;\n}\nmodel{}\n",
+            );
+            assert!(
+                !text.contains("< lower") && !text.contains("0 >"),
+                "constraint brackets must be tight, got: {text}"
+            );
+        });
+    }
+}
+
+// =================================================================
+// Additional JS tests
+// =================================================================
+
+mod javascript_extra {
+    use super::*;
+
+    #[test]
+    fn spread_no_space() {
+        with_big_stack(|| {
+            let reg = registry();
+            let text = emit_stripped(&reg, "javascript", b"f(...args);\n");
+            assert!(
+                text.contains("...args"),
+                "spread must be tight with identifier, got: {text}"
+            );
+        });
+    }
 }

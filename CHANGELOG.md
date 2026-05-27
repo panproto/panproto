@@ -4,6 +4,22 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.50.10] - 2026-05-27
+
+### Fixed
+
+- **Colon spacing context-sensitive** (`panproto-parse`): `:` after a word-like token is now tight (`a: 1`, `x: int`) while `:` after a non-word token preserves space (`b : c` in ternary, `1 : 10` in slice). `::` is always tight (`x::Int`).
+- **Spread/splat `...` tight with identifier** (`panproto-parse`): `...args` no longer inserts space between `...` and the identifier.
+- **Optional chaining `?.` tight** (`panproto-parse`): no space around `?.` operator.
+- **Stan constraint angle brackets tight** (`panproto-parse`): `<lower=0>` no longer emits as `< lower = 0 >`. Rules whose production contains `SEQ ["<", ..., ">"]` are identified as angle-bracket rules, and the Output suppresses spacing around `<`/`>` when inside them.
+- **BUGS `data` keyword preserved** (`panproto-grammars`): regenerated BUGS grammar with `optional(choice("model", "data"))` as the block keyword, fixing bare `{` blocks.
+- **JAGS `I(...)` interval censoring preserved** (`panproto-grammars`): regenerated JAGS grammar with `choice("T", "I")` as the truncation keyword, fixing dropped censoring clauses.
+
+### Added
+
+- **`Grammar.angle_bracket_rules`** (`panproto-parse`): set of rule names whose `<`/`>` tokens are bracket delimiters, identified structurally from grammar.json.
+- **5 new regression tests**: BUGS data keyword, JAGS censoring, Stan constraint brackets, JS spread spacing.
+
 ## [0.50.9] - 2026-05-26
 
 ### Fixed

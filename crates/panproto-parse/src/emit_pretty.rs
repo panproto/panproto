@@ -340,6 +340,10 @@ pub struct Grammar {
     /// REPEAT/REPEAT1 between them.
     #[serde(skip)]
     pub inline_brace_rules: std::collections::HashSet<String>,
+    /// Rules whose `<`/`>` STRING tokens are bracket delimiters
+    /// (type parameters, constraints) rather than comparison operators.
+    #[serde(skip)]
+    pub angle_bracket_rules: std::collections::HashSet<String>,
 }
 
 fn deserialize_supertypes<'de, D>(
@@ -456,6 +460,7 @@ impl Grammar {
         }
         grammar.external_alias_map = build_external_alias_map(&grammar);
         grammar.inline_brace_rules = identify_inline_brace_rules(&grammar);
+        grammar.angle_bracket_rules = identify_angle_bracket_rules(&grammar);
         grammar.yield_sets = compute_yield_sets(&grammar);
         Ok(grammar)
     }
@@ -965,6 +970,37 @@ fn identify_inline_brace_rules(grammar: &Grammar) -> std::collections::HashSet<S
     result
 }
 
+fn identify_angle_bracket_rules(grammar: &Grammar) -> std::collections::HashSet<String> {
+    fn has_angle_brackets(prod: &Production) -> bool {
+        match prod {
+            Production::Seq { members } => {
+                let open = members
+                    .iter()
+                    .position(|m| matches!(m, Production::String { value } if value == "<"));
+                let close = members
+                    .iter()
+                    .rposition(|m| matches!(m, Production::String { value } if value == ">"));
+                matches!((open, close), (Some(o), Some(c)) if o < c)
+            }
+            Production::Prec { content, .. }
+            | Production::PrecLeft { content, .. }
+            | Production::PrecRight { content, .. }
+            | Production::PrecDynamic { content, .. }
+            | Production::Token { content }
+            | Production::ImmediateToken { content }
+            | Production::Reserved { content, .. } => has_angle_brackets(content),
+            _ => false,
+        }
+    }
+    let mut result = std::collections::HashSet::new();
+    for (name, rule) in &grammar.rules {
+        if has_angle_brackets(rule) {
+            result.insert(name.clone());
+        }
+    }
+    result
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // Format policy
 // ═══════════════════════════════════════════════════════════════════
@@ -1111,9 +1147,13 @@ fn emit_vertex(
     let kind = vertex.kind.as_ref();
     let edges = children_for(schema, vertex_id);
     if let Some(rule) = grammar.rules.get(kind) {
-        let old_suppress = out.suppress_brace_indent;
+        let old_suppress_brace = out.suppress_brace_indent;
+        let old_suppress_angle = out.suppress_angle_space;
         if grammar.inline_brace_rules.contains(kind) {
             out.suppress_brace_indent = true;
+        }
+        if grammar.angle_bracket_rules.contains(kind) {
+            out.suppress_angle_space = true;
         }
         let mut cursor = ChildCursor::new(&edges);
         emit_production(protocol, schema, grammar, vertex_id, rule, &mut cursor, out)?;
@@ -1121,7 +1161,8 @@ fn emit_vertex(
         // may record trailing comments as children of the surrounding
         // vertex (i.e. after the last structural child the rule matched).
         drain_extras(protocol, schema, grammar, &mut cursor, out)?;
-        out.suppress_brace_indent = old_suppress;
+        out.suppress_brace_indent = old_suppress_brace;
+        out.suppress_angle_space = old_suppress_angle;
         return Ok(());
     }
 
@@ -2575,6 +2616,7 @@ struct Output<'a> {
     tokens: Vec<Token>,
     policy: &'a FormatPolicy,
     suppress_brace_indent: bool,
+    suppress_angle_space: bool,
 }
 
 #[derive(Clone)]
@@ -2588,6 +2630,7 @@ impl<'a> Output<'a> {
             tokens: Vec::new(),
             policy,
             suppress_brace_indent: false,
+            suppress_angle_space: false,
         }
     }
 
@@ -2637,7 +2680,15 @@ impl<'a> Output<'a> {
             self.tokens.push(Token::IndentClose);
         }
 
+        if self.suppress_angle_space && (value == "<" || value == ">") {
+            self.tokens.push(Token::NoSpace);
+        }
+
         self.tokens.push(Token::Lit(value.to_owned()));
+
+        if self.suppress_angle_space && value == "<" {
+            self.tokens.push(Token::NoSpace);
+        }
 
         if !self.suppress_brace_indent && self.policy.indent_open.iter().any(|t| t == value) {
             self.tokens.push(Token::IndentOpen);
@@ -2825,6 +2876,24 @@ fn needs_space_between(last: &str, next: &str, expecting_operand: bool) -> bool 
     if last == "." || next == "." {
         return false;
     }
+    // Double colon `::` is always tight (Julia type annotation).
+    if next == "::" || last == "::" {
+        return false;
+    }
+    // Single colon tight after a word (object key `a:`, label, Stan
+    // constraint `lower=0`). Spaced after non-word (ternary `b : c`,
+    // slice `1 : 10`).
+    if next == ":" && last_is_word_like(last) {
+        return false;
+    }
+    // `...` spread/splat prefix: tight binding to the next identifier.
+    if last == "..." {
+        return false;
+    }
+    // `?.` optional chaining: tight binding.
+    if last == "?." || next == "?." {
+        return false;
+    }
     // Tight unary prefix: `last` is a sign/logical-not operator emitted
     // where the grammar expected an operand, so it glues to `next`.
     // `expecting_operand` here means: just before `last` was emitted,
@@ -2863,7 +2932,7 @@ fn is_punct_open(s: &str) -> bool {
 }
 
 fn is_punct_close(s: &str) -> bool {
-    matches!(s, ")" | "]" | "}" | "," | ";" | ":" | "\"" | "'" | "`")
+    matches!(s, ")" | "]" | "}" | "," | ";" | "\"" | "'" | "`")
 }
 
 fn is_punct_punctuation(s: &str) -> bool {
