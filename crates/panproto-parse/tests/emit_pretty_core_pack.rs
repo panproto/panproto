@@ -469,7 +469,6 @@ mod rust {
     use super::*;
 
     #[test]
-    #[ignore = "Rust trait: identifier emitted before keyword; CHOICE dispatch ordering in trait_item rule"]
     fn trait_definition() {
         round_trip(
             "rust",

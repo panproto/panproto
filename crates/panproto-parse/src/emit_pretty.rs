@@ -359,6 +359,19 @@ pub struct Grammar {
     /// close the grammar/parser divergence gap.
     #[serde(skip)]
     pub node_type_children: std::collections::HashMap<String, std::collections::HashSet<String>>,
+    /// Per-field child kinds from node-types.json: maps parent kind →
+    /// field name → set of child kinds. Used by the augmentation to
+    /// restrict subtype edges to structurally matching positions.
+    #[serde(skip)]
+    pub node_type_field_children: std::collections::HashMap<
+        String,
+        std::collections::HashMap<String, std::collections::HashSet<String>>,
+    >,
+    /// Non-field child kinds from node-types.json: maps parent kind →
+    /// set of child kinds that appear in `children.types` (not in any field).
+    #[serde(skip)]
+    pub node_type_nonfield_children:
+        std::collections::HashMap<String, std::collections::HashSet<String>>,
     /// Anonymous ALIAS values for external scanner tokens. Maps external
     /// symbol name (e.g. `_ternary_qmark`) to the ALIAS value string
     /// (e.g. `"?"`). Built by scanning grammar.json rule bodies for
@@ -516,10 +529,17 @@ impl Grammar {
                 reason: format!("grammar.json deserialization failed: {e}"),
             })?;
         grammar.subtypes = compute_subtype_closure(&grammar);
+        grammar.named_alias_map = build_named_alias_map(&grammar);
+        grammar.yield_sets = compute_yield_sets(&grammar);
         if let Some(nt_bytes) = node_types_bytes {
-            grammar.node_type_children = build_node_type_children(nt_bytes);
+            let (all_children, field_children, nonfield_children) =
+                build_node_type_children(nt_bytes);
+            grammar.node_type_children = all_children;
+            grammar.node_type_field_children = field_children;
+            grammar.node_type_nonfield_children = nonfield_children;
             augment_subtypes_from_node_types(&mut grammar);
         }
+        grammar.yield_sets = compute_yield_sets(&grammar);
         grammar.external_alias_map = build_external_alias_map(&grammar);
         let (token_roles, indent_triggers) = compute_token_roles(&grammar);
         grammar.token_roles = token_roles;
@@ -527,7 +547,6 @@ impl Grammar {
         grammar.line_comment_prefixes = extract_line_comment_prefixes(&grammar);
         classify_external_layout_tokens(&mut grammar);
         grammar.yield_sets = compute_yield_sets(&grammar);
-        grammar.named_alias_map = build_named_alias_map(&grammar);
         Ok(grammar)
     }
 }
@@ -681,15 +700,19 @@ fn compute_subtype_closure(
         }
     }
 
-    // Transitive close: `K ⊑ A` and `A ⊑ B` implies `K ⊑ B`. Iterate
-    // a few rounds; the relation is small so a quick fixed-point
-    // suffices in practice.
+    // Transitive close through hidden and supertype rules ONLY.
+    // The relation `K ⊑ Y` means "a vertex of kind K can appear where
+    // the grammar says SYMBOL Y." Transitivity applies when Y is a
+    // hidden or supertype rule (a dispatch point), NOT when Y is a
+    // concrete named rule (a node kind). Without this restriction, the
+    // closure explodes: `type_identifier ⊑ _type_identifier ⊑
     for _ in 0..8 {
         let snapshot = subtypes.clone();
         let mut changed = false;
         for (kind, supers) in &snapshot {
             let extra: HashSet<String> = supers
                 .iter()
+                .filter(|s| s.starts_with('_') || grammar.supertypes.contains(s.as_str()))
                 .flat_map(|s| snapshot.get(s).cloned().unwrap_or_default())
                 .collect();
             let entry = subtypes.entry(kind.clone()).or_default();
@@ -849,21 +872,30 @@ fn yield_of_production(
 
 /// Parse node-types.json and build a map from parent kind to the set
 /// of all named child kinds the parser can produce for that parent.
-fn build_node_type_children(
-    nt_bytes: &[u8],
-) -> std::collections::HashMap<String, std::collections::HashSet<String>> {
+type NodeTypeResult = (
+    std::collections::HashMap<String, std::collections::HashSet<String>>,
+    std::collections::HashMap<
+        String,
+        std::collections::HashMap<String, std::collections::HashSet<String>>,
+    >,
+    std::collections::HashMap<String, std::collections::HashSet<String>>,
+);
+
+fn build_node_type_children(nt_bytes: &[u8]) -> NodeTypeResult {
+    use std::collections::{HashMap, HashSet};
     let node_types: Vec<crate::theory_extract::NodeType> = match serde_json::from_slice(nt_bytes) {
         Ok(v) => v,
-        Err(_) => return std::collections::HashMap::new(),
+        Err(_) => return (HashMap::new(), HashMap::new(), HashMap::new()),
     };
-    let mut map: std::collections::HashMap<String, std::collections::HashSet<String>> =
-        std::collections::HashMap::new();
+    let mut all_map: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut field_map: HashMap<String, HashMap<String, HashSet<String>>> = HashMap::new();
+    let mut nonfield_map: HashMap<String, HashSet<String>> = HashMap::new();
     for entry in &node_types {
         if !entry.named {
             continue;
         }
-        let mut child_kinds = std::collections::HashSet::new();
-        for field_value in entry.fields.values() {
+        let mut child_kinds = HashSet::new();
+        for (field_name, field_value) in &entry.fields {
             if let Some(types) = field_value.get("types").and_then(|t| t.as_array()) {
                 for t in types {
                     if let (Some(name), Some(true)) = (
@@ -871,6 +903,12 @@ fn build_node_type_children(
                         t.get("named").and_then(serde_json::Value::as_bool),
                     ) {
                         child_kinds.insert(name.to_owned());
+                        field_map
+                            .entry(entry.node_type.clone())
+                            .or_default()
+                            .entry(field_name.clone())
+                            .or_default()
+                            .insert(name.to_owned());
                     }
                 }
             }
@@ -879,62 +917,149 @@ fn build_node_type_children(
             for t in &children.types {
                 if t.named {
                     child_kinds.insert(t.node_type.clone());
+                    nonfield_map
+                        .entry(entry.node_type.clone())
+                        .or_default()
+                        .insert(t.node_type.clone());
                 }
             }
         }
         if !child_kinds.is_empty() {
-            map.insert(entry.node_type.clone(), child_kinds);
+            all_map.insert(entry.node_type.clone(), child_kinds);
         }
     }
-    map
+    (all_map, field_map, nonfield_map)
 }
 
 /// Augment `grammar.subtypes` with child-kind data from node-types.json.
 ///
-/// For each parent kind P with node-type children, for each SYMBOL S
-/// referenced in P's grammar rule, for each child kind C in
-/// `node_type_children[P]`: if C does not already satisfy S, record
-/// C satisfies S. This closes the grammar/parser divergence where
-/// tree-sitter's parser produces child kinds not reachable from
-/// grammar.json's production rules.
+/// Uses per-field structural matching: for each parent kind P, each field
+/// F in P's node-types.json entry, and each child kind C in field F's
+/// types, find the SYMBOL S referenced at field F's position in P's
+/// grammar rule. If C lacks a grammar rule and does not already satisfy S,
+/// record C ⊑ S. Non-field children are matched against non-FIELD symbols
+/// in the rule body.
 fn augment_subtypes_from_node_types(grammar: &mut Grammar) {
-    let pairs: Vec<(String, String)> = grammar
-        .node_type_children
-        .iter()
-        .flat_map(|(parent_kind, allowed_children)| {
-            let symbols: Vec<&str> = grammar
-                .rules
-                .get(parent_kind)
-                .map(|rule| referenced_symbols(rule))
-                .unwrap_or_default();
-            let mut out = Vec::new();
-            for child_kind in allowed_children {
-                // Only augment child kinds that have NO grammar rule.
-                // These are parser-generated kinds (like Julia's
-                // argument_list in macrocall_expression) that exist in
-                // node-types.json but not in grammar.json. Kinds WITH
-                // grammar rules (like integer, identifier) already
-                // have correct subtype entries from the grammar-based
-                // closure; augmenting them would create false CHOICE
-                // dispatch matches.
-                if grammar.rules.contains_key(child_kind) {
+    use std::collections::HashMap;
+
+    // Build per-field child-kind map from node-types.json by re-parsing.
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    for parent_kind in grammar.node_type_children.keys() {
+        let Some(rule) = grammar.rules.get(parent_kind) else {
+            continue;
+        };
+
+        // Collect symbols from the grammar rule, partitioned by the
+        // FIELD they appear in (or non-field for top-level symbols).
+        let mut field_symbols: HashMap<String, Vec<String>> = HashMap::new();
+        let mut non_field_symbols: Vec<String> = Vec::new();
+        collect_field_symbols(rule, &mut field_symbols, &mut non_field_symbols, false);
+
+        // Per-field augmentation: for each FIELD F in the grammar rule,
+        // match child kinds that node-types.json says appear in field F
+        // against the symbols at field F's position.
+        if let Some(nt_fields) = grammar.node_type_field_children.get(parent_kind) {
+            for (field_name, nt_child_kinds) in nt_fields {
+                let Some(rule_syms) = field_symbols.get(field_name) else {
                     continue;
-                }
-                for sym_name in &symbols {
-                    if !kind_satisfies_symbol(grammar, Some(child_kind), sym_name) {
-                        out.push((child_kind.clone(), (*sym_name).to_owned()));
+                };
+                for child_kind in nt_child_kinds {
+                    if grammar.rules.contains_key(child_kind) {
+                        continue;
+                    }
+                    for sym_name in rule_syms {
+                        if !kind_satisfies_symbol(grammar, Some(child_kind), sym_name) {
+                            pairs.push((child_kind.clone(), sym_name.clone()));
+                        }
                     }
                 }
             }
-            out
-        })
-        .collect();
+        }
+
+        // Non-field augmentation: for child kinds from `children.types`
+        // (no field), match against non-FIELD symbols in the rule.
+        if let Some(nt_nonfield) = grammar.node_type_nonfield_children.get(parent_kind) {
+            for child_kind in nt_nonfield {
+                if grammar.rules.contains_key(child_kind) {
+                    continue;
+                }
+                for sym_name in &non_field_symbols {
+                    if !kind_satisfies_symbol(grammar, Some(child_kind), sym_name) {
+                        pairs.push((child_kind.clone(), sym_name.clone()));
+                    }
+                }
+            }
+        }
+    }
     for (child_kind, sym_name) in pairs {
         grammar
             .subtypes
             .entry(child_kind)
             .or_default()
             .insert(sym_name);
+    }
+}
+
+/// Walk a production and collect referenced symbols, separating those
+/// inside FIELD bodies (keyed by field name) from those outside any FIELD.
+fn collect_field_symbols(
+    prod: &Production,
+    field_map: &mut std::collections::HashMap<String, Vec<String>>,
+    non_field: &mut Vec<String>,
+    inside_field: bool,
+) {
+    match prod {
+        Production::Symbol { name } if !inside_field => {
+            non_field.push(name.clone());
+        }
+        Production::Field { name, content } => {
+            let mut syms = Vec::new();
+            collect_symbols_flat(content, &mut syms);
+            field_map.entry(name.clone()).or_default().extend(syms);
+        }
+        Production::Choice { members } | Production::Seq { members } => {
+            for m in members {
+                collect_field_symbols(m, field_map, non_field, inside_field);
+            }
+        }
+        Production::Repeat { content }
+        | Production::Repeat1 { content }
+        | Production::Optional { content }
+        | Production::Alias { content, .. }
+        | Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Reserved { content, .. } => {
+            collect_field_symbols(content, field_map, non_field, inside_field);
+        }
+        _ => {}
+    }
+}
+
+fn collect_symbols_flat(prod: &Production, out: &mut Vec<String>) {
+    match prod {
+        Production::Symbol { name } => out.push(name.clone()),
+        Production::Choice { members } | Production::Seq { members } => {
+            for m in members {
+                collect_symbols_flat(m, out);
+            }
+        }
+        Production::Repeat { content }
+        | Production::Repeat1 { content }
+        | Production::Optional { content }
+        | Production::Alias { content, .. }
+        | Production::Field { content, .. }
+        | Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Reserved { content, .. } => collect_symbols_flat(content, out),
+        _ => {}
     }
 }
 
@@ -1322,6 +1447,61 @@ fn seq_bracket_triggers_indent(
     }
 }
 
+/// Check if a production's rule body starts with a bracket pair's open
+/// `STRING`. Used to suppress `ForceSpace` before call-pattern members
+/// (e.g. `argument_list` whose rule starts with `(`).
+fn member_has_leading_bracket(prod: &Production, grammar: &Grammar) -> bool {
+    match prod {
+        Production::Symbol { name } => grammar
+            .rules
+            .get(name)
+            .is_some_and(|rule| first_string_of(rule).is_some_and(|s| !is_word_like(s))),
+        Production::Field { content, .. } => member_has_leading_bracket(content, grammar),
+        Production::Choice { members } => {
+            let non_blank: Vec<_> = members
+                .iter()
+                .filter(|m| !matches!(m, Production::Blank))
+                .collect();
+            !non_blank.is_empty()
+                && non_blank
+                    .iter()
+                    .all(|m| member_has_leading_bracket(m, grammar))
+        }
+        Production::Alias { content, .. } => {
+            if let Production::Symbol { name } = content.as_ref() {
+                grammar
+                    .rules
+                    .get(name)
+                    .is_some_and(|rule| first_string_of(rule).is_some_and(|s| !is_word_like(s)))
+            } else {
+                false
+            }
+        }
+        Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Optional { content } => member_has_leading_bracket(content, grammar),
+        Production::Repeat { .. } | Production::Repeat1 { .. } => false,
+        _ => false,
+    }
+}
+
+fn first_string_of(prod: &Production) -> Option<&str> {
+    match prod {
+        Production::String { value } => Some(value.as_str()),
+        Production::Seq { members } => members.first().and_then(first_string_of),
+        Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Field { content, .. } => first_string_of(content),
+        _ => None,
+    }
+}
+
 /// Check if any member of a slice contains REPEAT/REPEAT1 recursively.
 fn has_repeat_recursive(members: &[Production]) -> bool {
     members.iter().any(has_repeat_in)
@@ -1661,9 +1841,6 @@ fn emit_vertex(
         out.current_rule = Some(kind.to_owned());
         let mut cursor = ChildCursor::new(&edges);
         emit_production(protocol, schema, grammar, vertex_id, rule, &mut cursor, out)?;
-        // Drain any extras left after the rule walk completed; tree-sitter
-        // may record trailing comments as children of the surrounding
-        // vertex (i.e. after the last structural child the rule matched).
         drain_extras(protocol, schema, grammar, &mut cursor, out)?;
         out.current_rule = old_rule;
         return Ok(());
@@ -1978,6 +2155,27 @@ fn emit_seq_with_roles(
                 out.token_with_role(value, Some(role));
             }
         } else {
+            // ForceSpace between consecutive content-producing SEQ
+            // members so that sibling-vertex tokens are separated
+            // (e.g. echo and $((  ...  )) in bash command). Skip
+            // when the current member's rule body starts with a
+            // bracket pair, because the preceding Terminal and the
+            // bracket should be tight (call pattern like f(...)).
+            if i > 0 && unwrap_to_string(&members[i - 1]).is_none() {
+                let prev_produced_content = out
+                    .tokens
+                    .last()
+                    .is_some_and(|t| matches!(t, Token::Lit(_, _)));
+                let member_starts_with_bracket = member_has_leading_bracket(member, grammar);
+                let is_zero_width_external = matches!(
+                    member,
+                    Production::Symbol { name }
+                        if name.starts_with('_') && !grammar.rules.contains_key(name)
+                );
+                if prev_produced_content && !member_starts_with_bracket && !is_zero_width_external {
+                    out.tokens.push(Token::ForceSpace);
+                }
+            }
             if body_line_break_before == Some(i) {
                 out.newline();
             }
@@ -3272,6 +3470,11 @@ enum Token {
     /// "Break a line here if not already at line start" — used after
     /// statements/declarations and after open braces.
     LineBreak,
+    /// Force a space before the next Lit even if the role-pair table
+    /// says tight. Pushed between consecutive content-producing SEQ
+    /// members (e.g. between `command_name` and `argument`) to ensure
+    /// sibling-vertex tokens are separated.
+    ForceSpace,
     /// Suppress the next inter-Lit separator. Pushed by the REPEAT
     /// walker when an iteration's "separator slot" (a CHOICE-with-BLANK
     /// or OPTIONAL at SEQ position 0) emitted zero content tokens, so
@@ -3484,6 +3687,7 @@ fn layout(tokens: &[Token], policy: &FormatPolicy, line_comment_prefixes: &[Stri
     let mut last_role: Option<TokenRole> = None;
     let mut last_text: String = String::new();
     let mut suppress_next_separator = false;
+    let mut force_next_separator = false;
     let newline = policy.newline.as_bytes();
     let separator = policy.separator.as_bytes();
 
@@ -3497,6 +3701,7 @@ fn layout(tokens: &[Token], policy: &FormatPolicy, line_comment_prefixes: &[Stri
                 Token::IndentClose => eprintln!("  TOK: IndentClose"),
                 Token::LineBreak => eprintln!("  TOK: LineBreak"),
                 Token::NoSpace => eprintln!("  TOK: NoSpace"),
+                Token::ForceSpace => eprintln!("  TOK: ForceSpace"),
             }
         }
         match tok {
@@ -3517,17 +3722,22 @@ fn layout(tokens: &[Token], policy: &FormatPolicy, line_comment_prefixes: &[Stri
             Token::NoSpace => {
                 suppress_next_separator = true;
             }
+            Token::ForceSpace => {
+                force_next_separator = true;
+            }
             Token::Lit(value, role) => {
                 if at_line_start {
                     bytes.extend(std::iter::repeat_n(b' ', indent * policy.indent_width));
                 } else if let Some(prev_role) = last_role {
-                    if !suppress_next_separator
-                        && needs_space_by_role(prev_role, &last_text, *role, value)
+                    if force_next_separator
+                        || (!suppress_next_separator
+                            && needs_space_by_role(prev_role, &last_text, *role, value))
                     {
                         bytes.extend_from_slice(separator);
                     }
                 }
                 suppress_next_separator = false;
+                force_next_separator = false;
                 bytes.extend_from_slice(value.as_bytes());
                 at_line_start = false;
                 last_role = Some(*role);
