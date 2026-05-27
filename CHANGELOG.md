@@ -4,6 +4,25 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.51.0] - 2026-05-27
+
+### Changed
+
+- **`emit_pretty` rewritten with grammar-derived token roles** (`panproto-parse`): the entire spacing and indentation system has been replaced. Every STRING token in a grammar rule is classified by its structural role (BracketOpen, BracketClose, Separator, Keyword, Operator, Terminal) based on its position in the production body. Bracket pairs are detected per-SEQ from first/last STRING members, not from any fixed character set. The layout pass uses a role-pair spacing table with zero token-text inspection. All naming-convention checks (indent/dedent/newline/semicolon) are precomputed at Grammar construction time into set-based lookups. Line-comment prefixes are extracted from the grammar's extras rules.
+
+### Added
+
+- **`TokenRole` enum** (`panproto-parse`): 6-variant structural role classification for STRING tokens, derived from grammar.json at construction time.
+- **`Grammar.token_roles`**: per-rule STRING-value-to-role map.
+- **`Grammar.indent_triggers`**: set of (rule, bracket) pairs that trigger indentation, derived from the presence of REPEAT between bracket delimiters.
+- **`Grammar.external_indent_opens/closes/newlines/semicolons`**: precomputed sets of external layout token names.
+- **`needs_space_by_role`**: role-pair spacing table replacing the old character-inspecting `needs_space_between`.
+
+### Removed
+
+- **`needs_space_between`**, **`is_punct_open`**, **`is_punct_close`**, **`is_punct_punctuation`**, **`leaves_operand_position`**, **`is_unary_prefix_operator`**, and all other character-inspecting spacing functions.
+- **`inline_brace_rules`**, **`angle_bracket_rules`**: replaced by `token_roles` and `indent_triggers`.
+
 ## [0.50.10] - 2026-05-27
 
 ### Fixed
