@@ -2369,6 +2369,15 @@ fn emit_production_inner(
                         out,
                         true,
                     ),
+                    Production::String { value } => {
+                        let role = if is_word_like(value) {
+                            TokenRole::Keyword
+                        } else {
+                            TokenRole::Separator
+                        };
+                        out.token_with_role(value, Some(role));
+                        Ok(())
+                    }
                     _ => {
                         emit_production(protocol, schema, grammar, vertex_id, matched, cursor, out)
                     }
@@ -2849,10 +2858,30 @@ fn pick_choice_with_cursor<'a>(
         .enumerate()
         .any(|(i, _)| !cursor.consumed[i]);
     let blank_present = alternatives.iter().any(|a| matches!(a, Production::Blank));
+    let edge_kinds: Vec<&str> = cursor
+        .edges
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !cursor.consumed[*i])
+        .map(|(_, e)| e.kind.as_ref())
+        .collect();
     if !any_unconsumed && blank_present {
         return alternatives.iter().find(|a| matches!(a, Production::Blank));
     }
     if !any_unconsumed && !blank_present {
+        // When the cursor is exhausted, prefer a pure-literal alternative
+        // (only STRINGs, no SYMBOLs/FIELDs) over one that merely CAN
+        // produce epsilon. A pure-literal alternative emits concrete
+        // tokens without needing children (e.g. ";" terminator). An
+        // epsilon-capable alternative with SYMBOLs would emit nothing
+        // for the SYMBOL parts but might pick wrong CHOICE branches.
+        if let Some(pure_lit) = alternatives.iter().find(|alt| {
+            let syms = referenced_symbols(alt);
+            let strings = literal_strings(alt);
+            syms.is_empty() && !strings.is_empty()
+        }) {
+            return Some(pure_lit);
+        }
         let mut visited = std::collections::HashSet::new();
         let mut yield_cache = grammar.yield_sets.clone();
         for alt in alternatives {
@@ -3065,12 +3094,18 @@ fn pick_choice_with_cursor<'a>(
         // Pass 3: Yield-set fallback for alternatives that are not
         // plain SYMBOLs or named ALIASes (e.g. SEQ, PREC wrappers
         // around SYMBOLs that the above passes don't unwrap).
+        // Skip alternatives whose FIELDs don't match any unconsumed
+        // edge kind — a FIELD that can't be satisfied would produce
+        // nothing, and the alternative is structurally wrong for
+        // the current cursor state.
         let mut visited = std::collections::HashSet::new();
         let mut yield_cache = grammar.yield_sets.clone();
         for alt in alternatives {
             let ys = yield_of_production(grammar, alt, &mut visited, &mut yield_cache);
             if ys.contains(target_kind) {
-                return Some(alt);
+                if has_field_in(alt, &edge_kinds) || !has_any_field(alt) {
+                    return Some(alt);
+                }
             }
             visited.clear();
         }
@@ -3078,13 +3113,6 @@ fn pick_choice_with_cursor<'a>(
 
     // FIELD dispatch: pick an alternative whose FIELD name matches an
     // unconsumed edge kind.
-    let edge_kinds: Vec<&str> = cursor
-        .edges
-        .iter()
-        .enumerate()
-        .filter(|(i, _)| !cursor.consumed[*i])
-        .map(|(_, e)| e.kind.as_ref())
-        .collect();
     for alt in alternatives {
         if has_field_in(alt, &edge_kinds) {
             return Some(alt);
@@ -3107,6 +3135,19 @@ fn pick_choice_with_cursor<'a>(
     let _ = (schema, vertex_id);
     if alternatives.iter().any(|a| matches!(a, Production::Blank)) {
         return alternatives.iter().find(|a| matches!(a, Production::Blank));
+    }
+    // When cursor is exhausted and no BLANK, prefer an alternative
+    // that references NO symbols (pure-literal: only STRINGs, PATTERNs,
+    // BLANKs). Such an alternative can produce output without consuming
+    // any children and is safe when the cursor is empty (e.g. the ";"
+    // terminator in Rust's struct_item vs SEQ with FIELD body).
+    if !any_unconsumed {
+        if let Some(pure_lit) = alternatives.iter().find(|alt| {
+            let syms = referenced_symbols(alt);
+            syms.is_empty() && !matches!(alt, Production::Blank)
+        }) {
+            return Some(pure_lit);
+        }
     }
     alternatives
         .iter()
@@ -3220,6 +3261,27 @@ fn first_symbol(production: &Production) -> Option<&str> {
         | Production::PrecDynamic { content, .. }
         | Production::Reserved { content, .. } => first_symbol(content),
         _ => None,
+    }
+}
+
+fn has_any_field(production: &Production) -> bool {
+    match production {
+        Production::Field { .. } => true,
+        Production::Seq { members } | Production::Choice { members } => {
+            members.iter().any(has_any_field)
+        }
+        Production::Repeat { content }
+        | Production::Repeat1 { content }
+        | Production::Optional { content }
+        | Production::Alias { content, .. }
+        | Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Reserved { content, .. } => has_any_field(content),
+        _ => false,
     }
 }
 

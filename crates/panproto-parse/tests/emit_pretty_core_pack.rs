@@ -196,7 +196,7 @@ mod javascript {
 
     #[test]
     fn regex_literal() {
-        round_trip("javascript", b"var x = typeof y;\n");
+        round_trip("javascript", b"var re = /abc/g;\n");
     }
 
     #[test]
@@ -273,7 +273,7 @@ mod java {
     fn annotation() {
         round_trip(
             "java",
-            b"class Foo {\n  public int add(int a, int b) {\n    return a + b;\n  }\n}\n",
+            b"class Foo {\n  @Override\n  public String toString() {\n    return \"Foo\";\n  }\n}\n",
         );
     }
 
@@ -360,7 +360,10 @@ mod cpp {
 
     #[test]
     fn range_for() {
-        round_trip("cpp", b"void f() {\n  int x = 0;\n  x = x + 1;\n}\n");
+        round_trip(
+            "cpp",
+            b"void f(int* xs, int n) {\n  for (int i = 0; i < n; i++) {\n    g(xs[i]);\n  }\n}\n",
+        );
     }
 }
 
@@ -446,7 +449,10 @@ mod go {
 
     #[test]
     fn if_with_init() {
-        round_trip("go", b"package main\n\nfunc f() int {\n\treturn 42\n}\n");
+        round_trip(
+            "go",
+            b"package main\n\nfunc f() {\n\tif x := g(); x > 0 {\n\t\th(x)\n\t}\n}\n",
+        );
     }
 }
 
@@ -468,10 +474,7 @@ mod rust {
 
     #[test]
     fn enum_with_variants() {
-        round_trip(
-            "rust",
-            b"fn double(x: i32) -> i32 {\n    return x * 2;\n}\n",
-        );
+        round_trip("rust", b"enum Option<T> {\n    Some(T),\n    None,\n}\n");
     }
 
     #[test]
@@ -483,7 +486,7 @@ mod rust {
     fn match_expression() {
         round_trip(
             "rust",
-            b"fn f(x: i32) -> i32 {\n    let y = match x {\n        0 => 1,\n        _ => x,\n    };\n    return y;\n}\n",
+            b"fn f(x: i32) -> i32 {\n    match x {\n        0 => 1,\n        _ => x,\n    }\n}\n",
         );
     }
 
@@ -491,7 +494,7 @@ mod rust {
     fn impl_block() {
         round_trip(
             "rust",
-            b"fn foo() -> i32 {\n    let x = 1;\n    return x;\n}\n",
+            b"struct Foo;\n\nimpl Foo {\n    fn new() -> Self {\n        Foo\n    }\n}\n",
         );
     }
 
@@ -556,7 +559,10 @@ mod bash {
 
     #[test]
     fn case_esac() {
-        round_trip("bash", b"echo one\necho two\n");
+        round_trip(
+            "bash",
+            b"case $x in\n  a)\n    echo a\n    ;;\n  *)\n    echo other\n    ;;\nesac\n",
+        );
     }
 
     #[test]
@@ -571,7 +577,7 @@ mod bash {
 
     #[test]
     fn variable_assignment() {
-        round_trip("bash", b"echo hello world\n");
+        round_trip("bash", b"x=hello\necho $x\n");
     }
 }
 
@@ -590,7 +596,10 @@ mod julia {
 
     #[test]
     fn if_elseif_else() {
-        round_trip("julia", b"if x > 0\n    println(x)\nend\n");
+        round_trip(
+            "julia",
+            b"if x > 0\n    1\nelseif x < 0\n    -1\nelse\n    0\nend\n",
+        );
     }
 
     #[test]
@@ -605,7 +614,7 @@ mod julia {
 
     #[test]
     fn module_definition() {
-        round_trip("julia", b"begin\n    x = 1\nend\n");
+        round_trip("julia", b"module Foo\n    export bar\n    bar() = 1\nend\n");
     }
 
     #[test]
@@ -631,7 +640,7 @@ mod stan {
     fn full_model() {
         round_trip(
             "stan",
-            b"data {\n  int N;\n}\nparameters {\n  real mu;\n  real<lower=0> sigma;\n}\nmodel {\n  mu ~ normal(0, 10);\n}\n",
+            b"data {\n  int N;\n  real y[N];\n}\nparameters {\n  real mu;\n  real<lower=0> sigma;\n}\nmodel {\n  mu ~ normal(0, 10);\n  y ~ normal(mu, sigma);\n}\n",
         );
     }
 
