@@ -270,10 +270,15 @@ pub enum TokenRole {
     /// Alphanumeric STRING that is a language keyword (e.g. `if`,
     /// `while`, `and`, `model`). Space before and after.
     Keyword,
-    /// Non-alphanumeric STRING between content members in a rule with
-    /// more than one operator (e.g. `+`, `=`, `~`, `<-`). Space before
-    /// and after.
+    /// Non-alphanumeric STRING between content members inside a CHOICE
+    /// alternative (e.g. `+`, `=`, `~`, `<-` in binary expression
+    /// alternatives). Space before and after.
     Operator,
+    /// Non-alphanumeric STRING between content members in a standalone
+    /// SEQ (not inside a CHOICE). Examples: `.` in `attribute`,
+    /// `::` in `scoped_identifier`, `->` in `pointer_member`. These
+    /// are structural connectors, not algebraic operators. No space.
+    Connector,
     /// Text from a leaf vertex's `literal-value` constraint.
     Terminal,
 }
@@ -395,6 +400,12 @@ pub struct Grammar {
     /// External tokens equivalent to semicolons.
     #[serde(skip)]
     pub external_semicolons: std::collections::HashSet<String>,
+    /// Named alias map: maps alias value to source symbol name.
+    /// When a vertex kind has no direct grammar rule, this map resolves
+    /// `ALIAS { content: SYMBOL source, named: true, value: alias }` so
+    /// the emitter can walk the source rule with proper token roles.
+    #[serde(skip)]
+    pub named_alias_map: std::collections::HashMap<String, String>,
 }
 
 fn deserialize_supertypes<'de, D>(
@@ -516,6 +527,7 @@ impl Grammar {
         grammar.line_comment_prefixes = extract_line_comment_prefixes(&grammar);
         classify_external_layout_tokens(&mut grammar);
         grammar.yield_sets = compute_yield_sets(&grammar);
+        grammar.named_alias_map = build_named_alias_map(&grammar);
         Ok(grammar)
     }
 }
@@ -777,20 +789,25 @@ fn yield_of_production(
                 set.insert(String::new());
                 set
             } else {
-                // Walk the SEQ members left-to-right, returning the
-                // Yield of the first member that can produce a named
-                // child. STRING and PATTERN yield ∅ (anonymous
-                // tokens); skip them to reach the first named-child-
-                // producing position.  This handles hidden rules like
-                // `_initializer = SEQ ["=", FIELD { value, ... }]`
-                // where the leading "=" is a STRING.
+                // Walk SEQ members left-to-right. STRING/PATTERN yield ∅
+                // (anonymous tokens, skipped). Named-child-producing
+                // members yield a non-empty set. If that set contains ε,
+                // the member is optional and the next member's yield is
+                // also reachable. Accumulate until we hit a non-optional
+                // named-child producer.
+                let mut combined = std::collections::HashSet::new();
                 for m in members {
                     let ys = yield_of_production(grammar, m, visited, cache);
-                    if !ys.is_empty() {
-                        return ys;
+                    if ys.is_empty() {
+                        continue;
+                    }
+                    let has_epsilon = ys.contains("");
+                    combined.extend(ys);
+                    if !has_epsilon {
+                        break;
                     }
                 }
-                std::collections::HashSet::new()
+                combined
             }
         }
         Production::Choice { members } => {
@@ -892,14 +909,21 @@ fn augment_subtypes_from_node_types(grammar: &mut Grammar) {
                 .unwrap_or_default();
             let mut out = Vec::new();
             for child_kind in allowed_children {
-                let already_satisfies_some = symbols
-                    .iter()
-                    .any(|s| kind_satisfies_symbol(grammar, Some(child_kind), s));
-                if already_satisfies_some {
+                // Only augment child kinds that have NO grammar rule.
+                // These are parser-generated kinds (like Julia's
+                // argument_list in macrocall_expression) that exist in
+                // node-types.json but not in grammar.json. Kinds WITH
+                // grammar rules (like integer, identifier) already
+                // have correct subtype entries from the grammar-based
+                // closure; augmenting them would create false CHOICE
+                // dispatch matches.
+                if grammar.rules.contains_key(child_kind) {
                     continue;
                 }
                 for sym_name in &symbols {
-                    out.push((child_kind.clone(), (*sym_name).to_owned()));
+                    if !kind_satisfies_symbol(grammar, Some(child_kind), sym_name) {
+                        out.push((child_kind.clone(), (*sym_name).to_owned()));
+                    }
                 }
             }
             out
@@ -959,6 +983,52 @@ fn build_external_alias_map(grammar: &Grammar) -> std::collections::HashMap<Stri
     }
     for rule in grammar.rules.values() {
         walk(grammar, rule, &mut map);
+    }
+    map
+}
+
+/// Build a map from named-alias values to their source symbol names.
+/// When tree-sitter emits a vertex with kind `V` via
+/// `alias($.source, $.V)`, the grammar has no rule keyed by `V`.
+/// This map lets the emitter resolve `V → source` and walk the source
+/// rule with proper token roles and bracket pairs.
+fn build_named_alias_map(grammar: &Grammar) -> std::collections::HashMap<String, String> {
+    let mut map = std::collections::HashMap::new();
+    fn walk(prod: &Production, map: &mut std::collections::HashMap<String, String>) {
+        match prod {
+            Production::Alias {
+                content,
+                named,
+                value,
+            } => {
+                if *named && !value.is_empty() {
+                    if let Production::Symbol { name } = content.as_ref() {
+                        map.entry(value.clone()).or_insert_with(|| name.clone());
+                    }
+                }
+                walk(content, map);
+            }
+            Production::Choice { members } | Production::Seq { members } => {
+                for m in members {
+                    walk(m, map);
+                }
+            }
+            Production::Repeat { content }
+            | Production::Repeat1 { content }
+            | Production::Optional { content }
+            | Production::Field { content, .. }
+            | Production::Token { content }
+            | Production::ImmediateToken { content }
+            | Production::Prec { content, .. }
+            | Production::PrecLeft { content, .. }
+            | Production::PrecRight { content, .. }
+            | Production::PrecDynamic { content, .. }
+            | Production::Reserved { content, .. } => walk(content, map),
+            _ => {}
+        }
+    }
+    for rule in grammar.rules.values() {
+        walk(rule, &mut map);
     }
     map
 }
@@ -1054,14 +1124,13 @@ fn classify_seq(
     let string_positions: Vec<(usize, &str)> = members
         .iter()
         .enumerate()
-        .filter_map(|(i, m)| {
-            if let Production::String { value } = m {
-                Some((i, value.as_str()))
-            } else {
-                None
-            }
-        })
+        .filter_map(|(i, m)| unwrap_to_string(m).map(|s| (i, s)))
         .collect();
+
+    let content_count = members
+        .iter()
+        .filter(|m| unwrap_to_string(m).is_none())
+        .count();
 
     if string_positions.len() >= 2 {
         let (first_idx, first_val) = string_positions[0];
@@ -1069,7 +1138,7 @@ fn classify_seq(
 
         let has_content_between = members[first_idx + 1..last_idx]
             .iter()
-            .any(|m| !matches!(m, Production::String { .. }));
+            .any(|m| unwrap_to_string(m).is_none());
 
         let both_punct = !is_word_like(first_val) && !is_word_like(last_val);
         let both_word = is_word_like(first_val) && is_word_like(last_val);
@@ -1085,26 +1154,31 @@ fn classify_seq(
     }
 
     // Classify remaining STRINGs by structural position.
-    let first_content_idx = members
-        .iter()
-        .position(|m| !matches!(m, Production::String { .. }));
-    let last_content_idx = members
-        .iter()
-        .rposition(|m| !matches!(m, Production::String { .. }));
+    let first_content_idx = members.iter().position(|m| unwrap_to_string(m).is_none());
+    let last_content_idx = members.iter().rposition(|m| unwrap_to_string(m).is_none());
 
     for (i, m) in members.iter().enumerate() {
-        if let Production::String { value } = m {
-            if !roles.contains_key(value) {
-                if is_word_like(value) {
+        if let Some(value) = unwrap_to_string(m) {
+            let value = value.to_owned();
+            if !roles.contains_key(&value) {
+                if is_word_like(&value) {
                     roles.insert(value.clone(), TokenRole::Keyword);
                 } else if !in_choice && first_content_idx.is_some_and(|fc| i < fc) {
                     // STRING before any content in a non-CHOICE context:
                     // prefix sigil (e.g. @, #, ..., $)
                     roles.insert(value.clone(), TokenRole::BracketOpen);
-                } else if !in_choice && last_content_idx.is_some_and(|lc| i > lc) {
-                    // STRING after all content in a non-CHOICE context:
-                    // suffix
+                } else if last_content_idx.is_some_and(|lc| i > lc) {
+                    // STRING after all content: suffix (tight before).
+                    // Unlike prefix, this applies in CHOICE branches too
+                    // (e.g. `()` in bash function_definition's CHOICE).
                     roles.insert(value.clone(), TokenRole::BracketClose);
+                } else if !in_choice && string_positions.len() == 1 && content_count == 2 {
+                    // Exactly one STRING between exactly two content
+                    // members in a non-CHOICE SEQ: this is a connector
+                    // (e.g. `.` in `SEQ [object, ".", attr]`).
+                    // SEQs with more members (like function_definition)
+                    // have operators, not connectors.
+                    roles.insert(value.clone(), TokenRole::Connector);
                 } else {
                     roles.insert(value.clone(), TokenRole::Operator);
                 }
@@ -1113,9 +1187,8 @@ fn classify_seq(
     }
 
     for m in members {
-        match m {
-            Production::String { .. } => {}
-            _ => classify_production(m, roles, indent_triggers, rule_name),
+        if unwrap_to_string(m).is_none() {
+            classify_production(m, roles, indent_triggers, rule_name);
         }
     }
 }
@@ -1170,6 +1243,25 @@ fn is_word_like(s: &str) -> bool {
     !s.is_empty()
         && s.chars().all(|c| c.is_alphanumeric() || c == '_')
         && s.starts_with(|c: char| c.is_alphabetic() || c == '_')
+}
+
+/// Unwrap wrapper productions (`Token`, `ImmediateToken`, `Prec`, `PrecLeft`,
+/// `PrecRight`, `PrecDynamic`, `Field`, `Reserved`) to find the inner `STRING`
+/// value. Returns `None` if the production is not a (possibly wrapped)
+/// `STRING`.
+fn unwrap_to_string(prod: &Production) -> Option<&str> {
+    match prod {
+        Production::String { value } => Some(value.as_str()),
+        Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Field { content, .. }
+        | Production::Reserved { content, .. } => unwrap_to_string(content),
+        _ => None,
+    }
 }
 
 /// Extract line-comment prefixes from the grammar's extras rules.
@@ -1438,12 +1530,25 @@ fn emit_vertex(
         return Ok(());
     }
 
-    // No rule for this kind. The parser produced it via an ALIAS
-    // (tree-sitter's `alias($.something, $.actual_kind)`) or via an
-    // external scanner (e.g. YAML's `document` root). Fall back to
-    // walking the children directly so the inner content survives;
-    // surrounding tokens — whose only source is the missing rule —
-    // are necessarily absent.
+    // Named alias resolution: if the vertex kind was produced by
+    // `alias($.source, $.kind)`, look up the source rule and walk
+    // it. This preserves bracket pairs, separators, and token roles
+    // that the source rule defines.
+    if let Some(source_name) = grammar.named_alias_map.get(kind) {
+        if let Some(rule) = grammar.rules.get(source_name) {
+            let old_rule = out.current_rule.take();
+            out.current_rule = Some(source_name.to_owned());
+            let mut cursor = ChildCursor::new(&edges);
+            emit_production(protocol, schema, grammar, vertex_id, rule, &mut cursor, out)?;
+            drain_extras(protocol, schema, grammar, &mut cursor, out)?;
+            out.current_rule = old_rule;
+            return Ok(());
+        }
+    }
+
+    // No rule for this kind and no named alias. The parser produced
+    // it via an external scanner (e.g. YAML's `document` root).
+    // Fall back to walking the children directly.
     for edge in &edges {
         emit_vertex(protocol, schema, grammar, &edge.tgt, out)?;
     }
@@ -2144,7 +2249,12 @@ fn emit_aliased_child(
         if let Some(rule) = grammar.rules.get(name) {
             let edges = children_for(schema, child_id);
             let mut cursor = ChildCursor::new(&edges);
-            return emit_production(protocol, schema, grammar, child_id, rule, &mut cursor, out);
+            let old_rule = out.current_rule.take();
+            out.current_rule = Some(name.to_owned());
+            let result =
+                emit_production(protocol, schema, grammar, child_id, rule, &mut cursor, out);
+            out.current_rule = old_rule;
+            return result;
         }
     }
 
@@ -2311,6 +2421,7 @@ fn pick_choice_with_cursor<'a>(
         // overlap is literal punctuation.
         let mut best_literal: usize = 0;
         let mut best_symbols: usize = 0;
+        let mut best_total_chars: usize = usize::MAX;
         let mut best_alt: Option<&Production> = None;
         let mut tied = false;
         for alt in alternatives {
@@ -2326,12 +2437,7 @@ fn pick_choice_with_cursor<'a>(
             if literal_score == 0 {
                 continue;
             }
-            // Symbol score is computed only as a tiebreaker among alts
-            // whose literal-token coverage is the same; it never lifts
-            // an alt above one with a strictly higher literal score.
-            // Reads the `chose-alt-child-kinds` constraint (a separate
-            // sequence the walker emits, kept apart from the literal
-            // fingerprint to avoid cross-contamination).
+            let total_chars: usize = strings.iter().map(String::len).sum();
             let symbol_score = if literal_score >= best_literal && !child_kinds.is_empty() {
                 let symbols = referenced_symbols(alt);
                 symbols
@@ -2352,26 +2458,50 @@ fn pick_choice_with_cursor<'a>(
                 0
             };
             let better = literal_score > best_literal
-                || (literal_score == best_literal && symbol_score > best_symbols);
-            let same = literal_score == best_literal && symbol_score == best_symbols;
+                || (literal_score == best_literal && symbol_score > best_symbols)
+                || (literal_score == best_literal
+                    && symbol_score == best_symbols
+                    && total_chars < best_total_chars);
+            let same = literal_score == best_literal
+                && symbol_score == best_symbols
+                && total_chars == best_total_chars;
             if better {
                 best_literal = literal_score;
                 best_symbols = symbol_score;
+                best_total_chars = total_chars;
                 best_alt = Some(alt);
                 tied = false;
             } else if same && best_alt.is_some() {
                 tied = true;
             }
         }
-        // Only commit to an alt when the fingerprint discriminates it
-        // uniquely. A tie means the alts share the same literal token
-        // set (e.g. JSON's `string = CHOICE { SEQ { '"', '"' }, SEQ {
-        // '"', _string_content, '"' } }` — both alts contain just the
-        // two `"` tokens). In that case fall through to cursor-based
-        // dispatch, which uses the actual edge structure.
         if let Some(alt) = best_alt {
             if !tied {
-                return Some(alt);
+                if any_unconsumed {
+                    let mut visited = std::collections::HashSet::new();
+                    let mut yield_cache = grammar.yield_sets.clone();
+                    let ys = yield_of_production(grammar, alt, &mut visited, &mut yield_cache);
+                    let alt_can_consume = cursor
+                        .edges
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| !cursor.consumed[*i])
+                        .any(|(_, edge)| {
+                            schema.vertices.get(&edge.tgt).is_some_and(|v| {
+                                let kind = v.kind.as_ref();
+                                ys.contains(kind)
+                                    || grammar.subtypes.get(kind).is_some_and(|subs| {
+                                        subs.iter().any(|s| ys.contains(s.as_str()))
+                                    })
+                            })
+                        });
+                    let has_no_symbols = referenced_symbols(alt).is_empty();
+                    if alt_can_consume || has_no_symbols {
+                        return Some(alt);
+                    }
+                } else {
+                    return Some(alt);
+                }
             }
         }
     }
@@ -3070,6 +3200,7 @@ fn layout(tokens: &[Token], policy: &FormatPolicy, line_comment_prefixes: &[Stri
     let mut indent: usize = 0;
     let mut at_line_start = true;
     let mut last_role: Option<TokenRole> = None;
+    let mut last_text: String = String::new();
     let mut suppress_next_separator = false;
     let newline = policy.newline.as_bytes();
     let separator = policy.separator.as_bytes();
@@ -3108,7 +3239,9 @@ fn layout(tokens: &[Token], policy: &FormatPolicy, line_comment_prefixes: &[Stri
                 if at_line_start {
                     bytes.extend(std::iter::repeat_n(b' ', indent * policy.indent_width));
                 } else if let Some(prev_role) = last_role {
-                    if !suppress_next_separator && needs_space_by_role(prev_role, *role) {
+                    if !suppress_next_separator
+                        && needs_space_by_role(prev_role, &last_text, *role, value)
+                    {
                         bytes.extend_from_slice(separator);
                     }
                 }
@@ -3116,6 +3249,8 @@ fn layout(tokens: &[Token], policy: &FormatPolicy, line_comment_prefixes: &[Stri
                 bytes.extend_from_slice(value.as_bytes());
                 at_line_start = false;
                 last_role = Some(*role);
+                last_text.clear();
+                last_text.push_str(value);
                 if line_comment_prefixes
                     .iter()
                     .any(|p| value.starts_with(p.as_str()))
@@ -3134,23 +3269,47 @@ fn layout(tokens: &[Token], policy: &FormatPolicy, line_comment_prefixes: &[Stri
     bytes
 }
 
+/// Effective spacing role: word-like bracket tokens (`function`, `end`,
+/// `begin`, `done`, etc.) are structurally brackets (for indentation)
+/// but space like keywords (they need whitespace on both sides).
+fn effective_spacing_role(role: TokenRole, text: &str) -> TokenRole {
+    match role {
+        TokenRole::BracketOpen | TokenRole::BracketClose if is_word_like(text) => {
+            TokenRole::Keyword
+        }
+        other => other,
+    }
+}
+
 /// Role-pair spacing table. Determines whether a space separator
-/// should be inserted between two adjacent tokens based solely on
-/// their structural roles. No token text inspection.
-fn needs_space_by_role(last: TokenRole, next: TokenRole) -> bool {
+/// should be inserted between two adjacent tokens based on their
+/// structural roles and word-likeness.
+fn needs_space_by_role(last: TokenRole, last_text: &str, next: TokenRole, next_text: &str) -> bool {
+    let last = effective_spacing_role(last, last_text);
+    let next = effective_spacing_role(next, next_text);
     match (last, next) {
+        // Brackets: tight on the inside
         (TokenRole::BracketOpen, _) | (_, TokenRole::BracketClose) => false,
+        // Separators: tight before, space after
         (_, TokenRole::Separator) => false,
         (TokenRole::Separator, _) => true,
+        // Connectors: always tight (., ::, ->, etc.)
+        (TokenRole::Connector, _) | (_, TokenRole::Connector) => false,
+        // Terminal followed by bracket-open: tight (f() not f ())
         (TokenRole::Terminal, TokenRole::BracketOpen) => false,
+        // Close followed by open: tight
         (TokenRole::BracketClose, TokenRole::BracketOpen) => false,
+        // Keywords always spaced
         (TokenRole::Keyword, _) | (_, TokenRole::Keyword) => true,
+        // Terminals and operators: space between
         (TokenRole::Terminal, TokenRole::Terminal) => true,
         (TokenRole::Terminal, TokenRole::Operator) | (TokenRole::Operator, TokenRole::Terminal) => {
             true
         }
         (TokenRole::Operator, TokenRole::Operator) => true,
+        // Close followed by non-bracket: space
         (TokenRole::BracketClose, _) => true,
+        // Operator before open: space
         (TokenRole::Operator, TokenRole::BracketOpen) => true,
     }
 }
