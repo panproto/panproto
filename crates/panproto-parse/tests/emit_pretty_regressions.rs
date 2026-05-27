@@ -53,7 +53,6 @@ fn js_object_literal_contents_inside_braces() {
 }
 
 #[test]
-#[ignore = "Python _simple_statements uses ';' as grammar-valid separator; eliminating requires per-rule format policy"]
 fn python_function_body_no_semicolons() {
     with_big_stack(|| {
         let reg = registry();
@@ -100,7 +99,6 @@ fn js_template_literal_interpolation_inline() {
 
 #[test]
 #[cfg(feature = "lang-julia")]
-#[ignore = "function/end bracket pair wraps block through SYMBOL indirection; has_repeat_recursive does not follow SYMBOL references to detect REPEAT in block rule body"]
 fn julia_function_body_not_inline() {
     with_big_stack(|| {
         let reg = registry();

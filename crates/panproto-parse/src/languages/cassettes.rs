@@ -25,6 +25,16 @@ pub trait GrammarCassette: Send + Sync {
     /// Returns the default text for an external scanner token, or
     /// `None` if the token cannot be emitted without parse context.
     fn external_token_default(&self, token_name: &str) -> Option<&str>;
+
+    /// Override a `REPEAT` separator token with a layout action.
+    /// Returns `true` if the separator should be emitted as a line
+    /// break instead of the literal token text. Used by indent-based
+    /// grammars where `;` in `_simple_statements` should produce a
+    /// newline rather than a semicolon.
+    fn separator_is_line_break(&self, separator_text: &str) -> bool {
+        let _ = separator_text;
+        false
+    }
 }
 
 struct NullCassette;
@@ -43,6 +53,10 @@ impl GrammarCassette for PythonCassette {
             "string_start" | "string_end" => Some("\""),
             _ => None,
         }
+    }
+
+    fn separator_is_line_break(&self, separator_text: &str) -> bool {
+        separator_text == ";"
     }
 }
 

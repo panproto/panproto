@@ -1301,12 +1301,25 @@ fn seq_bracket_triggers_indent(
     if string_positions.len() < 2 {
         return false;
     }
-    let last_idx = string_positions[string_positions.len() - 1].0;
-    if open_idx >= last_idx {
-        return false;
+    let open_val = string_positions.iter().find(|(i, _)| *i == open_idx);
+    let close_val = string_positions.last();
+    if let (Some((_, open_text)), Some((close_idx, close_text))) = (open_val, close_val) {
+        if open_idx >= *close_idx {
+            return false;
+        }
+        // Word-like bracket pairs (function/end, if/end, while/end,
+        // for/end, module/end, struct/end, begin/end, do/done, etc.)
+        // always wrap block bodies that need indentation. This is a
+        // structural invariant: word-like delimiters only appear in
+        // block constructs across all 261 grammars.
+        if is_word_like(open_text) && is_word_like(close_text) {
+            return true;
+        }
+        let between = &members[open_idx + 1..*close_idx];
+        has_repeat_recursive(between)
+    } else {
+        false
     }
-    let between = &members[open_idx + 1..last_idx];
-    has_repeat_recursive(between)
 }
 
 /// Check if any member of a slice contains REPEAT/REPEAT1 recursively.
@@ -1915,6 +1928,32 @@ fn emit_seq_with_roles(
         *r == Some(TokenRole::BracketOpen) && seq_bracket_triggers_indent(members, i, grammar)
     });
 
+    // For word-like bracket pairs (function/end, if/end, etc.), find
+    // the position of the "body" CHOICE that contains a SYMBOL whose
+    // rule body has REPEAT. Emit a LineBreak before that position to
+    // separate the header (keyword + signature) from the body.
+    let body_line_break_before: Option<usize> = indent_open_idx.and_then(|oi| {
+        let open_text = unwrap_to_string(&members[oi]);
+        if !open_text.is_some_and(is_word_like) {
+            return None;
+        }
+        for (j, member) in members.iter().enumerate().skip(oi + 1) {
+            if let Production::Choice { members: alts } = member {
+                let has_blank = alts.iter().any(|a| matches!(a, Production::Blank));
+                let has_block_symbol = alts.iter().any(|a| match a {
+                    Production::Symbol { name } => {
+                        grammar.rules.get(name).is_some_and(has_repeat_in)
+                    }
+                    _ => false,
+                });
+                if has_blank && has_block_symbol {
+                    return Some(j);
+                }
+            }
+        }
+        None
+    });
+
     for (i, member) in members.iter().enumerate() {
         if let Some(value) = unwrap_to_string(member) {
             let role = positional_roles[i].unwrap_or_else(|| {
@@ -1925,18 +1964,23 @@ fn emit_seq_with_roles(
                 }
             });
 
-            if indent_open_idx == Some(i) && !is_word_like(value) {
-                out.token_with_indent_open(value, role);
-            } else if role == TokenRole::BracketClose
-                && indent_open_idx.is_some()
-                && !is_word_like(value)
-            {
+            if indent_open_idx == Some(i) {
+                if is_word_like(value) {
+                    out.tokens.push(Token::Lit(value.to_owned(), role));
+                    out.tokens.push(Token::IndentOpen);
+                } else {
+                    out.token_with_indent_open(value, role);
+                }
+            } else if role == TokenRole::BracketClose && indent_open_idx.is_some() {
                 out.tokens.push(Token::IndentClose);
                 out.tokens.push(Token::Lit(value.to_owned(), role));
             } else {
                 out.token_with_role(value, Some(role));
             }
         } else {
+            if body_line_break_before == Some(i) {
+                out.newline();
+            }
             emit_production(protocol, schema, grammar, vertex_id, member, cursor, out)?;
         }
     }
@@ -2151,6 +2195,14 @@ fn emit_production_inner(
             // `SEP_k+1` is the empty word, the concatenation of
             // `BODY_k` and `BODY_k+1` must remain a single contiguous
             // span. Hence the NoSpace marker.
+            // Also detect mandatory separators: STRING at position 0
+            // of a SEQ body (e.g. `SEQ[";", SYMBOL stmt]` in Python's
+            // _simple_statements). For these, the cassette may override
+            // the separator with a line break.
+            let mandatory_sep_text: Option<&str> = match content.as_ref() {
+                Production::Seq { members } if members.len() >= 2 => unwrap_to_string(&members[0]),
+                _ => None,
+            };
             let separator_leading_seq: Option<&[Production]> = match content.as_ref() {
                 Production::Seq { members } if members.len() >= 2 => {
                     let first = &members[0];
@@ -2159,7 +2211,8 @@ fn emit_production_inner(
                             members.iter().any(|m| matches!(m, Production::Blank))
                         }
                         Production::Optional { .. } => true,
-                        _ => false,
+                        Production::String { .. } => true,
+                        _ => unwrap_to_string(first).is_some(),
                     };
                     if is_separator_slot {
                         Some(members.as_slice())
@@ -2182,20 +2235,28 @@ fn emit_production_inner(
                         // a NoSpace marker before walking the remaining
                         // SEQ members. The OutputSnapshot here covers
                         // only the separator's emission window.
+                        let cassette_replaces_sep = mandatory_sep_text.is_some_and(|sep| {
+                            out.cassette.is_some_and(|c| c.separator_is_line_break(sep))
+                        });
                         let pre_sep = out.snapshot();
-                        let sep_result = emit_production(
-                            protocol,
-                            schema,
-                            grammar,
-                            vertex_id,
-                            &seq_members[0],
-                            cursor,
-                            out,
-                        );
+                        let sep_result = if cassette_replaces_sep {
+                            out.newline();
+                            Ok(())
+                        } else {
+                            emit_production(
+                                protocol,
+                                schema,
+                                grammar,
+                                vertex_id,
+                                &seq_members[0],
+                                cursor,
+                                out,
+                            )
+                        };
                         match sep_result {
                             Err(e) => Err(e),
                             Ok(()) => {
-                                if !out.lit_emitted_since(pre_sep) {
+                                if !cassette_replaces_sep && !out.lit_emitted_since(pre_sep) {
                                     out.no_space();
                                 }
                                 let mut rest_result = Ok(());
