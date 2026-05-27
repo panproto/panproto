@@ -1298,12 +1298,16 @@ fn classify_seq(
                     // Unlike prefix, this applies in CHOICE branches too
                     // (e.g. `()` in bash function_definition's CHOICE).
                     roles.insert(value.clone(), TokenRole::BracketClose);
-                } else if !in_choice && string_positions.len() == 1 && content_count == 2 {
-                    // Exactly one STRING between exactly two content
+                } else if !in_choice
+                    && string_positions.len() == 1
+                    && content_count == 2
+                    && value.len() == 1
+                {
+                    // Single-character STRING between exactly two content
                     // members in a non-CHOICE SEQ: this is a connector
                     // (e.g. `.` in `SEQ [object, ".", attr]`).
-                    // SEQs with more members (like function_definition)
-                    // have operators, not connectors.
+                    // Multi-character tokens like `:=`, `<-`, `->` are
+                    // operators (spaced), not connectors.
                     roles.insert(value.clone(), TokenRole::Connector);
                 } else {
                     roles.insert(value.clone(), TokenRole::Operator);
@@ -1396,7 +1400,11 @@ fn classify_seq_positions(members: &[Production], in_choice: bool) -> Vec<Option
                 }
             } else if last_content_idx.is_some_and(|lc| i > lc) {
                 TokenRole::BracketClose
-            } else if !in_choice && string_positions.len() == 1 && content_count == 2 {
+            } else if !in_choice
+                && string_positions.len() == 1
+                && content_count == 2
+                && value.len() == 1
+            {
                 TokenRole::Connector
             } else {
                 TokenRole::Operator
@@ -1441,7 +1449,31 @@ fn seq_bracket_triggers_indent(
             return true;
         }
         let between = &members[open_idx + 1..*close_idx];
-        has_repeat_recursive(between)
+        if has_repeat_recursive(between) {
+            return true;
+        }
+        // Follow SYMBOL → rule one level for CHOICE[SYMBOL, BLANK]
+        // patterns where the SYMBOL's rule body has REPEAT.
+        // This detects block constructs like Go's
+        // `SEQ["{", CHOICE[statement_list, BLANK], "}"]` where
+        // statement_list contains REPEAT but isn't directly visible.
+        for m in between {
+            if let Production::Choice { members: alts } = m {
+                let has_blank = alts.iter().any(|a| matches!(a, Production::Blank));
+                if has_blank {
+                    for alt in alts {
+                        if let Production::Symbol { name } = alt {
+                            if let Some(rule) = _grammar.rules.get(name) {
+                                if has_repeat_in(rule) {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        false
     } else {
         false
     }
@@ -3094,20 +3126,38 @@ fn pick_choice_with_cursor<'a>(
         // Pass 3: Yield-set fallback for alternatives that are not
         // plain SYMBOLs or named ALIASes (e.g. SEQ, PREC wrappers
         // around SYMBOLs that the above passes don't unwrap).
-        // Skip alternatives whose FIELDs don't match any unconsumed
-        // edge kind — a FIELD that can't be satisfied would produce
-        // nothing, and the alternative is structurally wrong for
-        // the current cursor state.
+        // Guard: skip alternatives whose FIELDs don't match any
+        // unconsumed edge kind. A FIELD that can't be satisfied
+        // would consume the wrong child, and the alternative is
+        // structurally wrong for the current cursor state.
         let mut visited = std::collections::HashSet::new();
         let mut yield_cache = grammar.yield_sets.clone();
+        let mut matching_alts: Vec<&Production> = Vec::new();
         for alt in alternatives {
+            if has_any_field(alt) && !has_field_in(alt, &edge_kinds) {
+                visited.clear();
+                continue;
+            }
             let ys = yield_of_production(grammar, alt, &mut visited, &mut yield_cache);
             if ys.contains(target_kind) {
-                if has_field_in(alt, &edge_kinds) || !has_any_field(alt) {
-                    return Some(alt);
-                }
+                matching_alts.push(alt);
             }
             visited.clear();
+        }
+        if matching_alts.len() == 1 {
+            return Some(matching_alts[0]);
+        }
+        if matching_alts.len() > 1 {
+            // When multiple alternatives match via yield-set, prefer
+            // the one with highest PREC value (tree-sitter precedence).
+            // This correctly handles Rust's expression_statement where
+            // PREC(1, _expression_ending_with_block) should be
+            // preferred over SEQ[_expression, ";"] when the constraint
+            // blob is empty and both alternatives match.
+            if constraint_blob.is_empty() {
+                matching_alts.sort_by(|a, b| prec_value(b).cmp(&prec_value(a)));
+            }
+            return Some(matching_alts[0]);
         }
     }
 
@@ -3261,6 +3311,16 @@ fn first_symbol(production: &Production) -> Option<&str> {
         | Production::PrecDynamic { content, .. }
         | Production::Reserved { content, .. } => first_symbol(content),
         _ => None,
+    }
+}
+
+fn prec_value(prod: &Production) -> i64 {
+    match prod {
+        Production::Prec { value, .. }
+        | Production::PrecLeft { value, .. }
+        | Production::PrecRight { value, .. }
+        | Production::PrecDynamic { value, .. } => value.as_i64().unwrap_or(0),
+        _ => 0,
     }
 }
 
