@@ -54,7 +54,7 @@ fn julia_macrocall_long_form_preserves_body() {
             "long-form macrocall body must contain 'Beta', got: {text}"
         );
         assert!(
-            !text.starts_with("."),
+            !text.starts_with('.'),
             "macrocall must not start with '.', got: {text}"
         );
     });

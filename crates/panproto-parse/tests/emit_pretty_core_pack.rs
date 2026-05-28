@@ -1,7 +1,7 @@
 //! Extensive roundtrip tests for every core-pack language.
 //!
 //! Each test parses a representative source snippet, strips byte-position
-//! constraints, emits via emit_pretty, re-parses, and asserts the vertex-kind
+//! constraints, emits via `emit_pretty`, re-parses, and asserts the vertex-kind
 //! multiset is preserved. This exercises diverse grammatical constructs per
 //! language to ensure the emission machinery generalizes.
 

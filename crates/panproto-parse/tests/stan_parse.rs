@@ -26,6 +26,7 @@ model {
 }
 ";
 
+#[cfg(feature = "lang-stanfunctions")]
 const STAN_FUNCTIONS: &[u8] = br"
 real square(real x) {
   return x * x;

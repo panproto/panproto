@@ -1,6 +1,6 @@
 //! Grammar cassettes: per-grammar defaults for external scanner tokens.
 //!
-//! A [`GrammarCassette`] provides text for external scanner tokens that
+//! A `GrammarCassette` provides text for external scanner tokens that
 //! tree-sitter's `grammar.json` cannot resolve on its own:
 //!
 //! * Anonymous `ALIAS { content: SYMBOL ext, named: false, value: V }`
@@ -15,18 +15,18 @@
 //!
 //! Two layers compose:
 //!
-//! 1. [`common_external_default`] — universal name-pattern recognition
+//! 1. `common_external_default` — universal name-pattern recognition
 //!    that applies to every grammar. Recognises layout markers
 //!    (`_concat`, `_no_space`, `_brace_start`, ...), immediate-position
 //!    markers (`_immediate_*`), error sentinels (`_error_*`,
 //!    `error_sentinel`), generic string-delimiter names, and the
 //!    automatic-semicolon family. These patterns are stable across
 //!    grammars because tree-sitter community convention.
-//! 2. [`GrammarCassette::external_token_default`] — per-grammar
+//! 2. `GrammarCassette::external_token_default` — per-grammar
 //!    overrides. A grammar that needs a different default (or extra
 //!    tokens not covered by the common layer) implements this.
 //!
-//! The composed lookup is [`resolve_external_token`]: per-grammar first,
+//! The composed lookup is `resolve_external_token`: per-grammar first,
 //! then common fallback. The emit walker calls this when it sees an
 //! external SYMBOL with no other resolution path.
 
@@ -368,8 +368,8 @@ impl GrammarCassette for IndentBasedCassette {
 
 /// Look up the cassette for a grammar by protocol name.
 ///
-/// Grammars not enumerated here get [`DefaultCassette`], which delegates
-/// every lookup to [`common_external_default`]. That is sufficient for
+/// Grammars not enumerated here get the default empty cassette, which
+/// delegates every lookup to [`common_external_default`]. That is sufficient for
 /// the majority of the 261 vendored grammars — the per-language
 /// implementations above only exist for grammars whose externals
 /// genuinely need grammar-specific overrides.

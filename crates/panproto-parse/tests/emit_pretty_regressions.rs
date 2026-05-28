@@ -65,8 +65,8 @@ fn python_function_body_no_semicolons() {
 }
 
 /// Issue #160: `emit_pretty(parse(emit_pretty(s))) == emit_pretty(s)`
-/// must hold for Python function bodies. Quivers's NumPyro / Pyro /
-/// PyMC / Edward2 backends all emit `def model(...): ...` shapes and
+/// must hold for Python function bodies. Quivers's `NumPyro` / `Pyro` /
+/// `PyMC` / `Edward2` backends all emit `def model(...): ...` shapes and
 /// the fixed-point law is the cleanest correctness witness for the
 /// schema → bytes pipeline.
 #[test]
@@ -140,8 +140,8 @@ fn js_template_literal_interpolation_inline() {
     });
 }
 
-/// Issue #160 sibling: quivers transpiles QVR → Stan, Julia (Gen, Turing),
-/// JavaScript (WebPPL), BUGS, JAGS, and Scheme (Church). The fixed-point
+/// Issue #160 sibling: quivers transpiles QVR → Stan, Julia (`Gen`, `Turing`),
+/// JavaScript (`WebPPL`), BUGS, JAGS, and Scheme (`Church`). The fixed-point
 /// law `emit(parse(emit(s))) == emit(s)` must hold for every backend so
 /// downstream re-parsing pipelines remain stable.
 #[test]
