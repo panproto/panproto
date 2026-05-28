@@ -2531,7 +2531,9 @@ fn emit_production_inner(
                     } else if grammar.external_semicolons.contains(name) {
                         out.token_with_role(";", Some(TokenRole::Separator));
                     } else if let Some(default) =
-                        out.cassette.and_then(|c| c.external_token_default(name))
+                        out.cassette.and_then(|c| {
+                            crate::languages::cassettes::resolve_external_token(c, name)
+                        })
                     {
                         if !default.is_empty() {
                             out.token(default);
@@ -3508,6 +3510,17 @@ fn pick_choice_with_cursor<'a>(
                 visited.clear();
                 continue;
             }
+            // Alias-source discriminator: if the cursor has a
+            // field-named edge whose `pre-alias-symbol` was recorded by
+            // the walker, the alt's FIELD body (when it's a named
+            // ALIAS over a SYMBOL) must reference that same source
+            // symbol. This is the exact tree-sitter-derived signal for
+            // ALIAS dispatch when literal-value restriction does not
+            // apply.
+            if !alt_satisfies_pre_alias_constraints(schema, cursor, alt) {
+                visited.clear();
+                continue;
+            }
             let ys = yield_of_production(grammar, alt, &mut visited, &mut yield_cache);
             if ys.contains(target_kind) {
                 matching_alts.push(alt);
@@ -3946,6 +3959,115 @@ fn accepts_first_edge(
             accepts_first_edge(grammar, content, edge_field, target_kind)
         }
     }
+}
+
+/// Read the walker-recorded `pre-alias-symbol` constraint for a vertex.
+/// Returns `None` when the vertex has no such constraint (either there
+/// was no alias rewrite or the schema was built without the walker).
+fn pre_alias_symbol<'a>(schema: &'a Schema, vertex_id: &panproto_gat::Name) -> Option<&'a str> {
+    schema.constraints.get(vertex_id).and_then(|cs| {
+        cs.iter()
+            .find(|c| c.sort.as_ref() == "pre-alias-symbol")
+            .map(|c| c.value.as_str())
+    })
+}
+
+/// Walk `production` and collect every alias-source-symbol declared
+/// inside a FIELD with name `field_name`. Specifically, for each
+/// `FIELD { name = field_name, content = ALIAS { content = SYMBOL X,
+/// named: true, value: _ } }`, append `X`. Returns an empty Vec when
+/// the alt's FIELD body is not a named-ALIAS-over-SYMBOL.
+fn field_alias_sources<'a>(
+    production: &'a Production,
+    field_name: &str,
+    out: &mut Vec<&'a str>,
+) {
+    fn unwrap_to_alias_source(p: &Production) -> Option<&str> {
+        let inner = match p {
+            Production::Prec { content, .. }
+            | Production::PrecLeft { content, .. }
+            | Production::PrecRight { content, .. }
+            | Production::PrecDynamic { content, .. }
+            | Production::Token { content }
+            | Production::ImmediateToken { content }
+            | Production::Reserved { content, .. } => content.as_ref(),
+            _ => p,
+        };
+        match inner {
+            Production::Alias { content, named, .. } if *named => {
+                if let Production::Symbol { name } = content.as_ref() {
+                    return Some(name.as_str());
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+    match production {
+        Production::Field { name, content } if name.as_str() == field_name => {
+            if let Some(src) = unwrap_to_alias_source(content) {
+                out.push(src);
+            }
+        }
+        Production::Field { content, .. }
+        | Production::Repeat { content }
+        | Production::Repeat1 { content }
+        | Production::Optional { content }
+        | Production::Alias { content, .. }
+        | Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Reserved { content, .. } => {
+            field_alias_sources(content, field_name, out);
+        }
+        Production::Seq { members } | Production::Choice { members } => {
+            for m in members {
+                field_alias_sources(m, field_name, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Categorical alias-source discriminator: when the cursor edge for a
+/// field-named edge has a recorded `pre-alias-symbol = X`, an alt
+/// whose FIELD of that name takes its content from `ALIAS { SYMBOL Y }`
+/// is structurally compatible iff `Y == X` — i.e. the alias's source
+/// rule matches what the parser actually walked through. When the alt
+/// has a FIELD with a named-ALIAS-over-SYMBOL whose source disagrees
+/// with the cursor's recorded pre-alias-symbol, the alt is rejected.
+fn alt_satisfies_pre_alias_constraints(
+    schema: &Schema,
+    cursor: &ChildCursor<'_>,
+    alt: &Production,
+) -> bool {
+    for (i, edge) in cursor.edges.iter().enumerate() {
+        if cursor.consumed[i] {
+            continue;
+        }
+        let edge_kind = edge.kind.as_ref();
+        if edge_kind == "child_of" {
+            continue;
+        }
+        let Some(actual_source) = pre_alias_symbol(schema, &edge.tgt) else {
+            continue;
+        };
+        let mut sources: Vec<&str> = Vec::new();
+        field_alias_sources(alt, edge_kind, &mut sources);
+        if sources.is_empty() {
+            // The alt's FIELD content is not a named-ALIAS-over-SYMBOL,
+            // so this discriminator does not apply (the alt may still
+            // be correct).
+            continue;
+        }
+        if !sources.contains(&actual_source) {
+            return false;
+        }
+    }
+    true
 }
 
 /// Returns true iff `alt` is structurally compatible with the cursor under
