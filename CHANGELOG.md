@@ -4,6 +4,35 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **`ParserRegistry::emit_verification_status(protocol)`** (`panproto-parse`): public API returning `EmitVerificationStatus { Verified | Generic | Unsupported }` so downstream tooling (quivers and other transpile pipelines) can refuse `emit_pretty` on protocols whose fixed-point law has never been exercised by panproto's test suite. The `Verified` set is a sorted constant covering 16 protocols: bash, bugs, c, cpp, csharp, go, jags, java, javascript, julia, php, python, rust, scheme, stan, typescript. Re-exported at the crate root as `panproto_parse::EmitVerificationStatus`.
+- **`<lang>_emit_is_fixed_point` regression tests** (`panproto-parse`): explicit `emit(parse(emit(s))) == emit(s)` assertions for every quivers transpile backend target — Python (NumPyro / Pyro / PyMC / Edward2), Stan, BUGS, JAGS, Julia (Gen / Turing), Scheme (Church), and JavaScript (WebPPL). Closes the verification gap behind issue #160.
+- **`accepts_first_edge`** (`panproto-parse`): single inductive acceptance predicate over the production tree, fusing FIELD-name matching, SYMBOL subtype dispatch, ALIAS rewrite, and yield-set admission. Replaces three previously-separate ad-hoc checks (alt_can_consume, FIELD-name-then-yield, field-token-restriction).
+- **`alt_satisfies_field_token_restrictions`** (`panproto-parse`): structural CHOICE filter that rejects an alternative whose FIELD body is `ALIAS{CHOICE[STRING...], value: V}` when the cursor's field-named edge carries a literal-value outside the allowed string set. Fixes Go `call_expression` alt 0 (the `new` / `make` constraint) being wrongly picked for arbitrary function identifiers.
+- **`alt_satisfies_pre_alias_constraints`** (`panproto-parse`): alias-source discriminator using the walker-recorded `pre-alias-symbol` constraint (`tree_sitter::Node::grammar_name()`). When an alt's FIELD content is `ALIAS{SYMBOL X, named: true, value: _}`, the alt is structurally compatible iff the cursor edge's `pre-alias-symbol` matches `X`.
+- **`pre-alias-symbol` constraint** (`panproto-parse`): the walker now records `tree_sitter::Node::grammar_name()` on every vertex where it differs from `kind()`. This is the only ALIAS-disambiguation signal tree-sitter 0.25 / 0.26 actually exposes.
+- **Universal cassette layer** (`panproto-parse`): `common_external_default` is a name-pattern table covering every external scanner token convention from a structural audit of all 261 vendored grammars. Per-grammar cassettes layer on top via `resolve_external_token`; `DefaultCassette` delegates entirely to the common layer. New cassette families: HTML (HTML / Vue / Svelte / Astro / Blade / Angular / templ / heex), shell (Bash / Zsh / Fish), C raw-string (C++ / CUDA / HLSL / Arduino / C# / C), JS (JavaScript / TypeScript / TSX / QML / ReScript), indent-based (Agda / F# / F# signatures / Earthfile / Firrtl / Cooklang / Djot / Idris / Nim / PureScript / Haskell / Elm).
+
+### Changed
+
+- **`Production::ImmediateToken` lifted to a layout marker** (`panproto-parse`): a single `NoSpace` is emitted at the unique structural site where `IMMEDIATE_TOKEN` is declared (production walk + rule-head check in `emit_vertex`). The previous bracket-pair special case and per-SYMBOL inspection are removed. Fixes regex literals `/abc/g` emitting tight on both delimiters.
+- **PREC tiebreaker unconditional** (`panproto-parse`): tree-sitter precedence ordering on yield-set ties is applied whenever multiple alts admit the cursor edge, not only when the constraint blob is empty.
+- **Tarjan SCC for subtype closure** (`panproto-parse`): replaces the iteration-bounded fixpoint (max 8) with an exact O(V+E) closure on the dispatchable-only subgraph. No iteration cap, no fixpoint guessing.
+- **Positional interstitial scoring** (`panproto-parse`): `pick_choice_with_cursor` now scores against the slice of interstitials from the current cursor position forward (indexed by consumed count), eliminating the cross-position contamination of the prior flat-joined blob. The `chose-alt-fingerprint` joined string remains as the fallback for by-construction schemas with no positional interstitials.
+- **tree-sitter and tree-sitter-tags upgraded 0.25 → 0.26** (workspace `Cargo.toml`): API hardening (`Node::child` takes `u32` instead of `usize`; legacy `parse_utf16` / `parse_with` / `set_timeout_micros` / `version` removed). Two call sites added `u32::try_from` casts; no other source changes.
+
+### Removed
+
+- **Gated PEG matcher infrastructure** (`panproto-parse`): the production-vs-CST matcher prototype (`match_production`, `collect_match_children`, `kind_satisfies`, `MatchChild`, the `grammar` field and `new_with_grammar` constructor on `AstWalker`, the grammar threading in `LanguageParser::parse`, `consume_alt_trace`, the `alt_traces` field on `Output`, and the `pub(crate)` leak on `prec_value`) is removed. The PEG-with-PREC approximation diverges from tree-sitter's parse-table-based disambiguation; keeping the code gated invited accidental re-enablement. Properly enabling a derivation trace requires tree-sitter to expose per-CHOICE production / reduce IDs via the C API.
+
+### Fixed
+
+- **Go `call_expression` for arbitrary function names** (`panproto-parse`): the outer CHOICE no longer mis-selects alt 0 (which only admits `new` or `make` via an ALIAS over a CHOICE of STRINGs) for general function calls like `h(x)`.
+- **C++ `_for_statement_body` initializer / condition / update fields** (`panproto-parse`): the inner CHOICE picks the declaration alt for `for (int i = 0; ...)` instead of silently dropping the initializer through the expression alt.
+- **Java `modifiers` `@Override` preserved** (`panproto-parse`): the REPEAT1 inner CHOICE no longer eclipses the `_annotation` SYMBOL alt with a pure-literal `public` alt when the cursor has a `marker_annotation` edge.
+- **JavaScript `regex_literal` delimiters tight** (`panproto-parse`): `/abc/g` round-trips correctly; same-text STRING delimiters with at least one IMMEDIATE_TOKEN are now treated as a bracket pair, and `regex_flags`'s IMMEDIATE_TOKEN rule body emits the required NoSpace before flag content.
+
 ## [0.51.0] - 2026-05-27
 
 ### Changed
