@@ -2462,13 +2462,17 @@ fn emit_production_inner(
             let separator_leading_seq: Option<&[Production]> = match content.as_ref() {
                 Production::Seq { members } if members.len() >= 2 => {
                     let first = &members[0];
+                    let is_mandatory_sep = unwrap_to_string(first).is_some();
+                    let cassette_overrides = is_mandatory_sep
+                        && unwrap_to_string(first).is_some_and(|sep| {
+                            out.cassette.is_some_and(|c| c.separator_is_line_break(sep))
+                        });
                     let is_separator_slot = match first {
                         Production::Choice { members } => {
                             members.iter().any(|m| matches!(m, Production::Blank))
                         }
                         Production::Optional { .. } => true,
-                        Production::String { .. } => true,
-                        _ => unwrap_to_string(first).is_some(),
+                        _ => cassette_overrides,
                     };
                     if is_separator_slot {
                         Some(members.as_slice())
