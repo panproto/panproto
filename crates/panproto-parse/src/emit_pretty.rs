@@ -2168,7 +2168,9 @@ fn emit_seq_with_roles(
         None
     });
 
+    let mut prev_member_emitted_content = false;
     for (i, member) in members.iter().enumerate() {
+        let tokens_before_member = out.tokens.len();
         if let Some(value) = unwrap_to_string(member) {
             let role = positional_roles[i].unwrap_or_else(|| {
                 if is_word_like(value) {
@@ -2198,11 +2200,7 @@ fn emit_seq_with_roles(
             // when the current member's rule body starts with a
             // bracket pair, because the preceding Terminal and the
             // bracket should be tight (call pattern like f(...)).
-            if i > 0 && unwrap_to_string(&members[i - 1]).is_none() {
-                let prev_produced_content = out
-                    .tokens
-                    .last()
-                    .is_some_and(|t| matches!(t, Token::Lit(_, _)));
+            if i > 0 && unwrap_to_string(&members[i - 1]).is_none() && prev_member_emitted_content {
                 let member_starts_with_bracket = member_has_leading_bracket(member, grammar);
                 let is_zero_width_external = matches!(
                     member,
@@ -2215,8 +2213,7 @@ fn emit_seq_with_roles(
                     member,
                     Production::Repeat { .. } | Production::Repeat1 { .. }
                 );
-                if prev_produced_content
-                    && !member_starts_with_bracket
+                if !member_starts_with_bracket
                     && !is_zero_width_external
                     && !is_separator_choice
                     && !is_repeat
@@ -2229,6 +2226,9 @@ fn emit_seq_with_roles(
             }
             emit_production(protocol, schema, grammar, vertex_id, member, cursor, out)?;
         }
+        prev_member_emitted_content = out.tokens[tokens_before_member..]
+            .iter()
+            .any(|t| matches!(t, Token::Lit(_, _)));
     }
     Ok(())
 }
