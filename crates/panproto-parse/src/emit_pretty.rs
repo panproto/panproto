@@ -1620,22 +1620,6 @@ fn unwrap_to_string(prod: &Production) -> Option<&str> {
         | Production::PrecDynamic { content, .. }
         | Production::Field { content, .. }
         | Production::Reserved { content, .. } => unwrap_to_string(content),
-        Production::Choice { members } => {
-            let all_strings = members
-                .iter()
-                .all(|m| matches!(m, Production::String { .. }));
-            if all_strings && !members.is_empty() {
-                members.iter().find_map(|m| {
-                    if let Production::String { value } = m {
-                        Some(value.as_str())
-                    } else {
-                        None
-                    }
-                })
-            } else {
-                None
-            }
-        }
         _ => None,
     }
 }
@@ -2991,6 +2975,27 @@ fn pick_choice_with_cursor<'a>(
         }
     }
 
+    // Literal match: when a cursor edge's target vertex kind or
+    // literal-value matches a STRING alternative exactly, pick that
+    // alternative. Handles grammars like Go's binary_expression where
+    // operators are anonymous named children (kind IS the operator text
+    // like ">") and the CHOICE is over STRING operators.
+    for edge_idx in 0..cursor.edges.len() {
+        if cursor.consumed[edge_idx] {
+            continue;
+        }
+        let edge = &cursor.edges[edge_idx];
+        let tgt_kind = schema.vertices.get(&edge.tgt).map(|v| v.kind.as_ref());
+        let tgt_lit = literal_value(schema, &edge.tgt);
+        for alt in alternatives {
+            if let Production::String { value } = alt {
+                if Some(value.as_str()) == tgt_kind || tgt_lit == Some(value.as_str()) {
+                    return Some(alt);
+                }
+            }
+        }
+    }
+
     if !constraint_blob.is_empty() {
         // Primary score: literal-token match length. This dominates
         // alt selection so existing language tests that depend on
@@ -3249,6 +3254,22 @@ fn pick_choice_with_cursor<'a>(
     // children when grammar.json only references
     // `macro_argument_list`).
     let _ = (schema, vertex_id);
+    // Prefer newline-like PATTERN over STRING ";" or other separators
+    // when both are alternatives. The PATTERN produces a structural
+    // LineBreak which is semantically correct for top-level terminators
+    // (Go's source_file REPEAT terminator).
+    if alternatives
+        .iter()
+        .any(|a| matches!(a, Production::Pattern { value } if is_newline_like_pattern(value)))
+    {
+        for alt in alternatives {
+            if let Production::Pattern { value } = alt {
+                if is_newline_like_pattern(value) {
+                    return Some(alt);
+                }
+            }
+        }
+    }
     if alternatives.iter().any(|a| matches!(a, Production::Blank)) {
         // Before selecting BLANK, check if a hidden-rule alternative
         // resolves to a newline-like PATTERN. Prefer it: it produces
@@ -3914,7 +3935,7 @@ fn layout(tokens: &[Token], policy: &FormatPolicy, line_comment_prefixes: &[Stri
     let newline = policy.newline.as_bytes();
     let separator = policy.separator.as_bytes();
 
-    for tok in tokens {
+    for (tok_idx, tok) in tokens.iter().enumerate() {
         if std::env::var("DBG_LAYOUT").is_ok() {
             match tok {
                 Token::Lit(v, r) => eprintln!(
@@ -3949,13 +3970,23 @@ fn layout(tokens: &[Token], policy: &FormatPolicy, line_comment_prefixes: &[Stri
                 force_next_separator = true;
             }
             Token::Lit(value, role) => {
+                // Block-opening bracket: BracketOpen followed by IndentOpen.
+                // After a Terminal/BracketClose, this should be spaced
+                // (`}\n` not `0{`).
+                let is_block_open = *role == TokenRole::BracketOpen
+                    && tokens
+                        .get(tok_idx + 1)
+                        .is_some_and(|t| matches!(t, Token::IndentOpen));
                 if at_line_start {
                     bytes.extend(std::iter::repeat_n(b' ', indent * policy.indent_width));
                 } else if let Some(prev_role) = last_role {
-                    if force_next_separator
+                    let want_space = force_next_separator
                         || (!suppress_next_separator
                             && needs_space_by_role(prev_role, &last_text, *role, value))
-                    {
+                        || (is_block_open
+                            && !suppress_next_separator
+                            && matches!(prev_role, TokenRole::Terminal | TokenRole::BracketClose));
+                    if want_space {
                         bytes.extend_from_slice(separator);
                     }
                 }
