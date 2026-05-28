@@ -99,9 +99,28 @@ If a parser is already registered under `name`, it is dropped first (along with 
 
 ## Going the other way
 
-The schema you get back from `parse_with_protocol` carries a complete *layout fibre*: byte spans, the whitespace between every pair of adjacent tokens, and discriminators recording which CHOICE alternative the parser took at each branch point. The emitter consumes those constraints to render bytes back. A schema you build by hand from `SchemaBuilder` carries none of them; `emit_pretty_with_protocol` falls back to a grammar walk that may pick the wrong alternative or render an incomplete result.
+The schema you get back from `parse_with_protocol` carries a complete *layout fibre*: byte spans, the whitespace between every pair of adjacent tokens, and discriminators recording which CHOICE alternative the parser took at each branch point. The emitter consumes those constraints to render bytes back. A schema you build by hand from `SchemaBuilder` carries none of them; `emit_pretty_with_protocol` falls back to a grammar walk driven by the structural acceptance predicate, a layered cassette system, and per-position interstitial scoring (see [Source-code emission](../explanation/emit-pretty.md) for the mechanics). The grammar walk produces structurally valid output for the verified set and best-effort output for the rest.
 
 For generators that build a schema from scratch and want to render it to source bytes, see [Decorate an abstract schema](./decorate-schemas.md). The `decorate` operation takes an `AbstractSchema` (the hand-built half), attaches the layout fibre via a grammar walk, and returns a `DecoratedSchema` the emitter can render byte-for-byte.
+
+### Verifying the emitter for a protocol
+
+Before relying on `emit_pretty_with_protocol` in a downstream pipeline, ask the registry which tier the protocol falls into:
+
+```rust,no_run
+use panproto_parse::{EmitVerificationStatus, ParserRegistry};
+
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let reg = ParserRegistry::new();
+match reg.emit_verification_status("python") {
+    EmitVerificationStatus::Verified => { /* has a fixed-point test */ }
+    EmitVerificationStatus::Generic  => { /* registered, but unverified */ }
+    EmitVerificationStatus::Unsupported => { /* not registered */ }
+}
+# Ok(()) }
+```
+
+The 16 protocols currently in the `Verified` set are listed in [`crates/panproto-parse/src/registry.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-parse/src/registry.rs) under `VERIFIED_EMIT_PROTOCOLS`. Adding a protocol requires landing a `<lang>_emit_is_fixed_point` test that asserts `emit(parse(emit(s))) == emit(s)` on representative source.
 
 ## Verification
 
@@ -115,6 +134,7 @@ Tree-sitter parsing is total: every byte sequence parses into *some* AST, with e
 ## See also
 
 - [Decorate an abstract schema](./decorate-schemas.md) for the put-direction of the parse / emit lens.
+- [Source-code emission](../explanation/emit-pretty.md) for the emitter's structural pipeline.
 - [Reference: protocol catalogue](../reference/protocols.md).
 - [Round-trip with format preservation](./format-preserving.md).
 - [Layout enrichment](../explanation/layout-enrichment.md) for the categorical framing of the parse / decorate / emit pair.

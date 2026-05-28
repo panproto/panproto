@@ -75,9 +75,9 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
     for i in 0..a.len() {
         let x = f64::from(a[i]);
         let y = f64::from(b[i]);
-        dot += x * y;
-        na += x * x;
-        nb += y * y;
+        dot = x.mul_add(y, dot);
+        na = x.mul_add(x, na);
+        nb = y.mul_add(y, nb);
     }
     if na == 0.0 || nb == 0.0 {
         return 0.0;

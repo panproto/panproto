@@ -101,7 +101,10 @@ module.exports = grammar({
       ),
 
     truncation: ($) =>
-      seq("T", "(", $._expression, ",", $._expression, ")"),
+      choice(
+        seq("T", "(", $._expression, ",", $._expression, ")"),
+        seq("I", "(", $._expression, ",", $._expression, ")")
+      ),
 
     argument_list: ($) =>
       seq($._expression, repeat(seq(",", $._expression))),

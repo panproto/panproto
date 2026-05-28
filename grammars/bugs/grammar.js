@@ -21,7 +21,7 @@ module.exports = grammar({
 
     model_block: ($) =>
       seq(
-        optional("model"),
+        optional(choice("model", "data")),
         "{",
         repeat($._statement),
         "}"

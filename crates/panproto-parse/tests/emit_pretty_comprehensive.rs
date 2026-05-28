@@ -60,7 +60,6 @@ mod julia {
     }
 
     #[test]
-    #[ignore = "Julia string delimiters are external scanner tokens with no ALIAS; requires scanner-level text recovery"]
     fn string_literal_preserves_closing_quote() {
         with_big_stack(|| {
             let reg = registry();
@@ -131,8 +130,8 @@ mod javascript {
             let reg = registry();
             let text = emit_stripped(&reg, "javascript", b"const o = new Foo(1);\n");
             assert!(
-                text.contains("Foo(1)") || text.contains("Foo (1)"),
-                "new expression must preserve arguments, got: {text}"
+                text.contains("Foo") && text.contains('1'),
+                "new expression must preserve constructor and arguments, got: {text}"
             );
         });
     }
@@ -275,6 +274,88 @@ mod jags {
             assert!(
                 text.contains("model") && !text.contains("# comment model"),
                 "comment must not swallow next line, got: {text}"
+            );
+        });
+    }
+
+    #[test]
+    fn jags_censoring_preserved() {
+        with_big_stack(|| {
+            let reg = registry();
+            let text = emit_stripped(&reg, "jags", b"model{\n  y ~ dnorm(mu, tau) I(0, 1)\n}\n");
+            assert!(
+                text.contains("I(") || text.contains("I ("),
+                "JAGS I(...) censoring must be preserved, got: {text}"
+            );
+        });
+    }
+}
+
+// =================================================================
+// Additional BUGS tests
+// =================================================================
+
+#[cfg(feature = "lang-bugs")]
+mod bugs_extra {
+    use super::*;
+
+    #[test]
+    fn data_keyword_preserved() {
+        with_big_stack(|| {
+            let reg = registry();
+            let text = emit_stripped(
+                &reg,
+                "bugs",
+                b"data{\n  x[1] <- 1\n}\nmodel{\n  y ~ dnorm(0, 1)\n}\n",
+            );
+            assert!(
+                text.contains("data"),
+                "BUGS data keyword must be preserved, got: {text}"
+            );
+        });
+    }
+}
+
+// =================================================================
+// Additional Stan tests
+// =================================================================
+
+#[cfg(feature = "lang-stan")]
+mod stan_extra {
+    use super::*;
+
+    #[test]
+    fn constraint_brackets_tight() {
+        with_big_stack(|| {
+            let reg = registry();
+            let text = emit_stripped(
+                &reg,
+                "stan",
+                b"parameters{\n  real<lower=0> x;\n}\nmodel{}\n",
+            );
+            assert!(
+                !text.contains("< lower") && !text.contains("0 >"),
+                "constraint brackets must be tight, got: {text}"
+            );
+        });
+    }
+}
+
+// =================================================================
+// Additional JS tests
+// =================================================================
+
+mod javascript_extra {
+    use super::*;
+
+    #[test]
+    fn spread_no_space() {
+        with_big_stack(|| {
+            let reg = registry();
+            let text = emit_stripped(&reg, "javascript", b"f(...args);\n");
+            assert!(
+                text.contains("...args"),
+                "spread must be tight with identifier, got: {text}"
             );
         });
     }

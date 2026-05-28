@@ -248,7 +248,7 @@ impl<'a> AstWalker<'a> {
                 .and_then(|p| {
                     // Find which field of the parent this node corresponds to.
                     for i in 0..p.child_count() {
-                        if let Some(child) = p.child(i) {
+                        if let Some(child) = p.child(u32::try_from(i).unwrap_or(0)) {
                             if child.id() == node.id() {
                                 return u32::try_from(i)
                                     .ok()
@@ -270,6 +270,20 @@ impl<'a> AstWalker<'a> {
         // Store byte range for position-aware emission.
         builder = builder.constraint(&vertex_id, "start-byte", &node.start_byte().to_string());
         builder = builder.constraint(&vertex_id, "end-byte", &node.end_byte().to_string());
+
+        // Record the pre-alias grammar symbol name when it differs from
+        // the post-alias kind. Tree-sitter 0.25 exposes `grammar_name`
+        // (the SYMBOL name as it appears in the rule body, before
+        // `ALIAS { value: V }` rewriting). This is the signal that
+        // disambiguates which production reached this child: when
+        // emit's CHOICE dispatcher sees two alternatives both yielding
+        // a child of kind `K`, one through `SYMBOL K` and one through
+        // `ALIAS { ..., value: K }`, the recorded `pre-alias-symbol`
+        // identifies which.
+        let grammar_name = node.grammar_name();
+        if grammar_name != kind {
+            builder = builder.constraint(&vertex_id, "pre-alias-symbol", grammar_name);
+        }
 
         // Emit constraints for leaf nodes (literals, identifiers, operators).
         if node.named_child_count() == 0 {
@@ -418,7 +432,9 @@ impl<'a> AstWalker<'a> {
     ) -> SchemaBuilder {
         let child_count = node.child_count();
         for i in 0..child_count {
-            let Some(child) = node.child(i) else { continue };
+            let Some(child) = node.child(u32::try_from(i).unwrap_or(0)) else {
+                continue;
+            };
             // Named children carry their own vertex (and surface as edges
             // keyed by the field name in walk_node). We only need to
             // handle the unnamed tokens here.

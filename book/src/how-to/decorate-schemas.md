@@ -124,9 +124,11 @@ The matching test for policy fidelity (`pretty_with_protocol_honours_policy`) re
 - Wrapping a parsed schema as an `AbstractSchema` and expecting `decorate` to keep its vertex IDs. The parse walker invents fresh IDs; the section law holds up to multiset equivalence, not pointwise. If you need the parse-side IDs preserved, work with the `DecoratedSchema` directly.
 - Passing an `AbstractSchema` built against one protocol into `decorate` for a different protocol. The protocol-match guard rejects the call with `ParseError::SchemaConstruction`; build the schema against the right protocol or look up the parser by the schema's own `protocol()`.
 - Reaching for `DecoratedSchema::wrap_unchecked` on a hand-built schema and expecting `emit_pretty_with_protocol` to round-trip through byte-position arithmetic. The wrapping is a type-level assertion the constructor cannot verify; an empty layout fibre means the emitter falls back to a grammar walk, which is well-defined but uses the default `FormatPolicy`, not whatever policy you'd have passed to `decorate`.
+- Calling `decorate` on a protocol that returns `EmitVerificationStatus::Generic`. `decorate` runs `emit_pretty` internally, so its output inherits whatever fidelity the emitter has on that grammar. Check `ParserRegistry::emit_verification_status(protocol)` first; if the result is `Generic`, the round-trip kind multiset still satisfies the section law, but byte-for-byte stability across re-emits is not guaranteed.
 
 ## See also
 
+- [Source-code emission](../explanation/emit-pretty.md) for what `emit_pretty` does internally during the decorate call.
 - [Parse full ASTs](./parse-full-ast.md) for the get direction of the same lens.
 - [Round-trip with format preservation](./format-preserving.md) for the parallel codec story at the byte-position level.
 - [Reference: protocol catalogue](../reference/protocols.md) for the registered grammars.

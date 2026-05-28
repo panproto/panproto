@@ -1,0 +1,7 @@
+{"plugins": [],
+ "package": "panproto",
+ "options": {"autoImplicit": false},
+ "name": "Panproto.GAT.Morphism",
+ "isModule": false,
+ "importArts": {},
+ "dynlibs": []}

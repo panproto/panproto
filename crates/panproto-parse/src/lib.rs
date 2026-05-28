@@ -83,7 +83,7 @@ pub use parse_emit_lens::{
     edge_multiset, kind_multiset, strip_complement,
 };
 pub use parse_emit_protolens::parse_emit_protolens;
-pub use registry::{AstParser, ParserRegistry};
+pub use registry::{AstParser, EmitVerificationStatus, ParserRegistry};
 pub use scope_detector::{NamedScope, ScopeDetector, ScopeKind};
 pub use theory_extract::{ExtractedTheoryMeta, extract_theory_from_node_types};
 pub use walker::{AstWalker, WalkerConfig};

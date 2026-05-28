@@ -53,7 +53,6 @@ fn js_object_literal_contents_inside_braces() {
 }
 
 #[test]
-#[ignore = "Python _simple_statements uses ';' as grammar-valid separator; eliminating requires per-rule format policy"]
 fn python_function_body_no_semicolons() {
     with_big_stack(|| {
         let reg = registry();
@@ -61,6 +60,49 @@ fn python_function_body_no_semicolons() {
         assert!(
             !text.contains(';'),
             "Python function body should not use ';', got: {text}"
+        );
+    });
+}
+
+/// Issue #160: `emit_pretty(parse(emit_pretty(s))) == emit_pretty(s)`
+/// must hold for Python function bodies. Quivers's `NumPyro` / `Pyro` /
+/// `PyMC` / `Edward2` backends all emit `def model(...): ...` shapes and
+/// the fixed-point law is the cleanest correctness witness for the
+/// schema → bytes pipeline.
+#[test]
+fn python_function_body_emit_is_fixed_point() {
+    with_big_stack(|| {
+        let reg = registry();
+        let src = b"def f():\n    x = 1\n    return x\n";
+        let sch1 = reg
+            .parse_with_protocol("python", src, "x.py")
+            .expect("parse");
+        let emit1 = reg
+            .emit_pretty_with_protocol("python", &sch1)
+            .expect("emit1");
+        let sch2 = reg
+            .parse_with_protocol("python", &emit1, "x.py")
+            .expect("reparse");
+        let emit2 = reg
+            .emit_pretty_with_protocol("python", &sch2)
+            .expect("emit2");
+        let emit1_s = String::from_utf8_lossy(&emit1);
+        let emit2_s = String::from_utf8_lossy(&emit2);
+        assert_eq!(
+            emit1, emit2,
+            "Python emit must be a fixed point.\nemit1: {emit1_s}\nemit2: {emit2_s}",
+        );
+        // The return statement must remain inside the function body —
+        // structurally, the re-parsed schema must still have a single
+        // function_definition vertex containing two statements.
+        let return_count = sch2
+            .vertices
+            .values()
+            .filter(|v| v.kind.as_ref() == "return_statement")
+            .count();
+        assert_eq!(
+            return_count, 1,
+            "re-parsed schema must contain exactly one return_statement; got {return_count}.\nemitted:\n{emit1_s}",
         );
     });
 }
@@ -98,9 +140,133 @@ fn js_template_literal_interpolation_inline() {
     });
 }
 
+/// Issue #160 sibling: quivers transpiles QVR → Stan, Julia (`Gen`, `Turing`),
+/// JavaScript (`WebPPL`), BUGS, JAGS, and Scheme (`Church`). The fixed-point
+/// law `emit(parse(emit(s))) == emit(s)` must hold for every backend so
+/// downstream re-parsing pipelines remain stable.
+#[test]
+#[cfg(feature = "lang-stan")]
+fn stan_emit_is_fixed_point() {
+    with_big_stack(|| {
+        let reg = registry();
+        let src = b"data {\n  int N;\n  vector[N] y;\n}\nmodel { y ~ normal(0, 1); }\n";
+        let sch1 = reg.parse_with_protocol("stan", src, "m.stan").unwrap();
+        let emit1 = reg.emit_pretty_with_protocol("stan", &sch1).unwrap();
+        let sch2 = reg.parse_with_protocol("stan", &emit1, "m.stan").unwrap();
+        let emit2 = reg.emit_pretty_with_protocol("stan", &sch2).unwrap();
+        assert_eq!(
+            emit1,
+            emit2,
+            "Stan emit must be a fixed point.\nemit1: {}\nemit2: {}",
+            String::from_utf8_lossy(&emit1),
+            String::from_utf8_lossy(&emit2)
+        );
+    });
+}
+
+#[test]
+#[cfg(feature = "lang-bugs")]
+fn bugs_emit_is_fixed_point() {
+    with_big_stack(|| {
+        let reg = registry();
+        let src = b"model {\n  for (i in 1:N) {\n    y[i] ~ dnorm(mu, tau)\n  }\n}\n";
+        let sch1 = reg.parse_with_protocol("bugs", src, "m.bug").unwrap();
+        let emit1 = reg.emit_pretty_with_protocol("bugs", &sch1).unwrap();
+        let sch2 = reg.parse_with_protocol("bugs", &emit1, "m.bug").unwrap();
+        let emit2 = reg.emit_pretty_with_protocol("bugs", &sch2).unwrap();
+        assert_eq!(
+            emit1,
+            emit2,
+            "BUGS emit must be a fixed point.\nemit1: {}\nemit2: {}",
+            String::from_utf8_lossy(&emit1),
+            String::from_utf8_lossy(&emit2)
+        );
+    });
+}
+
+#[test]
+#[cfg(feature = "lang-jags")]
+fn jags_emit_is_fixed_point() {
+    with_big_stack(|| {
+        let reg = registry();
+        let src = b"model {\n  for (i in 1:N) {\n    y[i] ~ dnorm(mu, tau)\n  }\n  mu ~ dnorm(0, 0.001)\n  tau ~ dgamma(0.001, 0.001)\n}\n";
+        let sch1 = reg.parse_with_protocol("jags", src, "m.jag").unwrap();
+        let emit1 = reg.emit_pretty_with_protocol("jags", &sch1).unwrap();
+        let sch2 = reg.parse_with_protocol("jags", &emit1, "m.jag").unwrap();
+        let emit2 = reg.emit_pretty_with_protocol("jags", &sch2).unwrap();
+        assert_eq!(
+            emit1,
+            emit2,
+            "JAGS emit must be a fixed point.\nemit1: {}\nemit2: {}",
+            String::from_utf8_lossy(&emit1),
+            String::from_utf8_lossy(&emit2)
+        );
+    });
+}
+
 #[test]
 #[cfg(feature = "lang-julia")]
-#[ignore = "grammar/parser divergence: augmentation restriction prevents correct CHOICE dispatch"]
+fn julia_emit_is_fixed_point() {
+    with_big_stack(|| {
+        let reg = registry();
+        let src = b"function f(x)\n    y = x + 1\n    return y\nend\n";
+        let sch1 = reg.parse_with_protocol("julia", src, "m.jl").unwrap();
+        let emit1 = reg.emit_pretty_with_protocol("julia", &sch1).unwrap();
+        let sch2 = reg.parse_with_protocol("julia", &emit1, "m.jl").unwrap();
+        let emit2 = reg.emit_pretty_with_protocol("julia", &sch2).unwrap();
+        assert_eq!(
+            emit1,
+            emit2,
+            "Julia emit must be a fixed point.\nemit1: {}\nemit2: {}",
+            String::from_utf8_lossy(&emit1),
+            String::from_utf8_lossy(&emit2)
+        );
+    });
+}
+
+#[test]
+#[cfg(feature = "lang-scheme")]
+fn scheme_emit_is_fixed_point() {
+    with_big_stack(|| {
+        let reg = registry();
+        let src = b"(define (f x) (+ x 1))\n";
+        let sch1 = reg.parse_with_protocol("scheme", src, "m.scm").unwrap();
+        let emit1 = reg.emit_pretty_with_protocol("scheme", &sch1).unwrap();
+        let sch2 = reg.parse_with_protocol("scheme", &emit1, "m.scm").unwrap();
+        let emit2 = reg.emit_pretty_with_protocol("scheme", &sch2).unwrap();
+        assert_eq!(
+            emit1,
+            emit2,
+            "Scheme emit must be a fixed point.\nemit1: {}\nemit2: {}",
+            String::from_utf8_lossy(&emit1),
+            String::from_utf8_lossy(&emit2)
+        );
+    });
+}
+
+#[test]
+fn javascript_emit_is_fixed_point() {
+    with_big_stack(|| {
+        let reg = registry();
+        let src = b"function f(x) { return x + 1; }\n";
+        let sch1 = reg.parse_with_protocol("javascript", src, "m.js").unwrap();
+        let emit1 = reg.emit_pretty_with_protocol("javascript", &sch1).unwrap();
+        let sch2 = reg
+            .parse_with_protocol("javascript", &emit1, "m.js")
+            .unwrap();
+        let emit2 = reg.emit_pretty_with_protocol("javascript", &sch2).unwrap();
+        assert_eq!(
+            emit1,
+            emit2,
+            "JavaScript emit must be a fixed point.\nemit1: {}\nemit2: {}",
+            String::from_utf8_lossy(&emit1),
+            String::from_utf8_lossy(&emit2)
+        );
+    });
+}
+
+#[test]
+#[cfg(feature = "lang-julia")]
 fn julia_function_body_not_inline() {
     with_big_stack(|| {
         let reg = registry();

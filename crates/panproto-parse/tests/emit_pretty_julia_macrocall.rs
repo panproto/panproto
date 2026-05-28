@@ -54,14 +54,13 @@ fn julia_macrocall_long_form_preserves_body() {
             "long-form macrocall body must contain 'Beta', got: {text}"
         );
         assert!(
-            !text.starts_with("."),
+            !text.starts_with('.'),
             "macrocall must not start with '.', got: {text}"
         );
     });
 }
 
 #[test]
-#[ignore = "grammar/parser divergence: argument_list satisfies a different symbol first"]
 fn julia_macrocall_short_form_preserves_args() {
     with_big_stack(|| {
         let reg = registry();

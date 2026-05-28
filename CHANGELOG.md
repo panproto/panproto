@@ -4,6 +4,61 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.51.0] - 2026-05-28
+
+### Changed
+
+- **`emit_pretty` rewritten with grammar-derived token roles** (`panproto-parse`): the entire spacing and indentation system has been replaced. Every STRING token in a grammar rule is classified by its structural role (BracketOpen, BracketClose, Separator, Keyword, Operator, Terminal) based on its position in the production body. Bracket pairs are detected per-SEQ from first/last STRING members, not from any fixed character set. The layout pass uses a role-pair spacing table with zero token-text inspection. All naming-convention checks (indent/dedent/newline/semicolon) are precomputed at Grammar construction time into set-based lookups. Line-comment prefixes are extracted from the grammar's extras rules.
+- **`Production::ImmediateToken` lifted to a layout marker** (`panproto-parse`): a single `NoSpace` is emitted at the unique structural site where `IMMEDIATE_TOKEN` is declared (production walk + rule-head check in `emit_vertex`). The previous bracket-pair special case and per-SYMBOL inspection are removed. Fixes regex literals `/abc/g` emitting tight on both delimiters.
+- **PREC tiebreaker unconditional** (`panproto-parse`): tree-sitter precedence ordering on yield-set ties is applied whenever multiple alts admit the cursor edge, not only when the constraint blob is empty.
+- **Tarjan SCC for subtype closure** (`panproto-parse`): replaces the iteration-bounded fixpoint (max 8) with an exact O(V+E) closure on the dispatchable-only subgraph. No iteration cap, no fixpoint guessing.
+- **Positional interstitial scoring** (`panproto-parse`): `pick_choice_with_cursor` now scores against the slice of interstitials from the current cursor position forward (indexed by consumed count), eliminating the cross-position contamination of the prior flat-joined blob. The `chose-alt-fingerprint` joined string remains as the fallback for by-construction schemas with no positional interstitials.
+- **tree-sitter and tree-sitter-tags upgraded 0.25 → 0.26** (workspace `Cargo.toml`): API hardening (`Node::child` takes `u32` instead of `usize`; legacy `parse_utf16` / `parse_with` / `set_timeout_micros` / `version` removed). Two call sites added `u32::try_from` casts; no other source changes.
+
+### Added
+
+- **`TokenRole` enum** (`panproto-parse`): 6-variant structural role classification for STRING tokens, derived from grammar.json at construction time.
+- **`Grammar.token_roles`**: per-rule STRING-value-to-role map.
+- **`Grammar.indent_triggers`**: set of (rule, bracket) pairs that trigger indentation, derived from the presence of REPEAT between bracket delimiters.
+- **`Grammar.external_indent_opens/closes/newlines/semicolons`**: precomputed sets of external layout token names.
+- **`needs_space_by_role`**: role-pair spacing table replacing the old character-inspecting `needs_space_between`.
+- **`ParserRegistry::emit_verification_status(protocol)`** (`panproto-parse`): public API returning `EmitVerificationStatus { Verified | Generic | Unsupported }` so downstream tooling (quivers and other transpile pipelines) can refuse `emit_pretty` on protocols whose fixed-point law has never been exercised by panproto's test suite. The `Verified` set is a sorted constant covering 16 protocols: bash, bugs, c, cpp, csharp, go, jags, java, javascript, julia, php, python, rust, scheme, stan, typescript. Re-exported at the crate root as `panproto_parse::EmitVerificationStatus`.
+- **`<lang>_emit_is_fixed_point` regression tests** (`panproto-parse`): explicit `emit(parse(emit(s))) == emit(s)` assertions for every quivers transpile backend target — Python (NumPyro / Pyro / PyMC / Edward2), Stan, BUGS, JAGS, Julia (Gen / Turing), Scheme (Church), and JavaScript (WebPPL). Closes the verification gap behind issue #160.
+- **`accepts_first_edge`** (`panproto-parse`): single inductive acceptance predicate over the production tree, fusing FIELD-name matching, SYMBOL subtype dispatch, ALIAS rewrite, and yield-set admission. Replaces three previously-separate ad-hoc checks (`alt_can_consume`, FIELD-name-then-yield, field-token-restriction).
+- **`alt_satisfies_field_token_restrictions`** (`panproto-parse`): structural CHOICE filter that rejects an alternative whose FIELD body is `ALIAS{CHOICE[STRING...], value: V}` when the cursor's field-named edge carries a literal-value outside the allowed string set. Fixes Go `call_expression` alt 0 (the `new` / `make` constraint) being wrongly picked for arbitrary function identifiers.
+- **`alt_satisfies_pre_alias_constraints`** (`panproto-parse`): alias-source discriminator using the walker-recorded `pre-alias-symbol` constraint (`tree_sitter::Node::grammar_name()`). When an alt's FIELD content is `ALIAS{SYMBOL X, named: true, value: _}`, the alt is structurally compatible iff the cursor edge's `pre-alias-symbol` matches `X`.
+- **`pre-alias-symbol` constraint** (`panproto-parse`): the walker now records `tree_sitter::Node::grammar_name()` on every vertex where it differs from `kind()`. This is the only ALIAS-disambiguation signal tree-sitter 0.25 / 0.26 actually exposes.
+- **Universal cassette layer** (`panproto-parse`): `common_external_default` is a name-pattern table covering every external scanner token convention from a structural audit of all 261 vendored grammars. Per-grammar cassettes layer on top via `resolve_external_token`; the default empty cassette delegates entirely to the common layer. New cassette families: HTML (HTML / Vue / Svelte / Astro / Blade / Angular / templ / heex), shell (Bash / Zsh / Fish), C raw-string (C++ / CUDA / HLSL / Arduino / C# / C), JS (JavaScript / TypeScript / TSX / QML / ReScript), indent-based (Agda / F# / F# signatures / Earthfile / Firrtl / Cooklang / Djot / Idris / Nim / PureScript / Haskell / Elm).
+
+### Removed
+
+- **`needs_space_between`**, **`is_punct_open`**, **`is_punct_close`**, **`is_punct_punctuation`**, **`leaves_operand_position`**, **`is_unary_prefix_operator`**, and all other character-inspecting spacing functions.
+- **`inline_brace_rules`**: replaced by `token_roles` and `indent_triggers`.
+- **Gated PEG matcher infrastructure** (`panproto-parse`): the production-vs-CST matcher prototype (`match_production`, `collect_match_children`, `kind_satisfies`, `MatchChild`, the `grammar` field and `new_with_grammar` constructor on `AstWalker`, the grammar threading in `LanguageParser::parse`, `consume_alt_trace`, the `alt_traces` field on `Output`, and the `pub(crate)` leak on `prec_value`) is removed. The PEG-with-PREC approximation diverges from tree-sitter's parse-table-based disambiguation; keeping the code gated invited accidental re-enablement. Properly enabling a derivation trace requires tree-sitter to expose per-CHOICE production / reduce IDs via the C API.
+
+### Fixed
+
+- **Go `call_expression` for arbitrary function names** (`panproto-parse`): the outer CHOICE no longer mis-selects alt 0 (which only admits `new` or `make` via an ALIAS over a CHOICE of STRINGs) for general function calls like `h(x)`.
+- **C++ `_for_statement_body` initializer / condition / update fields** (`panproto-parse`): the inner CHOICE picks the declaration alt for `for (int i = 0; ...)` instead of silently dropping the initializer through the expression alt.
+- **Java `modifiers` `@Override` preserved** (`panproto-parse`): the REPEAT1 inner CHOICE no longer eclipses the `_annotation` SYMBOL alt with a pure-literal `public` alt when the cursor has a `marker_annotation` edge.
+- **JavaScript `regex_literal` delimiters tight** (`panproto-parse`): `/abc/g` round-trips correctly; same-text STRING delimiters with at least one IMMEDIATE_TOKEN are now treated as a bracket pair, and `regex_flags`'s IMMEDIATE_TOKEN rule body emits the required NoSpace before flag content.
+
+## [0.50.10] - 2026-05-27
+
+### Fixed
+
+- **Colon spacing context-sensitive** (`panproto-parse`): `:` after a word-like token is now tight (`a: 1`, `x: int`) while `:` after a non-word token preserves space (`b : c` in ternary, `1 : 10` in slice). `::` is always tight (`x::Int`).
+- **Spread/splat `...` tight with identifier** (`panproto-parse`): `...args` no longer inserts space between `...` and the identifier.
+- **Optional chaining `?.` tight** (`panproto-parse`): no space around `?.` operator.
+- **Stan constraint angle brackets tight** (`panproto-parse`): `<lower=0>` no longer emits as `< lower = 0 >`. Rules whose production contains `SEQ ["<", ..., ">"]` are identified as angle-bracket rules, and the Output suppresses spacing around `<`/`>` when inside them.
+- **BUGS `data` keyword preserved** (`panproto-grammars`): regenerated BUGS grammar with `optional(choice("model", "data"))` as the block keyword, fixing bare `{` blocks.
+- **JAGS `I(...)` interval censoring preserved** (`panproto-grammars`): regenerated JAGS grammar with `choice("T", "I")` as the truncation keyword, fixing dropped censoring clauses.
+
+### Added
+
+- **`Grammar.angle_bracket_rules`** (`panproto-parse`): set of rule names whose `<`/`>` tokens are bracket delimiters, identified structurally from grammar.json.
+- **5 new regression tests**: BUGS data keyword, JAGS censoring, Stan constraint brackets, JS spread spacing.
+
 ## [0.50.9] - 2026-05-26
 
 ### Fixed
