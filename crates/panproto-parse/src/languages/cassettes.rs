@@ -322,14 +322,8 @@ struct ShellFamilyCassette;
 impl GrammarCassette for ShellFamilyCassette {
     fn external_token_default(&self, token_name: &str) -> Option<&str> {
         match token_name {
-            "file_descriptor"
-            | "variable_name"
-            | "test_operator"
-            | "regex"
-            | "_regex_no_slash"
-            | "_regex_no_space"
-            | "_expansion_word"
-            | "extglob_pattern" => Some(""),
+            "file_descriptor" | "variable_name" | "test_operator" | "regex" | "_regex_no_slash"
+            | "_regex_no_space" | "_expansion_word" | "extglob_pattern" => Some(""),
             "_immediate_double_hash" => Some("##"),
             _ => None,
         }

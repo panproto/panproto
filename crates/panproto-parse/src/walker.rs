@@ -407,7 +407,6 @@ impl<'a> AstWalker<'a> {
                 builder.constraint(vertex_id, "chose-alt-child-kinds", &child_kinds.join(" "));
         }
 
-
         Ok(builder)
     }
 
@@ -532,7 +531,6 @@ impl<'a> AstWalker<'a> {
         builder
     }
 }
-
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]

@@ -152,9 +152,7 @@ fn stan_emit_is_fixed_point() {
         let src = b"data {\n  int N;\n  vector[N] y;\n}\nmodel { y ~ normal(0, 1); }\n";
         let sch1 = reg.parse_with_protocol("stan", src, "m.stan").unwrap();
         let emit1 = reg.emit_pretty_with_protocol("stan", &sch1).unwrap();
-        let sch2 = reg
-            .parse_with_protocol("stan", &emit1, "m.stan")
-            .unwrap();
+        let sch2 = reg.parse_with_protocol("stan", &emit1, "m.stan").unwrap();
         let emit2 = reg.emit_pretty_with_protocol("stan", &sch2).unwrap();
         assert_eq!(
             emit1,
@@ -174,9 +172,7 @@ fn bugs_emit_is_fixed_point() {
         let src = b"model {\n  for (i in 1:N) {\n    y[i] ~ dnorm(mu, tau)\n  }\n}\n";
         let sch1 = reg.parse_with_protocol("bugs", src, "m.bug").unwrap();
         let emit1 = reg.emit_pretty_with_protocol("bugs", &sch1).unwrap();
-        let sch2 = reg
-            .parse_with_protocol("bugs", &emit1, "m.bug")
-            .unwrap();
+        let sch2 = reg.parse_with_protocol("bugs", &emit1, "m.bug").unwrap();
         let emit2 = reg.emit_pretty_with_protocol("bugs", &sch2).unwrap();
         assert_eq!(
             emit1,
@@ -196,9 +192,7 @@ fn jags_emit_is_fixed_point() {
         let src = b"model {\n  for (i in 1:N) {\n    y[i] ~ dnorm(mu, tau)\n  }\n  mu ~ dnorm(0, 0.001)\n  tau ~ dgamma(0.001, 0.001)\n}\n";
         let sch1 = reg.parse_with_protocol("jags", src, "m.jag").unwrap();
         let emit1 = reg.emit_pretty_with_protocol("jags", &sch1).unwrap();
-        let sch2 = reg
-            .parse_with_protocol("jags", &emit1, "m.jag")
-            .unwrap();
+        let sch2 = reg.parse_with_protocol("jags", &emit1, "m.jag").unwrap();
         let emit2 = reg.emit_pretty_with_protocol("jags", &sch2).unwrap();
         assert_eq!(
             emit1,
@@ -218,9 +212,7 @@ fn julia_emit_is_fixed_point() {
         let src = b"function f(x)\n    y = x + 1\n    return y\nend\n";
         let sch1 = reg.parse_with_protocol("julia", src, "m.jl").unwrap();
         let emit1 = reg.emit_pretty_with_protocol("julia", &sch1).unwrap();
-        let sch2 = reg
-            .parse_with_protocol("julia", &emit1, "m.jl")
-            .unwrap();
+        let sch2 = reg.parse_with_protocol("julia", &emit1, "m.jl").unwrap();
         let emit2 = reg.emit_pretty_with_protocol("julia", &sch2).unwrap();
         assert_eq!(
             emit1,
@@ -240,9 +232,7 @@ fn scheme_emit_is_fixed_point() {
         let src = b"(define (f x) (+ x 1))\n";
         let sch1 = reg.parse_with_protocol("scheme", src, "m.scm").unwrap();
         let emit1 = reg.emit_pretty_with_protocol("scheme", &sch1).unwrap();
-        let sch2 = reg
-            .parse_with_protocol("scheme", &emit1, "m.scm")
-            .unwrap();
+        let sch2 = reg.parse_with_protocol("scheme", &emit1, "m.scm").unwrap();
         let emit2 = reg.emit_pretty_with_protocol("scheme", &sch2).unwrap();
         assert_eq!(
             emit1,
@@ -259,18 +249,12 @@ fn javascript_emit_is_fixed_point() {
     with_big_stack(|| {
         let reg = registry();
         let src = b"function f(x) { return x + 1; }\n";
-        let sch1 = reg
-            .parse_with_protocol("javascript", src, "m.js")
-            .unwrap();
-        let emit1 = reg
-            .emit_pretty_with_protocol("javascript", &sch1)
-            .unwrap();
+        let sch1 = reg.parse_with_protocol("javascript", src, "m.js").unwrap();
+        let emit1 = reg.emit_pretty_with_protocol("javascript", &sch1).unwrap();
         let sch2 = reg
             .parse_with_protocol("javascript", &emit1, "m.js")
             .unwrap();
-        let emit2 = reg
-            .emit_pretty_with_protocol("javascript", &sch2)
-            .unwrap();
+        let emit2 = reg.emit_pretty_with_protocol("javascript", &sch2).unwrap();
         assert_eq!(
             emit1,
             emit2,

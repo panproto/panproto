@@ -473,7 +473,6 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
 ];
 
 impl ParserRegistry {
-
     /// Decorate an [`AbstractSchema`] with the layout enrichment
     /// fibre required by `emit_pretty_with_protocol` and friends.
     ///

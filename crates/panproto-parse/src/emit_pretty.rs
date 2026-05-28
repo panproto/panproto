@@ -726,7 +726,11 @@ fn compute_subtype_closure(
         }
     }
     let nodes: Vec<String> = nodes.into_iter().collect();
-    let index_of: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, n)| (n.as_str(), i)).collect();
+    let index_of: HashMap<&str, usize> = nodes
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (n.as_str(), i))
+        .collect();
     // 2. Edges: Y → Z iff Z ∈ subtypes[Y] and both are dispatchable.
     let mut edges: Vec<Vec<usize>> = vec![Vec::new(); nodes.len()];
     for (i, name) in nodes.iter().enumerate() {
@@ -1505,10 +1509,13 @@ fn classify_seq_positions(members: &[Production], in_choice: bool) -> Vec<Option
         // when at least one side is IMMEDIATE_TOKEN — the grammar's
         // structural signal that the delimiter must be tight against
         // the content.
-        let either_immediate = is_immediate_token(&members[first_idx])
-            || is_immediate_token(&members[last_idx]);
+        let either_immediate =
+            is_immediate_token(&members[first_idx]) || is_immediate_token(&members[last_idx]);
         let same_text_immediate = first_val == last_val && either_immediate;
-        if has_content_between && (both_punct || both_word) && (first_val != last_val || same_text_immediate) {
+        if has_content_between
+            && (both_punct || both_word)
+            && (first_val != last_val || same_text_immediate)
+        {
             roles[first_idx] = Some(TokenRole::BracketOpen);
             roles[last_idx] = Some(TokenRole::BracketClose);
             bracket_open_idx = Some(first_idx);
@@ -2530,10 +2537,9 @@ fn emit_production_inner(
                         out.newline();
                     } else if grammar.external_semicolons.contains(name) {
                         out.token_with_role(";", Some(TokenRole::Separator));
-                    } else if let Some(default) =
-                        out.cassette.and_then(|c| {
-                            crate::languages::cassettes::resolve_external_token(c, name)
-                        })
+                    } else if let Some(default) = out
+                        .cassette
+                        .and_then(|c| crate::languages::cassettes::resolve_external_token(c, name))
                     {
                         if !default.is_empty() {
                             out.token(default);
@@ -3865,7 +3871,9 @@ fn accepts_first_edge(
             false
         }
         Production::Alias {
-            named, value, content,
+            named,
+            value,
+            content,
         } => {
             if *named && !value.is_empty() {
                 edge_field == "child_of" && value == target_kind
@@ -3921,11 +3929,7 @@ fn pre_alias_symbol<'a>(schema: &'a Schema, vertex_id: &panproto_gat::Name) -> O
 /// `FIELD { name = field_name, content = ALIAS { content = SYMBOL X,
 /// named: true, value: _ } }`, append `X`. Returns an empty Vec when
 /// the alt's FIELD body is not a named-ALIAS-over-SYMBOL.
-fn field_alias_sources<'a>(
-    production: &'a Production,
-    field_name: &str,
-    out: &mut Vec<&'a str>,
-) {
+fn field_alias_sources<'a>(production: &'a Production, field_name: &str, out: &mut Vec<&'a str>) {
     fn unwrap_to_alias_source(p: &Production) -> Option<&str> {
         let inner = match p {
             Production::Prec { content, .. }
