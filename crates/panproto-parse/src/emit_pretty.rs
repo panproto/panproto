@@ -1272,7 +1272,7 @@ fn classify_seq(
             roles.insert(last_val.to_owned(), TokenRole::BracketClose);
 
             let between = &members[first_idx + 1..last_idx];
-            if has_repeat_recursive(between) {
+            if first_val == "{" && has_repeat_recursive(between) {
                 indent_triggers.insert((rule_name.to_owned(), first_val.to_owned()));
             }
         }
@@ -1449,23 +1449,28 @@ fn seq_bracket_triggers_indent(
             return true;
         }
         let between = &members[open_idx + 1..*close_idx];
-        if has_repeat_recursive(between) {
+        // Only { } bracket pairs trigger indentation from direct
+        // REPEAT content. Other pairs like ( ), < >, [ ] are
+        // inline even when they contain REPEAT (comma-separated
+        // lists, type parameters, function arguments).
+        if *open_text == "{" && has_repeat_recursive(between) {
             return true;
         }
         // Follow SYMBOL → rule one level for CHOICE[SYMBOL, BLANK]
         // patterns where the SYMBOL's rule body has REPEAT.
-        // This detects block constructs like Go's
-        // `SEQ["{", CHOICE[statement_list, BLANK], "}"]` where
-        // statement_list contains REPEAT but isn't directly visible.
-        for m in between {
-            if let Production::Choice { members: alts } = m {
-                let has_blank = alts.iter().any(|a| matches!(a, Production::Blank));
-                if has_blank {
-                    for alt in alts {
-                        if let Production::Symbol { name } = alt {
-                            if let Some(rule) = _grammar.rules.get(name) {
-                                if has_repeat_in(rule) {
-                                    return true;
+        // Only for { } bracket pairs (block constructs). Other pairs
+        // like < > (type parameters) are always inline.
+        if *open_text == "{" {
+            for m in between {
+                if let Production::Choice { members: alts } = m {
+                    let has_blank = alts.iter().any(|a| matches!(a, Production::Blank));
+                    if has_blank {
+                        for alt in alts {
+                            if let Production::Symbol { name } = alt {
+                                if let Some(rule) = _grammar.rules.get(name) {
+                                    if has_repeat_in(rule) {
+                                        return true;
+                                    }
                                 }
                             }
                         }
@@ -2204,7 +2209,18 @@ fn emit_seq_with_roles(
                     Production::Symbol { name }
                         if name.starts_with('_') && !grammar.rules.contains_key(name)
                 );
-                if prev_produced_content && !member_starts_with_bracket && !is_zero_width_external {
+                let is_separator_choice = matches!(member, Production::Choice { members: alts }
+                    if alts.iter().all(|a| matches!(a, Production::Blank) || unwrap_to_string(a).is_some()));
+                let is_repeat = matches!(
+                    member,
+                    Production::Repeat { .. } | Production::Repeat1 { .. }
+                );
+                if prev_produced_content
+                    && !member_starts_with_bracket
+                    && !is_zero_width_external
+                    && !is_separator_choice
+                    && !is_repeat
+                {
                     out.tokens.push(Token::ForceSpace);
                 }
             }
