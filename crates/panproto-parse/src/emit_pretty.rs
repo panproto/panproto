@@ -3212,6 +3212,21 @@ fn pick_choice_with_cursor<'a>(
     // `macro_argument_list`).
     let _ = (schema, vertex_id);
     if alternatives.iter().any(|a| matches!(a, Production::Blank)) {
+        // Before selecting BLANK, check if a hidden-rule alternative
+        // resolves to a newline-like PATTERN. Prefer it: it produces
+        // a LineBreak which is semantically correct for terminators
+        // like Julia's _terminator = CHOICE[PATTERN "\r?\n", ...].
+        for alt in alternatives {
+            if let Production::Symbol { name } = alt {
+                if name.starts_with('_') {
+                    if let Some(rule) = grammar.rules.get(name) {
+                        if contains_newline_pattern(rule) {
+                            return Some(alt);
+                        }
+                    }
+                }
+            }
+        }
         return alternatives.iter().find(|a| matches!(a, Production::Blank));
     }
     // When cursor is exhausted and no BLANK, prefer an alternative
@@ -3482,6 +3497,26 @@ fn literal_value<'a>(schema: &'a Schema, vertex_id: &panproto_gat::Name) -> Opti
 /// `\n`, `\r\n`, `\n+`, `\r?\n+`. Distinguishes structural newline
 /// terminals from generic whitespace and from other patterns that
 /// happen to contain a newline escape inside a larger class.
+fn contains_newline_pattern(prod: &Production) -> bool {
+    match prod {
+        Production::Pattern { value } => is_newline_like_pattern(value),
+        Production::Choice { members } | Production::Seq { members } => {
+            members.iter().any(contains_newline_pattern)
+        }
+        Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Optional { content }
+        | Production::Field { content, .. }
+        | Production::Alias { content, .. }
+        | Production::Reserved { content, .. } => contains_newline_pattern(content),
+        _ => false,
+    }
+}
+
 fn is_newline_like_pattern(pattern: &str) -> bool {
     if pattern.is_empty() {
         return false;
