@@ -53,7 +53,7 @@ planning/
 .vite/
 
 # Lean
-lean/.lake/tmp/
+lean/.lake/
 
 # Scratch
 tmp/
