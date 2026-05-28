@@ -1620,6 +1620,22 @@ fn unwrap_to_string(prod: &Production) -> Option<&str> {
         | Production::PrecDynamic { content, .. }
         | Production::Field { content, .. }
         | Production::Reserved { content, .. } => unwrap_to_string(content),
+        Production::Choice { members } => {
+            let all_strings = members
+                .iter()
+                .all(|m| matches!(m, Production::String { .. }));
+            if all_strings && !members.is_empty() {
+                members.iter().find_map(|m| {
+                    if let Production::String { value } = m {
+                        Some(value.as_str())
+                    } else {
+                        None
+                    }
+                })
+            } else {
+                None
+            }
+        }
         _ => None,
     }
 }
