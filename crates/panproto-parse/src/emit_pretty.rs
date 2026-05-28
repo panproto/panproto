@@ -1887,8 +1887,24 @@ fn emit_vertex(
     // `literal-value` even on by-construction schemas.
     if let Some(literal) = literal_value(schema, vertex_id) {
         if children_for(schema, vertex_id).is_empty() {
-            out.token_with_role(literal, Some(TokenRole::Terminal));
-            return Ok(());
+            // Skip leaf shortcut for bracket-pair literals like "()"
+            // when the vertex has an alias-resolved rule. The rule-based
+            // path correctly emits them as separate BracketOpen/Close
+            // tokens with proper spacing.
+            let is_bracket_pair = literal.len() >= 2
+                && matches!(
+                    (literal.as_bytes().first(), literal.as_bytes().last()),
+                    (Some(b'('), Some(b')')) | (Some(b'['), Some(b']')) | (Some(b'{'), Some(b'}'))
+                );
+            let vkind = vertex.kind.as_ref();
+            let has_alias_rule = grammar
+                .named_alias_map
+                .get(vkind)
+                .is_some_and(|src| grammar.rules.contains_key(src));
+            if !(is_bracket_pair && has_alias_rule) {
+                out.token_with_role(literal, Some(TokenRole::Terminal));
+                return Ok(());
+            }
         }
     }
 
@@ -2767,13 +2783,19 @@ fn emit_aliased_child(
     out: &mut Output<'_>,
 ) -> Result<(), ParseError> {
     // Leaf shortcut: if the child has a literal-value and no
-    // structural children, emit the captured text. Identifiers and
-    // similar terminals reach here when an ALIAS wraps a SYMBOL that
-    // resolves to a PATTERN.
+    // structural children, emit the captured text. Skip for bracket-pair
+    // literals when the production resolves to a rule with those brackets.
     if let Some(literal) = literal_value(schema, child_id) {
         if children_for(schema, child_id).is_empty() {
-            out.token_with_role(literal, Some(TokenRole::Terminal));
-            return Ok(());
+            let is_bracket_pair = literal.len() >= 2
+                && matches!(
+                    (literal.as_bytes().first(), literal.as_bytes().last()),
+                    (Some(b'('), Some(b')')) | (Some(b'['), Some(b']')) | (Some(b'{'), Some(b'}'))
+                );
+            if !is_bracket_pair {
+                out.token_with_role(literal, Some(TokenRole::Terminal));
+                return Ok(());
+            }
         }
     }
 
