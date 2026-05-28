@@ -128,7 +128,7 @@ pub fn char_ngram_cosine(a: &str, b: &str, n: usize) -> f64 {
         if let Some(&cb) = grams_b.get(g) {
             let a_val = f64::from(u32::try_from(ca).unwrap_or(u32::MAX));
             let b_val = f64::from(u32::try_from(cb).unwrap_or(u32::MAX));
-            dot += a_val * b_val;
+            dot = a_val.mul_add(b_val, dot);
         }
     }
     (dot / (norm_a * norm_b)).clamp(0.0, 1.0)
