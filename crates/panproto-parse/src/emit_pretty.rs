@@ -851,8 +851,12 @@ fn yield_of_production(
             set
         }
         Production::String { .. } | Production::Pattern { .. } => std::collections::HashSet::new(),
-        Production::Repeat { content }
-        | Production::Repeat1 { content }
+        Production::Repeat { content } => {
+            let mut set = yield_of_production(grammar, content, visited, cache);
+            set.insert(String::new());
+            set
+        }
+        Production::Repeat1 { content }
         | Production::Field { content, .. }
         | Production::Token { content }
         | Production::ImmediateToken { content }
