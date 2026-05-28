@@ -2,6 +2,8 @@
 
 When you parse a JSON, YAML, TOML, XML, or CSV file and emit it back without changes, panproto can guarantee `emit(parse(bytes)) == bytes` byte-for-byte. This requires the format-preserving codec, which uses tree-sitter grammars and a CST complement to capture whitespace, comments, and ordering.
 
+This page covers the structured-data path (JSON / YAML / TOML / XML / CSV). For source-code grammars (Rust, Python, Stan, BUGS, and 257 more), the emit path is `emit_pretty`, which derives spacing and dispatch from `grammar.json` structurally and exercises a per-protocol verification tier. See [Parse full ASTs](./parse-full-ast.md) and [Source-code emission](../explanation/emit-pretty.md). The two systems are independent and serve different formats; choose one based on what you are parsing.
+
 ## Prerequisites
 
 A panproto build with the `tree-sitter` feature flag enabled on `panproto-core` (or directly on `panproto-io`). The CLI ships with tree-sitter enabled by default.

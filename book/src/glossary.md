@@ -38,6 +38,30 @@ The lens between byte sequences and decorated schemas. The get direction is `par
 
 The schema-level version of the parse / emit lens, with the byte step skipped. The get direction is `forget_layout : DecoratedSchema → AbstractSchema`; the put direction is `decorate : AbstractSchema → DecoratedSchema`. The section law `forget_layout ∘ decorate ≅ id` holds up to kind / edge multiset equivalence. *Intuition:* the lens between abstract and decorated schemas, parameterised by a `LayoutPolicy`.
 
+## Grammar cassette
+
+A per-language implementation of [`GrammarCassette`](https://docs.rs/panproto-parse/latest/panproto_parse/languages/cassettes/trait.GrammarCassette.html) supplying default text for external scanner tokens that `grammar.json` cannot describe (variable-text delimiters, layout markers, scanner-state markers). Composed with the universal pattern table `common_external_default` via `resolve_external_token`: per-grammar override first, universal layer as fallback. *Intuition:* the small per-language patch sitting on top of the grammar-derived emit pipeline, supplying text for tokens whose actual content `grammar.json` alone cannot pin down.
+
+## Token role
+
+Structural classification of every STRING literal in a grammar rule, derived from the literal's position in the production body. Six variants of [`panproto_parse::emit_pretty::TokenRole`](https://docs.rs/panproto-parse/latest/panproto_parse/emit_pretty/enum.TokenRole.html): `BracketOpen`, `BracketClose`, `Separator`, `Keyword`, `Operator`, `Connector`, plus `Terminal` for emitted leaf vertices. Computed once at `Grammar::from_bytes` time and stored as the per-rule `token_roles` map; consumed by the layout pass via the `needs_space_by_role` table. *Intuition:* what the emitter uses instead of inspecting the token text — every spacing decision follows from the role pair, not from any character set.
+
+## Acceptance predicate
+
+The inductive function `accepts_first_edge(production, edge_field, target_kind)` over the production tree that decides whether a given alternative is structurally compatible with the cursor's first unconsumed edge. Fuses FIELD-name matching, SYMBOL subtype dispatch, ALIAS rewrite, and yield-set admission into a single categorical rule. Implemented in `panproto-parse::emit_pretty::accepts_first_edge`. *Intuition:* the categorical core of CHOICE dispatch; the predicate the emitter consults before any heuristic tiebreaker.
+
+## Pre-alias symbol
+
+The walker-recorded `pre-alias-symbol` constraint capturing `tree_sitter::Node::grammar_name()` (the SYMBOL name as it appears in the rule body before `ALIAS { value: V }` rewriting). Only recorded when it differs from the post-alias `kind()`. Consumed by `alt_satisfies_pre_alias_constraints` as the alias-source discriminator: an alt with a named ALIAS over a SYMBOL is structurally compatible iff the cursor edge's `pre-alias-symbol` matches that SYMBOL. *Intuition:* the only ALIAS-disambiguation signal tree-sitter 0.25 / 0.26 surfaces through its C API.
+
+## Emit verification status
+
+The programmatic tier reported by [`ParserRegistry::emit_verification_status`](https://docs.rs/panproto-parse/latest/panproto_parse/struct.ParserRegistry.html#method.emit_verification_status) classifying every protocol as `Verified` (has an explicit `<lang>_emit_is_fixed_point` test in panproto's suite), `Generic` (registered with vendored `grammar.json`, no per-language test), or `Unsupported` (no grammar, emit will fail). Downstream tooling calls this upfront to refuse emit on protocols whose correctness has not been exercised. *Intuition:* panproto's own honesty signal about which protocols its test suite verifies for round-trip correctness.
+
+## Fixed-point law (emit)
+
+The correctness witness for source-code emission: `emit(parse(emit(s))) == emit(s)`. Asserted per-protocol by `<lang>_emit_is_fixed_point` regression tests in [`crates/panproto-parse/tests/emit_pretty_regressions.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-parse/tests/emit_pretty_regressions.rs). Stronger than the section law (which holds at the kind / edge multiset level); equality is byte-for-byte after the first emit. *Intuition:* the emitter has reached a fixed point of the parse / emit cycle, which is what guarantees that downstream re-parsing pipelines remain stable.
+
 ## Section law
 
 For the parse / decorate / emit lens at `protocol` under `policy`:
@@ -48,4 +72,4 @@ The equivalence is up to vertex-id renaming and the vertex-kind / edge-shape mul
 
 ## See also
 
-For longer treatments: [Schemas as theories](./explanation/schemas-as-theories.md), [Lenses and round-trip laws](./explanation/lenses-roundtrip.md), [Layout enrichment](./explanation/layout-enrichment.md).
+For longer treatments: [Source-code emission](./explanation/emit-pretty.md), [Schemas as theories](./explanation/schemas-as-theories.md), [Lenses and round-trip laws](./explanation/lenses-roundtrip.md), [Layout enrichment](./explanation/layout-enrichment.md).

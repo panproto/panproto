@@ -39,8 +39,23 @@ A protocol registration is a sequence of theory colimits applied in a determined
 
 To add a custom protocol, see [Build a custom protocol](../how-to/build-protocol.md). The minimal recipe is: declare schema and instance GATs (Rust or via the [theory DSL](../how-to/build-protocol.md)), register a parser and emitter, and add a registration call to the relevant submodule.
 
+## Source-code grammars and emit verification
+
+In addition to the schema-language protocols catalogued above, panproto ships 261 tree-sitter grammars under [`crates/panproto-grammars/`](https://github.com/panproto/panproto/tree/main/crates/panproto-grammars). Each grammar registers a tree-sitter `Language` plus its `node-types.json` AST signature; the resulting parser walks source code into a full-AST schema, and `emit_pretty` renders the schema back to bytes via the structural pipeline described in [Source-code emission](../explanation/emit-pretty.md).
+
+The emitter's correctness varies by grammar; [`ParserRegistry::emit_verification_status`](https://docs.rs/panproto-parse/latest/panproto_parse/struct.ParserRegistry.html#method.emit_verification_status) reports which tier each protocol falls into:
+
+| Tier | Meaning | Currently |
+|---|---|---|
+| `Verified` | Has an explicit `<lang>_emit_is_fixed_point` test in panproto's suite asserting `emit(parse(emit(s))) == emit(s)` | bash, bugs, c, cpp, csharp, go, jags, java, javascript, julia, php, python, rust, scheme, stan, typescript |
+| `Generic` | Registered grammar; emit uses the generic dispatch + universal cassette path; no per-language test asserts correctness | the remaining ~230 grammars with vendored `grammar.json` |
+| `Unsupported` | No `grammar.json` vendored, or protocol not registered | grammars whose upstream did not ship `grammar.json` |
+
+Downstream tooling — [quivers](https://github.com/aaronstevenwhite/quivers)'s transpile backends most prominently — should call this API upfront and refuse emit on protocols that return `Generic` or `Unsupported`. The full list of verified protocols is maintained as `VERIFIED_EMIT_PROTOCOLS` in [`crates/panproto-parse/src/registry.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-parse/src/registry.rs).
+
 ## See also
 
+- [Source-code emission](../explanation/emit-pretty.md)
 - [Schemas as theories](../explanation/schemas-as-theories.md)
 - [Composing protocols by colimit](../explanation/protocol-colimits.md)
 - [Theory DSL: denotational semantics](../explanation/semantics/theory-dsl.md)

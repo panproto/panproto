@@ -8,6 +8,8 @@ The two parts live together in one schema, but they are separable: you can strip
 
 The reason this matters: any tool that wants to *generate* source code from a panproto schema (a code refactorer, a reverse bridge from a domain model to a target language, a migration that materialises a new file) needs to produce a schema with the layout fibre attached. Before `decorate`, generators had to manually populate the layout constraints — disguised string concatenation, brittle to grammar revisions. With `decorate`, the operation is mechanical: write the abstract content, hand it to a grammar, get a schema the emitter can render byte-for-byte.
 
+This page is the categorical framing: the parse / emit pair as a Grothendieck-style fibration, the section law that ties `decorate` and `forget_layout` together, and the cross-crate registry that makes the parse-side machinery available to the lens layer. For the operational mechanics of the emitter itself — how it derives spacing, dispatches CHOICE alternatives, and resolves external tokens through the cassette system — see [Source-code emission](./emit-pretty.md).
+
 ## The forgetful U and its section
 
 Take a schema `S` produced by parsing some source bytes. Every vertex carries some constraints. Split them into two groups: the *layout* constraints (`start-byte`, `end-byte`, `interstitial-N`, `chose-alt-fingerprint`, `chose-alt-child-kinds`) and everything else (vertex kind, edges, `literal-value`, anonymous-token `field:*`, plus any protocol-defined sorts). The first group is parser-only metadata; the second is the abstract content of the program.
@@ -76,6 +78,7 @@ Two threads bear directly on the parse-emit fibration. The lens-based ancestry r
 
 ## See also
 
+- [Source-code emission](./emit-pretty.md) for the operational mechanics of `emit_pretty`: token-role classification, CHOICE dispatch tiers, cassettes, and the verification tier API.
 - [Decorate an abstract schema](../how-to/decorate-schemas.md) for the operational recipe.
 - [Lenses and round-trip laws](./lenses-roundtrip.md) for the lens machinery the enrichment rides on.
 - [Architecture](./architecture.md) for the crate-level dependency direction that makes the cross-crate registry necessary.
