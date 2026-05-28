@@ -1378,7 +1378,14 @@ fn classify_seq_positions(members: &[Production], in_choice: bool) -> Vec<Option
 
         let both_punct = !is_word_like(first_val) && !is_word_like(last_val);
         let both_word = is_word_like(first_val) && is_word_like(last_val);
-        if has_content_between && first_val != last_val && (both_punct || both_word) {
+        // Same-text delimiters (e.g. regex `/.../`) are a bracket pair
+        // when at least one side is IMMEDIATE_TOKEN — the grammar's
+        // structural signal that the delimiter must be tight against
+        // the content.
+        let either_immediate = is_immediate_token(&members[first_idx])
+            || is_immediate_token(&members[last_idx]);
+        let same_text_immediate = first_val == last_val && either_immediate;
+        if has_content_between && (both_punct || both_word) && (first_val != last_val || same_text_immediate) {
             roles[first_idx] = Some(TokenRole::BracketOpen);
             roles[last_idx] = Some(TokenRole::BracketClose);
             bracket_open_idx = Some(first_idx);
@@ -1609,6 +1616,20 @@ fn is_prefix_sigil(s: &str) -> bool {
 /// `PrecRight`, `PrecDynamic`, `Field`, `Reserved`) to find the inner `STRING`
 /// value. Returns `None` if the production is not a (possibly wrapped)
 /// `STRING`.
+fn is_immediate_token(prod: &Production) -> bool {
+    match prod {
+        Production::ImmediateToken { .. } => true,
+        Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Token { content }
+        | Production::Field { content, .. }
+        | Production::Reserved { content, .. } => is_immediate_token(content),
+        _ => false,
+    }
+}
+
 fn unwrap_to_string(prod: &Production) -> Option<&str> {
     match prod {
         Production::String { value } => Some(value.as_str()),
@@ -2306,6 +2327,13 @@ fn emit_production_inner(
             // iteration.
             if let Some(field) = current_field_context() {
                 if let Some(edge) = cursor.take_field(&field) {
+                    if grammar
+                        .rules
+                        .get(name)
+                        .is_some_and(is_immediate_token)
+                    {
+                        out.no_space();
+                    }
                     return emit_in_child_context(
                         protocol, schema, grammar, &edge.tgt, production, out,
                     );
@@ -2394,6 +2422,13 @@ fn emit_production_inner(
                 // via `emit_vertex` is correct: the dependent-optic
                 // path is preserved at every site where it actually
                 // diverges from `child.kind`.
+                if grammar
+                    .rules
+                    .get(name)
+                    .is_some_and(is_immediate_token)
+                {
+                    out.no_space();
+                }
                 emit_vertex(protocol, schema, grammar, &edge.tgt, out)
             } else if vertex_id_kind(schema, vertex_id) == Some(name.as_str()) {
                 let rule = grammar
@@ -2951,12 +2986,20 @@ fn pick_choice_with_cursor<'a>(
         return alternatives.iter().find(|a| matches!(a, Production::Blank));
     }
     if !any_unconsumed && !blank_present {
-        // When the cursor is exhausted, prefer a pure-literal alternative
-        // (only STRINGs, no SYMBOLs/FIELDs) over one that merely CAN
-        // produce epsilon. A pure-literal alternative emits concrete
-        // tokens without needing children (e.g. ";" terminator). An
-        // epsilon-capable alternative with SYMBOLs would emit nothing
-        // for the SYMBOL parts but might pick wrong CHOICE branches.
+        // When the cursor is exhausted: first prefer a newline-like
+        // PATTERN over STRING separators (e.g. Go source_file terminator
+        // CHOICE[PATTERN("\n"), ";", "\0"] should emit newline not ";").
+        for alt in alternatives {
+            if let Production::Pattern { value } = alt {
+                if is_newline_like_pattern(value) {
+                    return Some(alt);
+                }
+            }
+        }
+        // Then prefer a pure-literal alternative (only STRINGs, no
+        // SYMBOLs/FIELDs) over one that merely CAN produce epsilon.
+        // A pure-literal alternative emits concrete tokens without
+        // needing children (e.g. ";" terminator in Rust struct_item).
         if let Some(pure_lit) = alternatives.iter().find(|alt| {
             let syms = referenced_symbols(alt);
             let strings = literal_strings(alt);
@@ -2997,6 +3040,67 @@ fn pick_choice_with_cursor<'a>(
     }
 
     if !constraint_blob.is_empty() {
+        // Categorical filter: when the cursor has an unconsumed first
+        // edge, an alt should only be considered if it can consume
+        // that edge — OR no alt in the CHOICE can. This prevents a
+        // high-literal-score pure-literal alt from eclipsing a
+        // SYMBOL alt that actually accepts the cursor's edge (Java
+        // `modifiers` REPEAT1 inner CHOICE has SYMBOL _annotation
+        // alongside many keyword STRINGs; with a `marker_annotation`
+        // edge, only _annotation can consume it).
+        let first_uc_edge_pre = cursor
+            .edges
+            .iter()
+            .enumerate()
+            .find(|(i, _)| !cursor.consumed[*i])
+            .map(|(_, e)| e);
+        let mut visited_pre = std::collections::HashSet::new();
+        let mut yield_cache_pre = grammar.yield_sets.clone();
+        let alt_consumes_first =
+            |a: &Production,
+             visited: &mut std::collections::HashSet<String>,
+             yc: &mut std::collections::HashMap<String, std::collections::HashSet<String>>|
+             -> bool {
+                let Some(edge) = first_uc_edge_pre else {
+                    return false;
+                };
+                let edge_kind = edge.kind.as_ref();
+                if edge_kind != "child_of" {
+                    let mut field_contents: Vec<&Production> = Vec::new();
+                    find_fields_by_name(a, edge_kind, &mut field_contents);
+                    if !field_contents.is_empty() {
+                        let tgt_kind = schema.vertices.get(&edge.tgt).map(|v| v.kind.as_ref());
+                        let admits = field_contents.iter().any(|fc| {
+                            let fy = yield_of_production(grammar, fc, visited, yc);
+                            visited.clear();
+                            tgt_kind.is_some_and(|k| {
+                                fy.contains(k)
+                                    || grammar.subtypes.get(k).is_some_and(|subs| {
+                                        subs.iter().any(|s| fy.contains(s.as_str()))
+                                    })
+                            })
+                        });
+                        if admits {
+                            return true;
+                        }
+                    }
+                }
+                let ys = yield_of_production(grammar, a, visited, yc);
+                let ok = schema.vertices.get(&edge.tgt).is_some_and(|v| {
+                    let kind = v.kind.as_ref();
+                    ys.contains(kind)
+                        || grammar.subtypes.get(kind).is_some_and(|subs| {
+                            subs.iter().any(|s| ys.contains(s.as_str()))
+                        })
+                });
+                visited.clear();
+                ok
+            };
+        let any_consumes = any_unconsumed
+            && alternatives
+                .iter()
+                .any(|a| alt_consumes_first(a, &mut visited_pre, &mut yield_cache_pre));
+
         // Primary score: literal-token match length. This dominates
         // alt selection so existing language tests that depend on
         // literal-only fingerprints keep working.
@@ -3015,6 +3119,13 @@ fn pick_choice_with_cursor<'a>(
         for alt in alternatives {
             let strings = literal_strings(alt);
             if strings.is_empty() {
+                continue;
+            }
+            // Categorical filter: skip alts that can't consume the
+            // first unconsumed edge when SOME alt can.
+            if any_consumes
+                && !alt_consumes_first(alt, &mut visited_pre, &mut yield_cache_pre)
+            {
                 continue;
             }
             let literal_score = strings
@@ -3068,23 +3179,101 @@ fn pick_choice_with_cursor<'a>(
                 if any_unconsumed {
                     let mut visited = std::collections::HashSet::new();
                     let mut yield_cache = grammar.yield_sets.clone();
-                    let ys = yield_of_production(grammar, alt, &mut visited, &mut yield_cache);
-                    let alt_can_consume = cursor
+                    // The categorical reading of CHOICE dispatch with
+                    // a cursor: the alt must accept the FIRST unconsumed
+                    // edge, either by yielding its kind or by matching
+                    // its field name. An alt that yields a later edge's
+                    // kind (e.g. "expression" matches the condition
+                    // FIELD) while skipping the first (a "declaration"
+                    // initializer FIELD) silently drops the first edge.
+                    let first_uc_edge = cursor
                         .edges
                         .iter()
                         .enumerate()
-                        .filter(|(i, _)| !cursor.consumed[*i])
-                        .any(|(_, edge)| {
-                            schema.vertices.get(&edge.tgt).is_some_and(|v| {
-                                let kind = v.kind.as_ref();
-                                ys.contains(kind)
-                                    || grammar.subtypes.get(kind).is_some_and(|subs| {
-                                        subs.iter().any(|s| ys.contains(s.as_str()))
+                        .find(|(i, _)| !cursor.consumed[*i])
+                        .map(|(_, e)| e);
+                    let alt_can_consume_first = |a: &Production,
+                                                 visited: &mut std::collections::HashSet<String>,
+                                                 yc: &mut std::collections::HashMap<
+                        String,
+                        std::collections::HashSet<String>,
+                    >|
+                     -> bool {
+                        let Some(edge) = first_uc_edge else {
+                            return true;
+                        };
+                        // FIELD edge: an alt with a matching FIELD name
+                        // consumes this edge regardless of the inner
+                        // content's yield.
+                        let edge_kind = edge.kind.as_ref();
+                        if edge_kind != "child_of" {
+                            // The alt must have a matching FIELD whose
+                            // content can yield the edge's target kind.
+                            // A matching FIELD name with a body that
+                            // doesn't accept the target kind (e.g. a
+                            // `FIELD initializer: expression` for a
+                            // `declaration` edge) silently drops the
+                            // child.
+                            let mut field_contents: Vec<&Production> = Vec::new();
+                            find_fields_by_name(a, edge_kind, &mut field_contents);
+                            if !field_contents.is_empty() {
+                                let tgt_kind =
+                                    schema.vertices.get(&edge.tgt).map(|v| v.kind.as_ref());
+                                let admits = field_contents.iter().any(|fc| {
+                                    let fy = yield_of_production(grammar, fc, visited, yc);
+                                    visited.clear();
+                                    tgt_kind.is_some_and(|k| {
+                                        fy.contains(k)
+                                            || grammar.subtypes.get(k).is_some_and(|subs| {
+                                                subs.iter().any(|s| fy.contains(s.as_str()))
+                                            })
                                     })
-                            })
+                                });
+                                if admits {
+                                    return true;
+                                }
+                                // FIELD name matches but body rejects
+                                // the target kind: fall through to the
+                                // alt's overall yield-set check below.
+                            }
+                        }
+                        let ys = yield_of_production(grammar, a, visited, yc);
+                        let ok = schema.vertices.get(&edge.tgt).is_some_and(|v| {
+                            let kind = v.kind.as_ref();
+                            ys.contains(kind)
+                                || grammar.subtypes.get(kind).is_some_and(|subs| {
+                                    subs.iter().any(|s| ys.contains(s.as_str()))
+                                })
                         });
-                    let has_no_symbols = referenced_symbols(alt).is_empty();
-                    if alt_can_consume || has_no_symbols {
+                        visited.clear();
+                        ok
+                    };
+                    let alt_can_consume =
+                        alt_can_consume_first(alt, &mut visited, &mut yield_cache);
+                    if alt_can_consume {
+                        return Some(alt);
+                    }
+                    // The best literal-score alt can't consume the
+                    // first unconsumed cursor edge. Three sub-cases:
+                    //  (a) No BLANK alternative: blob is the only
+                    //      signal; return best_alt.
+                    //  (b) BLANK present AND best_alt is pure-literal
+                    //      (no referenced SYMBOLs): emitting best_alt
+                    //      adds the matched literals and consumes no
+                    //      child; the unconsumed cursor edge is for a
+                    //      later SEQ position anyway. Return best_alt
+                    //      (BUGS `model_block`: CHOICE[CHOICE["model",
+                    //      "data"], BLANK] picks the literal because
+                    //      the blob recorded it).
+                    //  (c) BLANK present AND best_alt has SYMBOLs:
+                    //      emitting best_alt would walk SYMBOLs that
+                    //      can't be satisfied (they consume no edge,
+                    //      a downstream SYMBOL would silently fail).
+                    //      Fall through to final selection of BLANK
+                    //      (Java `formal_parameters` inner CHOICE
+                    //      [SEQ[receiver, ","], BLANK] with a
+                    //      formal_parameter edge: pick BLANK).
+                    if !blank_present || referenced_symbols(alt).is_empty() {
                         return Some(alt);
                     }
                 } else {
@@ -3206,6 +3395,18 @@ fn pick_choice_with_cursor<'a>(
         let mut matching_alts: Vec<&Production> = Vec::new();
         for alt in alternatives {
             if has_any_field(alt) && !has_field_in(alt, &edge_kinds) {
+                visited.clear();
+                continue;
+            }
+            // Token-set restriction: when a FIELD's body is an
+            // ALIAS{CHOICE[STRING...]}, the field admits only those
+            // literal values. An alt whose token-restricted FIELDs
+            // can't accept the cursor's edge for that field is
+            // structurally invalid (e.g. Go `call_expression` alt 0
+            // has `function: ALIAS{CHOICE["new","make"], ...}` and
+            // is only valid when the function child's literal is
+            // "new" or "make").
+            if !alt_satisfies_field_token_restrictions(schema, cursor, alt) {
                 visited.clear();
                 continue;
             }
@@ -3466,6 +3667,154 @@ fn has_field_in(production: &Production, edge_kinds: &[&str]) -> bool {
         | Production::Reserved { content, .. } => has_field_in(content, edge_kinds),
         _ => false,
     }
+}
+
+/// Find the FIELD(s) named `field_name` under `production` and collect
+/// their content productions.
+fn find_fields_by_name<'a>(
+    production: &'a Production,
+    field_name: &str,
+    out: &mut Vec<&'a Production>,
+) {
+    match production {
+        Production::Field { name, content } if name.as_str() == field_name => {
+            out.push(content.as_ref());
+        }
+        Production::Field { content, .. }
+        | Production::Repeat { content }
+        | Production::Repeat1 { content }
+        | Production::Optional { content }
+        | Production::Alias { content, .. }
+        | Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Reserved { content, .. } => {
+            find_fields_by_name(content, field_name, out);
+        }
+        Production::Seq { members } | Production::Choice { members } => {
+            for m in members {
+                find_fields_by_name(m, field_name, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Collect every `(field_name, restricted_token_set)` pair under `production`
+/// where the FIELD's body is an ALIAS whose inner content is a CHOICE of
+/// pure STRINGs (or a single STRING). Such a FIELD restricts the field's
+/// child literal-value to that set: the alternative is only structurally
+/// valid for cursors whose field-named edge target carries a literal in
+/// the set. Returns an empty vec when `production` has no token-restricted
+/// FIELDs.
+fn collect_field_token_restrictions<'a>(
+    production: &'a Production,
+    out: &mut Vec<(&'a str, Vec<&'a str>)>,
+) {
+    match production {
+        Production::Field { name, content } => {
+            if let Some(strings) = literal_choice_set(content) {
+                out.push((name.as_str(), strings));
+            }
+            collect_field_token_restrictions(content, out);
+        }
+        Production::Seq { members } | Production::Choice { members } => {
+            for m in members {
+                collect_field_token_restrictions(m, out);
+            }
+        }
+        Production::Repeat { content }
+        | Production::Repeat1 { content }
+        | Production::Optional { content }
+        | Production::Alias { content, .. }
+        | Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Reserved { content, .. } => {
+            collect_field_token_restrictions(content, out);
+        }
+        _ => {}
+    }
+}
+
+/// If `p` unwraps to an ALIAS whose inner content is a CHOICE-of-STRINGs
+/// (or a single STRING), return that set. Otherwise None.
+fn literal_choice_set(p: &Production) -> Option<Vec<&str>> {
+    fn unwrap(p: &Production) -> &Production {
+        match p {
+            Production::Prec { content, .. }
+            | Production::PrecLeft { content, .. }
+            | Production::PrecRight { content, .. }
+            | Production::PrecDynamic { content, .. }
+            | Production::Token { content }
+            | Production::ImmediateToken { content }
+            | Production::Reserved { content, .. } => unwrap(content),
+            _ => p,
+        }
+    }
+    let p = unwrap(p);
+    let Production::Alias { content, .. } = p else {
+        return None;
+    };
+    let inner = unwrap(content);
+    match inner {
+        Production::String { value } => Some(vec![value.as_str()]),
+        Production::Choice { members } => {
+            let mut out = Vec::new();
+            for m in members {
+                match unwrap(m) {
+                    Production::String { value } => out.push(value.as_str()),
+                    _ => return None,
+                }
+            }
+            Some(out)
+        }
+        _ => None,
+    }
+}
+
+/// Returns true iff `alt` is structurally compatible with the cursor under
+/// the field-token-restriction discipline: for every FIELD in `alt` whose
+/// content is `ALIAS{CHOICE[STRING...], value: V}`, the cursor's field-named
+/// edge for that field must carry a literal-value in the restricted set.
+/// When the alt has no token-restricted FIELDs the check is vacuously true.
+fn alt_satisfies_field_token_restrictions(
+    schema: &Schema,
+    cursor: &ChildCursor<'_>,
+    alt: &Production,
+) -> bool {
+    let mut restrictions: Vec<(&str, Vec<&str>)> = Vec::new();
+    collect_field_token_restrictions(alt, &mut restrictions);
+    for (field_name, allowed) in &restrictions {
+        let mut field_seen = false;
+        let mut field_admits = false;
+        for (i, edge) in cursor.edges.iter().enumerate() {
+            if cursor.consumed[i] {
+                continue;
+            }
+            if edge.kind.as_ref() != *field_name {
+                continue;
+            }
+            field_seen = true;
+            let lit = literal_value(schema, &edge.tgt);
+            if let Some(l) = lit {
+                if allowed.contains(&l) {
+                    field_admits = true;
+                    break;
+                }
+            }
+        }
+        if field_seen && !field_admits {
+            return false;
+        }
+    }
+    true
 }
 
 fn has_relevant_constraint(
