@@ -3042,40 +3042,64 @@ fn pick_choice_with_cursor<'a>(
     cursor: &ChildCursor<'_>,
     alternatives: &'a [Production],
 ) -> Option<&'a Production> {
-    // Discriminator-driven dispatch (highest priority): when the
-    // walker recorded a `chose-alt-fingerprint` constraint at parse
-    // time, dispatch directly against that. This is the categorical
-    // discriminator: it survives stripping of byte-position
-    // constraints (so by-construction round-trips work) and is the
-    // explicit witness of which CHOICE alternative the parser took.
+    // Positional discriminator: use the interstitials FROM the
+    // current cursor position forward. Interstitials are indexed by
+    // their gap position (interstitial-k is the gap before the k-th
+    // named child); the slice from `consumed_count` onward captures
+    // exactly the text the remaining CHOICE branches must consume.
+    // This eliminates the cross-position contamination of the prior
+    // flat blob (where a trailing-CHOICE-with-BLANK saw all the
+    // commas separating earlier REPEAT iterations and wrongly
+    // preferred the comma alt).
     //
-    // Falls back to the live `interstitial-*` substring blob when no
-    // fingerprint is present (e.g. instances built by callers that
-    // bypass the AstWalker). Both blobs are scored by the longest
-    // STRING-literal token in an alternative that matches; the
-    // length tiebreak prefers `&&` over `&`, `==` over `=`, etc.
-    let constraint_blob = schema
+    // The chose-alt-fingerprint (a single string joined from every
+    // non-empty interstitial trimmed) is retained as a fallback for
+    // by-construction schemas with no positional interstitials; it
+    // is strictly less precise than positional matching.
+    let consumed_count = cursor.consumed.iter().filter(|&&c| c).count();
+    let positional_interstitials: Vec<&str> = schema
         .constraints
         .get(vertex_id)
         .map(|cs| {
-            let fingerprint: Option<&str> = cs
+            let mut indexed: Vec<(usize, &str)> = cs
                 .iter()
-                .find(|c| c.sort.as_ref() == "chose-alt-fingerprint")
-                .map(|c| c.value.as_str());
-            if let Some(fp) = fingerprint {
-                fp.to_owned()
-            } else {
-                cs.iter()
-                    .filter(|c| {
-                        let s = c.sort.as_ref();
-                        s.starts_with("interstitial-") && !s.ends_with("-start-byte")
-                    })
-                    .map(|c| c.value.as_str())
-                    .collect::<Vec<&str>>()
-                    .join(" ")
-            }
+                .filter_map(|c| {
+                    let s = c.sort.as_ref();
+                    if !s.starts_with("interstitial-") || s.ends_with("-start-byte") {
+                        return None;
+                    }
+                    let idx: usize = s["interstitial-".len()..].parse().ok()?;
+                    Some((idx, c.value.as_str()))
+                })
+                .collect();
+            indexed.sort_by_key(|&(i, _)| i);
+            indexed.into_iter().map(|(_, v)| v).collect()
         })
         .unwrap_or_default();
+    let positional_slice: String = if positional_interstitials.is_empty() {
+        String::new()
+    } else {
+        positional_interstitials
+            .iter()
+            .skip(consumed_count)
+            .copied()
+            .collect::<Vec<&str>>()
+            .join(" ")
+    };
+    let fingerprint_blob = schema
+        .constraints
+        .get(vertex_id)
+        .and_then(|cs| {
+            cs.iter()
+                .find(|c| c.sort.as_ref() == "chose-alt-fingerprint")
+                .map(|c| c.value.clone())
+        })
+        .unwrap_or_default();
+    let constraint_blob: String = if !positional_slice.is_empty() {
+        positional_slice
+    } else {
+        fingerprint_blob
+    };
     let child_kinds: Vec<&str> = schema
         .constraints
         .get(vertex_id)
