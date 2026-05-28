@@ -2148,30 +2148,33 @@ fn emit_seq_with_roles(
     });
 
     // For word-like bracket pairs (function/end, if/end, etc.), find
-    // the position of the "body" CHOICE that contains a SYMBOL whose
-    // rule body has REPEAT. Emit a LineBreak before that position to
-    // separate the header (keyword + signature) from the body.
-    let body_line_break_before: Option<usize> = indent_open_idx.and_then(|oi| {
+    // positions that need LineBreak: the body CHOICE and any FIELD
+    // members that follow it (elseif/else clauses, catch blocks, etc.).
+    let mut line_break_positions: std::collections::HashSet<usize> =
+        std::collections::HashSet::new();
+    if let Some(oi) = indent_open_idx {
         let open_text = unwrap_to_string(&members[oi]);
-        if !open_text.is_some_and(is_word_like) {
-            return None;
-        }
-        for (j, member) in members.iter().enumerate().skip(oi + 1) {
-            if let Production::Choice { members: alts } = member {
-                let has_blank = alts.iter().any(|a| matches!(a, Production::Blank));
-                let has_block_symbol = alts.iter().any(|a| match a {
-                    Production::Symbol { name } => {
-                        grammar.rules.get(name).is_some_and(has_repeat_in)
+        if open_text.is_some_and(is_word_like) {
+            let mut found_body = false;
+            for (j, member) in members.iter().enumerate().skip(oi + 1) {
+                if let Production::Choice { members: alts } = member {
+                    let has_blank = alts.iter().any(|a| matches!(a, Production::Blank));
+                    let has_block_symbol = alts.iter().any(|a| match a {
+                        Production::Symbol { name } => {
+                            grammar.rules.get(name).is_some_and(has_repeat_in)
+                        }
+                        _ => false,
+                    });
+                    if has_blank && has_block_symbol {
+                        line_break_positions.insert(j);
+                        found_body = true;
                     }
-                    _ => false,
-                });
-                if has_blank && has_block_symbol {
-                    return Some(j);
+                } else if found_body && matches!(member, Production::Field { .. }) {
+                    line_break_positions.insert(j);
                 }
             }
         }
-        None
-    });
+    }
 
     let mut prev_member_emitted_content = false;
     for (i, member) in members.iter().enumerate() {
@@ -2226,7 +2229,7 @@ fn emit_seq_with_roles(
                     out.tokens.push(Token::ForceSpace);
                 }
             }
-            if body_line_break_before == Some(i) {
+            if line_break_positions.contains(&i) {
                 out.newline();
             }
             emit_production(protocol, schema, grammar, vertex_id, member, cursor, out)?;
