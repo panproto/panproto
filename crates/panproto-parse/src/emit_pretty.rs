@@ -700,31 +700,155 @@ fn compute_subtype_closure(
         }
     }
 
-    // Transitive close through hidden and supertype rules ONLY.
+    // Transitive close through hidden and supertype rules via Tarjan SCC.
+    //
     // The relation `K ⊑ Y` means "a vertex of kind K can appear where
     // the grammar says SYMBOL Y." Transitivity applies when Y is a
     // hidden or supertype rule (a dispatch point), NOT when Y is a
-    // concrete named rule (a node kind). Without this restriction, the
-    // closure explodes: `type_identifier ⊑ _type_identifier ⊑
-    for _ in 0..8 {
-        let snapshot = subtypes.clone();
-        let mut changed = false;
-        for (kind, supers) in &snapshot {
-            let extra: HashSet<String> = supers
-                .iter()
-                .filter(|s| s.starts_with('_') || grammar.supertypes.contains(s.as_str()))
-                .flat_map(|s| snapshot.get(s).cloned().unwrap_or_default())
-                .collect();
-            let entry = subtypes.entry(kind.clone()).or_default();
-            for s in extra {
-                if entry.insert(s) {
-                    changed = true;
+    // concrete named rule. We build the directed graph G on dispatchable
+    // node names with edge Y → Z iff Z ∈ subtypes[Y] and Z is dispatchable.
+    // The transitive closure within G is the union of every reachable
+    // dispatchable node, which by Tarjan's theorem is computed in
+    // O(V + E) by contracting SCCs into a DAG, then unioning closures
+    // along reverse topological order.
+    let is_dispatch = |s: &str| s.starts_with('_') || grammar.supertypes.contains(s);
+    // 1. Nodes: every dispatchable name that appears as a key in subtypes
+    //    OR as a member of any subtypes value.
+    let mut nodes: HashSet<String> = HashSet::new();
+    for (k, vs) in &subtypes {
+        if is_dispatch(k) {
+            nodes.insert(k.clone());
+        }
+        for v in vs {
+            if is_dispatch(v) {
+                nodes.insert(v.clone());
+            }
+        }
+    }
+    let nodes: Vec<String> = nodes.into_iter().collect();
+    let index_of: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, n)| (n.as_str(), i)).collect();
+    // 2. Edges: Y → Z iff Z ∈ subtypes[Y] and both are dispatchable.
+    let mut edges: Vec<Vec<usize>> = vec![Vec::new(); nodes.len()];
+    for (i, name) in nodes.iter().enumerate() {
+        if let Some(targets) = subtypes.get(name) {
+            for t in targets {
+                if let Some(&j) = index_of.get(t.as_str()) {
+                    if i != j {
+                        edges[i].push(j);
+                    }
                 }
             }
         }
-        if !changed {
-            break;
+    }
+
+    // 3. Tarjan SCC. `comp[v]` = SCC index of `v`. SCC indices come out
+    //    in reverse topological order (sinks first), which is exactly
+    //    the order we want for closure accumulation.
+    fn tarjan(edges: &[Vec<usize>]) -> Vec<usize> {
+        let n = edges.len();
+        let mut comp = vec![usize::MAX; n];
+        let mut index_arr = vec![usize::MAX; n];
+        let mut lowlink = vec![0usize; n];
+        let mut on_stack = vec![false; n];
+        let mut stack: Vec<usize> = Vec::new();
+        let mut next_index = 0usize;
+        let mut next_comp = 0usize;
+        // Iterative Tarjan to avoid stack overflow on large grammars.
+        let mut work: Vec<(usize, usize)> = Vec::new();
+        for start in 0..n {
+            if index_arr[start] != usize::MAX {
+                continue;
+            }
+            work.push((start, 0));
+            index_arr[start] = next_index;
+            lowlink[start] = next_index;
+            next_index += 1;
+            stack.push(start);
+            on_stack[start] = true;
+            while let Some(&(v, i)) = work.last() {
+                if i < edges[v].len() {
+                    let w = edges[v][i];
+                    work.last_mut().unwrap().1 += 1;
+                    if index_arr[w] == usize::MAX {
+                        index_arr[w] = next_index;
+                        lowlink[w] = next_index;
+                        next_index += 1;
+                        stack.push(w);
+                        on_stack[w] = true;
+                        work.push((w, 0));
+                    } else if on_stack[w] {
+                        if index_arr[w] < lowlink[v] {
+                            lowlink[v] = index_arr[w];
+                        }
+                    }
+                } else {
+                    if lowlink[v] == index_arr[v] {
+                        loop {
+                            let w = stack.pop().unwrap();
+                            on_stack[w] = false;
+                            comp[w] = next_comp;
+                            if w == v {
+                                break;
+                            }
+                        }
+                        next_comp += 1;
+                    }
+                    let lv = lowlink[v];
+                    work.pop();
+                    if let Some(&(parent, _)) = work.last() {
+                        if lv < lowlink[parent] {
+                            lowlink[parent] = lv;
+                        }
+                    }
+                }
+            }
         }
+        comp
+    }
+    let comp = tarjan(&edges);
+    let num_comps = comp.iter().max().copied().map_or(0, |m| m + 1);
+
+    // 4. For each SCC, accumulate the set of dispatchable nodes reachable
+    //    from it. SCCs are emitted in reverse topological order, so when
+    //    we process SCC c, every successor SCC has its closure already
+    //    computed.
+    let mut scc_members: Vec<Vec<usize>> = vec![Vec::new(); num_comps];
+    for (v, &c) in comp.iter().enumerate() {
+        scc_members[c].push(v);
+    }
+    let mut scc_closure: Vec<HashSet<String>> = vec![HashSet::new(); num_comps];
+    for c in 0..num_comps {
+        // Members of the SCC are mutually reachable.
+        let mut closure: HashSet<String> = HashSet::new();
+        for &v in &scc_members[c] {
+            closure.insert(nodes[v].clone());
+        }
+        // Successor SCCs' closures (already computed).
+        for &v in &scc_members[c] {
+            for &w in &edges[v] {
+                let wc = comp[w];
+                if wc != c {
+                    closure.extend(scc_closure[wc].iter().cloned());
+                }
+            }
+        }
+        scc_closure[c] = closure;
+    }
+
+    // 5. Apply: for each kind K in `subtypes`, replace its dispatchable
+    //    supertypes by their full closure. Non-dispatchable members
+    //    (concrete kinds) stay as-is.
+    let keys: Vec<String> = subtypes.keys().cloned().collect();
+    for k in keys {
+        let existing = subtypes.remove(&k).unwrap_or_default();
+        let mut new_set: HashSet<String> = HashSet::new();
+        for s in &existing {
+            new_set.insert(s.clone());
+            if let Some(&i) = index_of.get(s.as_str()) {
+                new_set.extend(scc_closure[comp[i]].iter().cloned());
+            }
+        }
+        subtypes.insert(k, new_set);
     }
 
     subtypes
@@ -1885,6 +2009,18 @@ fn emit_vertex(
             reason: format!("vertex '{vertex_id}' not found"),
         })?;
 
+    // IMMEDIATE_TOKEN at the rule head: emit a tightness marker
+    // before any content the leaf shortcut or rule-body walk produces.
+    // This is the unique structural site where IMMEDIATE_TOKEN's "no
+    // preceding whitespace" property attaches; downstream layout reads
+    // the NoSpace marker without re-inspecting the production tree.
+    let kind_head = vertex.kind.as_ref();
+    if let Some(rule) = grammar.rules.get(kind_head) {
+        if is_immediate_token(rule) {
+            out.no_space();
+        }
+    }
+
     // Leaf shortcut: a vertex carrying a `literal-value` constraint
     // and no outgoing structural edges is a terminal token. Emit the
     // captured value directly. This handles identifiers, numeric
@@ -2327,13 +2463,6 @@ fn emit_production_inner(
             // iteration.
             if let Some(field) = current_field_context() {
                 if let Some(edge) = cursor.take_field(&field) {
-                    if grammar
-                        .rules
-                        .get(name)
-                        .is_some_and(is_immediate_token)
-                    {
-                        out.no_space();
-                    }
                     return emit_in_child_context(
                         protocol, schema, grammar, &edge.tgt, production, out,
                     );
@@ -2422,13 +2551,6 @@ fn emit_production_inner(
                 // via `emit_vertex` is correct: the dependent-optic
                 // path is preserved at every site where it actually
                 // diverges from `child.kind`.
-                if grammar
-                    .rules
-                    .get(name)
-                    .is_some_and(is_immediate_token)
-                {
-                    out.no_space();
-                }
                 emit_vertex(protocol, schema, grammar, &edge.tgt, out)
             } else if vertex_id_kind(schema, vertex_id) == Some(name.as_str()) {
                 let rule = grammar
@@ -2697,8 +2819,17 @@ fn emit_production_inner(
             }
             emit_production(protocol, schema, grammar, vertex_id, content, cursor, out)
         }
+        Production::ImmediateToken { content } => {
+            // IMMEDIATE_TOKEN is the grammar's explicit signal that the
+            // wrapped token must have no preceding whitespace. Lift it
+            // to a NoSpace marker here, at the unique structural site
+            // where the property is declared. The layout pass reads
+            // the marker; downstream code does not need to inspect
+            // production shapes to recover this property.
+            out.no_space();
+            emit_production(protocol, schema, grammar, vertex_id, content, cursor, out)
+        }
         Production::Token { content }
-        | Production::ImmediateToken { content }
         | Production::Prec { content, .. }
         | Production::PrecLeft { content, .. }
         | Production::PrecRight { content, .. }
@@ -3042,64 +3173,27 @@ fn pick_choice_with_cursor<'a>(
     if !constraint_blob.is_empty() {
         // Categorical filter: when the cursor has an unconsumed first
         // edge, an alt should only be considered if it can consume
-        // that edge — OR no alt in the CHOICE can. This prevents a
-        // high-literal-score pure-literal alt from eclipsing a
-        // SYMBOL alt that actually accepts the cursor's edge (Java
-        // `modifiers` REPEAT1 inner CHOICE has SYMBOL _annotation
-        // alongside many keyword STRINGs; with a `marker_annotation`
-        // edge, only _annotation can consume it).
+        // that edge — OR no alt in the CHOICE can. Acceptance is the
+        // inductive predicate `accepts_first_edge`: it fuses FIELD-name
+        // matching with content-yield admission and SYMBOL subtype
+        // dispatch into one rule.
         let first_uc_edge_pre = cursor
             .edges
             .iter()
             .enumerate()
             .find(|(i, _)| !cursor.consumed[*i])
             .map(|(_, e)| e);
-        let mut visited_pre = std::collections::HashSet::new();
-        let mut yield_cache_pre = grammar.yield_sets.clone();
-        let alt_consumes_first =
-            |a: &Production,
-             visited: &mut std::collections::HashSet<String>,
-             yc: &mut std::collections::HashMap<String, std::collections::HashSet<String>>|
-             -> bool {
-                let Some(edge) = first_uc_edge_pre else {
-                    return false;
-                };
-                let edge_kind = edge.kind.as_ref();
-                if edge_kind != "child_of" {
-                    let mut field_contents: Vec<&Production> = Vec::new();
-                    find_fields_by_name(a, edge_kind, &mut field_contents);
-                    if !field_contents.is_empty() {
-                        let tgt_kind = schema.vertices.get(&edge.tgt).map(|v| v.kind.as_ref());
-                        let admits = field_contents.iter().any(|fc| {
-                            let fy = yield_of_production(grammar, fc, visited, yc);
-                            visited.clear();
-                            tgt_kind.is_some_and(|k| {
-                                fy.contains(k)
-                                    || grammar.subtypes.get(k).is_some_and(|subs| {
-                                        subs.iter().any(|s| fy.contains(s.as_str()))
-                                    })
-                            })
-                        });
-                        if admits {
-                            return true;
-                        }
-                    }
-                }
-                let ys = yield_of_production(grammar, a, visited, yc);
-                let ok = schema.vertices.get(&edge.tgt).is_some_and(|v| {
-                    let kind = v.kind.as_ref();
-                    ys.contains(kind)
-                        || grammar.subtypes.get(kind).is_some_and(|subs| {
-                            subs.iter().any(|s| ys.contains(s.as_str()))
-                        })
-                });
-                visited.clear();
-                ok
+        let alt_accepts = |a: &Production| -> bool {
+            let Some(edge) = first_uc_edge_pre else {
+                return false;
             };
-        let any_consumes = any_unconsumed
-            && alternatives
-                .iter()
-                .any(|a| alt_consumes_first(a, &mut visited_pre, &mut yield_cache_pre));
+            let edge_kind = edge.kind.as_ref();
+            let Some(tgt_kind) = schema.vertices.get(&edge.tgt).map(|v| v.kind.as_ref()) else {
+                return false;
+            };
+            accepts_first_edge(grammar, a, edge_kind, tgt_kind)
+        };
+        let any_consumes = any_unconsumed && alternatives.iter().any(alt_accepts);
 
         // Primary score: literal-token match length. This dominates
         // alt selection so existing language tests that depend on
@@ -3123,9 +3217,7 @@ fn pick_choice_with_cursor<'a>(
             }
             // Categorical filter: skip alts that can't consume the
             // first unconsumed edge when SOME alt can.
-            if any_consumes
-                && !alt_consumes_first(alt, &mut visited_pre, &mut yield_cache_pre)
-            {
+            if any_consumes && !alt_accepts(alt) {
                 continue;
             }
             let literal_score = strings
@@ -3177,80 +3269,7 @@ fn pick_choice_with_cursor<'a>(
         if let Some(alt) = best_alt {
             if !tied {
                 if any_unconsumed {
-                    let mut visited = std::collections::HashSet::new();
-                    let mut yield_cache = grammar.yield_sets.clone();
-                    // The categorical reading of CHOICE dispatch with
-                    // a cursor: the alt must accept the FIRST unconsumed
-                    // edge, either by yielding its kind or by matching
-                    // its field name. An alt that yields a later edge's
-                    // kind (e.g. "expression" matches the condition
-                    // FIELD) while skipping the first (a "declaration"
-                    // initializer FIELD) silently drops the first edge.
-                    let first_uc_edge = cursor
-                        .edges
-                        .iter()
-                        .enumerate()
-                        .find(|(i, _)| !cursor.consumed[*i])
-                        .map(|(_, e)| e);
-                    let alt_can_consume_first = |a: &Production,
-                                                 visited: &mut std::collections::HashSet<String>,
-                                                 yc: &mut std::collections::HashMap<
-                        String,
-                        std::collections::HashSet<String>,
-                    >|
-                     -> bool {
-                        let Some(edge) = first_uc_edge else {
-                            return true;
-                        };
-                        // FIELD edge: an alt with a matching FIELD name
-                        // consumes this edge regardless of the inner
-                        // content's yield.
-                        let edge_kind = edge.kind.as_ref();
-                        if edge_kind != "child_of" {
-                            // The alt must have a matching FIELD whose
-                            // content can yield the edge's target kind.
-                            // A matching FIELD name with a body that
-                            // doesn't accept the target kind (e.g. a
-                            // `FIELD initializer: expression` for a
-                            // `declaration` edge) silently drops the
-                            // child.
-                            let mut field_contents: Vec<&Production> = Vec::new();
-                            find_fields_by_name(a, edge_kind, &mut field_contents);
-                            if !field_contents.is_empty() {
-                                let tgt_kind =
-                                    schema.vertices.get(&edge.tgt).map(|v| v.kind.as_ref());
-                                let admits = field_contents.iter().any(|fc| {
-                                    let fy = yield_of_production(grammar, fc, visited, yc);
-                                    visited.clear();
-                                    tgt_kind.is_some_and(|k| {
-                                        fy.contains(k)
-                                            || grammar.subtypes.get(k).is_some_and(|subs| {
-                                                subs.iter().any(|s| fy.contains(s.as_str()))
-                                            })
-                                    })
-                                });
-                                if admits {
-                                    return true;
-                                }
-                                // FIELD name matches but body rejects
-                                // the target kind: fall through to the
-                                // alt's overall yield-set check below.
-                            }
-                        }
-                        let ys = yield_of_production(grammar, a, visited, yc);
-                        let ok = schema.vertices.get(&edge.tgt).is_some_and(|v| {
-                            let kind = v.kind.as_ref();
-                            ys.contains(kind)
-                                || grammar.subtypes.get(kind).is_some_and(|subs| {
-                                    subs.iter().any(|s| ys.contains(s.as_str()))
-                                })
-                        });
-                        visited.clear();
-                        ok
-                    };
-                    let alt_can_consume =
-                        alt_can_consume_first(alt, &mut visited, &mut yield_cache);
-                    if alt_can_consume {
+                    if alt_accepts(alt) {
                         return Some(alt);
                     }
                     // The best literal-score alt can't consume the
@@ -3420,15 +3439,12 @@ fn pick_choice_with_cursor<'a>(
             return Some(matching_alts[0]);
         }
         if matching_alts.len() > 1 {
-            // When multiple alternatives match via yield-set, prefer
-            // the one with highest PREC value (tree-sitter precedence).
-            // This correctly handles Rust's expression_statement where
-            // PREC(1, _expression_ending_with_block) should be
-            // preferred over SEQ[_expression, ";"] when the constraint
-            // blob is empty and both alternatives match.
-            if constraint_blob.is_empty() {
-                matching_alts.sort_by_key(|alt| std::cmp::Reverse(prec_value(alt)));
-            }
+            // When multiple alternatives match via yield-set, apply
+            // tree-sitter's precedence ordering: higher PREC wins.
+            // This is the grammar author's explicit disambiguator for
+            // ambiguous productions; it should be honored unconditionally,
+            // not gated on whether the constraint blob is empty.
+            matching_alts.sort_by_key(|alt| std::cmp::Reverse(prec_value(alt)));
             return Some(matching_alts[0]);
         }
     }
@@ -3776,6 +3792,119 @@ fn literal_choice_set(p: &Production) -> Option<Vec<&str>> {
             Some(out)
         }
         _ => None,
+    }
+}
+
+/// Categorical acceptance predicate: does `production` accept a cursor
+/// edge whose field name is `edge_field` (or "child_of") and whose target
+/// vertex has kind `target_kind`?
+///
+/// Defined inductively over the production tree:
+///   - STRING / PATTERN / BLANK / ε-only:      reject (consume no edges)
+///   - SYMBOL X (concrete):                    edge_field == "child_of"
+///                                             AND target_kind ⊑ X
+///   - SYMBOL X (hidden / supertype):          accepts(X.rule, e)
+///   - ALIAS{c, named:true, value:V}:          edge_field == "child_of"
+///                                             AND target_kind == V
+///                                             (the alias REwrites the
+///                                              child kind to V)
+///   - FIELD{name, content}:                   edge_field == name
+///                                             AND content.yield ∋ target_kind
+///                                              (the field content must
+///                                               admit the target as one
+///                                               of its first kinds)
+///   - SEQ[m1, m2, ...]:                       accepts(m1, e)
+///                                             OR (m1 ε-able AND
+///                                                 accepts(SEQ[m2..], e))
+///   - CHOICE[a1, a2, ...]:                    ⋁ accepts(ai, e)
+///   - OPTIONAL / REPEAT / REPEAT1 / wrappers: accepts(inner, e)
+fn accepts_first_edge(
+    grammar: &Grammar,
+    production: &Production,
+    edge_field: &str,
+    target_kind: &str,
+) -> bool {
+    fn yield_contains(grammar: &Grammar, prod: &Production, kind: &str) -> bool {
+        let mut visited = std::collections::HashSet::new();
+        let mut cache = grammar.yield_sets.clone();
+        let ys = yield_of_production(grammar, prod, &mut visited, &mut cache);
+        ys.contains(kind)
+            || grammar
+                .subtypes
+                .get(kind)
+                .is_some_and(|subs| subs.iter().any(|s| ys.contains(s.as_str())))
+    }
+    fn yield_has_epsilon(grammar: &Grammar, prod: &Production) -> bool {
+        let mut visited = std::collections::HashSet::new();
+        let mut cache = grammar.yield_sets.clone();
+        let ys = yield_of_production(grammar, prod, &mut visited, &mut cache);
+        // SEQ with all-ε-able members, OPTIONAL, REPEAT, BLANK all
+        // carry the ε marker (empty string) in their yield set.
+        ys.contains("") || ys.is_empty()
+    }
+    match production {
+        Production::String { .. } | Production::Pattern { .. } | Production::Blank => false,
+        Production::Symbol { name } => {
+            if edge_field != "child_of" {
+                return false;
+            }
+            if name == target_kind {
+                return true;
+            }
+            if grammar
+                .subtypes
+                .get(target_kind)
+                .is_some_and(|s| s.contains(name))
+            {
+                return true;
+            }
+            // Hidden / supertype: walk the rule body.
+            let is_expand = name.starts_with('_') || grammar.supertypes.contains(name.as_str());
+            if is_expand {
+                if let Some(rule) = grammar.rules.get(name) {
+                    return accepts_first_edge(grammar, rule, edge_field, target_kind);
+                }
+            }
+            false
+        }
+        Production::Alias {
+            named, value, content,
+        } => {
+            if *named && !value.is_empty() {
+                edge_field == "child_of" && value == target_kind
+            } else {
+                accepts_first_edge(grammar, content, edge_field, target_kind)
+            }
+        }
+        Production::Field { name, content } => {
+            edge_field == name.as_str() && yield_contains(grammar, content, target_kind)
+        }
+        Production::Seq { members } => {
+            for m in members {
+                if accepts_first_edge(grammar, m, edge_field, target_kind) {
+                    return true;
+                }
+                if !yield_has_epsilon(grammar, m) {
+                    return false;
+                }
+            }
+            false
+        }
+        Production::Choice { members } => members
+            .iter()
+            .any(|m| accepts_first_edge(grammar, m, edge_field, target_kind)),
+        Production::Optional { content }
+        | Production::Repeat { content }
+        | Production::Repeat1 { content }
+        | Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Reserved { content, .. } => {
+            accepts_first_edge(grammar, content, edge_field, target_kind)
+        }
     }
 }
 
