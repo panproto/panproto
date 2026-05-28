@@ -1421,6 +1421,7 @@ fn classify_seq_positions(members: &[Production], in_choice: bool) -> Vec<Option
 }
 
 /// Check if a SEQ's bracket at position `idx` triggers indentation.
+#[allow(clippy::branches_sharing_code)]
 fn seq_bracket_triggers_indent(
     members: &[Production],
     open_idx: usize,
@@ -3171,7 +3172,7 @@ fn pick_choice_with_cursor<'a>(
             // preferred over SEQ[_expression, ";"] when the constraint
             // blob is empty and both alternatives match.
             if constraint_blob.is_empty() {
-                matching_alts.sort_by(|a, b| prec_value(b).cmp(&prec_value(a)));
+                matching_alts.sort_by_key(|alt| std::cmp::Reverse(prec_value(alt)));
             }
             return Some(matching_alts[0]);
         }
