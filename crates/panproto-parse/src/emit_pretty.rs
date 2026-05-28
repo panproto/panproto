@@ -3258,10 +3258,10 @@ fn pick_choice_with_cursor<'a>(
     // when both are alternatives. The PATTERN produces a structural
     // LineBreak which is semantically correct for top-level terminators
     // (Go's source_file REPEAT terminator).
-    if alternatives
+    let has_newline_pattern = alternatives
         .iter()
-        .any(|a| matches!(a, Production::Pattern { value } if is_newline_like_pattern(value)))
-    {
+        .any(|a| matches!(a, Production::Pattern { value } if is_newline_like_pattern(value)));
+    if has_newline_pattern {
         for alt in alternatives {
             if let Production::Pattern { value } = alt {
                 if is_newline_like_pattern(value) {
@@ -3588,6 +3588,7 @@ fn is_newline_like_pattern(pattern: &str) -> bool {
                 Some('n' | 'r') => saw_newline_atom = true,
                 _ => return false,
             },
+            '\n' | '\r' => saw_newline_atom = true,
             '?' | '*' | '+' => {} // quantifiers on the previous atom
             _ => return false,
         }
