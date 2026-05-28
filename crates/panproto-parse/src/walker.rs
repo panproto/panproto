@@ -275,7 +275,7 @@ impl<'a> AstWalker<'a> {
                 .and_then(|p| {
                     // Find which field of the parent this node corresponds to.
                     for i in 0..p.child_count() {
-                        if let Some(child) = p.child(i) {
+                        if let Some(child) = p.child(u32::try_from(i).unwrap_or(0)) {
                             if child.id() == node.id() {
                                 return u32::try_from(i)
                                     .ok()
@@ -507,7 +507,9 @@ impl<'a> AstWalker<'a> {
     ) -> SchemaBuilder {
         let child_count = node.child_count();
         for i in 0..child_count {
-            let Some(child) = node.child(i) else { continue };
+            let Some(child) = node.child(u32::try_from(i).unwrap_or(0)) else {
+                continue;
+            };
             // Named children carry their own vertex (and surface as edges
             // keyed by the field name in walk_node). We only need to
             // handle the unnamed tokens here.

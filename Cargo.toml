@@ -101,8 +101,8 @@ blake3 = "1"
 divan = "0.1.21"
 
 # Tree-sitter parsing
-tree-sitter = "0.25"
-tree-sitter-tags = "0.25"
+tree-sitter = "0.26"
+tree-sitter-tags = "0.26"
 
 # Workspace crates
 panproto-gat = { version = "0.51.0", path = "crates/panproto-gat" }
