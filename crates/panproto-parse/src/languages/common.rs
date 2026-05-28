@@ -180,16 +180,6 @@ impl AstParser for LanguageParser {
                 path: format!("{file_path}: parse returned None (timeout or cancellation)"),
             })?;
 
-        // Resolve grammar.json if available so the walker can emit the
-        // alt-index trace. Reuses the cache that the emit path uses.
-        let grammar_for_walker = self.grammar_json.and_then(|bytes| {
-            let nt = self.node_types_json_for_emit.as_deref();
-            let cached = self.grammar_cache.get_or_init(|| {
-                EmitGrammar::from_bytes_with_node_types(&self.protocol_name, bytes, nt)
-            });
-            cached.as_ref().ok()
-        });
-
         // Build the walker (which runs the tags query once via the
         // detector) inside the guard scope, then drop the guard before
         // walking the tree. The scope map is copied into the walker, so
@@ -201,13 +191,12 @@ impl AstParser for LanguageParser {
                     .map_err(|_| ParseError::SchemaConstruction {
                         reason: "scope-detector mutex poisoned".to_owned(),
                     })?;
-            AstWalker::new_with_grammar(
+            AstWalker::new(
                 source,
                 &self.theory_meta,
                 &self.protocol,
                 self.walker_config.clone(),
                 Some(&mut *detector_guard),
-                grammar_for_walker,
             )
         };
 

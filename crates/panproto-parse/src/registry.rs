@@ -396,6 +396,84 @@ impl ParserRegistry {
         parser.emit_pretty(schema)
     }
 
+    /// Report the test-verification status of `emit_pretty` for a
+    /// given protocol.
+    ///
+    /// The status is a programmatic check that downstream tooling
+    /// (e.g. quivers, schema-migration pipelines) can use to refuse
+    /// emit on protocols whose fixed-point law has never been
+    /// exercised by panproto's test suite. The three tiers are:
+    ///
+    /// * [`EmitVerificationStatus::Verified`] — the protocol has an
+    ///   explicit fixed-point or roundtrip test in panproto's suite.
+    ///   `emit_pretty(parse(emit_pretty(s))) == emit_pretty(s)` is
+    ///   known to hold on representative source.
+    /// * [`EmitVerificationStatus::Generic`] — the protocol is
+    ///   registered (a tree-sitter grammar is vendored) and the
+    ///   generic dispatch path applies, but no per-language test
+    ///   asserts emit correctness. Output is structurally derived
+    ///   from `grammar.json` + the universal cassette layer and is
+    ///   likely correct, but unverified.
+    /// * [`EmitVerificationStatus::Unsupported`] — the protocol is
+    ///   not registered, OR is registered but no `grammar.json` was
+    ///   vendored at build time. `emit_pretty` will return
+    ///   [`ParseError::EmitFailed`].
+    #[must_use]
+    pub fn emit_verification_status(&self, protocol: &str) -> EmitVerificationStatus {
+        if !self.parsers.contains_key(protocol) {
+            return EmitVerificationStatus::Unsupported;
+        }
+        if VERIFIED_EMIT_PROTOCOLS.binary_search(&protocol).is_ok() {
+            EmitVerificationStatus::Verified
+        } else {
+            EmitVerificationStatus::Generic
+        }
+    }
+}
+
+/// Programmatic verification tier for [`ParserRegistry::emit_verification_status`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EmitVerificationStatus {
+    /// `emit_pretty` for this protocol has a test in panproto's suite
+    /// asserting the fixed-point law on representative source.
+    Verified,
+    /// The protocol is registered and the generic dispatch path
+    /// applies, but no per-language test asserts emit correctness.
+    Generic,
+    /// The protocol is not registered, or its grammar lacks the
+    /// vendored `grammar.json` that `emit_pretty` requires.
+    Unsupported,
+}
+
+/// Protocols whose `emit_pretty` has an explicit fixed-point or
+/// roundtrip test in panproto's test suite.
+///
+/// Maintenance: when a new `<lang>_emit_is_fixed_point` or
+/// `<lang>_roundtrip` test lands in `crates/panproto-parse/tests/`,
+/// add the protocol name here. Names MUST be kept in sorted order so
+/// the binary-search lookup in [`ParserRegistry::emit_verification_status`]
+/// works.
+const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
+    "bash",
+    "bugs",
+    "c",
+    "cpp",
+    "csharp",
+    "go",
+    "jags",
+    "java",
+    "javascript",
+    "julia",
+    "php",
+    "python",
+    "rust",
+    "scheme",
+    "stan",
+    "typescript",
+];
+
+impl ParserRegistry {
+
     /// Decorate an [`AbstractSchema`] with the layout enrichment
     /// fibre required by `emit_pretty_with_protocol` and friends.
     ///

@@ -2583,16 +2583,8 @@ fn emit_production_inner(
             protocol, schema, grammar, vertex_id, members, cursor, out, false,
         ),
         Production::Choice { members } => {
-            // Walker-recorded alt-index trace consumed first. The trace
-            // is the exact derivation; when present and not yet
-            // exhausted, dispatch is a single O(1) lookup with no
-            // scoring or tiebreaking. Empty / exhausted traces fall
-            // through to the cursor + interstitial heuristics.
-            let trace_pick: Option<&Production> =
-                consume_alt_trace(out, schema, vertex_id, members.len())
-                    .and_then(|i| members.get(i));
-            if let Some(matched) = trace_pick
-                .or_else(|| pick_choice_with_cursor(schema, grammar, vertex_id, cursor, members))
+            if let Some(matched) =
+                pick_choice_with_cursor(schema, grammar, vertex_id, cursor, members)
             {
                 match matched {
                     Production::Seq {
@@ -3041,54 +3033,6 @@ fn emit_in_child_context(
                 out,
             )
         }
-    }
-}
-
-/// Consume the next alt index from the walker-recorded trace for
-/// `vertex_id`. Loads the trace lazily on first call per vertex,
-/// caching it on `out`. Returns `None` when no trace was recorded,
-/// when the trace is exhausted, or when the recorded index is out of
-/// range for the current CHOICE — at which point [`pick_choice_with_cursor`]
-/// drives dispatch via per-position interstitial scoring.
-fn consume_alt_trace(
-    out: &mut Output<'_>,
-    schema: &Schema,
-    vertex_id: &panproto_gat::Name,
-    n_alts: usize,
-) -> Option<usize> {
-    let key = vertex_id.as_ref().to_owned();
-    let entry = out.alt_traces.entry(key).or_insert_with(|| {
-        let trace: Vec<usize> = schema
-            .constraints
-            .get(vertex_id)
-            .and_then(|cs| {
-                cs.iter()
-                    .find(|c| c.sort.as_ref() == "chose-alt-trace")
-                    .map(|c| {
-                        c.value
-                            .split_whitespace()
-                            .filter_map(|t| t.parse::<usize>().ok())
-                            .collect()
-                    })
-            })
-            .unwrap_or_default();
-        (trace, 0usize)
-    });
-    let (trace, idx) = entry;
-    if *idx >= trace.len() {
-        return None;
-    }
-    let pick = trace[*idx];
-    *idx += 1;
-    if pick < n_alts {
-        Some(pick)
-    } else {
-        // Trace recorded a higher index than the current CHOICE has
-        // alternatives. Walker / emit disagreement; revert to the
-        // heuristic dispatch and stop consuming from this trace by
-        // exhausting it.
-        *idx = trace.len();
-        None
     }
 }
 
@@ -3725,7 +3669,7 @@ fn first_symbol(production: &Production) -> Option<&str> {
     }
 }
 
-pub(crate) fn prec_value(prod: &Production) -> i64 {
+fn prec_value(prod: &Production) -> i64 {
     match prod {
         Production::Prec { value, .. }
         | Production::PrecLeft { value, .. }
@@ -4374,13 +4318,6 @@ struct Output<'a> {
     grammar: &'a Grammar,
     current_rule: Option<String>,
     cassette: Option<&'a dyn crate::languages::cassettes::GrammarCassette>,
-    /// Per-vertex alt-index trace cursors. Each entry is (the recorded
-    /// trace from the `chose-alt-trace` constraint, next index to
-    /// consume). The walker writes the trace in DFS pre-order; emit
-    /// consumes it in the same order via [`pick_choice_with_cursor`].
-    /// When a vertex's trace is exhausted (or never recorded), dispatch
-    /// falls back to per-position interstitial scoring.
-    alt_traces: std::collections::HashMap<String, (Vec<usize>, usize)>,
 }
 
 #[derive(Clone)]
@@ -4398,7 +4335,6 @@ impl<'a> Output<'a> {
             tokens: Vec::new(),
             policy,
             grammar,
-            alt_traces: std::collections::HashMap::new(),
             current_rule: None,
             cassette,
         }
