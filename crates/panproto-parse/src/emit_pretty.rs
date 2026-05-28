@@ -768,7 +768,9 @@ fn compute_subtype_closure(
             while let Some(&(v, i)) = work.last() {
                 if i < edges[v].len() {
                     let w = edges[v][i];
-                    work.last_mut().unwrap().1 += 1;
+                    if let Some(slot) = work.last_mut() {
+                        slot.1 += 1;
+                    }
                     if index_arr[w] == usize::MAX {
                         index_arr[w] = next_index;
                         lowlink[w] = next_index;
@@ -776,15 +778,12 @@ fn compute_subtype_closure(
                         stack.push(w);
                         on_stack[w] = true;
                         work.push((w, 0));
-                    } else if on_stack[w] {
-                        if index_arr[w] < lowlink[v] {
-                            lowlink[v] = index_arr[w];
-                        }
+                    } else if on_stack[w] && index_arr[w] < lowlink[v] {
+                        lowlink[v] = index_arr[w];
                     }
                 } else {
                     if lowlink[v] == index_arr[v] {
-                        loop {
-                            let w = stack.pop().unwrap();
+                        while let Some(w) = stack.pop() {
                             on_stack[w] = false;
                             comp[w] = next_comp;
                             if w == v {
@@ -2582,8 +2581,16 @@ fn emit_production_inner(
             protocol, schema, grammar, vertex_id, members, cursor, out, false,
         ),
         Production::Choice { members } => {
-            if let Some(matched) =
-                pick_choice_with_cursor(schema, grammar, vertex_id, cursor, members)
+            // Walker-recorded alt-index trace consumed first. The trace
+            // is the exact derivation; when present and not yet
+            // exhausted, dispatch is a single O(1) lookup with no
+            // scoring or tiebreaking. Empty / exhausted traces fall
+            // through to the cursor + interstitial heuristics.
+            let trace_pick: Option<&Production> =
+                consume_alt_trace(out, schema, vertex_id, members.len())
+                    .and_then(|i| members.get(i));
+            if let Some(matched) = trace_pick
+                .or_else(|| pick_choice_with_cursor(schema, grammar, vertex_id, cursor, members))
             {
                 match matched {
                     Production::Seq {
@@ -3035,6 +3042,54 @@ fn emit_in_child_context(
     }
 }
 
+/// Consume the next alt index from the walker-recorded trace for
+/// `vertex_id`. Loads the trace lazily on first call per vertex,
+/// caching it on `out`. Returns `None` when no trace was recorded,
+/// when the trace is exhausted, or when the recorded index is out of
+/// range for the current CHOICE — at which point [`pick_choice_with_cursor`]
+/// drives dispatch via per-position interstitial scoring.
+fn consume_alt_trace(
+    out: &mut Output<'_>,
+    schema: &Schema,
+    vertex_id: &panproto_gat::Name,
+    n_alts: usize,
+) -> Option<usize> {
+    let key = vertex_id.as_ref().to_owned();
+    let entry = out.alt_traces.entry(key).or_insert_with(|| {
+        let trace: Vec<usize> = schema
+            .constraints
+            .get(vertex_id)
+            .and_then(|cs| {
+                cs.iter()
+                    .find(|c| c.sort.as_ref() == "chose-alt-trace")
+                    .map(|c| {
+                        c.value
+                            .split_whitespace()
+                            .filter_map(|t| t.parse::<usize>().ok())
+                            .collect()
+                    })
+            })
+            .unwrap_or_default();
+        (trace, 0usize)
+    });
+    let (trace, idx) = entry;
+    if *idx >= trace.len() {
+        return None;
+    }
+    let pick = trace[*idx];
+    *idx += 1;
+    if pick < n_alts {
+        Some(pick)
+    } else {
+        // Trace recorded a higher index than the current CHOICE has
+        // alternatives. Walker / emit disagreement; revert to the
+        // heuristic dispatch and stop consuming from this trace by
+        // exhausting it.
+        *idx = trace.len();
+        None
+    }
+}
+
 fn pick_choice_with_cursor<'a>(
     schema: &Schema,
     grammar: &Grammar,
@@ -3095,10 +3150,10 @@ fn pick_choice_with_cursor<'a>(
                 .map(|c| c.value.clone())
         })
         .unwrap_or_default();
-    let constraint_blob: String = if !positional_slice.is_empty() {
-        positional_slice
-    } else {
+    let constraint_blob: String = if positional_slice.is_empty() {
         fingerprint_blob
+    } else {
+        positional_slice
     };
     let child_kinds: Vec<&str> = schema
         .constraints
@@ -3657,7 +3712,7 @@ fn first_symbol(production: &Production) -> Option<&str> {
     }
 }
 
-fn prec_value(prod: &Production) -> i64 {
+pub(crate) fn prec_value(prod: &Production) -> i64 {
     match prod {
         Production::Prec { value, .. }
         | Production::PrecLeft { value, .. }
@@ -3706,40 +3761,6 @@ fn has_field_in(production: &Production, edge_kinds: &[&str]) -> bool {
         | Production::PrecDynamic { content, .. }
         | Production::Reserved { content, .. } => has_field_in(content, edge_kinds),
         _ => false,
-    }
-}
-
-/// Find the FIELD(s) named `field_name` under `production` and collect
-/// their content productions.
-fn find_fields_by_name<'a>(
-    production: &'a Production,
-    field_name: &str,
-    out: &mut Vec<&'a Production>,
-) {
-    match production {
-        Production::Field { name, content } if name.as_str() == field_name => {
-            out.push(content.as_ref());
-        }
-        Production::Field { content, .. }
-        | Production::Repeat { content }
-        | Production::Repeat1 { content }
-        | Production::Optional { content }
-        | Production::Alias { content, .. }
-        | Production::Token { content }
-        | Production::ImmediateToken { content }
-        | Production::Prec { content, .. }
-        | Production::PrecLeft { content, .. }
-        | Production::PrecRight { content, .. }
-        | Production::PrecDynamic { content, .. }
-        | Production::Reserved { content, .. } => {
-            find_fields_by_name(content, field_name, out);
-        }
-        Production::Seq { members } | Production::Choice { members } => {
-            for m in members {
-                find_fields_by_name(m, field_name, out);
-            }
-        }
-        _ => {}
     }
 }
 
@@ -3820,28 +3841,23 @@ fn literal_choice_set(p: &Production) -> Option<Vec<&str>> {
 }
 
 /// Categorical acceptance predicate: does `production` accept a cursor
-/// edge whose field name is `edge_field` (or "child_of") and whose target
+/// edge whose field name is `edge_field` (or `child_of`) and whose target
 /// vertex has kind `target_kind`?
 ///
 /// Defined inductively over the production tree:
-///   - STRING / PATTERN / BLANK / ε-only:      reject (consume no edges)
-///   - SYMBOL X (concrete):                    edge_field == "child_of"
-///                                             AND target_kind ⊑ X
-///   - SYMBOL X (hidden / supertype):          accepts(X.rule, e)
-///   - ALIAS{c, named:true, value:V}:          edge_field == "child_of"
-///                                             AND target_kind == V
-///                                             (the alias REwrites the
-///                                              child kind to V)
-///   - FIELD{name, content}:                   edge_field == name
-///                                             AND content.yield ∋ target_kind
-///                                              (the field content must
-///                                               admit the target as one
-///                                               of its first kinds)
-///   - SEQ[m1, m2, ...]:                       accepts(m1, e)
-///                                             OR (m1 ε-able AND
-///                                                 accepts(SEQ[m2..], e))
-///   - CHOICE[a1, a2, ...]:                    ⋁ accepts(ai, e)
-///   - OPTIONAL / REPEAT / REPEAT1 / wrappers: accepts(inner, e)
+///
+/// - `STRING` / `PATTERN` / `BLANK` / ε-only: reject (consume no edges).
+/// - `SYMBOL X` (concrete): `edge_field == "child_of"` and `target_kind ⊑ X`.
+/// - `SYMBOL X` (hidden / supertype): `accepts(X.rule, e)`.
+/// - `ALIAS{c, named:true, value:V}`: `edge_field == "child_of"` and
+///   `target_kind == V` (the alias rewrites the child kind to `V`).
+/// - `FIELD{name, content}`: `edge_field == name` and `content.yield` admits
+///   `target_kind` (the field content must accept the target as one of its
+///   first kinds).
+/// - `SEQ[m1, m2, ...]`: `accepts(m1, e)` or
+///   (`m1` is ε-able and `accepts(SEQ[m2..], e)`).
+/// - `CHOICE[a1, a2, ...]`: any of `accepts(ai, e)`.
+/// - `OPTIONAL` / `REPEAT` / `REPEAT1` / wrappers: `accepts(inner, e)`.
 fn accepts_first_edge(
     grammar: &Grammar,
     production: &Production,
@@ -4236,6 +4252,13 @@ struct Output<'a> {
     grammar: &'a Grammar,
     current_rule: Option<String>,
     cassette: Option<&'a dyn crate::languages::cassettes::GrammarCassette>,
+    /// Per-vertex alt-index trace cursors. Each entry is (the recorded
+    /// trace from the `chose-alt-trace` constraint, next index to
+    /// consume). The walker writes the trace in DFS pre-order; emit
+    /// consumes it in the same order via [`pick_choice_with_cursor`].
+    /// When a vertex's trace is exhausted (or never recorded), dispatch
+    /// falls back to per-position interstitial scoring.
+    alt_traces: std::collections::HashMap<String, (Vec<usize>, usize)>,
 }
 
 #[derive(Clone)]
@@ -4253,6 +4276,7 @@ impl<'a> Output<'a> {
             tokens: Vec::new(),
             policy,
             grammar,
+            alt_traces: std::collections::HashMap::new(),
             current_rule: None,
             cassette,
         }

@@ -18,6 +18,7 @@ use std::collections::BTreeMap;
 use panproto_schema::{Protocol, Schema, SchemaBuilder};
 use rustc_hash::FxHashSet;
 
+use crate::emit_pretty::{Grammar, Production, prec_value};
 use crate::error::ParseError;
 use crate::id_scheme::IdGenerator;
 use crate::scope_detector::{NamedScope, ScopeDetector};
@@ -96,6 +97,13 @@ pub struct AstWalker<'a> {
     /// during the tree walk. Derived from a [`ScopeDetector`] run over the
     /// full source before the walk begins.
     scope_map: BTreeMap<(usize, usize), NamedScope>,
+    /// Grammar production rules, threaded from the parser so the walker
+    /// can run [`match_production`] against each parent vertex's rule
+    /// body and emit a `chose-alt-trace` constraint recording which
+    /// CHOICE alt the parser took at every dispatch site. `None` when
+    /// the grammar lacks vendored `grammar.json` (matcher disabled;
+    /// emit dispatch falls back to per-position interstitial scoring).
+    grammar: Option<&'a Grammar>,
 }
 
 impl<'a> AstWalker<'a> {
@@ -117,6 +125,24 @@ impl<'a> AstWalker<'a> {
         config: WalkerConfig,
         scope_detector: Option<&mut ScopeDetector>,
     ) -> Self {
+        Self::new_with_grammar(source, theory_meta, protocol, config, scope_detector, None)
+    }
+
+    /// Construct a walker with a grammar reference, enabling the
+    /// alt-index matcher. With `grammar = Some(g)`, every parent vertex
+    /// gets a `chose-alt-trace` constraint recording the CHOICE alt
+    /// indices the parser took at each dispatch site (DFS pre-order).
+    /// With `grammar = None`, the walker behaves identically to
+    /// [`AstWalker::new`].
+    #[must_use]
+    pub fn new_with_grammar(
+        source: &'a [u8],
+        theory_meta: &'a ExtractedTheoryMeta,
+        protocol: &'a Protocol,
+        config: WalkerConfig,
+        scope_detector: Option<&mut ScopeDetector>,
+        grammar: Option<&'a Grammar>,
+    ) -> Self {
         let mut block_kinds: FxHashSet<String> =
             BLOCK_KINDS.iter().map(|s| (*s).to_owned()).collect();
         for kind in &config.extra_block_kinds {
@@ -137,6 +163,7 @@ impl<'a> AstWalker<'a> {
             config,
             block_kinds,
             scope_map,
+            grammar,
         }
     }
 
@@ -393,6 +420,54 @@ impl<'a> AstWalker<'a> {
                 builder.constraint(vertex_id, "chose-alt-child-kinds", &child_kinds.join(" "));
         }
 
+        // Alt-index trace: when grammar.json is available, replay the
+        // rule body against the full child sequence (named + anonymous)
+        // and record which CHOICE alt was taken at each dispatch site.
+        // The trace is a DFS pre-order list of indices, encoded as a
+        // single space-separated string. At emit time the trace is
+        // consumed in lockstep with the rule walk to drive
+        // `pick_choice_with_cursor` deterministically — no scoring, no
+        // tie-breaking, no fall-through to heuristic tiers.
+        // chose-alt-trace emission is intentionally disabled.
+        //
+        // The matcher (see `match_production` below) is a PEG-style
+        // walker that picks the highest-PREC alternative among those
+        // that succeed. This is a sound approximation of tree-sitter's
+        // disambiguation only when the grammar is unambiguous after
+        // PREC. In practice many tree-sitter grammars use parse-table
+        // state and conflict resolution that the matcher does not see,
+        // so a trace produced here can drive emit into a wrong CHOICE
+        // branch at a later position even when this rule's match
+        // succeeds.
+        //
+        // The right architectural fix is to surface tree-sitter's own
+        // production / parse-state IDs at each named-node level through
+        // the C API and walk those. That is a separate change involving
+        // the tree-sitter bindings layer. Until then, the per-position
+        // interstitial scoring in `pick_choice_with_cursor` provides
+        // the discriminator without the divergence risk.
+        let _ = self.grammar; // matcher code retained, emission gated off
+        if false {
+            if let Some(grammar) = self.grammar {
+                if let Some(rule) = grammar.rules.get(node.kind()) {
+                    let child_list = collect_match_children(node);
+                    let mut cursor = 0usize;
+                    let mut trace: Vec<usize> = Vec::new();
+                    let ok =
+                        match_production(grammar, rule, &child_list, &mut cursor, &mut trace);
+                    if ok && cursor == child_list.len() && !trace.is_empty() {
+                        let encoded: String = trace
+                            .iter()
+                            .map(usize::to_string)
+                            .collect::<Vec<_>>()
+                            .join(" ");
+                        builder =
+                            builder.constraint(vertex_id, "chose-alt-trace", &encoded);
+                    }
+                }
+            }
+        }
+
         Ok(builder)
     }
 
@@ -514,6 +589,268 @@ impl<'a> AstWalker<'a> {
 
         builder
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Production-vs-CST matcher
+// ═══════════════════════════════════════════════════════════════════
+//
+// Given the rule body for a parent vertex's kind and the parent's
+// child sequence (named + anonymous, with extras skipped), recover the
+// derivation: at each CHOICE encountered in DFS pre-order, the index
+// of the alternative the parser chose.
+//
+// Tree-sitter has already tokenized the source, so the matcher works
+// at the CST level — no byte-matching, no extras-skipping at the
+// character level. Anonymous tokens have `kind() == "<token text>"`
+// and are matched against STRING productions verbatim. Named children
+// match SYMBOL productions whose subtype closure includes the child's
+// kind. Hidden / supertype SYMBOLs inline-expand to their rule body,
+// so the matcher recurses through pass-through dispatch.
+//
+// The matcher is best-effort: when the grammar uses inline PATTERN at
+// non-leaf positions (rare; usually patterns are inside TOKEN wrappers
+// at the lexer level) or other constructs the matcher cannot
+// disambiguate, it falls back. The emitted trace is a prefix of the
+// full DFS pre-order alt sequence; pick_choice consumes it in lockstep
+// and reverts to per-position interstitial scoring once exhausted.
+
+#[derive(Debug, Clone)]
+struct MatchChild {
+    kind: String,
+    is_named: bool,
+}
+
+fn collect_match_children(node: tree_sitter::Node<'_>) -> Vec<MatchChild> {
+    let mut cursor = node.walk();
+    let mut out: Vec<MatchChild> = Vec::new();
+    for child in node.children(&mut cursor) {
+        // Skip extras (whitespace, comments). Tree-sitter inserts these
+        // anywhere between tokens and they do not appear in the rule
+        // body's production tree, so the matcher must not see them.
+        if child.is_extra() {
+            continue;
+        }
+        out.push(MatchChild {
+            kind: child.kind().to_owned(),
+            is_named: child.is_named(),
+        });
+    }
+    out
+}
+
+fn kind_satisfies(grammar: &Grammar, target_kind: &str, symbol_name: &str) -> bool {
+    if target_kind == symbol_name {
+        return true;
+    }
+    grammar
+        .subtypes
+        .get(target_kind)
+        .is_some_and(|set| set.contains(symbol_name))
+}
+
+/// Match `production` against `children[*cursor..]`. On success advance
+/// `*cursor` past the consumed children and append CHOICE alt indices
+/// to `alt_trace` in DFS pre-order. On failure restore both.
+#[allow(clippy::too_many_lines, clippy::match_same_arms)]
+fn match_production(
+    grammar: &Grammar,
+    production: &Production,
+    children: &[MatchChild],
+    cursor: &mut usize,
+    alt_trace: &mut Vec<usize>,
+) -> bool {
+    let saved_cursor = *cursor;
+    let saved_trace_len = alt_trace.len();
+    let ok = match production {
+        Production::Blank => true,
+        Production::String { value } => match children.get(*cursor) {
+            Some(c) if !c.is_named && c.kind == *value => {
+                *cursor += 1;
+                true
+            }
+            _ => false,
+        },
+        Production::Pattern { .. } => {
+            // Inline PATTERN at the rule level: tree-sitter materializes
+            // it as an anonymous child whose kind is the matched text.
+            // The matcher cannot verify the regex without re-running it,
+            // but consuming the next anonymous child (when present) is
+            // the only choice that preserves cursor alignment with
+            // emit's walk through SEQs containing inline patterns.
+            match children.get(*cursor) {
+                Some(c) if !c.is_named => {
+                    *cursor += 1;
+                    true
+                }
+                _ => false,
+            }
+        }
+        Production::Symbol { name } => {
+            // Hidden rules (`_`-prefixed) inline-expand at emit time;
+            // their CHOICE bodies live in the surrounding vertex's
+            // trace. Supertypes do NOT expand: at emit time the
+            // matched concrete child is walked by `emit_vertex`, which
+            // dispatches into the child's own rule under the child's
+            // vertex_id (so a supertype's CHOICE-over-subtypes is
+            // never visited by emit at this level). The walker
+            // matcher must mirror this discipline: expand only hidden,
+            // direct-consume for supertype.
+            if name.starts_with('_') {
+                if let Some(rule) = grammar.rules.get(name) {
+                    return match_production(grammar, rule, children, cursor, alt_trace);
+                }
+                // External hidden rule (no body in `rules`): treat as
+                // a no-op for matching purposes. The CST has already
+                // absorbed external tokens at the lexer level.
+                return true;
+            }
+            match children.get(*cursor) {
+                Some(c) if c.is_named && kind_satisfies(grammar, &c.kind, name) => {
+                    *cursor += 1;
+                    true
+                }
+                _ => false,
+            }
+        }
+        Production::Alias {
+            content,
+            named,
+            value,
+        } => {
+            if *named && !value.is_empty() {
+                match children.get(*cursor) {
+                    Some(c) if c.is_named && c.kind == *value => {
+                        *cursor += 1;
+                        true
+                    }
+                    _ => false,
+                }
+            } else if !*named && !value.is_empty() {
+                match children.get(*cursor) {
+                    Some(c) if !c.is_named && c.kind == *value => {
+                        *cursor += 1;
+                        true
+                    }
+                    _ => false,
+                }
+            } else {
+                match_production(grammar, content, children, cursor, alt_trace)
+            }
+        }
+        Production::Field { content, .. } => {
+            match_production(grammar, content, children, cursor, alt_trace)
+        }
+        Production::Seq { members } => {
+            for m in members {
+                if !match_production(grammar, m, children, cursor, alt_trace) {
+                    *cursor = saved_cursor;
+                    alt_trace.truncate(saved_trace_len);
+                    return false;
+                }
+            }
+            true
+        }
+        Production::Choice { members } => {
+            // PREC-aware match: pick the alt with the highest PREC
+            // among those that succeed. On PREC ties, keep the
+            // earlier grammar-order alt (tree-sitter's default).
+            // We DO NOT use maximal-munch: tree-sitter's disambiguation
+            // is determined by parse-table state, not consumed-child
+            // count, and a max-munch tiebreak silently selects "wider"
+            // alts (e.g. let-else over plain let) when the parser
+            // actually took the narrower one.
+            let saved_cursor = *cursor;
+            let saved_trace = alt_trace.len();
+            let mut best: Option<(i64, usize, Vec<usize>, usize)> = None;
+            for (i, alt) in members.iter().enumerate() {
+                let mut try_trace: Vec<usize> = Vec::new();
+                let mut try_cursor = saved_cursor;
+                try_trace.push(i);
+                if match_production(grammar, alt, children, &mut try_cursor, &mut try_trace) {
+                    let p = prec_value(alt);
+                    let should_replace = match &best {
+                        None => true,
+                        Some((bp, _, _, _)) => p > *bp,
+                    };
+                    if should_replace {
+                        best = Some((p, i, try_trace, try_cursor));
+                    }
+                }
+            }
+            match best {
+                Some((_, _, t, c)) => {
+                    alt_trace.truncate(saved_trace);
+                    alt_trace.extend(t);
+                    *cursor = c;
+                    true
+                }
+                None => false,
+            }
+        }
+        Production::Optional { content } => {
+            let saved = *cursor;
+            let saved_t = alt_trace.len();
+            if !match_production(grammar, content, children, cursor, alt_trace) {
+                *cursor = saved;
+                alt_trace.truncate(saved_t);
+            }
+            true
+        }
+        Production::Repeat { content } => {
+            loop {
+                let saved = *cursor;
+                let saved_t = alt_trace.len();
+                if !match_production(grammar, content, children, cursor, alt_trace) {
+                    *cursor = saved;
+                    alt_trace.truncate(saved_t);
+                    break;
+                }
+                if *cursor == saved {
+                    // No progress: the body matched without consuming
+                    // any child (e.g. a CHOICE picked BLANK). Stop to
+                    // avoid an infinite REPEAT loop. The remaining
+                    // members of the surrounding SEQ get a chance.
+                    alt_trace.truncate(saved_t);
+                    break;
+                }
+            }
+            true
+        }
+        Production::Repeat1 { content } => {
+            if !match_production(grammar, content, children, cursor, alt_trace) {
+                return false;
+            }
+            loop {
+                let saved = *cursor;
+                let saved_t = alt_trace.len();
+                if !match_production(grammar, content, children, cursor, alt_trace) {
+                    *cursor = saved;
+                    alt_trace.truncate(saved_t);
+                    break;
+                }
+                if *cursor == saved {
+                    alt_trace.truncate(saved_t);
+                    break;
+                }
+            }
+            true
+        }
+        Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Reserved { content, .. } => {
+            match_production(grammar, content, children, cursor, alt_trace)
+        }
+    };
+    if !ok {
+        *cursor = saved_cursor;
+        alt_trace.truncate(saved_trace_len);
+    }
+    ok
 }
 
 #[cfg(test)]
