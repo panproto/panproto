@@ -485,6 +485,7 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "toml",
     "typescript",
     "yaml",
+    "zig",
 ];
 
 impl ParserRegistry {

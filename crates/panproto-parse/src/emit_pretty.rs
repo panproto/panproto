@@ -4125,6 +4125,21 @@ fn accepts_first_edge(
     edge_field: &str,
     target_kind: &str,
 ) -> bool {
+    let mut visited = std::collections::HashSet::new();
+    accepts_first_edge_inner(grammar, production, edge_field, target_kind, &mut visited)
+}
+
+/// Inductive acceptance predicate. `visited` guards the hidden/supertype
+/// `SYMBOL → rule` expansion against cyclic rule graphs (e.g. Zig's
+/// mutually-recursive hidden declaration rules), which would otherwise
+/// recurse until the stack overflows.
+fn accepts_first_edge_inner(
+    grammar: &Grammar,
+    production: &Production,
+    edge_field: &str,
+    target_kind: &str,
+    visited: &mut std::collections::HashSet<String>,
+) -> bool {
     fn yield_contains(grammar: &Grammar, prod: &Production, kind: &str) -> bool {
         let mut visited = std::collections::HashSet::new();
         let mut cache = grammar.yield_sets.clone();
@@ -4159,12 +4174,18 @@ fn accepts_first_edge(
             {
                 return true;
             }
-            // Hidden / supertype: walk the rule body.
+            // Hidden / supertype: walk the rule body, guarding against
+            // cyclic hidden-rule graphs.
             let is_expand = name.starts_with('_') || grammar.supertypes.contains(name.as_str());
             if is_expand {
-                if let Some(rule) = grammar.rules.get(name) {
-                    return accepts_first_edge(grammar, rule, edge_field, target_kind);
+                if !visited.insert(name.clone()) {
+                    return false;
                 }
+                let accepted = grammar.rules.get(name).is_some_and(|rule| {
+                    accepts_first_edge_inner(grammar, rule, edge_field, target_kind, visited)
+                });
+                visited.remove(name);
+                return accepted;
             }
             false
         }
@@ -4176,7 +4197,7 @@ fn accepts_first_edge(
             if *named && !value.is_empty() {
                 edge_field == "child_of" && value == target_kind
             } else {
-                accepts_first_edge(grammar, content, edge_field, target_kind)
+                accepts_first_edge_inner(grammar, content, edge_field, target_kind, visited)
             }
         }
         Production::Field { name, content } => {
@@ -4184,7 +4205,7 @@ fn accepts_first_edge(
         }
         Production::Seq { members } => {
             for m in members {
-                if accepts_first_edge(grammar, m, edge_field, target_kind) {
+                if accepts_first_edge_inner(grammar, m, edge_field, target_kind, visited) {
                     return true;
                 }
                 if !yield_has_epsilon(grammar, m) {
@@ -4195,7 +4216,7 @@ fn accepts_first_edge(
         }
         Production::Choice { members } => members
             .iter()
-            .any(|m| accepts_first_edge(grammar, m, edge_field, target_kind)),
+            .any(|m| accepts_first_edge_inner(grammar, m, edge_field, target_kind, visited)),
         Production::Optional { content }
         | Production::Repeat { content }
         | Production::Repeat1 { content }
@@ -4206,7 +4227,7 @@ fn accepts_first_edge(
         | Production::PrecRight { content, .. }
         | Production::PrecDynamic { content, .. }
         | Production::Reserved { content, .. } => {
-            accepts_first_edge(grammar, content, edge_field, target_kind)
+            accepts_first_edge_inner(grammar, content, edge_field, target_kind, visited)
         }
     }
 }

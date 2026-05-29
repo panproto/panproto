@@ -100,7 +100,6 @@ fn ron_emit_is_fixed_point() {
 // ── M3 systems ──────────────────────────────────────────────────────
 #[test]
 #[cfg(feature = "lang-zig")]
-#[ignore = "parse/emit overflows the stack on trivial input; deep-recursion defect (aborts process)"]
 fn zig_emit_is_fixed_point() {
     assert_emit_fixed_point("zig", "zig", b"pub fn main() void {}\n");
 }
