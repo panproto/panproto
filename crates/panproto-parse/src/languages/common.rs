@@ -118,7 +118,15 @@ impl LanguageParser {
         let theory_name = format!("Th{}FullAST", capitalize_first(protocol_name));
         let theory_meta = extract_theory_from_node_types(&theory_name, node_types_json)?;
         let protocol = build_full_ast_protocol(protocol_name, &theory_name);
-        let scope_detector = ScopeDetector::new(&language, tags_query, None)?;
+        // Named-scope detection is a best-effort secondary feature. Some
+        // vendored `tags.scm` files use capture names outside the
+        // tree-sitter-tags vocabulary (e.g. C#'s `@module`, AL's helper
+        // `@_test_attr`), which `TagsConfiguration` rejects. A grammar
+        // must still register for parse/emit in that case, so fall back
+        // to a no-op detector (which `(None, None)` constructs and cannot
+        // fail) rather than dropping the whole grammar.
+        let scope_detector = ScopeDetector::new(&language, tags_query, None)
+            .or_else(|_| ScopeDetector::new(&language, None, None))?;
 
         Ok(Self {
             protocol_name: protocol_name.to_owned(),

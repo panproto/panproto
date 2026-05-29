@@ -102,7 +102,24 @@ pub struct ExtractedTheoryMeta {
 ///
 /// Returns [`ParseError::NodeTypesJson`] if JSON deserialization fails.
 pub fn parse_node_types(json: &[u8]) -> Result<Vec<NodeType>, ParseError> {
-    serde_json::from_slice(json).map_err(|e| ParseError::NodeTypesJson { source: e })
+    // `node-types.json` is an array of node-type entries, but recent
+    // tree-sitter releases append non-node metadata markers (e.g.
+    // `{"@generated": true}`, as in the Erlang grammar) that carry no
+    // `type` field. Deserialize loosely and skip any entry without a
+    // string `type` rather than failing the whole grammar.
+    let raw: Vec<serde_json::Value> =
+        serde_json::from_slice(json).map_err(|e| ParseError::NodeTypesJson { source: e })?;
+    raw.into_iter()
+        .filter(|entry| {
+            entry
+                .get("type")
+                .and_then(serde_json::Value::as_str)
+                .is_some()
+        })
+        .map(|entry| {
+            serde_json::from_value(entry).map_err(|e| ParseError::NodeTypesJson { source: e })
+        })
+        .collect()
 }
 
 /// Extract a panproto [`Theory`] from tree-sitter's `node-types.json` content.
