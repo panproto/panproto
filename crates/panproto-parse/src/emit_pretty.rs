@@ -419,6 +419,16 @@ pub struct Grammar {
     /// External tokens equivalent to semicolons.
     #[serde(skip)]
     pub external_semicolons: std::collections::HashSet<String>,
+    /// External scanner tokens that open a delimiter pair around content
+    /// (e.g. `string_start` in `SEQ[string_start, REPEAT(content),
+    /// string_end]`). Derived structurally; emitted tight on the inside
+    /// (`'hello'`, not `' hello '`).
+    #[serde(skip)]
+    pub external_bracket_opens: std::collections::HashSet<String>,
+    /// External scanner tokens that close a delimiter pair around content
+    /// (e.g. `string_end`). Emitted tight on the inside.
+    #[serde(skip)]
+    pub external_bracket_closes: std::collections::HashSet<String>,
     /// Named alias map: maps alias value to source symbol name.
     /// When a vertex kind has no direct grammar rule, this map resolves
     /// `ALIAS { content: SYMBOL source, named: true, value: alias }` so
@@ -552,6 +562,7 @@ impl Grammar {
         grammar.indent_triggers = indent_triggers;
         grammar.line_comment_prefixes = extract_line_comment_prefixes(&grammar);
         classify_external_layout_tokens(&mut grammar);
+        classify_external_bracket_delimiters(&mut grammar);
         grammar.yield_sets = compute_yield_sets(&grammar);
         Ok(grammar)
     }
@@ -1922,6 +1933,84 @@ fn classify_external_layout_tokens(grammar: &mut Grammar) {
     }
 }
 
+/// Identify external scanner tokens that bracket content, derived from
+/// grammar structure: a rule whose (unwrapped) body is a SEQ whose first
+/// and last members are external SYMBOLs (no grammar rule of their own)
+/// with content in between is a delimiter pair around that content. The
+/// canonical case is `string = SEQ[string_start, REPEAT(content),
+/// string_end]`: the delimiters must hug the content (`'hello'`), and
+/// the grammar states which externals they are without naming
+/// conventions.
+fn classify_external_bracket_delimiters(grammar: &mut Grammar) {
+    let is_external = |name: &str| !grammar.rules.contains_key(name);
+    let mut opens = std::collections::HashSet::new();
+    let mut closes = std::collections::HashSet::new();
+    for rule in grammar.rules.values() {
+        let Production::Seq { members } = unwrap_to_seq(rule) else {
+            continue;
+        };
+        if members.len() < 3 {
+            continue;
+        }
+        let (Some(first), Some(last)) = (members.first(), members.last()) else {
+            continue;
+        };
+        let (Some(open), Some(close)) = (external_symbol_name(first), external_symbol_name(last))
+        else {
+            continue;
+        };
+        if open == close || !is_external(open) || !is_external(close) {
+            continue;
+        }
+        // Content between the delimiters (a REPEAT of string content, an
+        // interpolation choice, …) — at least one non-delimiter member.
+        let has_content_between = members.len() > 2;
+        if has_content_between {
+            opens.insert(open.to_owned());
+            closes.insert(close.to_owned());
+        }
+    }
+    grammar.external_bracket_opens = opens;
+    grammar.external_bracket_closes = closes;
+}
+
+/// The role for a leaf vertex's captured `literal-value`, given its
+/// kind: a string/heredoc delimiter external (`string_start`/`string_end`)
+/// brackets its content tightly, so it is emitted as a bracket rather
+/// than a free-standing [`Terminal`](TokenRole::Terminal) that the layout
+/// pass would space (`'hello'`, not `' hello '`).
+fn leaf_terminal_role(grammar: &Grammar, kind: &str) -> TokenRole {
+    if grammar.external_bracket_opens.contains(kind) {
+        TokenRole::BracketOpen
+    } else if grammar.external_bracket_closes.contains(kind) {
+        TokenRole::BracketClose
+    } else {
+        TokenRole::Terminal
+    }
+}
+
+/// Unwrap precedence/token wrappers to reach a SEQ production.
+fn unwrap_to_seq(prod: &Production) -> &Production {
+    match prod {
+        Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Token { content }
+        | Production::Reserved { content, .. } => unwrap_to_seq(content),
+        other => other,
+    }
+}
+
+/// The SYMBOL name a member references directly (no aliasing), if it is a
+/// bare `SYMBOL`. Used to spot external delimiter tokens.
+fn external_symbol_name(prod: &Production) -> Option<&str> {
+    match prod {
+        Production::Symbol { name } => Some(name.as_str()),
+        _ => None,
+    }
+}
+
 /// Collect all SYMBOL names referenced anywhere in the grammar rules.
 fn collect_all_symbol_refs(
     rules: &BTreeMap<String, Production>,
@@ -2122,7 +2211,7 @@ fn emit_vertex(
                 .get(vkind)
                 .is_some_and(|src| grammar.rules.contains_key(src));
             if !(is_bracket_pair && has_alias_rule) {
-                out.token_with_role(literal, Some(TokenRole::Terminal));
+                out.token_with_role(literal, Some(leaf_terminal_role(grammar, vkind)));
                 return Ok(());
             }
         }
@@ -2608,8 +2697,22 @@ fn emit_production_inner(
                     // external token appears as the content of an
                     // anonymous ALIAS elsewhere in the grammar, emit
                     // the alias value as the token text.
+                    // A delimiter external (string_start/string_end and
+                    // friends) hugs the content it brackets, so emit its
+                    // text with a bracket role rather than the untyped
+                    // default (which spaces like an operator → `' hello '`).
+                    let bracket_role = if grammar.external_bracket_opens.contains(name) {
+                        Some(TokenRole::BracketOpen)
+                    } else if grammar.external_bracket_closes.contains(name) {
+                        Some(TokenRole::BracketClose)
+                    } else {
+                        None
+                    };
                     if let Some(alias_value) = grammar.external_alias_map.get(name) {
-                        out.token(alias_value);
+                        match bracket_role {
+                            Some(role) => out.token_with_role(alias_value, Some(role)),
+                            None => out.token(alias_value),
+                        }
                         return Ok(());
                     }
                     if grammar.external_indent_opens.contains(name) {
@@ -2625,7 +2728,10 @@ fn emit_production_inner(
                         .and_then(|c| crate::languages::cassettes::resolve_external_token(c, name))
                     {
                         if !default.is_empty() {
-                            out.token(default);
+                            match bracket_role {
+                                Some(role) => out.token_with_role(default, Some(role)),
+                                None => out.token(default),
+                            }
                         }
                     }
                     Ok(())
@@ -3041,7 +3147,8 @@ fn emit_aliased_child(
                     (Some(b'('), Some(b')')) | (Some(b'['), Some(b']')) | (Some(b'{'), Some(b'}'))
                 );
             if !is_bracket_pair {
-                out.token_with_role(literal, Some(TokenRole::Terminal));
+                let kind = vertex_id_kind(schema, child_id).unwrap_or("");
+                out.token_with_role(literal, Some(leaf_terminal_role(grammar, kind)));
                 return Ok(());
             }
         }
