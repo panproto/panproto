@@ -444,6 +444,13 @@ pub struct Grammar {
     /// the emitter can walk the source rule with proper token roles.
     #[serde(skip)]
     pub named_alias_map: std::collections::HashMap<String, String>,
+    /// Named terminal kinds whose underlying `PATTERN` can match a leading
+    /// space (e.g. INI's `setting_value = PATTERN ".+"`). A layout space
+    /// emitted *before* such a terminal would fold into its captured text
+    /// on re-parse and accrete one space per emit, so the emitter hugs them
+    /// to their predecessor. See [`pattern_absorbs_leading_space`].
+    #[serde(skip)]
+    pub leading_space_terminals: std::collections::HashSet<String>,
 }
 
 fn deserialize_supertypes<'de, D>(
@@ -573,6 +580,7 @@ impl Grammar {
         classify_external_layout_tokens(&mut grammar);
         classify_external_bracket_delimiters(&mut grammar);
         classify_synthetic_indent_rules(&mut grammar);
+        grammar.leading_space_terminals = classify_leading_space_terminals(&grammar);
         grammar.yield_sets = compute_yield_sets(&grammar);
         Ok(grammar)
     }
@@ -2055,6 +2063,86 @@ fn classify_synthetic_indent_rules(grammar: &mut Grammar) {
     grammar.synthetic_indent_rules = rules;
 }
 
+/// Collect named terminal kinds whose underlying `PATTERN` can match a
+/// leading space (see [`pattern_absorbs_leading_space`]). Two shapes
+/// produce such a kind on the schema:
+///
+/// - `ALIAS { content: PATTERN p, named: true, value: K }` — the pattern is
+///   renamed to kind `K` (INI's `setting_value`, `setting_name`, …).
+/// - a named rule `K = PATTERN p` — the rule itself is a bare terminal.
+///
+/// In both cases the captured text round-trips through `K`, so a layout
+/// space emitted before it would be absorbed and grow. The pattern is read
+/// through token/precedence wrappers via [`terminal_pattern_of`].
+fn classify_leading_space_terminals(grammar: &Grammar) -> std::collections::HashSet<String> {
+    let mut out = std::collections::HashSet::new();
+
+    // Named rules that are themselves a bare terminal pattern.
+    for (name, rule) in &grammar.rules {
+        if let Some(p) = terminal_pattern_of(rule) {
+            if pattern_absorbs_leading_space(p) {
+                out.insert(name.clone());
+            }
+        }
+    }
+
+    // Named aliases wrapping a terminal pattern.
+    fn walk(prod: &Production, out: &mut std::collections::HashSet<String>) {
+        match prod {
+            Production::Alias {
+                content,
+                named: true,
+                value,
+            } => {
+                if let Some(p) = terminal_pattern_of(content) {
+                    if pattern_absorbs_leading_space(p) {
+                        out.insert(value.clone());
+                    }
+                }
+                walk(content, out);
+            }
+            Production::Alias { content, .. }
+            | Production::Repeat { content }
+            | Production::Repeat1 { content }
+            | Production::Optional { content }
+            | Production::Field { content, .. }
+            | Production::Token { content }
+            | Production::ImmediateToken { content }
+            | Production::Prec { content, .. }
+            | Production::PrecLeft { content, .. }
+            | Production::PrecRight { content, .. }
+            | Production::PrecDynamic { content, .. }
+            | Production::Reserved { content, .. } => walk(content, out),
+            Production::Seq { members } | Production::Choice { members } => {
+                for m in members {
+                    walk(m, out);
+                }
+            }
+            _ => {}
+        }
+    }
+    for rule in grammar.rules.values() {
+        walk(rule, &mut out);
+    }
+    out
+}
+
+/// The `PATTERN` regex of a (possibly token/precedence-wrapped) bare
+/// terminal production, or `None` if it is not a bare pattern.
+fn terminal_pattern_of(prod: &Production) -> Option<&str> {
+    match prod {
+        Production::Pattern { value } => Some(value),
+        Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Reserved { content, .. } => terminal_pattern_of(content),
+        _ => None,
+    }
+}
+
 /// The role for a leaf vertex's captured `literal-value`, given its
 /// kind: a string/heredoc delimiter external (`string_start`/`string_end`)
 /// brackets its content tightly, so it is emitted as a bracket rather
@@ -2331,6 +2419,19 @@ fn emit_vertex(
                 } else {
                     leaf_terminal_role(grammar, vkind)
                 };
+                // A terminal whose regex absorbs leading whitespace and whose
+                // captured text *already starts with* whitespace carries its
+                // own separator: an additional layout space would fold into
+                // the text on re-parse and accrete one space per emit. Suppress
+                // the layout space so the captured whitespace is the only
+                // separator (stable). When the literal does not start with
+                // whitespace, the layout space is the genuine separator and
+                // must be kept (e.g. Org's `* Heading`).
+                if grammar.leading_space_terminals.contains(vkind)
+                    && literal.starts_with([' ', '\t'])
+                {
+                    out.no_space();
+                }
                 out.token_with_role(literal, Some(role));
                 return Ok(());
             }
@@ -2736,6 +2837,12 @@ fn emit_production_inner(
         }
         Production::Pattern { value } => {
             if let Some(literal) = literal_value(schema, vertex_id) {
+                // A terminal whose regex can match a leading space must hug
+                // its predecessor: a space inserted here folds into the
+                // captured text on re-parse and accretes one space per emit.
+                if pattern_absorbs_leading_space(value) {
+                    out.no_space();
+                }
                 out.token_with_role(literal, Some(TokenRole::Terminal));
             } else if is_newline_like_pattern(value) {
                 // Patterns like `\r?\n`, `\n`, `\r\n` are the structural
@@ -3291,6 +3398,15 @@ fn emit_aliased_child(
                 );
             if !is_bracket_pair {
                 let kind = vertex_id_kind(schema, child_id).unwrap_or("");
+                // See the matching guard in `emit_vertex`: a captured leading
+                // whitespace is the separator, so suppress the redundant layout
+                // space to keep the fixed point (INI's `setting_value`); keep
+                // it when the literal carries no leading whitespace.
+                if grammar.leading_space_terminals.contains(kind)
+                    && literal.starts_with([' ', '\t'])
+                {
+                    out.no_space();
+                }
                 out.token_with_role(literal, Some(leaf_terminal_role(grammar, kind)));
                 return Ok(());
             }
@@ -4634,6 +4750,39 @@ fn is_whitespace_only_pattern(pattern: &str) -> bool {
     false
 }
 
+/// True iff `pattern` can match a string whose first character is an
+/// ordinary space, so that any layout space the emitter inserts *before*
+/// this terminal would be absorbed into the terminal's text on re-parse.
+///
+/// Such a terminal must be emitted tight against its predecessor: otherwise
+/// the inserted space folds into the captured literal on re-parse, and the
+/// next emit inserts another space, growing the output by one space per
+/// round-trip (e.g. INI's `setting_value = PATTERN ".+"`, where `.` matches
+/// a space: `key = value` -> `key =  value` -> `key =   value`). This is the
+/// same unbounded-growth class as a content node spaced from its delimiters.
+///
+/// Conservative: only the unambiguous leading atoms that admit a space are
+/// recognised, so a terminal that genuinely cannot start with a space keeps
+/// its normal spacing.
+fn pattern_absorbs_leading_space(pattern: &str) -> bool {
+    // Skip a leading anchor; it does not consume input.
+    let pattern = pattern.strip_prefix('^').unwrap_or(pattern);
+    let mut chars = pattern.chars();
+    match chars.next() {
+        // `.` matches any character except newline, including a space.
+        Some('.') => true,
+        // A negated character class matches a space unless the negation
+        // explicitly excludes it (a literal space, `\s`, or `\t`).
+        Some('[') if pattern.starts_with("[^") => {
+            let inner = &pattern[2..];
+            let end = inner.find(']').unwrap_or(inner.len());
+            let negated = &inner[..end];
+            !(negated.contains(' ') || negated.contains("\\s") || negated.contains("\\t"))
+        }
+        _ => false,
+    }
+}
+
 fn placeholder_for_pattern(pattern: &str) -> String {
     // Heuristic placeholder for unconstrained PATTERN terminals.
     //
@@ -5300,6 +5449,24 @@ mod tests {
         )
         .expect("valid SEQ");
         assert_eq!(first_symbol(&prod), Some("body"));
+    }
+
+    #[test]
+    fn pattern_absorbs_leading_space_detects_space_admitting_terminals() {
+        // `.`-led patterns match any char, including a space (INI value).
+        assert!(pattern_absorbs_leading_space(".+"));
+        assert!(pattern_absorbs_leading_space(".*"));
+        assert!(pattern_absorbs_leading_space("^.+"));
+        // Negated classes that do not exclude whitespace match a space.
+        assert!(pattern_absorbs_leading_space("[^;#]+"));
+        // Negated classes that exclude whitespace do not match a space.
+        assert!(!pattern_absorbs_leading_space("[^;#=\\s\\[]+"));
+        assert!(!pattern_absorbs_leading_space("[^ \\t]+"));
+        // Positive classes / literals never start with a space.
+        assert!(!pattern_absorbs_leading_space("[a-zA-Z_]\\w*"));
+        assert!(!pattern_absorbs_leading_space("[0-9]+"));
+        assert!(!pattern_absorbs_leading_space("\\w+"));
+        assert!(!pattern_absorbs_leading_space(""));
     }
 
     #[test]

@@ -28,8 +28,16 @@ use panproto_schema::{edge_multiset, kind_multiset};
 /// output (only cosmetic whitespace may differ from the input). Protocols whose
 /// emit drops/reorders/mangles tokens are deliberately excluded pending fixes.
 const VERIFIED_SAMPLES: &[(&str, &str, &str)] = &[
-    ("go", "go", "package main\n\nfunc f(x int) int {\n\treturn x + 1\n}\n"),
-    ("glsl", "glsl", "void main() {\n  gl_Position = vec4(0.0);\n}\n"),
+    (
+        "go",
+        "go",
+        "package main\n\nfunc f(x int) int {\n\treturn x + 1\n}\n",
+    ),
+    (
+        "glsl",
+        "glsl",
+        "void main() {\n  gl_Position = vec4(0.0);\n}\n",
+    ),
     ("starlark", "bzl", "x = 1\n"),
     ("pkl", "pkl", "x = 1\n"),
     ("editorconfig", "editorconfig", "root = true\n"),
@@ -59,6 +67,11 @@ const VERIFIED_SAMPLES: &[(&str, &str, &str)] = &[
     ("graphql", "graphql", "type Query {\n  x: Int\n}\n"),
     ("textproto", "textproto", "name: \"x\"\n"),
     ("just", "just", "build:\n    echo hi\n"),
+    // Leading-space-terminal class: a content terminal whose PATTERN absorbs
+    // leading whitespace captures its own separator, so the emitter suppresses
+    // the redundant layout space instead of accreting one per emit.
+    ("ini", "ini", "[section]\nkey = value\n"),
+    ("abc", "abc", "X:1\nT:Tune\nK:C\nCDEF|\n"),
 ];
 
 fn with_big_stack<F: FnOnce() + Send + 'static>(inner: F) {
@@ -93,7 +106,10 @@ fn assert_verified(protocol: &'static str, ext: &'static str, src: &'static [u8]
 
         let e1s = String::from_utf8_lossy(&e1).into_owned();
         let e2s = String::from_utf8_lossy(&e2).into_owned();
-        assert_eq!(e1, e2, "{protocol} emit must be a fixed point.\ne1:\n{e1s}\ne2:\n{e2s}");
+        assert_eq!(
+            e1, e2,
+            "{protocol} emit must be a fixed point.\ne1:\n{e1s}\ne2:\n{e2s}"
+        );
         assert!(
             !s1.vertices.is_empty(),
             "{protocol} parsed to an empty schema (sample not exercising the grammar)"

@@ -454,6 +454,7 @@ pub enum EmitVerificationStatus {
 /// the binary-search lookup in [`ParserRegistry::emit_verification_status`]
 /// works.
 const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
+    "abc",
     "ada",
     "asm",
     "bash",
@@ -483,6 +484,7 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "haskell",
     "hcl",
     "html",
+    "ini",
     "jags",
     "java",
     "javascript",
