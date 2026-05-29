@@ -80,7 +80,6 @@ fn less_emit_is_fixed_point() {
 
 #[test]
 #[cfg(feature = "lang-vue")]
-#[ignore = "emit pads element text content (`<p> Hi </p>`); HTML-family text-whitespace defect"]
 fn vue_emit_is_fixed_point() {
     assert_emit_fixed_point("vue", "vue", b"<template>\n  <p>Hi</p>\n</template>\n");
 }

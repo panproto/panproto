@@ -2316,6 +2316,16 @@ fn emit_vertex(
                 // (`return ()`). That is exactly the BracketClose role
                 // (tight inner/left edge, keyword-spaced). Other leaves
                 // keep their delimiter-or-terminal role.
+                // Raw inline content (HTML/markup element `text`) abuts
+                // its surrounding tags with no inserted whitespace; emit
+                // it tight on both sides so the layout pass does not grow
+                // the captured text on each re-emit.
+                if out.cassette.is_some_and(|c| c.kind_is_tight_content(vkind)) {
+                    out.no_space();
+                    out.token_with_role(literal, Some(TokenRole::Terminal));
+                    out.no_space();
+                    return Ok(());
+                }
                 let role = if is_bracket_pair {
                     TokenRole::BracketClose
                 } else {

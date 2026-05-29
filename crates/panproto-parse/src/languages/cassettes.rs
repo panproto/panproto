@@ -52,6 +52,18 @@ pub trait GrammarCassette: Send + Sync {
         false
     }
 
+    /// Returns `true` when a leaf vertex of this `kind` is raw inline
+    /// content that abuts its surrounding tokens with no inserted
+    /// whitespace (HTML/markup element `text` between `>` and `</`).
+    /// Emitting such content with the layout pass's normal role spacing
+    /// inserts spaces that the re-parse folds back into the captured
+    /// text, so the literal grows unboundedly across emit cycles; tight
+    /// emission keeps it a fixed point.
+    fn kind_is_tight_content(&self, kind: &str) -> bool {
+        let _ = kind;
+        false
+    }
+
     /// Returns `true` when an external scanner token is a layout
     /// terminator that should emit a newline. Layout-sensitive grammars
     /// name these idiosyncratically (Elm's `_virtual_end_decl`), so the
@@ -323,6 +335,13 @@ impl GrammarCassette for HtmlFamilyCassette {
             "_interpolation_end" | "_html_interpolation_end" => Some("}}"),
             _ => None,
         }
+    }
+
+    fn kind_is_tight_content(&self, kind: &str) -> bool {
+        // Element text and raw script/style bodies sit directly between
+        // `>` and `</` with no inserted whitespace; spacing them grows
+        // the captured text on every re-emit.
+        matches!(kind, "text" | "raw_text")
     }
 }
 

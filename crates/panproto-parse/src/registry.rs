@@ -489,6 +489,7 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "svelte",
     "toml",
     "typescript",
+    "vue",
     "yaml",
     "zig",
 ];
