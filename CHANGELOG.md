@@ -4,6 +4,18 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Layout calculus vocabulary** (`panproto-gat`): `LayoutRole` (the structural token roles plus an explicit `Immediate` for `IMMEDIATE_TOKEN` tokens), the pure `Adjacency` relation over role pairs (`Adjacency::between`, reproducing the historical role-pair spacing table), and `LayoutSpec` / `RuleLayout` — the theory-level, grammar-derived payload of the `Layout` enrichment that the emitter will interpret. Re-exported at the crate root.
+
+### Fixed
+
+- **Stan float literals dropped on re-emit** (`panproto-parse`): `emit_pretty` rendered a `real_literal`'s decimal point as `0 . 5` because the role classifier ignored the grammar's `IMMEDIATE_TOKEN` wrapping of the `.`. On re-parse the tree-sitter scanner read `0` as a complete integer and dropped the rest, collapsing `0.5` to `0` (and `{1.0, 2.0, 3.0}` to garbage). `IMMEDIATE_TOKEN` tokens now derive a tight `Immediate` role, so float literals emit as a byte fixed point with no dropped bytes. Closes #183.
+- **Empty / parenthesised call args spaced as `f ()`** (`panproto-parse`): `member_has_leading_bracket` had no `SEQ` arm, so a `CHOICE` of `SEQ["(", …]` alternatives (e.g. a call's argument-list rule) was not recognised as bracket-leading, and a `ForceSpace` was inserted before the `(`. The callee now stays tight against its argument list (`f()`, not `f ()`).
+- **Signed-number literals split as `- 1.0`** (`panproto-parse`): a unary sign in an optional leading slot (`signed_number = SEQ[CHOICE["-" | BLANK], number]`) was emitted as a `Separator` and spaced from its operand, re-parsing as unary-minus-of-positive rather than a single negative literal. The sign now derives a tight `BracketOpen` prefix role, and a `ForceSpace` is never emitted after a right-tight token, so signed numbers stay glued (`f(-1.0)`).
+- **Beamed / tightly-repeated tokens re-spaced** (`panproto-parse`): when a `REPEAT` body's leading separator slot (`CHOICE[sep | BLANK]`) chose `BLANK`, the emitter pushed a `NoSpace` marker, but the layout pass let the sibling-separation `ForceSpace` heuristic override it, so adjacent ABC beam notes `CDEF` re-spaced to `C D E F`. An explicit `NoSpace` is now authoritative over `ForceSpace`.
+- **Grammars dropped on secondary-feature failure** (`panproto-parse`): a grammar whose `tags.scm` used a capture outside the tree-sitter-tags vocabulary (C#'s `@module`, AL's `@_test_attr` `#match?` helper) or whose `node-types.json` ended with a non-node `{"@generated": true}` marker (Erlang) failed to register entirely, so those protocols were silently unavailable for parse and emit. Named-scope detection now degrades to a no-op when its query cannot compile, and `node-types.json` entries without a `type` field are skipped, so every such grammar registers.
+
 ## [0.51.0] - 2026-05-28
 
 ### Changed

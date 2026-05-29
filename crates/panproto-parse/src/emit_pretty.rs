@@ -281,6 +281,12 @@ pub enum TokenRole {
     Connector,
     /// Text from a leaf vertex's `literal-value` constraint.
     Terminal,
+    /// A token the grammar wraps in `IMMEDIATE_TOKEN`: the lexer emits it
+    /// glued to its neighbour with no intervening whitespace (the `.` in
+    /// a float literal `0.5`, an immediate string delimiter). Tight on
+    /// both sides, unconditionally. Mirrors
+    /// [`panproto_gat::LayoutRole::Immediate`].
+    Immediate,
 }
 
 /// A grammar's production-rule table, deserialized from `grammar.json`.
@@ -1409,6 +1415,22 @@ fn classify_seq(
         }
     }
 
+    // An optional leading unary sign (`CHOICE[- | BLANK]` / `OPTIONAL(-)`
+    // at the head of the SEQ, with an operand after it) is a tight prefix
+    // on that operand: `signed_number = SEQ[CHOICE[- | BLANK], number]`
+    // emits `-1.0`, not `- 1.0`. The sign lives inside a CHOICE, so the
+    // per-position pass below never sees it; classify it here.
+    if members.len() >= 2 {
+        if let Some(first) = members.first() {
+            let has_following_content = members[1..].iter().any(|m| unwrap_to_string(m).is_none());
+            if has_following_content {
+                for sign in leading_optional_sign(first) {
+                    roles.entry(sign).or_insert(TokenRole::BracketOpen);
+                }
+            }
+        }
+    }
+
     // Classify remaining STRINGs by structural position.
     let first_content_idx = members.iter().position(|m| unwrap_to_string(m).is_none());
     let last_content_idx = members.iter().rposition(|m| unwrap_to_string(m).is_none());
@@ -1531,7 +1553,13 @@ fn classify_seq_positions(members: &[Production], in_choice: bool) -> Vec<Option
             continue;
         }
         if let Some(value) = unwrap_to_string(m) {
-            roles[i] = Some(if is_word_like(value) {
+            roles[i] = Some(if is_immediate_token(m) {
+                // The grammar wraps this token in IMMEDIATE_TOKEN: the
+                // lexer glues it to its neighbours (the `.` in a float
+                // `0.5`). Derive tightness from that fact rather than
+                // guessing from position.
+                TokenRole::Immediate
+            } else if is_word_like(value) {
                 TokenRole::Keyword
             } else if !in_choice && first_content_idx.is_some_and(|fc| i < fc) {
                 if is_prefix_sigil(value) {
@@ -1635,6 +1663,12 @@ fn member_has_leading_bracket(prod: &Production, grammar: &Grammar) -> bool {
             .rules
             .get(name)
             .is_some_and(|rule| first_string_of(rule).is_some_and(|s| !is_word_like(s))),
+        // A SEQ member whose first token is a non-word bracket (`(`, `[`)
+        // is a call/index pattern: the preceding callee must stay tight
+        // against it (`f(`, not `f (`). This also covers a CHOICE of such
+        // SEQs (e.g. qvr's `morphism_call` arg-list alternatives), which
+        // recurses here per alternative.
+        Production::Seq { .. } => first_string_of(prod).is_some_and(|s| !is_word_like(s)),
         Production::Field { content, .. } => member_has_leading_bracket(content, grammar),
         Production::Choice { members } => {
             let non_blank: Vec<_> = members
@@ -1703,6 +1737,45 @@ fn has_repeat_in(prod: &Production) -> bool {
         | Production::Reserved { content, .. }
         | Production::Alias { content, .. } => has_repeat_in(content),
         _ => false,
+    }
+}
+
+/// A single-character unary sign (`-`, `+`) that, when it sits in an
+/// optional *leading* slot before a single operand, glues to that
+/// operand (`signed_number`: `-1.0`, not `- 1.0`). These are excluded
+/// from [`is_prefix_sigil`] because in a binary position they are
+/// spaced operators; the leading-optional-slot structure is what
+/// disambiguates them as unary.
+fn is_unary_sign(s: &str) -> bool {
+    matches!(s, "-" | "+")
+}
+
+/// Extract the unary sign STRING(s) carried by an optional *leading*
+/// SEQ member: a `CHOICE[sign | … | BLANK]` or `OPTIONAL(sign)`. Returns
+/// empty unless the member is structurally an optional sign slot, which
+/// marks the sign as a tight unary prefix on the following operand.
+fn leading_optional_sign(prod: &Production) -> Vec<String> {
+    match prod {
+        Production::Choice { members }
+            if members.iter().any(|m| matches!(m, Production::Blank)) =>
+        {
+            members
+                .iter()
+                .filter_map(unwrap_to_string)
+                .filter(|s| is_unary_sign(s))
+                .map(str::to_owned)
+                .collect()
+        }
+        Production::Optional { content } => unwrap_to_string(content)
+            .filter(|s| is_unary_sign(s))
+            .map(|s| vec![s.to_owned()])
+            .unwrap_or_default(),
+        Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Field { content, .. } => leading_optional_sign(content),
+        _ => Vec::new(),
     }
 }
 
@@ -2400,10 +2473,20 @@ fn emit_seq_with_roles(
                     member,
                     Production::Repeat { .. } | Production::Repeat1 { .. }
                 );
+                // Never force a space after a token that is tight on its
+                // right edge: a BracketOpen (`(`, or a unary-sign prefix
+                // classified as BracketOpen) or an IMMEDIATE_TOKEN. The
+                // sibling-separation ForceSpace must not override the
+                // structural tightness (`f(-1.0)`, not `f(- 1.0)`).
+                let prev_tight_right = matches!(
+                    out.tokens.last(),
+                    Some(Token::Lit(_, TokenRole::BracketOpen | TokenRole::Immediate))
+                );
                 if !member_starts_with_bracket
                     && !is_zero_width_external
                     && !is_separator_choice
                     && !is_repeat
+                    && !prev_tight_right
                 {
                     out.tokens.push(Token::ForceSpace);
                 }
@@ -2606,11 +2689,19 @@ fn emit_production_inner(
                         true,
                     ),
                     Production::String { value } => {
-                        let role = if is_word_like(value) {
-                            TokenRole::Keyword
-                        } else {
-                            TokenRole::Separator
-                        };
+                        // A bare STRING alternative of a CHOICE. Prefer a
+                        // role derived for this token in the current rule
+                        // (e.g. a leading unary sign classified as a tight
+                        // prefix: `signed_number`'s `-`); otherwise a
+                        // word-like token spaces as a keyword and a
+                        // punctuation token acts as a separator.
+                        let role = out.explicit_role(value).unwrap_or_else(|| {
+                            if is_word_like(value) {
+                                TokenRole::Keyword
+                            } else {
+                                TokenRole::Separator
+                            }
+                        });
                         out.token_with_role(value, Some(role));
                         Ok(())
                     }
@@ -4419,18 +4510,24 @@ impl<'a> Output<'a> {
     }
 
     fn lookup_role(&self, value: &str) -> TokenRole {
-        if let Some(ref rule) = self.current_rule {
-            if let Some(role_map) = self.grammar.token_roles.get(rule) {
-                if let Some(role) = role_map.get(value) {
-                    return *role;
-                }
-            }
+        if let Some(role) = self.explicit_role(value) {
+            return role;
         }
         if is_word_like(value) {
             TokenRole::Keyword
         } else {
             TokenRole::Operator
         }
+    }
+
+    /// The role classified for `value` in the current rule, if any.
+    /// `None` when the rule's grammar-derived `token_roles` map has no
+    /// entry, leaving the caller to choose a structural default.
+    fn explicit_role(&self, value: &str) -> Option<TokenRole> {
+        self.current_rule
+            .as_ref()
+            .and_then(|rule| self.grammar.token_roles.get(rule))
+            .and_then(|role_map| role_map.get(value).copied())
     }
 
     /// Emit a bracket-open token that triggers indentation. This is the
@@ -4569,12 +4666,20 @@ fn layout(tokens: &[Token], policy: &FormatPolicy, line_comment_prefixes: &[Stri
                 if at_line_start {
                     bytes.extend(std::iter::repeat_n(b' ', indent * policy.indent_width));
                 } else if let Some(prev_role) = last_role {
-                    let want_space = force_next_separator
-                        || (!suppress_next_separator
-                            && needs_space_by_role(prev_role, &last_text, *role, value))
-                        || (is_block_open
-                            && !suppress_next_separator
-                            && matches!(prev_role, TokenRole::Terminal | TokenRole::BracketClose));
+                    // An explicit NoSpace (suppress) is authoritative: it
+                    // records that the source had no separator at this
+                    // boundary (an empty REPEAT separator slot, an
+                    // IMMEDIATE_TOKEN). It overrides the sibling-separation
+                    // ForceSpace heuristic — otherwise beamed notes
+                    // (`CDEF`) re-space to `C D E F`.
+                    let want_space = !suppress_next_separator
+                        && (force_next_separator
+                            || needs_space_by_role(prev_role, &last_text, *role, value)
+                            || (is_block_open
+                                && matches!(
+                                    prev_role,
+                                    TokenRole::Terminal | TokenRole::BracketClose
+                                )));
                     if want_space {
                         bytes.extend_from_slice(separator);
                     }
@@ -4623,6 +4728,9 @@ fn needs_space_by_role(last: TokenRole, last_text: &str, next: TokenRole, next_t
     let last = effective_spacing_role(last, last_text);
     let next = effective_spacing_role(next, next_text);
     match (last, next) {
+        // Immediate (IMMEDIATE_TOKEN) tokens are lexically glued to
+        // their neighbours on both sides (`0.5`, not `0 . 5`).
+        (TokenRole::Immediate, _) | (_, TokenRole::Immediate) => false,
         // Brackets: tight on the inside
         (TokenRole::BracketOpen, _) | (_, TokenRole::BracketClose) => false,
         // Separators: tight before, space after

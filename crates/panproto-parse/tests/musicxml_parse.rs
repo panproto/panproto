@@ -16,7 +16,7 @@ use panproto_parse::ParserRegistry;
 /// A minimal but well-formed `MusicXML` excerpt: declaration, partwise
 /// score with one part containing one measure of a single C4 quarter
 /// note. Drawn from the `MusicXML` 4.0 "hello world" sample at
-/// https://www.w3.org/2021/06/musicxml40/tutorial/hello-world/.
+/// <https://www.w3.org/2021/06/musicxml40/tutorial/hello-world/>.
 const HELLO_MUSICXML: &[u8] = br#"<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <!DOCTYPE score-partwise PUBLIC
     "-//Recordare//DTD MusicXML 4.0 Partwise//EN"
