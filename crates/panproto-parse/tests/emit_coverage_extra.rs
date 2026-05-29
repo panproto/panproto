@@ -112,7 +112,7 @@ fn nim_emit_is_fixed_point() {
 
 #[test]
 #[cfg(feature = "lang-d")]
-#[ignore = "child-ordering: `int x = 1;` re-emits as `int x 1 =;` (init `= 1` reordered, then dropped)"]
+#[ignore = "CHOICE dispatch (pick_choice) greedily picks optional template_parameters over BLANK for the initializer's int_literal; needs tree-sitter production-ID witnesses (plan §6)"]
 fn d_emit_is_fixed_point() {
     assert_emit_fixed_point("d", "d", b"void main() {\n  int x = 1;\n}\n");
 }
