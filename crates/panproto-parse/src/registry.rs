@@ -479,6 +479,7 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "nim",
     "nix",
     "ocaml",
+    "odin",
     "php",
     "python",
     "rust",

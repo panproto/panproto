@@ -141,7 +141,6 @@ fn hare_emit_is_fixed_point() {
 
 #[test]
 #[cfg(feature = "lang-odin")]
-#[ignore = "trailing `;` inserted after `package main` on re-emit"]
 fn odin_emit_is_fixed_point() {
     assert_emit_fixed_point("odin", "odin", b"package main\n\nmain :: proc() {\n}\n");
 }

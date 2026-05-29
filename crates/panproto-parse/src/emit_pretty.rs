@@ -3530,6 +3530,30 @@ fn pick_choice_with_cursor<'a>(
         }
     }
 
+    // Pure-separator newline preference: a CHOICE whose alternatives all
+    // emit no named child (a statement separator / terminator, e.g.
+    // Odin's `_separator = CHOICE[_newline, ";"]`) is decided by which
+    // punctuation to emit, not by a cursor edge. When a separator is
+    // genuinely needed (the cursor-exhaustion gates above already handled
+    // the empty case) and a newline alternative exists, prefer it: it is
+    // the canonical separator and is immune to a fingerprint contaminated
+    // by a `;` elsewhere in the vertex (which would otherwise flip the
+    // choice to `;` only on the re-emit, breaking the fixed point).
+    if any_unconsumed {
+        let mut visited = std::collections::HashSet::new();
+        let mut yield_cache = grammar.yield_sets.clone();
+        let all_non_consuming = alternatives.iter().all(|alt| {
+            let ys = yield_of_production(grammar, alt, &mut visited, &mut yield_cache);
+            visited.clear();
+            ys.is_empty() || (ys.len() == 1 && ys.contains(""))
+        });
+        if all_non_consuming {
+            if let Some(nl) = alternatives.iter().find(|a| is_newline_alt(grammar, a)) {
+                return Some(nl);
+            }
+        }
+    }
+
     if !constraint_blob.is_empty() {
         // Categorical filter: when the cursor has an unconsumed first
         // edge, an alt should only be considered if it can consume
@@ -4494,6 +4518,33 @@ fn literal_value<'a>(schema: &'a Schema, vertex_id: &panproto_gat::Name) -> Opti
 /// `\n`, `\r\n`, `\n+`, `\r?\n+`. Distinguishes structural newline
 /// terminals from generic whitespace and from other patterns that
 /// happen to contain a newline escape inside a larger class.
+/// True when a CHOICE alternative emits a newline: a newline-like
+/// PATTERN, an external `_newline`-family scanner token, or a hidden
+/// rule whose body is a newline PATTERN. Used to prefer the newline
+/// form of a statement separator over a `;` whose only support is a
+/// fingerprint contaminated by a `;` elsewhere in the vertex.
+fn is_newline_alt(grammar: &Grammar, alt: &Production) -> bool {
+    match alt {
+        Production::Pattern { value } => is_newline_like_pattern(value),
+        Production::Symbol { name } => {
+            grammar.external_newlines.contains(name)
+                || (name.starts_with('_')
+                    && grammar
+                        .rules
+                        .get(name)
+                        .is_some_and(contains_newline_pattern))
+        }
+        Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Reserved { content, .. } => is_newline_alt(grammar, content),
+        _ => false,
+    }
+}
+
 fn contains_newline_pattern(prod: &Production) -> bool {
     match prod {
         Production::Pattern { value } => is_newline_like_pattern(value),
