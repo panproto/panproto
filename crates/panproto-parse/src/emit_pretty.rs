@@ -3573,6 +3573,41 @@ fn pick_choice_with_cursor<'a>(
                 .map(|c| c.value.split_whitespace().collect())
         })
         .unwrap_or_default();
+    // Concrete-named-witness guard. The subtype closure `subtypes[K]` is a
+    // deep-reachability relation: it admits a SYMBOL `S` for target kind `K`
+    // whenever `S`'s rule body can *eventually* reach `K`, even through an
+    // intervening concrete node. That over-admits an optional alternative
+    // that wraps `K` in its own node (D's `declarator` CHOICE picks
+    // `template_parameters` for an `int_literal` because a template value
+    // argument can be an `int_literal`), stealing the edge from a later
+    // mandatory member and dropping it.
+    //
+    // The `chose-alt-child-kinds` witness records the actual named children
+    // the parser produced. A rule that carries its *own* literal tokens
+    // (brackets / keywords, e.g. D's `template_parameters = SEQ["(", …, ")"]`)
+    // always materialises as a node under its own name when matched, so it
+    // would appear in that witness if it had really been taken. When the
+    // witness is present and such a self-anchored, concrete-named symbol is
+    // absent from it, that alternative was not taken: skip it.
+    //
+    // The guard is deliberately narrow:
+    //   - hidden `_`-rules and declared supertypes dispatch *through* to
+    //     their target and never appear under their own name (exempt);
+    //   - a pure-symbol wrapper rule with no literal tokens of its own
+    //     (e.g. Julia's `macro_argument_list = REPEAT1(_block_form)`) can be
+    //     inlined transparently and materialise under a *different* kind
+    //     (`argument_list`), so it too is exempt — requiring an own literal
+    //     token avoids skipping it.
+    let concrete_named_absent = |sym: &str| -> bool {
+        !child_kinds.is_empty()
+            && !sym.starts_with('_')
+            && !grammar.supertypes.contains(sym)
+            && grammar
+                .rules
+                .get(sym)
+                .is_some_and(|r| !literal_strings(r).is_empty())
+            && !child_kinds.contains(&sym)
+    };
     // Cursor-exhaustion BLANK-preference: when all cursor edges have
     // been consumed AND `BLANK` is one of the alternatives, the only
     // alt that won't introduce a non-existent child is `BLANK`.
@@ -3899,7 +3934,7 @@ fn pick_choice_with_cursor<'a>(
         if let Some(supers) = target_supers {
             for alt in alternatives {
                 if let Production::Symbol { name } = alt {
-                    if supers.contains(name.as_str()) {
+                    if supers.contains(name.as_str()) && !concrete_named_absent(name) {
                         return Some(alt);
                     }
                 }
@@ -3907,7 +3942,7 @@ fn pick_choice_with_cursor<'a>(
                     named: true, value, ..
                 } = alt
                 {
-                    if supers.contains(value.as_str()) {
+                    if supers.contains(value.as_str()) && !concrete_named_absent(value) {
                         return Some(alt);
                     }
                 }
@@ -3949,6 +3984,20 @@ fn pick_choice_with_cursor<'a>(
             // ALIAS dispatch when literal-value restriction does not
             // apply.
             if !alt_satisfies_pre_alias_constraints(schema, cursor, alt) {
+                visited.clear();
+                continue;
+            }
+            // Concrete-named-witness guard (see `concrete_named_absent`):
+            // an optional alt that wraps the target kind in its own concrete
+            // node, absent from the recorded child kinds, was not taken.
+            let concrete_absent = match alt {
+                Production::Symbol { name } => concrete_named_absent(name),
+                Production::Alias {
+                    named: true, value, ..
+                } => concrete_named_absent(value),
+                _ => false,
+            };
+            if concrete_absent {
                 visited.clear();
                 continue;
             }

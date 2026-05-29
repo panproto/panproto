@@ -482,6 +482,7 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "css",
     "csv",
     "cylc",
+    "d",
     "desktop",
     "devicetree",
     "dockerfile",

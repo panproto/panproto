@@ -112,8 +112,12 @@ fn nim_emit_is_fixed_point() {
 
 #[test]
 #[cfg(feature = "lang-d")]
-#[ignore = "CHOICE dispatch (pick_choice) greedily picks optional template_parameters over BLANK for the initializer's int_literal; needs tree-sitter production-ID witnesses (plan §6)"]
 fn d_emit_is_fixed_point() {
+    // Was a CHOICE-dispatch defect: the subtype closure over-admitted the
+    // optional `template_parameters` for the initializer's `int_literal`,
+    // stealing the edge and dropping it (`int x = 1;` -> `int x 1 =;`). The
+    // concrete-named-witness guard in `pick_choice_with_cursor` rejects a
+    // self-anchored named alt absent from `chose-alt-child-kinds`.
     assert_emit_fixed_point("d", "d", b"void main() {\n  int x = 1;\n}\n");
 }
 
