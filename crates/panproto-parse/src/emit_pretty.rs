@@ -2070,6 +2070,24 @@ fn leaf_terminal_role(grammar: &Grammar, kind: &str) -> TokenRole {
     }
 }
 
+/// True when a production is (a possibly precedence/token-wrapped) bare
+/// `PATTERN` terminal — the shape a case-insensitive keyword takes inside
+/// an anonymous `ALIAS{…, value: "<word>"}`. Such a pattern carries no
+/// canonical text of its own; the alias value supplies it.
+fn alias_content_is_terminal_pattern(prod: &Production) -> bool {
+    match prod {
+        Production::Pattern { .. } => true,
+        Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Reserved { content, .. } => alias_content_is_terminal_pattern(content),
+        _ => false,
+    }
+}
+
 /// Unwrap precedence/token wrappers to reach a SEQ production.
 fn unwrap_to_seq(prod: &Production) -> &Production {
     match prod {
@@ -3113,12 +3131,25 @@ fn emit_production_inner(
             // alias value directly. The content's SYMBOL handler would
             // fall through the external-token heuristic and produce
             // nothing; the alias value IS the token text.
+            //
+            // The same applies when the content is a bare PATTERN with
+            // no captured literal-value: case-insensitive grammars spell
+            // keywords as patterns (`[pP][rR]…`) aliased to the canonical
+            // word (Ada's `procedure`, `is`, `begin`, `end`). The pattern
+            // alone would emit a `_` placeholder; the alias value is the
+            // keyword text and re-parses to the same kind.
             if !*named && !value.is_empty() {
                 if let Production::Symbol { name: sym } = content.as_ref() {
                     if sym.starts_with('_') && !grammar.rules.contains_key(sym) {
                         out.token(value);
                         return Ok(());
                     }
+                }
+                if alias_content_is_terminal_pattern(content)
+                    && literal_value(schema, vertex_id).is_none()
+                {
+                    out.token(value);
+                    return Ok(());
                 }
             }
             emit_production(protocol, schema, grammar, vertex_id, content, cursor, out)

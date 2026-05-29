@@ -106,7 +106,6 @@ fn zig_emit_is_fixed_point() {
 
 #[test]
 #[cfg(feature = "lang-nim")]
-#[ignore = "emit fixed-point not yet achieved (indent-block)"]
 fn nim_emit_is_fixed_point() {
     assert_emit_fixed_point("nim", "nim", b"proc f(): int =\n  result = 1\n");
 }
@@ -120,14 +119,12 @@ fn d_emit_is_fixed_point() {
 
 #[test]
 #[cfg(feature = "lang-ada")]
-#[ignore = "emit fixed-point not yet achieved (block keyword spacing)"]
 fn ada_emit_is_fixed_point() {
     assert_emit_fixed_point("ada", "adb", b"procedure P is\nbegin\n   null;\nend P;\n");
 }
 
 #[test]
 #[cfg(feature = "lang-fortran")]
-#[ignore = "emit fixed-point not yet achieved"]
 fn fortran_emit_is_fixed_point() {
     assert_emit_fixed_point(
         "fortran",
