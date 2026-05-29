@@ -2837,7 +2837,9 @@ fn emit_production_inner(
                         out.indent_open();
                     } else if grammar.external_indent_closes.contains(name) {
                         out.indent_close();
-                    } else if grammar.external_newlines.contains(name) {
+                    } else if grammar.external_newlines.contains(name)
+                        || out.cassette.is_some_and(|c| c.external_is_newline(name))
+                    {
                         out.newline();
                     } else if grammar.external_semicolons.contains(name) {
                         out.token_with_role(";", Some(TokenRole::Separator));

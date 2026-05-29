@@ -166,7 +166,6 @@ fn fsharp_emit_is_fixed_point() {
 
 #[test]
 #[cfg(feature = "lang-elm")]
-#[ignore = "indent-based module body collapses to one line; structure lost on re-emit"]
 fn elm_emit_is_fixed_point() {
     assert_emit_fixed_point("elm", "elm", b"module M exposing (..)\n\n\nx =\n    1\n");
 }

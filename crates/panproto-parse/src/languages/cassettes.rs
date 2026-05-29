@@ -51,6 +51,17 @@ pub trait GrammarCassette: Send + Sync {
         let _ = separator_text;
         false
     }
+
+    /// Returns `true` when an external scanner token is a layout
+    /// terminator that should emit a newline. Layout-sensitive grammars
+    /// name these idiosyncratically (Elm's `_virtual_end_decl`), so the
+    /// generic newline-classifier (which keys off the `_newline` /
+    /// `line_ending` conventions) cannot recognise them; the per-grammar
+    /// cassette declares them here.
+    fn external_is_newline(&self, token_name: &str) -> bool {
+        let _ = token_name;
+        false
+    }
 }
 
 /// Compose the language-specific override with the common fallback.
@@ -366,6 +377,23 @@ impl GrammarCassette for IndentBasedCassette {
     }
 }
 
+/// Elm's layout scanner emits virtual section/declaration terminators
+/// rather than the conventional `_newline`. `_virtual_end_decl` ends a
+/// top-level declaration and must render as a newline so declarations
+/// stay on their own lines; `_virtual_end_section` closes an indented
+/// section (let/in, case-of) and likewise breaks the line.
+struct ElmCassette;
+
+impl GrammarCassette for ElmCassette {
+    fn external_token_default(&self, _token_name: &str) -> Option<&str> {
+        None
+    }
+
+    fn external_is_newline(&self, token_name: &str) -> bool {
+        matches!(token_name, "_virtual_end_decl" | "_virtual_end_section")
+    }
+}
+
 /// Look up the cassette for a grammar by protocol name.
 ///
 /// Grammars not enumerated here get the default empty cassette, which
@@ -386,8 +414,9 @@ pub fn cassette_for(protocol: &str) -> Arc<dyn GrammarCassette> {
         "bash" | "zsh" | "fish" => Arc::new(ShellFamilyCassette),
         "cpp" | "cuda" | "hlsl" | "arduino" | "csharp" | "c" => Arc::new(CFamilyCassette),
         "javascript" | "typescript" | "tsx" | "qml" | "rescript" => Arc::new(JsFamilyCassette),
+        "elm" => Arc::new(ElmCassette),
         "agda" | "fsharp" | "fsharp_signature" | "earthfile" | "firrtl" | "cooklang" | "djot"
-        | "idris" | "nim" | "purescript" | "haskell" | "elm" => Arc::new(IndentBasedCassette),
+        | "idris" | "nim" | "purescript" | "haskell" => Arc::new(IndentBasedCassette),
         _ => Arc::new(DefaultCassette),
     }
 }

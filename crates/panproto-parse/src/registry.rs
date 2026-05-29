@@ -461,6 +461,7 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "cpp",
     "csharp",
     "css",
+    "elm",
     "fortran",
     "fsharp",
     "go",
