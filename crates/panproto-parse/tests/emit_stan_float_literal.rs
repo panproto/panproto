@@ -69,6 +69,24 @@ fn stan_arithmetic_floats_are_fixed_point() {
     );
 }
 
+/// The distribution call's parentheses must pair with each other, not
+/// with the surrounding `~` / `;`, so the callee stays tight against its
+/// argument list (`normal(`, not `normal (`).
+#[test]
+fn stan_distribution_call_parens_are_tight() {
+    with_big_stack(|| {
+        let reg = registry();
+        let src = b"model{\n  y ~ normal(0, 0.5);\n}\n";
+        let s = reg.parse_with_protocol("stan", src, "m.stan").expect("parse");
+        let e = reg.emit_pretty_with_protocol("stan", &s).expect("emit");
+        let text = String::from_utf8_lossy(&e).into_owned();
+        assert!(
+            text.contains("normal(") && !text.contains("normal ("),
+            "distribution call parens must hug the callee: {text}"
+        );
+    });
+}
+
 #[test]
 fn stan_array_literal_floats_are_fixed_point() {
     assert_float_fixed_point(

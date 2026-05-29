@@ -1535,10 +1535,41 @@ fn classify_seq_positions(members: &[Production], in_choice: bool) -> Vec<Option
         .filter(|m| unwrap_to_string(m).is_none())
         .count();
 
-    // Bracket pair detection: first and last STRING with content between.
+    // Bracket pair detection.
     let mut bracket_open_idx: Option<usize> = None;
     let mut bracket_close_idx: Option<usize> = None;
-    if string_positions.len() >= 2 {
+
+    // Canonical pairing first: pair an actual `(`/`[`/`{` with its matching
+    // closer, even when other STRINGs (a prefix operator, a trailing `;`)
+    // sit at the SEQ ends. `sampling_statement` (`expr ~ f ( args ) ;`)
+    // must pair `(`/`)`, not `~`/`;`.
+    for &(oi, ov) in &string_positions {
+        let Some(close_text) = matching_close_bracket(ov) else {
+            continue;
+        };
+        if let Some(&(ci, _)) = string_positions
+            .iter()
+            .rev()
+            .find(|(_, v)| *v == close_text)
+        {
+            if oi < ci
+                && members[oi + 1..ci]
+                    .iter()
+                    .any(|m| unwrap_to_string(m).is_none())
+            {
+                roles[oi] = Some(TokenRole::BracketOpen);
+                roles[ci] = Some(TokenRole::BracketClose);
+                bracket_open_idx = Some(oi);
+                bracket_close_idx = Some(ci);
+                break;
+            }
+        }
+    }
+
+    // First/last STRING fallback: handles word-like pairs (begin/end) and
+    // same-text immediate delimiters (regex `/.../`) that the canonical
+    // search does not recognise.
+    if bracket_open_idx.is_none() && string_positions.len() >= 2 {
         let (first_idx, first_val) = string_positions[0];
         let (last_idx, last_val) = string_positions[string_positions.len() - 1];
 
@@ -1797,6 +1828,19 @@ fn leading_optional_sign(prod: &Production) -> Vec<String> {
         | Production::PrecDynamic { content, .. }
         | Production::Field { content, .. } => leading_optional_sign(content),
         _ => Vec::new(),
+    }
+}
+
+/// The canonical closing delimiter for an opening bracket STRING, if it
+/// is one of the universal nesting brackets. `<`/`>` are excluded: they
+/// are ambiguous with comparison operators and are handled by the
+/// first/last fallback only when they genuinely bound the SEQ.
+fn matching_close_bracket(open: &str) -> Option<&'static str> {
+    match open {
+        "(" => Some(")"),
+        "[" => Some("]"),
+        "{" => Some("}"),
+        _ => None,
     }
 }
 
