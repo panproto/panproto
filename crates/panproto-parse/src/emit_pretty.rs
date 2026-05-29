@@ -2248,7 +2248,18 @@ fn emit_vertex(
                 .get(vkind)
                 .is_some_and(|src| grammar.rules.contains_key(src));
             if !(is_bracket_pair && has_alias_rule) {
-                out.token_with_role(literal, Some(leaf_terminal_role(grammar, vkind)));
+                // An empty bracket-pair literal (`()`, `[]`, `{}` captured
+                // as one token, e.g. empty parameters) hugs its callee on
+                // the left (`f()`) but still spaces after a keyword
+                // (`return ()`). That is exactly the BracketClose role
+                // (tight inner/left edge, keyword-spaced). Other leaves
+                // keep their delimiter-or-terminal role.
+                let role = if is_bracket_pair {
+                    TokenRole::BracketClose
+                } else {
+                    leaf_terminal_role(grammar, vkind)
+                };
+                out.token_with_role(literal, Some(role));
                 return Ok(());
             }
         }

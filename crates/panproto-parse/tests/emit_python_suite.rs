@@ -53,6 +53,13 @@ fn python_function_body_is_fixed_point_and_indented() {
             "function body statements must not be joined with ';': {e1s:?}"
         );
 
+        // The empty parameter list hugs the function name (`f()`, not
+        // `f ()`).
+        assert!(
+            e1s.contains("f()"),
+            "empty parameter list must stay tight against the name: {e1s:?}"
+        );
+
         // The body must be indented: the `return` line sits inside the
         // function, not at column 0.
         let return_line = e1s
