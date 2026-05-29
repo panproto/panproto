@@ -85,14 +85,14 @@ fn hcl_emit_is_fixed_point() {
 
 #[test]
 #[cfg(feature = "lang-kdl")]
-#[ignore = "emit fixed-point not yet achieved"]
+#[ignore = "slashdash /- comment marker leaks into node args"]
 fn kdl_emit_is_fixed_point() {
     assert_emit_fixed_point("kdl", "kdl", b"node 1 2\n");
 }
 
 #[test]
 #[cfg(feature = "lang-ron")]
-#[ignore = "emit fixed-point not yet achieved"]
+#[ignore = "`(...)` struct wrapper lost; re-emit empty"]
 fn ron_emit_is_fixed_point() {
     assert_emit_fixed_point("ron", "ron", b"(\n    a: 1,\n)\n");
 }
@@ -112,7 +112,7 @@ fn nim_emit_is_fixed_point() {
 
 #[test]
 #[cfg(feature = "lang-d")]
-#[ignore = "emit fixed-point not yet achieved"]
+#[ignore = "child-ordering: `int x = 1;` re-emits as `int x 1 =;` (init `= 1` reordered, then dropped)"]
 fn d_emit_is_fixed_point() {
     assert_emit_fixed_point("d", "d", b"void main() {\n  int x = 1;\n}\n");
 }
@@ -141,7 +141,7 @@ fn hare_emit_is_fixed_point() {
 
 #[test]
 #[cfg(feature = "lang-odin")]
-#[ignore = "emit fixed-point not yet achieved"]
+#[ignore = "trailing `;` inserted after `package main` on re-emit"]
 fn odin_emit_is_fixed_point() {
     assert_emit_fixed_point("odin", "odin", b"package main\n\nmain :: proc() {\n}\n");
 }
@@ -167,21 +167,21 @@ fn fsharp_emit_is_fixed_point() {
 
 #[test]
 #[cfg(feature = "lang-elm")]
-#[ignore = "emit fixed-point not yet achieved (indent-block)"]
+#[ignore = "indent-based module body collapses to one line; structure lost on re-emit"]
 fn elm_emit_is_fixed_point() {
     assert_emit_fixed_point("elm", "elm", b"module M exposing (..)\n\n\nx =\n    1\n");
 }
 
 #[test]
 #[cfg(feature = "lang-purescript")]
-#[ignore = "emit fixed-point not yet achieved (indent-block)"]
+#[ignore = "type signature `x :: Int` re-emits as `x :: ;` (annotation dropped)"]
 fn purescript_emit_is_fixed_point() {
     assert_emit_fixed_point("purescript", "purs", b"module M where\n\nx :: Int\nx = 1\n");
 }
 
 #[test]
 #[cfg(feature = "lang-lean")]
-#[ignore = "emit fixed-point not yet achieved"]
+#[ignore = "`def x : Nat := 1` re-emits as `def x Nat:1` (`:`/`:=` mangled)"]
 fn lean_emit_is_fixed_point() {
     assert_emit_fixed_point("lean", "lean", b"def x : Nat := 1\n");
 }
@@ -195,7 +195,7 @@ fn markdown_emit_is_fixed_point() {
 
 #[test]
 #[cfg(feature = "lang-typst")]
-#[ignore = "emit fixed-point not yet achieved (markup spacing)"]
+#[ignore = "markup close marker `]` leaks into emitted content"]
 fn typst_emit_is_fixed_point() {
     assert_emit_fixed_point("typst", "typ", b"= Heading\n\nText.\n");
 }
