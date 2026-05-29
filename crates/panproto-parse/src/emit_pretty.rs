@@ -4697,7 +4697,24 @@ fn is_newline_like_pattern(pattern: &str) -> bool {
     if pattern.is_empty() {
         return false;
     }
-    let mut chars = pattern.chars();
+    // A top-level alternation of newline-only branches (e.g. CSV's row
+    // terminator `\r|\r\n|\n`) is itself newline-like: every branch matches
+    // only newline characters, so the whole pattern is a structural line
+    // break, not free text. Without this the pattern fell through to the
+    // `_` placeholder, which re-parsed into a phantom field and grew.
+    split_top_level_alternation(pattern)
+        .iter()
+        .all(|branch| is_newline_branch(branch))
+}
+
+/// One branch of a newline pattern: a non-empty run of `\n` / `\r` atoms
+/// (raw or escaped), newline-only character classes (`[\r\n]`), and
+/// quantifiers, with nothing else.
+fn is_newline_branch(branch: &str) -> bool {
+    if branch.is_empty() {
+        return false;
+    }
+    let mut chars = branch.chars();
     let mut saw_newline_atom = false;
     while let Some(c) = chars.next() {
         match c {
@@ -4706,11 +4723,70 @@ fn is_newline_like_pattern(pattern: &str) -> bool {
                 _ => return false,
             },
             '\n' | '\r' => saw_newline_atom = true,
+            // A character class is a newline atom iff it contains only
+            // newline characters (`[\r\n]`, `[\n]`): escaped `\n`/`\r` or the
+            // raw newline bytes, nothing else.
+            '[' => {
+                let mut class_has_atom = false;
+                let mut esc = false;
+                let mut closed = false;
+                for cc in chars.by_ref() {
+                    if esc {
+                        match cc {
+                            'n' | 'r' => class_has_atom = true,
+                            _ => return false,
+                        }
+                        esc = false;
+                        continue;
+                    }
+                    match cc {
+                        ']' => {
+                            closed = true;
+                            break;
+                        }
+                        '\\' => esc = true,
+                        '\n' | '\r' => class_has_atom = true,
+                        _ => return false,
+                    }
+                }
+                if !closed || !class_has_atom {
+                    return false;
+                }
+                saw_newline_atom = true;
+            }
             '?' | '*' | '+' => {} // quantifiers on the previous atom
             _ => return false,
         }
     }
     saw_newline_atom
+}
+
+/// Split a regex on its top-level `|` alternation operators, ignoring `|`
+/// that is escaped (`\|`) or inside a character class (`[...]`). Returns the
+/// whole pattern as a single element when there is no top-level alternation.
+fn split_top_level_alternation(pattern: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut start = 0;
+    let mut in_class = false;
+    let mut escaped = false;
+    for (i, c) in pattern.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match c {
+            '\\' => escaped = true,
+            '[' => in_class = true,
+            ']' => in_class = false,
+            '|' if !in_class => {
+                parts.push(&pattern[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&pattern[start..]);
+    parts
 }
 
 /// True iff `pattern` matches a (possibly quantified) run of generic
@@ -5449,6 +5525,24 @@ mod tests {
         )
         .expect("valid SEQ");
         assert_eq!(first_symbol(&prod), Some("body"));
+    }
+
+    #[test]
+    fn is_newline_like_pattern_handles_alternations_and_classes() {
+        // Single newline atoms (the original behaviour).
+        assert!(is_newline_like_pattern("\\n"));
+        assert!(is_newline_like_pattern("\\r\\n"));
+        assert!(is_newline_like_pattern("\\r?\\n"));
+        // Top-level alternation of newline-only branches (CSV/TSV row end).
+        assert!(is_newline_like_pattern("\\r|\\r\\n|\\n"));
+        // Alternation mixing a newline-only character class (properties).
+        assert!(is_newline_like_pattern("[\\r\\n]|\\r\\n"));
+        assert!(is_newline_like_pattern("[\\r\\n]"));
+        // Not newline-like: free text, or an alternation with a text branch.
+        assert!(!is_newline_like_pattern(".+"));
+        assert!(!is_newline_like_pattern("\\n|."));
+        assert!(!is_newline_like_pattern("[a\\n]"));
+        assert!(!is_newline_like_pattern(""));
     }
 
     #[test]

@@ -72,6 +72,12 @@ const VERIFIED_SAMPLES: &[(&str, &str, &str)] = &[
     // the redundant layout space instead of accreting one per emit.
     ("ini", "ini", "[section]\nkey = value\n"),
     ("abc", "abc", "X:1\nT:Tune\nK:C\nCDEF|\n"),
+    ("properties", "properties", "key=value\n"),
+    // Alternation/character-class newline terminator (`\r|\r\n|\n`, `[\r\n]`):
+    // recognised as a structural line break instead of a `_` placeholder that
+    // re-parses into a phantom field and grows.
+    ("csv", "csv", "a,b,c\n1,2,3\n"),
+    ("tsv", "tsv", "a\tb\tc\n1\t2\t3\n"),
 ];
 
 fn with_big_stack<F: FnOnce() + Send + 'static>(inner: F) {
