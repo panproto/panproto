@@ -77,7 +77,9 @@ fn stan_distribution_call_parens_are_tight() {
     with_big_stack(|| {
         let reg = registry();
         let src = b"model{\n  y ~ normal(0, 0.5);\n}\n";
-        let s = reg.parse_with_protocol("stan", src, "m.stan").expect("parse");
+        let s = reg
+            .parse_with_protocol("stan", src, "m.stan")
+            .expect("parse");
         let e = reg.emit_pretty_with_protocol("stan", &s).expect("emit");
         let text = String::from_utf8_lossy(&e).into_owned();
         assert!(
