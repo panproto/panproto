@@ -429,6 +429,15 @@ pub struct Grammar {
     /// (e.g. `string_end`). Emitted tight on the inside.
     #[serde(skip)]
     pub external_bracket_closes: std::collections::HashSet<String>,
+    /// Rule names that are indented blocks whose opening `_indent` lives
+    /// in a (hidden) parent rule rather than the rule itself: their body
+    /// references an external indent-*close* token (`_dedent`) but no
+    /// indent-*open* token. The parser reaches such a block vertex
+    /// directly (the hidden `_suite` wrapper carrying the `_indent` is
+    /// not a vertex), so the emitter must synthesize the opening indent
+    /// (`def f():` then an indented body) when it walks the rule.
+    #[serde(skip)]
+    pub synthetic_indent_rules: std::collections::HashSet<String>,
     /// Named alias map: maps alias value to source symbol name.
     /// When a vertex kind has no direct grammar rule, this map resolves
     /// `ALIAS { content: SYMBOL source, named: true, value: alias }` so
@@ -563,6 +572,7 @@ impl Grammar {
         grammar.line_comment_prefixes = extract_line_comment_prefixes(&grammar);
         classify_external_layout_tokens(&mut grammar);
         classify_external_bracket_delimiters(&mut grammar);
+        classify_synthetic_indent_rules(&mut grammar);
         grammar.yield_sets = compute_yield_sets(&grammar);
         Ok(grammar)
     }
@@ -1974,6 +1984,33 @@ fn classify_external_bracket_delimiters(grammar: &mut Grammar) {
     grammar.external_bracket_closes = closes;
 }
 
+/// Identify indented-block rules whose opening `_indent` is supplied by
+/// a hidden parent: the rule's body references an external indent-close
+/// token (`_dedent`) but no indent-open token. Python's `block = SEQ[
+/// REPEAT(_statement), _dedent]` is the canonical case — the matching
+/// `_indent` sits in the hidden `_suite` wrapper, which is not a vertex,
+/// so the parser hands the emitter a bare `block` and the opening indent
+/// must be synthesized.
+fn classify_synthetic_indent_rules(grammar: &mut Grammar) {
+    if grammar.external_indent_closes.is_empty() {
+        return;
+    }
+    let mut rules = std::collections::HashSet::new();
+    for (name, rule) in &grammar.rules {
+        let symbols = referenced_symbols(rule);
+        let references_close = symbols
+            .iter()
+            .any(|s| grammar.external_indent_closes.contains(*s));
+        let references_open = symbols
+            .iter()
+            .any(|s| grammar.external_indent_opens.contains(*s));
+        if references_close && !references_open {
+            rules.insert(name.clone());
+        }
+    }
+    grammar.synthetic_indent_rules = rules;
+}
+
 /// The role for a leaf vertex's captured `literal-value`, given its
 /// kind: a string/heredoc delimiter external (`string_start`/`string_end`)
 /// brackets its content tightly, so it is emitted as a bracket rather
@@ -2222,6 +2259,14 @@ fn emit_vertex(
     if let Some(rule) = grammar.rules.get(kind) {
         let old_rule = out.current_rule.take();
         out.current_rule = Some(kind.to_owned());
+        // An indented-block rule (`block = SEQ[REPEAT(_statement),
+        // _dedent]`) is reached directly because its opening `_indent`
+        // lives in the hidden parent. Synthesize the opening indent so
+        // the body is indented; the rule's own `_dedent` closes it.
+        let synthetic_indent = grammar.synthetic_indent_rules.contains(kind);
+        if synthetic_indent {
+            out.indent_open();
+        }
         let mut cursor = ChildCursor::new(&edges);
         emit_production(protocol, schema, grammar, vertex_id, rule, &mut cursor, out)?;
         drain_extras(protocol, schema, grammar, &mut cursor, out)?;
