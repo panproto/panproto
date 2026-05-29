@@ -6,6 +6,7 @@ All notable changes to panproto will be documented in this file.
 
 ### Added
 
+- **Emit coverage: 15 protocols promoted to `Verified`** (`panproto-parse`): fixed-point tests (`emit(parse(emit(s))) == emit(s)`) now cover css, fsharp, hare, haskell, hcl, html, json, jsonnet, latex, markdown, nix, ocaml, svelte, toml, and yaml, bringing `VERIFIED_EMIT_PROTOCOLS` from 16 to 31. Protocols with a remaining emit defect (e.g. zig stack overflow; scss/tsx/vue/astro/elm/nim/ada/d/fortran/odin/purescript/lean/kdl/ron/typst spacing or fixed-point gaps) carry `#[ignore]` tests documenting the observed symptom for follow-up.
 - **Layout calculus vocabulary** (`panproto-gat`): `LayoutRole` (the structural token roles plus an explicit `Immediate` for `IMMEDIATE_TOKEN` tokens), the pure `Adjacency` relation over role pairs (`Adjacency::between`, reproducing the historical role-pair spacing table), and `LayoutSpec` / `RuleLayout` — the theory-level, grammar-derived payload of the `Layout` enrichment that the emitter will interpret. Re-exported at the crate root.
 
 ### Fixed
