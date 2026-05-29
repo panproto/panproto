@@ -151,6 +151,11 @@ const VERIFIED_SAMPLES: &[(&str, &str, &str)] = &[
     ("re2c", "re2c", "/*!re2c */\n"),
     ("solidity", "sol", "contract C {\n}\n"),
     ("verilog", "v", "module m;\nendmodule\n"),
+    // Fourth sweep (remaining tail).
+    ("angular", "html", "<div>{{ x }}</div>\n"),
+    ("batch", "bat", "@echo off\n"),
+    ("chuck", "ck", "1 => int x;\n"),
+    ("foam", "foam", "key value;\n"),
 ];
 
 fn with_big_stack<F: FnOnce() + Send + 'static>(inner: F) {
