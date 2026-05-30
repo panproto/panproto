@@ -3499,6 +3499,53 @@ fn emit_in_child_context(
     }
 }
 
+/// The literal keyword / punctuation tokens carried by the rule that an
+/// `ALIAS` content references, unwrapping precedence / token wrappers to the
+/// head `SYMBOL`. Used to disambiguate two source rules aliased to the same
+/// kind by checking the child's recorded operator against each source's
+/// literals. Returns empty when the content is not a (wrapped) bare symbol or
+/// the referenced rule carries no literals.
+fn aliased_source_literals(grammar: &Grammar, content: &Production) -> Vec<String> {
+    fn head_symbol(p: &Production) -> Option<&str> {
+        match p {
+            Production::Symbol { name } => Some(name.as_str()),
+            Production::Prec { content, .. }
+            | Production::PrecLeft { content, .. }
+            | Production::PrecRight { content, .. }
+            | Production::PrecDynamic { content, .. }
+            | Production::Token { content }
+            | Production::Reserved { content, .. } => head_symbol(content),
+            _ => None,
+        }
+    }
+    head_symbol(content)
+        .and_then(|s| grammar.rules.get(s))
+        .map(literal_strings)
+        .unwrap_or_default()
+}
+
+/// The `chose-alt-fingerprint` witness of the first unconsumed cursor edge
+/// whose target vertex has kind `kind`, if recorded. This is the child's
+/// operator / literal witness, used by the same-kind-alias disambiguation.
+fn first_unconsumed_target_fingerprint(
+    schema: &Schema,
+    cursor: &ChildCursor<'_>,
+    kind: &str,
+) -> Option<String> {
+    let edge = cursor
+        .edges
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !cursor.consumed[*i])
+        .map(|(_, e)| e)
+        .find(|e| schema.vertices.get(&e.tgt).map(|v| v.kind.as_ref()) == Some(kind))?;
+    schema.constraints.get(&edge.tgt).and_then(|cs| {
+        cs.iter()
+            .find(|c| c.sort.as_ref() == "chose-alt-fingerprint")
+            .map(|c| c.value.clone())
+    })
+}
+
 fn pick_choice_with_cursor<'a>(
     schema: &Schema,
     grammar: &Grammar,
@@ -3607,6 +3654,23 @@ fn pick_choice_with_cursor<'a>(
                 .get(sym)
                 .is_some_and(|r| !literal_strings(r).is_empty())
             && !child_kinds.contains(&sym)
+    };
+    // Same-kind alias disambiguation. When a CHOICE alt is
+    // `ALIAS{value: K, content: SYMBOL S}` and another rule also surfaces as
+    // kind K, the aliased source S is the right one only if the child's
+    // recorded operator witness contains one of S's own keyword literals
+    // (Ruby aliases `command_binary` {and,or} to `binary`, but arithmetic
+    // `binary` {+,-,…} surfaces as `binary` too). Empty source literals or a
+    // missing witness do not filter.
+    let alias_source_ok = |content: &Production, value: &str| -> bool {
+        let src_lits = aliased_source_literals(grammar, content);
+        if src_lits.is_empty() {
+            return true;
+        }
+        match first_unconsumed_target_fingerprint(schema, cursor, value) {
+            None => true,
+            Some(b) => src_lits.iter().any(|l| b.contains(l.as_str())),
+        }
     };
     // Cursor-exhaustion BLANK-preference: when all cursor edges have
     // been consumed AND `BLANK` is one of the alternatives, the only
@@ -3920,10 +3984,12 @@ fn pick_choice_with_cursor<'a>(
                 }
             }
             if let Production::Alias {
-                named: true, value, ..
+                named: true,
+                value,
+                content,
             } = alt
             {
-                if value.as_str() == target_kind {
+                if value.as_str() == target_kind && alias_source_ok(content, value) {
                     return Some(alt);
                 }
             }
@@ -3939,10 +4005,15 @@ fn pick_choice_with_cursor<'a>(
                     }
                 }
                 if let Production::Alias {
-                    named: true, value, ..
+                    named: true,
+                    value,
+                    content,
                 } = alt
                 {
-                    if supers.contains(value.as_str()) && !concrete_named_absent(value) {
+                    if supers.contains(value.as_str())
+                        && !concrete_named_absent(value)
+                        && alias_source_ok(content, value)
+                    {
                         return Some(alt);
                     }
                 }
@@ -3993,8 +4064,10 @@ fn pick_choice_with_cursor<'a>(
             let concrete_absent = match alt {
                 Production::Symbol { name } => concrete_named_absent(name),
                 Production::Alias {
-                    named: true, value, ..
-                } => concrete_named_absent(value),
+                    named: true,
+                    value,
+                    content,
+                } => concrete_named_absent(value) || !alias_source_ok(content, value),
                 _ => false,
             };
             if concrete_absent {
