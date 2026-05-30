@@ -151,6 +151,8 @@ const VERIFIED_SAMPLES: &[(&str, &str, &str)] = &[
     ("re2c", "re2c", "/*!re2c */\n"),
     ("solidity", "sol", "contract C {\n}\n"),
     ("verilog", "v", "module m;\nendmodule\n"),
+    // Dispatch fixes (keyword-CHOICE-led SEQ skippable in accepts_first_edge).
+    ("kotlin", "kt", "fun f(): Int {\n  return 1\n}\n"),
     // Fourth sweep (remaining tail).
     ("angular", "html", "<div>{{ x }}</div>\n"),
     ("batch", "bat", "@echo off\n"),

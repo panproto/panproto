@@ -534,6 +534,7 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "jsonnet",
     "julia",
     "just",
+    "kotlin",
     "latex",
     "lilypond",
     "linkerscript",
