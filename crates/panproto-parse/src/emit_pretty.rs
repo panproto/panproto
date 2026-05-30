@@ -4456,6 +4456,18 @@ fn accepts_first_edge_inner(
                 .is_some_and(|subs| subs.iter().any(|s| ys.contains(s.as_str())))
     }
     fn yield_has_epsilon(grammar: &Grammar, prod: &Production) -> bool {
+        // A CHOICE can be taken as its empty / keyword-only branch, so it is
+        // ε-able if ANY alternative is. The unioned yield set loses this: a
+        // CHOICE like `[STRING "return", SYMBOL _return_at]` (the keyword
+        // position of Kotlin's `return`) has a non-empty union (the label
+        // kinds from `_return_at`) yet can produce no named child via the
+        // bare `"return"` branch. Without descending, the SEQ walker would
+        // treat that position as a mandatory consumer and refuse to look past
+        // it to the following `_expression`, so `return x` would be rejected
+        // (and a sibling `throw` alt wrongly preferred).
+        if let Production::Choice { members } = prod {
+            return members.iter().any(|m| yield_has_epsilon(grammar, m));
+        }
         let mut visited = std::collections::HashSet::new();
         let mut cache = grammar.yield_sets.clone();
         let ys = yield_of_production(grammar, prod, &mut visited, &mut cache);
