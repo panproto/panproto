@@ -241,41 +241,114 @@ fn closure<'g>(
     seen
 }
 
-/// Pick the `CHOICE` alternative whose yield uniquely-maximally consumes
-/// the demand prefix. Returns the alternative index, or `None` when the
-/// demand under-determines the variant (a tie) — the review then defers
-/// to the canonical default rather than guessing.
-#[must_use]
-pub(crate) fn select_choice_by_unification(
+/// The structural candidates of a `CHOICE`: the maximal demand
+/// consumption length and the indices of every alternative achieving it
+/// (`best_len == 0` means no alternative consumed any child).
+fn choice_candidates(
     grammar: &Grammar,
     alternatives: &[Production],
     demand: &[&str],
-) -> Option<usize> {
+) -> (usize, Vec<usize>) {
     let mut best_len = 0usize;
-    let mut best_idx: Option<usize> = None;
-    let mut best_count = 0usize;
+    let mut cands: Vec<usize> = Vec::new();
     for (i, alt) in alternatives.iter().enumerate() {
         let mut visited = Vec::new();
-        let ends = match_demand(grammar, alt, demand, 0, &mut visited);
-        let Some(max_end) = ends.into_iter().max() else {
+        let Some(max_end) = match_demand(grammar, alt, demand, 0, &mut visited)
+            .into_iter()
+            .max()
+        else {
             continue;
         };
         if max_end > best_len {
             best_len = max_end;
-            best_idx = Some(i);
-            best_count = 1;
+            cands = vec![i];
         } else if max_end == best_len && max_end > 0 {
-            best_count += 1;
+            cands.push(i);
         }
     }
-    // A zero-consumption "best" means no alternative consumed any child;
-    // that is not a positive selection (e.g. all alternatives are pure
-    // tokens). Defer. A tie (≥2 alternatives reach the same maximal
-    // length) is genuine under-determination. Defer.
-    if best_len == 0 || best_count != 1 {
+    (best_len, cands)
+}
+
+/// The literal `STRING` tokens an alternative would emit directly (its
+/// own grammar literals, recursively). Used as the variant tag for
+/// trace tie-breaking.
+fn alt_literals(prod: &Production) -> Vec<String> {
+    let mut out = Vec::new();
+    collect_literals(prod, &mut out);
+    out
+}
+
+fn collect_literals(prod: &Production, out: &mut Vec<String>) {
+    match prod {
+        Production::String { value } => out.push(value.clone()),
+        Production::Seq { members } | Production::Choice { members } => {
+            for m in members {
+                collect_literals(m, out);
+            }
+        }
+        Production::Repeat { content }
+        | Production::Repeat1 { content }
+        | Production::Optional { content }
+        | Production::Field { content, .. }
+        | Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Reserved { content, .. } => collect_literals(content, out),
+        _ => {}
+    }
+}
+
+/// Pick a `CHOICE` alternative using structural unification, with the
+/// trace's literal-token fibre as the tie-breaker (the variant tag).
+///
+/// Unification first computes the structurally-maximal candidates. If
+/// exactly one, that is the answer. If several tie (e.g. kotlin
+/// `return expr` vs `throw expr`: same child demand `[expr]`), the
+/// parser's recorded literal tokens disambiguate: the alternative whose
+/// own literals overlap the trace's `Token` slots most (uniquely) is the
+/// one the parser took. This *consumes* the Prism tag rather than
+/// re-deriving it, and needs no absolute trace position. Still defers
+/// (`None`) on genuine under-determination.
+#[must_use]
+pub(crate) fn select_choice_with_trace(
+    grammar: &Grammar,
+    alternatives: &[Production],
+    demand: &[&str],
+    trace_tokens: &[String],
+) -> Option<usize> {
+    let (best_len, cands) = choice_candidates(grammar, alternatives, demand);
+    if best_len == 0 || cands.is_empty() {
         return None;
     }
-    best_idx
+    if cands.len() == 1 {
+        return Some(cands[0]);
+    }
+    if trace_tokens.is_empty() {
+        return None;
+    }
+    // Tie-break: maximize overlap between the alternative's own literals
+    // and the trace's token slots; require a unique non-zero maximum.
+    let mut best_overlap = 0usize;
+    let mut winner: Option<usize> = None;
+    let mut winner_count = 0usize;
+    for &i in &cands {
+        let lits = alt_literals(&alternatives[i]);
+        let overlap = lits.iter().filter(|l| trace_tokens.contains(l)).count();
+        if overlap > best_overlap {
+            best_overlap = overlap;
+            winner = Some(i);
+            winner_count = 1;
+        } else if overlap == best_overlap && overlap > 0 {
+            winner_count += 1;
+        }
+    }
+    if best_overlap == 0 || winner_count != 1 {
+        return None;
+    }
+    winner
 }
 
 #[cfg(test)]
@@ -319,12 +392,12 @@ mod tests {
         };
         // demand = two number children → first alt
         assert_eq!(
-            select_choice_by_unification(&g, alts, &["number", "number"]),
+            select_choice_with_trace(&g, alts, &["number", "number"], &[]),
             Some(0)
         );
         // demand = two string children → second alt
         assert_eq!(
-            select_choice_by_unification(&g, alts, &["string", "string"]),
+            select_choice_with_trace(&g, alts, &["string", "string"], &[]),
             Some(1)
         );
     }
@@ -359,14 +432,14 @@ mod tests {
         };
         // An identifier child picks `identifier`, not template_parameters.
         assert_eq!(
-            select_choice_by_unification(&g, alts, &["identifier"]),
+            select_choice_with_trace(&g, alts, &["identifier"], &[]),
             Some(1)
         );
         // An int_literal child matches NEITHER concrete alternative
         // directly (template_parameters needs the whole < int > shape,
         // identifier needs an identifier) → defer, do not steal.
         assert_eq!(
-            select_choice_by_unification(&g, alts, &["int_literal"]),
+            select_choice_with_trace(&g, alts, &["int_literal"], &[]),
             None
         );
     }
@@ -419,7 +492,48 @@ mod tests {
             Production::Choice { members } => members,
             _ => panic!(),
         };
-        assert_eq!(select_choice_by_unification(&g, alts, &["binary"]), None);
+        assert_eq!(select_choice_with_trace(&g, alts, &["binary"], &[]), None);
+    }
+
+    /// Literal-keyword CHOICE (kotlin return/throw shape): the child
+    /// demand ties, the trace's token fibre disambiguates.
+    #[test]
+    fn trace_token_breaks_keyword_tie() {
+        // jump = CHOICE[ SEQ["return", expr] , SEQ["throw", expr] ]
+        // demand [expr] matches BOTH (same child) → structural tie.
+        let g = grammar(
+            &serde_json::json!({
+                "name": "test",
+                "rules": {
+                    "jump": {"type": "CHOICE", "members": [
+                        {"type": "SEQ", "members": [str_("return"), sym("expr")]},
+                        {"type": "SEQ", "members": [str_("throw"), sym("expr")]},
+                    ]},
+                    "expr": str_("e"),
+                }
+            })
+            .to_string(),
+        );
+        let alts = match &g.rules["jump"] {
+            Production::Choice { members } => members,
+            _ => panic!(),
+        };
+        // No trace → genuine tie → defer.
+        assert_eq!(select_choice_with_trace(&g, alts, &["expr"], &[]), None);
+        // Trace contains "return" → first alt; "throw" → second.
+        assert_eq!(
+            select_choice_with_trace(&g, alts, &["expr"], &["return".to_owned()]),
+            Some(0)
+        );
+        assert_eq!(
+            select_choice_with_trace(&g, alts, &["expr"], &["throw".to_owned()]),
+            Some(1)
+        );
+        // Trace with neither keyword → still ambiguous → defer.
+        assert_eq!(
+            select_choice_with_trace(&g, alts, &["expr"], &["xyz".to_owned()]),
+            None
+        );
     }
 
     /// REPEAT before a mandatory member must not swallow it (set-valued

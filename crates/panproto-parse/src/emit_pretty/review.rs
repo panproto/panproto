@@ -1126,7 +1126,23 @@ pub(crate) fn pick_choice_with_cursor<'a>(
         .filter(|(i, _)| !cursor.consumed[*i])
         .filter_map(|(_, e)| schema.vertices.get(&e.tgt).map(|v| v.kind.as_ref()))
         .collect();
-    if let Some(idx) = super::select_choice_by_unification(grammar, alternatives, &demand) {
+    // The trace's literal-token fibre (the `ptrace-<n> = T<text>` slots)
+    // is the variant tag that disambiguates literal-keyword CHOICEs the
+    // child demand alone ties on (kotlin return/throw). Absent for a
+    // by-construction / transpiled vertex, in which case the selection
+    // falls back to pure structural unification.
+    let trace_tokens: Vec<String> = schema
+        .constraints
+        .get(vertex_id)
+        .map(|cs| {
+            cs.iter()
+                .filter(|c| c.sort.as_ref().starts_with("ptrace-"))
+                .filter_map(|c| c.value.strip_prefix('T').map(ToOwned::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+    if let Some(idx) = super::select_choice_with_trace(grammar, alternatives, &demand, &trace_tokens)
+    {
         return Some(&alternatives[idx]);
     }
 
