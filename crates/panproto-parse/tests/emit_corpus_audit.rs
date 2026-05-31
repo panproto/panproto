@@ -173,6 +173,112 @@ fn audit(protocol: &str) -> Tally {
     t
 }
 
+/// The **strip-complement** structural audit: the verification bar for
+/// the *canonical section* (the transpilation path).
+///
+/// Where [`audit`] keeps the parser's layout complement and checks a
+/// byte fixed point, this strips the entire layout fibre via
+/// [`Schema::forget_layout`] (byte spans, interstitials, `chose-alt-*`,
+/// and the `ptrace-*` variant tag) to simulate a by-construction /
+/// transpiled abstract schema that never carried a parse trace. It then
+/// emits through the canonical section, reparses, and checks **only
+/// structural equivalence** (kind- and edge-multiset) — there is no
+/// complement to reproduce the original bytes with, so a byte fixed
+/// point is not the right bar here. This measures whether grammar
+/// unification alone yields a structurally faithful emit.
+fn strip_audit(protocol: &str) -> Tally {
+    let reg = ParserRegistry::new();
+    let file = format!("sample.{protocol}");
+    let mut t = Tally {
+        total: 0,
+        passed: 0,
+        parse_err: 0,
+        first_fail: None,
+    };
+    for (name, src) in corpus_sources(protocol) {
+        let Ok(s1) = reg.parse_with_protocol(protocol, src.as_bytes(), &file) else {
+            t.parse_err += 1;
+            continue;
+        };
+        let has_error = s1.vertices.values().any(|v| {
+            matches!(v.kind.as_ref(), "ERROR" | "MISSING") || v.kind.as_ref().contains("ERROR")
+        });
+        if s1.vertices.is_empty() || has_error {
+            t.parse_err += 1;
+            continue;
+        }
+        t.total += 1;
+        // Forget the entire layout fibre: the abstract (transpiled) schema.
+        let abstract_schema = s1.forget_layout();
+        let e1 = match reg.emit_pretty_with_protocol(protocol, &abstract_schema) {
+            Ok(b) => b,
+            Err(e) => {
+                if t.first_fail.is_none() {
+                    t.first_fail = Some((name, format!("EMIT-ERR {e}"), String::new()));
+                }
+                continue;
+            }
+        };
+        let Ok(s2) = reg.parse_with_protocol(protocol, &e1, &file) else {
+            if t.first_fail.is_none() {
+                t.first_fail = Some((
+                    name,
+                    format!("REPARSE-ERR e1={:?}", String::from_utf8_lossy(&e1)),
+                    String::new(),
+                ));
+            }
+            continue;
+        };
+        // Structural equivalence only (no byte fixed point without a
+        // complement). Compare against the abstract schema's structure.
+        let ok = kind_multiset(&abstract_schema) == kind_multiset(&s2)
+            && edge_multiset(&abstract_schema) == edge_multiset(&s2);
+        if ok {
+            t.passed += 1;
+        } else if t.first_fail.is_none() {
+            t.first_fail = Some((
+                name,
+                String::from_utf8_lossy(&e1).into_owned(),
+                String::new(),
+            ));
+        }
+    }
+    t
+}
+
+/// Report mode for the strip-complement (canonical-section) audit.
+/// `PP_STRIP_AUDIT=proto1,proto2,...`
+#[test]
+fn corpus_strip_audit_report() {
+    let Ok(list) = std::env::var("PP_STRIP_AUDIT") else {
+        eprintln!("set PP_STRIP_AUDIT=proto1,proto2,... to run the strip-complement audit");
+        return;
+    };
+    std::thread::Builder::new()
+        .stack_size(256 * 1024 * 1024)
+        .spawn(move || {
+            for proto in list.split(',').filter(|s| !s.is_empty()) {
+                let t = strip_audit(proto);
+                let status = if t.total > 0 && t.passed == t.total {
+                    "FULL-PASS"
+                } else {
+                    "PARTIAL"
+                };
+                eprintln!(
+                    "{status} {proto} (strip): {}/{} structurally faithful ({} parse-skipped)",
+                    t.passed, t.total, t.parse_err
+                );
+                if let Some((name, e1, _)) = t.first_fail {
+                    let e1s: String = e1.chars().take(100).collect();
+                    eprintln!("    first fail [{name}]: E1={e1s:?}");
+                }
+            }
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
 /// The protocols whose `emit_pretty` round-trips EVERY entry of their
 /// grammar's vendored `test/corpus/` under the full oracle. These are the
 /// corpus-verified members of `VERIFIED_EMIT_PROTOCOLS`; their corpus is
@@ -227,6 +333,61 @@ fn corpus_verified_protocols_round_trip_full_corpus() {
                 assert_eq!(
                     t.passed, t.total,
                     "{proto}: {}/{} corpus entries pass",
+                    t.passed, t.total
+                );
+            }
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+/// Protocols whose **canonical section** (grammar unification, no
+/// complement) emits a structurally-faithful representative of EVERY
+/// vendored corpus entry — the strip-complement bar. This is the
+/// transpilation guarantee: even with the entire layout fibre forgotten,
+/// emit reconstructs the same kind- and edge-multiset. A permanent
+/// CI regression guard for the canonical-section dispatch.
+const STRIP_VERIFIED: &[&str] = &[
+    "arduino",
+    "bass",
+    "fidl",
+    "firrtl",
+    "graphql",
+    "gstlaunch",
+    "json",
+    "ungrammar",
+];
+
+#[test]
+fn strip_complement_canonical_section_is_structurally_faithful() {
+    std::thread::Builder::new()
+        .stack_size(256 * 1024 * 1024)
+        .spawn(|| {
+            for proto in STRIP_VERIFIED {
+                if ParserRegistry::new()
+                    .parse_with_protocol(proto, b"", &format!("e.{proto}"))
+                    .err()
+                    .is_some_and(|e| {
+                        matches!(e, panproto_parse::ParseError::UnknownLanguage { .. })
+                    })
+                {
+                    continue;
+                }
+                let entries = corpus_sources(proto);
+                assert!(!entries.is_empty(), "{proto}: no vendored corpus");
+                let t = strip_audit(proto);
+                if let Some((name, e1, _)) = &t.first_fail {
+                    let e1s: String = e1.chars().take(120).collect();
+                    panic!(
+                        "{proto} strip-complement (canonical section) failed entry [{name}]: \
+                         {}/{} structurally faithful.\nE1={e1s:?}",
+                        t.passed, t.total
+                    );
+                }
+                assert_eq!(
+                    t.passed, t.total,
+                    "{proto}: {}/{} structurally faithful under strip-complement",
                     t.passed, t.total
                 );
             }
