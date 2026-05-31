@@ -1126,18 +1126,34 @@ pub(crate) fn pick_choice_with_cursor<'a>(
         .filter(|(i, _)| !cursor.consumed[*i])
         .filter_map(|(_, e)| schema.vertices.get(&e.tgt).map(|v| v.kind.as_ref()))
         .collect();
-    // The trace's literal-token fibre (the `ptrace-<n> = T<text>` slots)
-    // is the variant tag that disambiguates literal-keyword CHOICEs the
-    // child demand alone ties on (kotlin return/throw). Absent for a
-    // by-construction / transpiled vertex, in which case the selection
-    // falls back to pure structural unification.
+    // The recorded literal-token fibre is the variant tag that
+    // disambiguates CHOICEs the child demand alone ties on. Two sources,
+    // both surviving as constraints:
+    //   * `ptrace-<n> = T<text>`: anonymous grammar tokens in source
+    //     order (kotlin return/throw). Stripped by forget_layout.
+    //   * `field:<name> = <text>`: field-bound anonymous tokens, e.g.
+    //     python `field('operator', '+')` distinguishing the
+    //     binary_operator alternatives. NOT a layout sort, so it
+    //     survives forget_layout — this is what lets the canonical
+    //     section pick the right operator for a transpiled vertex that
+    //     carries no trace.
+    // Together they are the literal component of the variant tag the
+    // review consumes rather than re-deriving.
     let trace_tokens: Vec<String> = schema
         .constraints
         .get(vertex_id)
         .map(|cs| {
             cs.iter()
-                .filter(|c| c.sort.as_ref().starts_with("ptrace-"))
-                .filter_map(|c| c.value.strip_prefix('T').map(ToOwned::to_owned))
+                .filter_map(|c| {
+                    let s = c.sort.as_ref();
+                    if s.starts_with("ptrace-") {
+                        c.value.strip_prefix('T').map(ToOwned::to_owned)
+                    } else if s.starts_with("field:") {
+                        Some(c.value.clone())
+                    } else {
+                        None
+                    }
+                })
                 .collect()
         })
         .unwrap_or_default();
