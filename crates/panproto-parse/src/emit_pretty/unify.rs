@@ -396,29 +396,48 @@ pub(crate) fn select_choice_with_trace(
             return Some(direct[0]);
         }
     }
-    if trace_tokens.is_empty() {
-        return None;
-    }
-    // Tie-break: maximize overlap between the alternative's own literals
-    // and the trace's token slots; require a unique non-zero maximum.
-    let mut best_overlap = 0usize;
-    let mut winner: Option<usize> = None;
-    let mut winner_count = 0usize;
-    for &i in &cands {
-        let lits = alt_literals(&alternatives[i]);
-        let overlap = lits.iter().filter(|l| trace_tokens.contains(l)).count();
-        if overlap > best_overlap {
-            best_overlap = overlap;
-            winner = Some(i);
-            winner_count = 1;
-        } else if overlap == best_overlap && overlap > 0 {
-            winner_count += 1;
+    // Variant-tag tie-break: maximize overlap between the alternative's
+    // own literals and the trace's token slots; require a unique non-zero
+    // maximum. This runs FIRST so a recorded literal (e.g. a `;` the
+    // parser actually emitted, present in `ptrace`) wins — byte-faithful
+    // reconstruction is preserved.
+    if !trace_tokens.is_empty() {
+        let mut best_overlap = 0usize;
+        let mut winner: Option<usize> = None;
+        let mut winner_count = 0usize;
+        for &i in &cands {
+            let lits = alt_literals(&alternatives[i]);
+            let overlap = lits.iter().filter(|l| trace_tokens.contains(l)).count();
+            if overlap > best_overlap {
+                best_overlap = overlap;
+                winner = Some(i);
+                winner_count = 1;
+            } else if overlap == best_overlap && overlap > 0 {
+                winner_count += 1;
+            }
+        }
+        if best_overlap > 0 && winner_count == 1 {
+            return winner;
         }
     }
-    if best_overlap == 0 || winner_count != 1 {
-        return None;
+    // No variant tag resolved the tie and no candidate consumes a child
+    // (`best_len == 0`): this is an OPTIONAL production — an optional
+    // token / separator with nothing structural demanding it. The
+    // canonical section omits optional tokens (the categorical ε of a
+    // CHOICE-with-BLANK), so prefer `BLANK` when present. A recorded
+    // literal would have been caught by the trace tie-break above, so
+    // this only fires for genuinely-absent optionals (kotlin's optional
+    // `;` / trailing `,`, which the lossy heuristics otherwise emit
+    // spuriously on a complement-free schema).
+    if best_len == 0 {
+        if let Some(b) = alternatives
+            .iter()
+            .position(|a| matches!(a, Production::Blank))
+        {
+            return Some(b);
+        }
     }
-    winner
+    None
 }
 
 #[cfg(test)]
@@ -595,6 +614,34 @@ mod tests {
             _ => panic!(),
         };
         assert_eq!(select_choice_with_trace(&g, alts, &["binary"], &[]), None);
+    }
+
+    /// An optional token defaults to absent (BLANK) when no child demands
+    /// it and the variant tag does not attest the literal — but a recorded
+    /// literal still wins (byte-faithful reconstruction).
+    #[test]
+    fn optional_token_defaults_to_blank_unless_traced() {
+        // CHOICE[ ";" , BLANK ] — the optional semicolon (kotlin shape).
+        let g = grammar(
+            &serde_json::json!({
+                "name": "test",
+                "rules": {
+                    "opt_semi": {"type": "CHOICE", "members": [str_(";"), {"type": "BLANK"}]},
+                }
+            })
+            .to_string(),
+        );
+        let alts = match &g.rules["opt_semi"] {
+            Production::Choice { members } => members,
+            _ => panic!(),
+        };
+        // No child, no trace → omit the optional (BLANK, index 1).
+        assert_eq!(select_choice_with_trace(&g, alts, &[], &[]), Some(1));
+        // The parser recorded a ";" (in ptrace) → emit it (index 0).
+        assert_eq!(
+            select_choice_with_trace(&g, alts, &[], &[";".to_owned()]),
+            Some(0)
+        );
     }
 
     /// Literal-keyword CHOICE (kotlin return/throw shape): the child
