@@ -55,6 +55,7 @@ pub fn is_layout_sort(sort: &str) -> bool {
     matches!(sort, "start-byte" | "end-byte")
         || sort.starts_with("chose-alt-")
         || sort.starts_with("interstitial-")
+        || sort.starts_with("ptrace-")
 }
 
 /// The layout role of a token, derived from the grammar's structure.

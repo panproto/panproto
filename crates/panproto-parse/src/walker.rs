@@ -303,6 +303,19 @@ impl<'a> AstWalker<'a> {
         // arithmetic against the source buffer.
         builder = self.capture_anonymous_field_constraints(node, &vertex_id, builder);
 
+        // Capture the faithful production trace: the ordered linearization
+        // of this node's children as the parser tokenized them. Each slot
+        // is either `C<kind>` for a named child (a schema edge — the
+        // variant tag the emit review consumes) or `T<text>` for an
+        // anonymous grammar token (a layout literal). This is the
+        // variant-tag fibre of the layout complement; replaying it in the
+        // put direction is byte-faithful by construction (it is the Prism
+        // review *consuming* the parser's CHOICE decision rather than
+        // re-deriving it). Hidden rules are inlined by tree-sitter and
+        // never surface as their own child, so the trace aligns 1:1 with
+        // the emitter's cursor edges and grammar string literals.
+        builder = self.capture_production_trace(node, &vertex_id, builder);
+
         // Emit formatting constraints if enabled.
         if self.config.capture_formatting {
             builder = self.emit_formatting_constraints(node, &vertex_id, builder);
@@ -452,6 +465,39 @@ impl<'a> AstWalker<'a> {
             };
             let sort = format!("field:{field_name}");
             builder = builder.constraint(vertex_id, &sort, text);
+        }
+        builder
+    }
+
+    /// Record the faithful production trace `ptrace-<slot>` for `node`.
+    ///
+    /// Walks every child of `node` (named children and anonymous tokens,
+    /// in source order) and records each slot as `C<kind>` (a named
+    /// child) or `T<text>` (an anonymous token's exact text). This is the
+    /// variant-tag fibre of the layout complement
+    /// ([`panproto_lens::layout_complement::TraceSlot`]). See the call
+    /// site for why it is byte-faithful under replay.
+    fn capture_production_trace(
+        &self,
+        node: tree_sitter::Node<'_>,
+        vertex_id: &str,
+        mut builder: SchemaBuilder,
+    ) -> SchemaBuilder {
+        let count = node.child_count();
+        let mut slot = 0usize;
+        for i in 0..count {
+            let Some(child) = u32::try_from(i).ok().and_then(|i| node.child(i)) else {
+                continue;
+            };
+            let value = if child.is_named() {
+                format!("C{}", child.kind())
+            } else if let Ok(text) = child.utf8_text(self.source) {
+                format!("T{text}")
+            } else {
+                continue;
+            };
+            builder = builder.constraint(vertex_id, &format!("ptrace-{slot}"), &value);
+            slot += 1;
         }
         builder
     }
