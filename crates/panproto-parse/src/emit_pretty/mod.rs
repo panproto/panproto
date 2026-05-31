@@ -73,6 +73,7 @@ mod cursor;
 mod complement;
 mod layout;
 mod review;
+mod unify;
 
 pub(crate) use std::collections::BTreeMap;
 pub(crate) use panproto_schema::{Edge, Schema};
@@ -85,6 +86,7 @@ pub(crate) use cursor::*;
 pub(crate) use complement::*;
 pub(crate) use layout::*;
 pub(crate) use review::*;
+pub(crate) use unify::*;
 
 // Public API surface (reached via crate::emit_pretty::*).
 pub use grammar::{Grammar, Production, TokenRole};

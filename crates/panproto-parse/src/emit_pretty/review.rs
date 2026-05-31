@@ -1112,6 +1112,24 @@ pub(crate) fn pick_choice_with_cursor<'a>(
     cursor: &ChildCursor<'_>,
     alternatives: &'a [Production],
 ) -> Option<&'a Production> {
+    // ── Canonical-section CHOICE dispatch (primary) ──────────────────
+    // Grammar-unification: pick the alternative whose yield structurally
+    // admits the vertex's unconsumed child edges, with NO parse trace.
+    // This is the total semantics for by-construction / transpiled
+    // schemas (the dominant case); the positional/fingerprint heuristics
+    // below are the fallback for genuine under-determination (a tie or
+    // no structural match) and are subsumed once trace-replay lands.
+    let demand: Vec<&str> = cursor
+        .edges
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !cursor.consumed[*i])
+        .filter_map(|(_, e)| schema.vertices.get(&e.tgt).map(|v| v.kind.as_ref()))
+        .collect();
+    if let Some(idx) = super::select_choice_by_unification(grammar, alternatives, &demand) {
+        return Some(&alternatives[idx]);
+    }
+
     // Positional discriminator: use the interstitials FROM the
     // current cursor position forward. Interstitials are indexed by
     // their gap position (interstitial-k is the gap before the k-th
