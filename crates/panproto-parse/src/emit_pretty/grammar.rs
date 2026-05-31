@@ -585,7 +585,7 @@ pub(crate) fn compute_subtype_closure(
                     }
                 }
             }
-            Production::Choice { members } | Production::Seq { members } => {
+            Production::Choice { members } => {
                 for m in members {
                     walk(grammar, m, visited, out);
                 }
