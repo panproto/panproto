@@ -1105,6 +1105,82 @@ pub(crate) fn emit_in_child_context(
 }
 
 
+/// The canonical default section for a `CHOICE`, used when the dependent-
+/// optic review (grammar unification + variant-tag tie-break) does not
+/// uniquely determine the alternative — a by-construction schema with no
+/// disambiguating signal, or genuine under-determination.
+///
+/// It dispatches on pure grammar/cursor structure only (no recorded
+/// `interstitial`/`chose-alt`/`subtype`-closure heuristics): FIELD-name
+/// match against an unconsumed edge, then the categorical
+/// CHOICE-with-`BLANK` semantics — a newline-like terminator, else
+/// `BLANK` when the cursor is exhausted (ε is correct iff no child
+/// remains), else a pure-literal alternative, else the first non-`BLANK`.
+fn default_choice<'a>(
+    grammar: &Grammar,
+    cursor: &ChildCursor<'_>,
+    alternatives: &'a [Production],
+) -> Option<&'a Production> {
+    let any_unconsumed = cursor
+        .edges
+        .iter()
+        .enumerate()
+        .any(|(i, _)| !cursor.consumed[i]);
+    let edge_kinds: Vec<&str> = cursor
+        .edges
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !cursor.consumed[*i])
+        .map(|(_, e)| e.kind.as_ref())
+        .collect();
+
+    // FIELD dispatch: an alternative whose FIELD name matches an
+    // unconsumed edge kind.
+    for alt in alternatives {
+        if has_field_in(alt, &edge_kinds) {
+            return Some(alt);
+        }
+    }
+
+    // Prefer a newline-like PATTERN terminator (a structural LineBreak)
+    // over a STRING separator (Go's source_file REPEAT terminator).
+    if let Some(nl) = alternatives
+        .iter()
+        .find(|a| matches!(a, Production::Pattern { value } if is_newline_like_pattern(value)))
+    {
+        return Some(nl);
+    }
+    if alternatives.iter().any(|a| matches!(a, Production::Blank)) {
+        // A hidden-rule alternative resolving to a newline-like PATTERN
+        // is preferred over BLANK (Julia's `_terminator`).
+        for alt in alternatives {
+            if let Production::Symbol { name } = alt {
+                if name.starts_with('_') {
+                    if let Some(rule) = grammar.rules.get(name) {
+                        if contains_newline_pattern(rule) {
+                            return Some(alt);
+                        }
+                    }
+                }
+            }
+        }
+        return alternatives.iter().find(|a| matches!(a, Production::Blank));
+    }
+    // Cursor exhausted, no BLANK: a pure-literal alternative (only
+    // STRINGs/PATTERNs) produces output without consuming a child.
+    if !any_unconsumed {
+        if let Some(pure_lit) = alternatives
+            .iter()
+            .find(|alt| referenced_symbols(alt).is_empty() && !matches!(alt, Production::Blank))
+        {
+            return Some(pure_lit);
+        }
+    }
+    alternatives
+        .iter()
+        .find(|alt| !matches!(alt, Production::Blank))
+}
+
 pub(crate) fn pick_choice_with_cursor<'a>(
     schema: &Schema,
     grammar: &Grammar,
@@ -1703,76 +1779,12 @@ pub(crate) fn pick_choice_with_cursor<'a>(
         }
     }
 
-    // FIELD dispatch: pick an alternative whose FIELD name matches an
-    // unconsumed edge kind.
-    for alt in alternatives {
-        if has_field_in(alt, &edge_kinds) {
-            return Some(alt);
-        }
-    }
-
-    // No dispatch tier matched. The final selection follows the
-    // categorical semantics of CHOICE-with-BLANK: BLANK represents ε
-    // (produce nothing at this position). It is correct if and only
-    // if no child remains to consume at this cursor position.
-    //
-    // When unconsumed non-extra children remain, selecting BLANK
-    // would silently drop them. Select the first non-BLANK
-    // alternative instead so the production walk can attempt to
-    // consume them (the grammar rule may reference a symbol name
-    // that doesn't exactly match the parse output's child kind,
-    // e.g. Julia's macrocall_expression receives `argument_list`
-    // children when grammar.json only references
-    // `macro_argument_list`).
-    let _ = (schema, vertex_id);
-    // Prefer newline-like PATTERN over STRING ";" or other separators
-    // when both are alternatives. The PATTERN produces a structural
-    // LineBreak which is semantically correct for top-level terminators
-    // (Go's source_file REPEAT terminator).
-    let has_newline_pattern = alternatives
-        .iter()
-        .any(|a| matches!(a, Production::Pattern { value } if is_newline_like_pattern(value)));
-    if has_newline_pattern {
-        for alt in alternatives {
-            if let Production::Pattern { value } = alt {
-                if is_newline_like_pattern(value) {
-                    return Some(alt);
-                }
-            }
-        }
-    }
-    if alternatives.iter().any(|a| matches!(a, Production::Blank)) {
-        // Before selecting BLANK, check if a hidden-rule alternative
-        // resolves to a newline-like PATTERN. Prefer it: it produces
-        // a LineBreak which is semantically correct for terminators
-        // like Julia's _terminator = CHOICE[PATTERN "\r?\n", ...].
-        for alt in alternatives {
-            if let Production::Symbol { name } = alt {
-                if name.starts_with('_') {
-                    if let Some(rule) = grammar.rules.get(name) {
-                        if contains_newline_pattern(rule) {
-                            return Some(alt);
-                        }
-                    }
-                }
-            }
-        }
-        return alternatives.iter().find(|a| matches!(a, Production::Blank));
-    }
-    // When cursor is exhausted and no BLANK, prefer an alternative
-    // that references NO symbols (pure-literal: only STRINGs, PATTERNs,
-    // BLANKs). Such an alternative can produce output without consuming
-    // any children and is safe when the cursor is empty (e.g. the ";"
-    // terminator in Rust's struct_item vs SEQ with FIELD body).
-    if !any_unconsumed {
-        if let Some(pure_lit) = alternatives.iter().find(|alt| {
-            let syms = referenced_symbols(alt);
-            syms.is_empty() && !matches!(alt, Production::Blank)
-        }) {
-            return Some(pure_lit);
-        }
-    }
-    alternatives
-        .iter()
-        .find(|alt| !matches!(alt, Production::Blank))
+    // No recorded-complement heuristic tier matched: fall to the
+    // canonical default section (FIELD-name dispatch + CHOICE-with-BLANK
+    // categorical semantics). This is the same default the unification
+    // review will rely on once the heuristics above are retired; a
+    // measurement confirmed they are NOT yet subsumed (bypassing them
+    // regresses even arduino 0/3), so they stay until the review is
+    // strengthened, but the default section is now factored out.
+    default_choice(grammar, cursor, alternatives)
 }
