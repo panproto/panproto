@@ -110,6 +110,25 @@ fn dispatch_prod<'g>(
     }
 }
 
+/// The name of a bare `SYMBOL` alternative (unwrapping precedence/token
+/// wrappers), or `None` if the alternative is an `ALIAS`, `SEQ`,
+/// `CHOICE`, literal, etc. A bare symbol dispatches by the child's own
+/// kind, so a candidate whose bare-symbol name equals the child's
+/// surface kind is the direct, unaliased interpretation.
+fn bare_symbol_name(prod: &Production) -> Option<&str> {
+    match prod {
+        Production::Symbol { name } => Some(name.as_str()),
+        Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Reserved { content, .. } => bare_symbol_name(content),
+        _ => None,
+    }
+}
+
 /// Set-valued review: the demand positions reachable by matching
 /// `prod` against `demand` from `pos`. Empty result ⇒ no match.
 ///
@@ -353,6 +372,30 @@ pub(crate) fn select_choice_with_trace(
     if cands.len() == 1 && (best_len > 0 || num_viable == 1) {
         return Some(cands[0]);
     }
+    // Tie among viable candidates. A bare `SYMBOL` whose name is exactly
+    // the child's surface kind is the most direct interpretation: the
+    // parser's child kind names that production directly, with no alias
+    // rename or supertype indirection. When exactly one tied candidate
+    // is such a direct match, pick it. This resolves the C-family
+    // `_top_level_item = CHOICE[function_definition, …, declaration,
+    // ALIAS(declaration), …]` tie for a `declaration` child (the bare
+    // `declaration` alt wins over the same-surface ALIAS and the hidden
+    // pass-through), without disturbing ties whose candidates are
+    // supertypes/aliases/SEQs — those fall through to the variant-tag
+    // tie-break or defer. Disambiguating a bare symbol from a same-kind
+    // ALIAS needs the child's `pre-alias-symbol` witness, which the
+    // heuristic fallback still supplies; absent it, the direct bare
+    // symbol is the right default.
+    if let Some(&child_kind) = demand.first() {
+        let direct: Vec<usize> = cands
+            .iter()
+            .copied()
+            .filter(|&i| bare_symbol_name(&alternatives[i]) == Some(child_kind))
+            .collect();
+        if direct.len() == 1 {
+            return Some(direct[0]);
+        }
+    }
     if trace_tokens.is_empty() {
         return None;
     }
@@ -492,6 +535,38 @@ mod tests {
         assert!(!sat(&g, "string", "_literal"));
         // exact still holds
         assert!(sat(&g, "int", "int"));
+    }
+
+    /// A bare SYMBOL naming the child's exact surface kind wins a tie
+    /// over a same-surface ALIAS (the C-family `_top_level_item`
+    /// declaration tie). The direct, unaliased interpretation is chosen.
+    #[test]
+    fn direct_bare_symbol_wins_tie_over_alias() {
+        let g = grammar(
+            &serde_json::json!({
+                "name": "test",
+                "rules": {
+                    "_top_level_item": {"type": "CHOICE", "members": [
+                        sym("function_definition"),
+                        sym("declaration"),
+                        {"type": "ALIAS", "named": true, "value": "declaration",
+                         "content": sym("command_declaration")},
+                    ]},
+                    "function_definition": str_("f"),
+                    "declaration": str_("d"),
+                    "command_declaration": str_("c"),
+                }
+            })
+            .to_string(),
+        );
+        let alts = match &g.rules["_top_level_item"] {
+            Production::Choice { members } => members,
+            _ => panic!(),
+        };
+        // bare `declaration` (idx 1) and ALIAS=declaration (idx 2) both
+        // match a `declaration` child; function_definition (idx 0) is
+        // rejected. The direct bare symbol wins.
+        assert_eq!(select_choice_with_trace(&g, alts, &["declaration"], &[]), Some(1));
     }
 
     /// Many-to-one aliasing is under-determined → defer (the ruby case).
