@@ -10,8 +10,14 @@
 //!
 //! Criterion (2) is what distinguishes a genuine fixed point from a *degenerate*
 //! one: an emitter that drops everything to `""` (or collapses content) still
-//! satisfies (1) trivially, but fails (2). Protocols that pass both with
-//! eyeball-clean output are listed in `VERIFIED_EMIT_PROTOCOLS`.
+//! satisfies (1) trivially, but fails (2).
+//!
+//! NOTE: passing here is a *single-sample* round-trip check — useful regression
+//! coverage, but NOT verification. It does NOT make a protocol
+//! `VERIFIED_EMIT_PROTOCOLS`-eligible; that requires passing the protocol's
+//! whole grammar corpus (see `emit_corpus_audit`). A corpus audit showed most
+//! single-sample passers fail their grammar's full corpus, so these samples are
+//! kept only as cheap regression guards.
 //!
 //! Each case skips automatically when its grammar is not compiled into the
 //! current build (so the file is exercised in full only under `--all-features`).

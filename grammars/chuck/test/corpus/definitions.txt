@@ -1,0 +1,206 @@
+================================================================================
+Function definition
+================================================================================
+
+fun int add(int a, int b) { return a; }
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    (function_decl)
+    (type_decl
+      (type_decl_a
+        (id_dot
+          (identifier))))
+    name: (identifier)
+    (parameter_list
+      (parameter
+        (type_decl
+          (type_decl_a
+            (id_dot
+              (identifier))))
+        (var_decl
+          name: (identifier)))
+      (parameter
+        (type_decl
+          (type_decl_a
+            (id_dot
+              (identifier))))
+        (var_decl
+          name: (identifier))))
+    (code_segment
+      (return_statement
+        (expression
+          (chuck_expression
+            (arrow_expression
+              (decl_expression
+                (conditional_expression
+                  (logical_or_expression
+                    (logical_and_expression
+                      (bitwise_or_expression
+                        (bitwise_xor_expression
+                          (bitwise_and_expression
+                            (equality_expression
+                              (relational_expression
+                                (shift_expression
+                                  (additive_expression
+                                    (multiplicative_expression
+                                      (tilda_expression
+                                        (cast_expression
+                                          (unary_expression
+                                            (dur_expression
+                                              (postfix_expression
+                                                (identifier)))))))))))))))))))))))))
+
+================================================================================
+Class definition
+================================================================================
+
+class Foo { int x; }
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_definition
+    name: (id_list
+      (identifier))
+    (class_body
+      (expression_statement
+        (expression
+          (chuck_expression
+            (arrow_expression
+              (decl_expression
+                (variable_declaration
+                  (type_decl
+                    (type_decl_a
+                      (id_dot
+                        (identifier))))
+                  (var_decl_list
+                    (var_decl
+                      name: (identifier))))))))))))
+
+================================================================================
+Class with extends
+================================================================================
+
+class Bar extends Foo { }
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_definition
+    name: (id_list
+      (identifier))
+    (class_ext
+      (id_dot
+        (identifier)))))
+
+================================================================================
+Spork expression
+================================================================================
+
+spork ~ foo();
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (expression
+      (chuck_expression
+        (arrow_expression
+          (decl_expression
+            (conditional_expression
+              (logical_or_expression
+                (logical_and_expression
+                  (bitwise_or_expression
+                    (bitwise_xor_expression
+                      (bitwise_and_expression
+                        (equality_expression
+                          (relational_expression
+                            (shift_expression
+                              (additive_expression
+                                (multiplicative_expression
+                                  (tilda_expression
+                                    (cast_expression
+                                      (unary_expression
+                                        (spork_expression
+                                          (unary_expression
+                                            (dur_expression
+                                              (postfix_expression
+                                                function: (postfix_expression
+                                                  (identifier))))))))))))))))))))))))))
+
+================================================================================
+Hack expression
+================================================================================
+
+<<< "hello", x >>>;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (expression
+      (chuck_expression
+        (arrow_expression
+          (decl_expression
+            (conditional_expression
+              (logical_or_expression
+                (logical_and_expression
+                  (bitwise_or_expression
+                    (bitwise_xor_expression
+                      (bitwise_and_expression
+                        (equality_expression
+                          (relational_expression
+                            (shift_expression
+                              (additive_expression
+                                (multiplicative_expression
+                                  (tilda_expression
+                                    (cast_expression
+                                      (unary_expression
+                                        (dur_expression
+                                          (postfix_expression
+                                            (hack_expression
+                                              (expression
+                                                (chuck_expression
+                                                  (arrow_expression
+                                                    (decl_expression
+                                                      (conditional_expression
+                                                        (logical_or_expression
+                                                          (logical_and_expression
+                                                            (bitwise_or_expression
+                                                              (bitwise_xor_expression
+                                                                (bitwise_and_expression
+                                                                  (equality_expression
+                                                                    (relational_expression
+                                                                      (shift_expression
+                                                                        (additive_expression
+                                                                          (multiplicative_expression
+                                                                            (tilda_expression
+                                                                              (cast_expression
+                                                                                (unary_expression
+                                                                                  (dur_expression
+                                                                                    (postfix_expression
+                                                                                      (string_literal)))))))))))))))))))))
+                                              (expression
+                                                (chuck_expression
+                                                  (arrow_expression
+                                                    (decl_expression
+                                                      (conditional_expression
+                                                        (logical_or_expression
+                                                          (logical_and_expression
+                                                            (bitwise_or_expression
+                                                              (bitwise_xor_expression
+                                                                (bitwise_and_expression
+                                                                  (equality_expression
+                                                                    (relational_expression
+                                                                      (shift_expression
+                                                                        (additive_expression
+                                                                          (multiplicative_expression
+                                                                            (tilda_expression
+                                                                              (cast_expression
+                                                                                (unary_expression
+                                                                                  (dur_expression
+                                                                                    (postfix_expression
+                                                                                      (identifier))))))))))))))))))))))))))))))))))))))))))))

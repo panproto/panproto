@@ -1,0 +1,28 @@
+================================================================================
+resource_definition
+================================================================================
+
+library this_is_library;
+
+resource_definition res : uint32 {
+    properties {
+        subtype ObjType;
+    };
+};
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (library
+    (compound_identifier
+      (identifier)))
+  (declaration
+    (resource_declaration
+      (identifier)
+      (resource_properties
+        (member_field
+          (identifier)
+          (type_constructor
+            (layout
+              (compound_identifier
+                (identifier)))))))))

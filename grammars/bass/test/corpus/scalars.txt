@@ -1,0 +1,26 @@
+===
+Scalars
+===
+
+_
+null
+true
+false
+123
+"foo"
+"foo \" bar"
+
+---
+
+(source
+  (ignore)
+  (null)
+  (boolean)
+  (boolean)
+  (number)
+  (string
+	(string_fragment))
+  (string
+	(string_fragment)
+	(escape_sequence)
+	(string_fragment)))

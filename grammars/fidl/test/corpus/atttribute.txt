@@ -1,0 +1,47 @@
+================================================================================
+Library With 1 Attribute
+================================================================================
+
+@xyz
+library this_is_library;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (library
+    (attribute_list
+      (attribute
+        (identifier)))
+    (compound_identifier
+      (identifier))))
+
+================================================================================
+Library With Attributes
+================================================================================
+
+@a @b("text") @c(d=1)
+library this_is_library;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (library
+    (attribute_list
+      (attribute
+        (identifier))
+      (attribute
+        (identifier)
+        (constant
+          (literal
+            (string_literal))))
+      (attribute
+        (identifier)
+        (attribute_args
+          (attribute_arg
+            (identifier)
+            (constant
+              (literal
+                (numeric_literal)))))))
+    (compound_identifier
+      (identifier))))
+

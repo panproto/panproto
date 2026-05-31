@@ -1,0 +1,86 @@
+================================================================================
+Const
+================================================================================
+
+library this_is_library;
+
+const INT_CONST int32 = 0;
+const HEX_INT_CONST int32 = 0xfff;
+const STR_CONST string = "string";
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (library
+    (compound_identifier
+      (identifier)))
+  (declaration
+    (const_declaration
+      (identifier)
+      (type_constructor
+        (primitives_type))
+      (constant_allows_bit_ops
+        (numeric_literal))))
+  (declaration
+    (const_declaration
+      (identifier)
+      (type_constructor
+        (primitives_type))
+      (constant_allows_bit_ops
+        (numeric_literal))))
+  (declaration
+    (const_declaration
+      (identifier)
+      (type_constructor
+        (layout
+          (builtin_complex_type)))
+      (constant_allows_bit_ops
+        (string_literal)))))
+
+================================================================================
+Const is const in another library
+================================================================================
+
+library this_is_library;
+
+const CONST_TO_CONST int32 = other_library.OTHER_CONST;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (library
+    (compound_identifier
+      (identifier)))
+  (declaration
+    (const_declaration
+      (identifier)
+      (type_constructor
+        (primitives_type))
+      (constant_allows_bit_ops
+        (compound_identifier
+          (identifier)
+          (identifier))))))
+
+================================================================================
+Const with operator
+================================================================================
+
+library this_is_library;
+
+const CONST_OR_OP int32 = 1 | var;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (library
+    (compound_identifier
+      (identifier)))
+  (declaration
+    (const_declaration
+      (identifier)
+      (type_constructor
+        (primitives_type))
+      (constant_allows_bit_ops
+        (numeric_literal)
+        (compound_identifier
+          (identifier))))))

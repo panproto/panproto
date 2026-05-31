@@ -1,0 +1,81 @@
+================================================================================
+enum
+================================================================================
+
+library this_is_library;
+
+type Enum = enum : uint64 {
+  One = 1;
+  Two = 2;
+};
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (library
+    (compound_identifier
+      (identifier)))
+  (declaration
+    (layout_declaration
+      (identifier)
+      (inline_layout
+        (layout_kind)
+        (layout_subtype
+          (type_constructor
+            (primitives_type)))
+        (layout_body
+          (value_layout
+            (value_layout_member
+              (identifier)
+              (constant_allows_bit_ops
+                (numeric_literal)))
+            (value_layout_member
+              (identifier)
+              (constant_allows_bit_ops
+                (numeric_literal)))))))))
+
+================================================================================
+bits
+================================================================================
+
+library this_is_library;
+
+@a
+type Bits = strict bits : uint64 {
+  One = 1;
+
+  @b
+  Two = 2;
+};
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (library
+    (compound_identifier
+      (identifier)))
+  (declaration
+    (layout_declaration
+      (attribute_list
+        (attribute
+          (identifier)))
+      (identifier)
+      (inline_layout
+        (declaration_modifiers)
+        (layout_kind)
+        (layout_subtype
+          (type_constructor
+            (primitives_type)))
+        (layout_body
+          (value_layout
+            (value_layout_member
+              (identifier)
+              (constant_allows_bit_ops
+                (numeric_literal)))
+            (value_layout_member
+              (attribute_list
+                (attribute
+                  (identifier)))
+              (identifier)
+              (constant_allows_bit_ops
+                (numeric_literal)))))))))
