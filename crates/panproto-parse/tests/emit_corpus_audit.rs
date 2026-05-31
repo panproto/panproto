@@ -397,6 +397,42 @@ fn strip_complement_canonical_section_is_structurally_faithful() {
         .unwrap();
 }
 
+/// The unified `emit` is total: an abstract (by-construction / transpiled)
+/// schema carrying NO layout complement now emits via the canonical
+/// section instead of erroring with "schema has no text fragments". This
+/// is the parse-level unification of the reconstruction flow
+/// (`emit_from_schema` replay) and the canonical flow (`emit_pretty`).
+#[cfg(feature = "lang-json")]
+#[test]
+fn unified_emit_handles_abstract_schema_via_canonical_section() {
+    let reg = ParserRegistry::new();
+    let parsed = reg
+        .parse_with_protocol("json", br#"{"a": [1, 2]}"#, "x.json")
+        .expect("parse json");
+    // Forget the entire layout fibre → a by-construction abstract schema.
+    let abstract_schema = parsed.forget_layout();
+    assert!(
+        !abstract_schema
+            .constraints
+            .values()
+            .any(|cs| cs.iter().any(|c| c.sort.as_ref() == "start-byte")),
+        "forget_layout must drop the start-byte anchors"
+    );
+    // The unified emit (replay-or-canonical) must now succeed via the
+    // canonical section and reparse to the same structure.
+    let bytes = reg
+        .emit_with_protocol("json", &abstract_schema)
+        .expect("unified emit must handle a complement-free schema");
+    let reparsed = reg
+        .parse_with_protocol("json", &bytes, "y.json")
+        .expect("emit output must reparse");
+    assert_eq!(
+        kind_multiset(&abstract_schema),
+        kind_multiset(&reparsed),
+        "canonical-section emit must be structurally faithful"
+    );
+}
+
 #[test]
 fn corpus_audit_report() {
     let Ok(list) = std::env::var("PP_AUDIT") else {

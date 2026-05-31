@@ -212,16 +212,28 @@ impl AstParser for LanguageParser {
     }
 
     fn emit(&self, schema: &Schema) -> Result<Vec<u8>, ParseError> {
-        // Reconstruct source text from the schema's structural information.
+        // The put-direction of the parse/emit dependent optic, dispatched
+        // on whether the layout complement is present:
         //
-        // The walker stores two types of text constraints:
-        // 1. `literal-value` on leaf nodes: the source text of identifiers, literals, etc.
-        // 2. `interstitial-N` on parent nodes: the text between named children, which
-        //    contains keywords, punctuation, whitespace, and comments.
+        // * **Complement present** (a parsed / CST schema, or one edited
+        //   in place by `panproto-io`'s `UnifiedCodec`): replay the layout
+        //   fibre. `emit_from_schema` reconstructs bytes from the
+        //   `start-byte` / `interstitial-N` / `literal-value` constraints
+        //   sorted by source position — byte-faithful by construction.
+        // * **Complement absent** (a by-construction / transpiled abstract
+        //   schema that never carried a parse trace): there is nothing to
+        //   replay, so fall back to the canonical section — the grammar
+        //   walk in `emit_pretty` under the default `FormatPolicy`.
         //
-        // The emitter walks the schema tree depth-first, interleaving interstitial text
-        // with child emissions to reconstruct the full source.
-        emit_from_schema(schema, &self.protocol_name)
+        // This makes `emit` total over both worlds: the historical
+        // reconstruction flow (replay) and the canonical de-novo flow are
+        // the two branches of one review. Before, the abstract case
+        // errored with "schema has no text fragments".
+        if has_layout_complement(schema) {
+            emit_from_schema(schema, &self.protocol_name)
+        } else {
+            self.emit_pretty_with_policy(schema, &FormatPolicy::default())
+        }
     }
 
     fn supported_extensions(&self) -> &[&str] {
@@ -264,6 +276,18 @@ impl AstParser for LanguageParser {
             Some(&*self.cassette),
         )
     }
+}
+
+/// Does `schema` carry the layout complement that `emit_from_schema`
+/// replays? True iff some vertex records a `start-byte` anchor (every
+/// parsed vertex has one; a by-construction / transpiled schema has
+/// none). This is the dependent-optic dispatch in [`LanguageParser::emit`]:
+/// present ⇒ replay the fibre, absent ⇒ canonical section.
+fn has_layout_complement(schema: &Schema) -> bool {
+    schema
+        .constraints
+        .values()
+        .any(|cs| cs.iter().any(|c| c.sort.as_ref() == "start-byte"))
 }
 
 /// Reconstruct source text from a schema using interstitial text and leaf literals.
