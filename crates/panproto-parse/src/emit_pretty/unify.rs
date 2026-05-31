@@ -241,32 +241,45 @@ fn closure<'g>(
     seen
 }
 
-/// The structural candidates of a `CHOICE`: the maximal demand
-/// consumption length and the indices of every alternative achieving it
-/// (`best_len == 0` means no alternative consumed any child).
-fn choice_candidates(
-    grammar: &Grammar,
-    alternatives: &[Production],
-    demand: &[&str],
-) -> (usize, Vec<usize>) {
+/// The structural candidates of a `CHOICE`.
+struct Candidates {
+    /// Maximal demand-consumption length achieved by any viable alternative.
+    best_len: usize,
+    /// Indices of the viable alternatives achieving `best_len` (includes
+    /// zero-consuming alternatives such as `BLANK` when `best_len == 0`).
+    cands: Vec<usize>,
+    /// How many alternatives are *viable* (have a non-empty match). An
+    /// alternative with an empty match is structurally rejected: it
+    /// requires a child the demand does not supply.
+    num_viable: usize,
+}
+
+fn choice_candidates(grammar: &Grammar, alternatives: &[Production], demand: &[&str]) -> Candidates {
     let mut best_len = 0usize;
     let mut cands: Vec<usize> = Vec::new();
+    let mut num_viable = 0usize;
     for (i, alt) in alternatives.iter().enumerate() {
         let mut visited = Vec::new();
         let Some(max_end) = match_demand(grammar, alt, demand, 0, &mut visited)
             .into_iter()
             .max()
         else {
+            // Empty match ⇒ structurally rejected (needs an absent child).
             continue;
         };
+        num_viable += 1;
         if max_end > best_len {
             best_len = max_end;
             cands = vec![i];
-        } else if max_end == best_len && max_end > 0 {
+        } else if max_end == best_len {
             cands.push(i);
         }
     }
-    (best_len, cands)
+    Candidates {
+        best_len,
+        cands,
+        num_viable,
+    }
 }
 
 /// The literal `STRING` tokens an alternative would emit directly (its
@@ -319,11 +332,25 @@ pub(crate) fn select_choice_with_trace(
     demand: &[&str],
     trace_tokens: &[String],
 ) -> Option<usize> {
-    let (best_len, cands) = choice_candidates(grammar, alternatives, demand);
-    if best_len == 0 || cands.is_empty() {
+    let Candidates {
+        best_len,
+        cands,
+        num_viable,
+    } = choice_candidates(grammar, alternatives, demand);
+    if cands.is_empty() {
+        // No alternative can consume the demand at all.
         return None;
     }
-    if cands.len() == 1 {
+    // A unique structural answer exists when one alternative is maximal
+    // AND there is real discrimination: either it consumed children
+    // (best_len > 0, uniquely-maximal munch) or it is the *only* viable
+    // alternative (every other was structurally rejected for needing an
+    // absent child — e.g. `BLANK` is chosen over `_initializer` for a
+    // declarator with no value, since `= expr` requires a child the
+    // demand does not supply). A zero-consumption tie among *all* viable
+    // alternatives (num_viable == num_total, best_len == 0) carries no
+    // structural signal — those fall through to the literal tie-break.
+    if cands.len() == 1 && (best_len > 0 || num_viable == 1) {
         return Some(cands[0]);
     }
     if trace_tokens.is_empty() {
@@ -534,6 +561,42 @@ mod tests {
             select_choice_with_trace(&g, alts, &["expr"], &["xyz".to_owned()]),
             None
         );
+    }
+
+    /// A unique viable alternative wins even when it consumes nothing:
+    /// `BLANK` is chosen over an optional `_initializer` (`= expr`) when
+    /// the demand supplies no value child (the js for-in declarator).
+    #[test]
+    fn unique_viable_blank_beats_rejected_optional() {
+        let g = grammar(
+            &serde_json::json!({
+                "name": "test",
+                "rules": {
+                    "declarator": {"type": "SEQ", "members": [
+                        {"type": "FIELD", "name": "name", "content": sym("identifier")},
+                        {"type": "CHOICE", "members": [sym("_initializer"), {"type": "BLANK"}]},
+                    ]},
+                    "_initializer": {"type": "SEQ", "members": [str_("="), sym("expression")]},
+                    "identifier": str_("x"),
+                    "expression": str_("e"),
+                }
+            })
+            .to_string(),
+        );
+        let alts = match &g.rules["declarator"] {
+            Production::Seq { members } => match &members[1] {
+                Production::Choice { members } => members,
+                _ => panic!(),
+            },
+            _ => panic!(),
+        };
+        // No value child in the demand → `_initializer` (needs an
+        // `expression` child) is structurally rejected; `BLANK` is the
+        // unique viable alternative and must be chosen, not deferred.
+        assert_eq!(select_choice_with_trace(&g, alts, &[], &[]), Some(1));
+        // With a value child available, `_initializer` becomes viable and
+        // consumes it → chosen over BLANK (maximal munch).
+        assert_eq!(select_choice_with_trace(&g, alts, &["expression"], &[]), Some(0));
     }
 
     /// REPEAT before a mandatory member must not swallow it (set-valued
