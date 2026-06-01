@@ -24,7 +24,7 @@
 
 //! `emit_pretty::review` (Phase A decomposition).
 
-use super::{Schema, Grammar, Output, ParseError, is_immediate_token, literal_value, children_for, TokenRole, leaf_terminal_role, ChildCursor, Production, EMIT_MU_FRAMES, EMIT_DEPTH, classify_seq_positions, seq_bracket_triggers_indent, unwrap_to_string, is_word_like, has_repeat_in, Token, member_has_leading_bracket, pattern_absorbs_leading_space, is_newline_like_pattern, is_whitespace_only_pattern, placeholder_for_pattern, current_field_context, vertex_id_kind, has_relevant_constraint, push_field_context, alias_content_is_terminal_pattern, Edge, clear_field_context, referenced_symbols, literal_strings, aliased_source_literals, first_unconsumed_target_fingerprint, yield_of_production, is_newline_alt, accepts_first_edge, has_any_field, has_field_in, alt_satisfies_field_token_restrictions, alt_satisfies_pre_alias_constraints, prec_value, contains_newline_pattern};
+use super::{Schema, Grammar, Output, ParseError, is_immediate_token, literal_value, children_for, TokenRole, leaf_terminal_role, ChildCursor, Production, EMIT_MU_FRAMES, EMIT_DEPTH, classify_seq_positions, seq_bracket_triggers_indent, unwrap_to_string, is_word_like, has_repeat_in, Token, member_has_leading_bracket, pattern_absorbs_leading_space, is_newline_like_pattern, is_whitespace_only_pattern, placeholder_for_pattern, current_field_context, vertex_id_kind, has_relevant_constraint, push_field_context, alias_content_is_terminal_pattern, Edge, clear_field_context, referenced_symbols, literal_strings, aliased_source_literals, first_unconsumed_target_fingerprint, yield_of_production, is_newline_alt, accepts_first_edge, has_any_field, has_field_in, alt_satisfies_field_token_restrictions, alt_satisfies_pre_alias_constraints, prec_value, contains_newline_pattern, is_no_space_external};
 
 
 pub(crate) fn collect_roots(schema: &Schema) -> Vec<&panproto_gat::Name> {
@@ -569,7 +569,16 @@ pub(crate) fn emit_production_inner(
                         }
                         return Ok(());
                     }
-                    if grammar.external_indent_opens.contains(name) {
+                    if is_no_space_external(name) {
+                        // A scanner concatenation / no-space marker
+                        // (`_concat`, `_no_space`, ...): the adjacent
+                        // tokens are glued with no whitespace. Emit a
+                        // NoSpace so the sibling-separation space is
+                        // suppressed -- otherwise string content around
+                        // an interpolation (`"$a / $b"`) accretes a space
+                        // per emit (`"$a  /  $b"`).
+                        out.no_space();
+                    } else if grammar.external_indent_opens.contains(name) {
                         out.indent_open();
                     } else if grammar.external_indent_closes.contains(name) {
                         out.indent_close();

@@ -932,3 +932,17 @@ pub(crate) fn decode_simple_pattern_literal(pattern: &str) -> Option<String> {
     }
     Some(out)
 }
+
+/// A scanner concatenation / no-space marker external token: the
+/// adjacent tokens are lexically glued with no whitespace. These follow
+/// a stable tree-sitter naming convention across grammars (bash
+/// `_concat`, and the `_no_space` / `_brace_concat` / `_concat_list` /
+/// `_no_line_break` family). Emit them as a `NoSpace` so the layout pass
+/// suppresses the sibling-separation space (otherwise string content
+/// around an interpolation re-spaces and grows one space per emit).
+pub(crate) fn is_no_space_external(name: &str) -> bool {
+    matches!(
+        name,
+        "_concat" | "_brace_concat" | "_concat_list" | "_no_space" | "_no_line_break"
+    )
+}
