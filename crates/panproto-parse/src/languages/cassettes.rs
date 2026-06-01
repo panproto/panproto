@@ -64,6 +64,22 @@ pub trait GrammarCassette: Send + Sync {
         false
     }
 
+    /// Returns `true` when the STRING token `token` must be emitted
+    /// *tight* (no surrounding whitespace) inside grammar rule `rule`,
+    /// even though the generic role classifier would treat it as a
+    /// spaced operator / separator. This is a **lexical** fact the
+    /// scanner enforces but `grammar.json` does not encode (no
+    /// `IMMEDIATE_TOKEN`): bash's `VAR=1` / `VAR+=1` assignment operator
+    /// is a single scanner word, so `=` must hug both sides, unlike the
+    /// `=` of a `[[ a = b ]]` test. The generic emitter cannot derive
+    /// this from the grammar, so the per-language cassette declares it;
+    /// the layout pass then emits the token with the always-tight
+    /// [`Connector`](crate::emit_pretty) role.
+    fn operator_is_tight(&self, rule: &str, token: &str) -> bool {
+        let _ = (rule, token);
+        false
+    }
+
     /// Returns `true` when an external scanner token is a layout
     /// terminator that should emit a newline. Layout-sensitive grammars
     /// name these idiosyncratically (Elm's `_virtual_end_decl`), so the
@@ -357,6 +373,13 @@ impl GrammarCassette for ShellFamilyCassette {
             "_immediate_double_hash" => Some("##"),
             _ => None,
         }
+    }
+
+    fn operator_is_tight(&self, rule: &str, token: &str) -> bool {
+        // `VAR=1` / `VAR+=1`: the scanner reads the assignment as one
+        // word, so the operator hugs both sides. (The `=` of a `[[ a = b ]]`
+        // test, a different rule, stays spaced.)
+        rule == "variable_assignment" && matches!(token, "=" | "+=")
     }
 }
 

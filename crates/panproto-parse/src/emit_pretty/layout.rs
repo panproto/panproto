@@ -179,7 +179,16 @@ impl<'a> Output<'a> {
             return;
         }
 
-        let role = explicit_role.unwrap_or_else(|| self.lookup_role(value));
+        let mut role = explicit_role.unwrap_or_else(|| self.lookup_role(value));
+        // A cassette may declare a token lexically tight in a rule (a
+        // scanner fact `grammar.json` omits, e.g. bash `VAR=1`): emit it
+        // with the always-tight Connector role (which the layout pass
+        // honours over the sibling-separation ForceSpace).
+        if let (Some(rule), Some(cassette)) = (self.current_rule.as_ref(), self.cassette) {
+            if cassette.operator_is_tight(rule, value) {
+                role = TokenRole::Connector;
+            }
+        }
 
         if role == TokenRole::BracketClose && self.policy.indent_close.iter().any(|t| t == value) {
             self.tokens.push(Token::IndentClose);
@@ -378,7 +387,17 @@ pub(crate) fn layout(tokens: &[Token], policy: &FormatPolicy, line_comment_prefi
                     // IMMEDIATE_TOKEN). It overrides the sibling-separation
                     // ForceSpace heuristic — otherwise beamed notes
                     // (`CDEF`) re-space to `C D E F`.
+                    // A Connector ("always tight": `.`, `::`, bash `=`)
+                    // hugs both sides unconditionally — it overrides the
+                    // sibling-separation ForceSpace heuristic, not just the
+                    // role-pair table. Without this a tight connector
+                    // between two content-producing members (bash
+                    // `variable_assignment`'s name `=` value) re-spaces to
+                    // `VAR = 1` via the ForceSpace pushed between them.
+                    let connector_tight = matches!(prev_role, TokenRole::Connector)
+                        || matches!(*role, TokenRole::Connector);
                     let want_space = !suppress_next_separator
+                        && !connector_tight
                         && (force_next_separator
                             || needs_space_by_role(prev_role, &last_text, *role, value)
                             || (is_block_open
