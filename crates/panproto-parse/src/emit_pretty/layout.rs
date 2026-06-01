@@ -310,6 +310,15 @@ impl<'a> Output<'a> {
         self.tokens.push(Token::NoSpace);
     }
 
+    /// Push a marker that forces a separator (space) between the
+    /// surrounding Lits. Used for an external scanner token that is
+    /// required inter-token whitespace (dockerfile `_non_newline_whitespace`
+    /// between path arguments), which carries no text of its own but
+    /// must keep the neighbours apart.
+    pub(crate) fn force_space(&mut self) {
+        self.tokens.push(Token::ForceSpace);
+    }
+
     pub(crate) fn finish(self) -> Vec<u8> {
         layout(
             &self.tokens,

@@ -1019,3 +1019,14 @@ pub(crate) fn char_class_first_literal(pattern: &str) -> Option<String> {
     }
     Some(first.to_string())
 }
+
+/// A required inter-token whitespace external scanner token: it carries
+/// no text but the parser requires whitespace at that position
+/// (dockerfile `_non_newline_whitespace` between path arguments). Emit
+/// it as a forced space so the neighbours stay separated.
+pub(crate) fn is_whitespace_external(name: &str) -> bool {
+    matches!(
+        name,
+        "_non_newline_whitespace" | "_whitespace" | "_space" | "_ws" | "whitespace"
+    )
+}
