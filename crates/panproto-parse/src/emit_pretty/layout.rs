@@ -387,17 +387,7 @@ pub(crate) fn layout(tokens: &[Token], policy: &FormatPolicy, line_comment_prefi
                     // IMMEDIATE_TOKEN). It overrides the sibling-separation
                     // ForceSpace heuristic — otherwise beamed notes
                     // (`CDEF`) re-space to `C D E F`.
-                    // A Connector ("always tight": `.`, `::`, bash `=`)
-                    // hugs both sides unconditionally — it overrides the
-                    // sibling-separation ForceSpace heuristic, not just the
-                    // role-pair table. Without this a tight connector
-                    // between two content-producing members (bash
-                    // `variable_assignment`'s name `=` value) re-spaces to
-                    // `VAR = 1` via the ForceSpace pushed between them.
-                    let connector_tight = matches!(prev_role, TokenRole::Connector)
-                        || matches!(*role, TokenRole::Connector);
                     let want_space = !suppress_next_separator
-                        && !connector_tight
                         && (force_next_separator
                             || needs_space_by_role(prev_role, &last_text, *role, value)
                             || (is_block_open

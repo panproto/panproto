@@ -400,11 +400,29 @@ pub(crate) fn emit_seq_with_roles(
                     out.tokens.last(),
                     Some(Token::Lit(_, TokenRole::BracketOpen | TokenRole::Immediate))
                 );
+                // The previous *member* is itself a cassette-tight operator
+                // literal (bash `variable_assignment`'s `=` / `+=` CHOICE):
+                // it hugs its operand, so no sibling-separation space. This
+                // is member-scoped — it fires only when the operator is a
+                // direct SEQ member here, NOT when a child vertex merely
+                // ends in that operator (an empty-value assignment followed
+                // by a sibling command keeps its space, because there the
+                // previous member is the child SYMBOL, not the operator).
+                let prev_member_tight_operator = out
+                    .current_rule
+                    .as_ref()
+                    .zip(out.cassette)
+                    .is_some_and(|(rule, cassette)| {
+                        literal_strings(&members[i - 1])
+                            .iter()
+                            .any(|lit| cassette.operator_is_tight(rule, lit))
+                    });
                 if !member_starts_with_bracket
                     && !is_zero_width_external
                     && !is_separator_choice
                     && !is_repeat
                     && !prev_tight_right
+                    && !prev_member_tight_operator
                 {
                     out.tokens.push(Token::ForceSpace);
                 }
