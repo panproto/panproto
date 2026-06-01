@@ -313,14 +313,22 @@ pub(crate) fn unwrap_to_string(prod: &Production) -> Option<&str> {
 
 pub(crate) fn extract_line_comment_prefix(prod: &Production) -> Option<String> {
     match prod {
-        Production::Token { content } | Production::ImmediateToken { content } => {
-            extract_line_comment_prefix(content)
-        }
+        Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Reserved { content, .. } => extract_line_comment_prefix(content),
         Production::Seq { members } if members.len() >= 2 => {
             if let Production::String { value } = &members[0] {
-                if members[1..].iter().any(|m| {
-                    matches!(m, Production::Pattern { value } if value.contains(".*") || value.contains("[^\\n]*") || value.contains("[^\\r\\n]*"))
-                }) {
+                // A line comment: a fixed prefix followed by the rest of
+                // the line (a pattern, or REPEAT of one, that excludes
+                // newlines). Recognising the prefix lets the layout pass
+                // insert a newline after the comment so consecutive
+                // comments do not collapse onto one line (and re-merge
+                // into a single comment node on re-parse).
+                if members[1..].iter().any(seq_member_is_line_rest) {
                     return Some(value.clone());
                 }
             }
@@ -328,6 +336,36 @@ pub(crate) fn extract_line_comment_prefix(prod: &Production) -> Option<String> {
         }
         Production::Choice { members } => members.iter().find_map(extract_line_comment_prefix),
         _ => None,
+    }
+}
+
+/// A SEQ member that consumes the rest of a line: a newline-excluding
+/// `PATTERN`, or a `REPEAT`/`REPEAT1`/wrapper thereof.
+fn seq_member_is_line_rest(prod: &Production) -> bool {
+    match prod {
+        Production::Pattern { value } => {
+            value.contains(".*")
+                || value.contains("[^\\n]")
+                || value.contains("[^\\r\\n]")
+                // A negated class that excludes the newline byte (toml's
+                // `[^\x00-\x08\x0a-\x1f\x7f]`): rest-of-line content.
+                || (value.starts_with("[^")
+                    && (value.contains("\\n")
+                        || value.contains("\\r")
+                        || value.contains("\\x0a")
+                        || value.contains("\\x0A")))
+        }
+        Production::Repeat { content }
+        | Production::Repeat1 { content }
+        | Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Optional { content }
+        | Production::Reserved { content, .. } => seq_member_is_line_rest(content),
+        _ => false,
     }
 }
 
