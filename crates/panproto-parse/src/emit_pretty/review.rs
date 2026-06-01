@@ -499,10 +499,23 @@ pub(crate) fn emit_production_inner(
                         protocol, schema, grammar, &edge.tgt, production, out,
                     );
                 }
-                // No matching field-named edge left on the outer
-                // cursor. Surface nothing; the surrounding REPEAT /
-                // OPTIONAL / CHOICE backtracks the literal tokens it
-                // emitted on this iteration when it sees no progress.
+                // No child edge for this field. If the field's value was
+                // an anonymous token (no named child) the walker captured
+                // it as a `field:<name>` constraint on this vertex (rust
+                // `let _`'s `_` wildcard pattern; field('op', '+') forms).
+                // Emit that value rather than dropping the field. Guarded
+                // by current_rule so a REPEAT cannot re-emit it: it
+                // consumes no child, so the surrounding REPEAT halts.
+                let sort = format!("field:{field}");
+                if let Some(v) = schema.constraints.get(vertex_id).and_then(|cs| {
+                    cs.iter()
+                        .find(|c| c.sort.as_ref() == sort)
+                        .map(|c| c.value.clone())
+                }) {
+                    out.token(&v);
+                }
+                // Otherwise surface nothing; the surrounding REPEAT /
+                // OPTIONAL / CHOICE backtracks when it sees no progress.
                 return Ok(());
             }
             if is_whitespace_external(name) {
