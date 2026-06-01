@@ -888,6 +888,15 @@ pub(crate) fn placeholder_for_pattern(pattern: &str) -> String {
         return lit;
     }
 
+    // A positive char class of fixed literals (`[;#]`, `[<>]`): emit the
+    // first member -- a valid token of the terminal (an ini/properties
+    // comment marker `[;#]` reparses as a comment), unlike the `_`
+    // fallback which is not a token of the class. The exact member is
+    // lost without a complement, but the structure is preserved.
+    if let Some(lit) = char_class_first_literal(pattern) {
+        return lit;
+    }
+
     if pattern.contains("[0-9]") || pattern.contains("\\d") {
         "0".into()
     } else if pattern.contains("[a-zA-Z_]") || pattern.contains("\\w") {
@@ -945,4 +954,30 @@ pub(crate) fn is_no_space_external(name: &str) -> bool {
         name,
         "_concat" | "_brace_concat" | "_concat_list" | "_no_space" | "_no_line_break"
     )
+}
+
+/// The first literal member of a positive fixed-char class PATTERN
+/// (`[;#]` -> ";", `[<>]` -> "<"). Returns `None` for negated classes
+/// (`[^...]`), ranges (`[a-z]`), quantified or composite patterns, or
+/// anything that is not exactly a bare `[...]` of literal chars. Used by
+/// [`placeholder_for_pattern`] so a marker terminal emits a valid token.
+pub(crate) fn char_class_first_literal(pattern: &str) -> Option<String> {
+    let inner = pattern.strip_prefix('[')?.strip_suffix(']')?;
+    if inner.is_empty() || inner.starts_with('^') || inner.contains('-') {
+        return None;
+    }
+    let mut chars = inner.chars();
+    let first = chars.next()?;
+    if first == '\\' {
+        return Some(
+            match chars.next()? {
+                'n' => '\n',
+                'r' => '\r',
+                't' => '\t',
+                other => other,
+            }
+            .to_string(),
+        );
+    }
+    Some(first.to_string())
 }
