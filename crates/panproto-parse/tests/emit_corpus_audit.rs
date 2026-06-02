@@ -45,8 +45,16 @@ fn corpus_sources(protocol: &str) -> Vec<(String, String)> {
             if let Ok(rd) = std::fs::read_dir(&p) {
                 stack.extend(rd.filter_map(|e| e.ok().map(|e| e.path())));
             }
-        } else if p.extension().is_some_and(|e| e == "txt") {
-            files.push(p);
+        } else {
+            // Tree-sitter's own test runner reads every file under
+            // `test/corpus/` regardless of extension. Some grammars name
+            // their corpus after the language (scheme -> `.scm`, etc.); the
+            // header/divider format is identical. Accept `.txt` anywhere, and
+            // any file living under a `corpus` directory.
+            let under_corpus = p.components().any(|c| c.as_os_str() == "corpus");
+            if under_corpus || p.extension().is_some_and(|e| e == "txt") {
+                files.push(p);
+            }
         }
     }
     files.sort();
