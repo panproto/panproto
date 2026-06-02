@@ -246,6 +246,87 @@ fn strip_audit(protocol: &str) -> Tally {
     t
 }
 
+/// Three-grade classification of canonical-section (abstract-schema)
+/// emit, per the project's grading scheme:
+///
+/// * **Grade 1** — emit does not reconstruct the AST: the re-parse of the
+///   emitted bytes differs structurally (kind/edge multiset) from the
+///   abstract schema, or does not parse / emit at all. Either a genuine
+///   information loss (a distinction held only in a stripped anonymous
+///   token) or an emit bug.
+/// * **Grade 2** — emit reconstructs the AST (re-parse is structurally
+///   identical) but the bytes differ from the original source. A correct
+///   program with non-canonical-looking formatting.
+/// * **Grade 3** — emit reconstructs the AST *and* is byte-identical to
+///   the source. The canonical formatting happened to match.
+///
+/// Grade 3 ⊆ Grade 2; "Grade 2+" (2 or 3) is the meaningful transpilation
+/// bar (the emitted program is the same program). Returns
+/// `(grade1, grade2, grade3, parse_skipped)` counts over the corpus.
+fn grade_audit(protocol: &str) -> (usize, usize, usize, usize) {
+    let reg = ParserRegistry::new();
+    let file = format!("sample.{protocol}");
+    let (mut g1, mut g2, mut g3, mut skip) = (0usize, 0usize, 0usize, 0usize);
+    for (_name, src) in corpus_sources(protocol) {
+        let Ok(s1) = reg.parse_with_protocol(protocol, src.as_bytes(), &file) else {
+            skip += 1;
+            continue;
+        };
+        let has_error = s1.vertices.values().any(|v| {
+            matches!(v.kind.as_ref(), "ERROR" | "MISSING") || v.kind.as_ref().contains("ERROR")
+        });
+        if s1.vertices.is_empty() || has_error {
+            skip += 1;
+            continue;
+        }
+        let abstract_schema = s1.forget_layout();
+        let Ok(e1) = reg.emit_pretty_with_protocol(protocol, &abstract_schema) else {
+            g1 += 1;
+            continue;
+        };
+        let Ok(s2) = reg.parse_with_protocol(protocol, &e1, &file) else {
+            g1 += 1;
+            continue;
+        };
+        let ast_equal = kind_multiset(&abstract_schema) == kind_multiset(&s2)
+            && edge_multiset(&abstract_schema) == edge_multiset(&s2);
+        if !ast_equal {
+            g1 += 1;
+        } else if e1 == src.as_bytes() {
+            g3 += 1;
+        } else {
+            g2 += 1;
+        }
+    }
+    (g1, g2, g3, skip)
+}
+
+/// Report the three-grade distribution. `PP_GRADE=proto1,proto2,...`
+#[test]
+fn corpus_grade_audit_report() {
+    let Ok(list) = std::env::var("PP_GRADE") else {
+        eprintln!("set PP_GRADE=proto1,proto2,... for the three-grade report");
+        return;
+    };
+    std::thread::Builder::new()
+        .stack_size(256 * 1024 * 1024)
+        .spawn(move || {
+            for proto in list.split(',').filter(|s| !s.is_empty()) {
+                let (g1, g2, g3, skip) = grade_audit(proto);
+                let total = g1 + g2 + g3;
+                let g2plus = g2 + g3;
+                eprintln!(
+                    "{proto}: Grade2+ (AST-faithful) {g2plus}/{total} \
+                     [G1(broken)={g1} G2(reformatted)={g2} G3(byte-exact)={g3}] \
+                     ({skip} parse-skipped)",
+                );
+            }
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
 /// Report mode for the strip-complement (canonical-section) audit.
 /// `PP_STRIP_AUDIT=proto1,proto2,...`
 #[test]
