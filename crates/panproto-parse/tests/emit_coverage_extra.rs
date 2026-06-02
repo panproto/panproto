@@ -3,7 +3,39 @@
 //! promoted to `VERIFIED_EMIT_PROTOCOLS`; protocols with a remaining
 //! emit defect are marked `#[ignore]` with the observed symptom.
 
-#![cfg(feature = "grammars")]
+// Every test gates on a systems / functional / data / markup grammar,
+// none of which is in the workspace-default `group-core`. Gate the whole
+// file on their union so it compiles to nothing (no orphaned helpers)
+// when none is enabled, and runs under the relevant group features.
+#![cfg(all(
+    feature = "grammars",
+    any(
+        feature = "lang-json",
+        feature = "lang-toml",
+        feature = "lang-yaml",
+        feature = "lang-jsonnet",
+        feature = "lang-nix",
+        feature = "lang-hcl",
+        feature = "lang-kdl",
+        feature = "lang-ron",
+        feature = "lang-zig",
+        feature = "lang-nim",
+        feature = "lang-d",
+        feature = "lang-ada",
+        feature = "lang-hare",
+        feature = "lang-odin",
+        feature = "lang-haskell",
+        feature = "lang-ocaml",
+        feature = "lang-elm",
+        feature = "lang-fsharp",
+        feature = "lang-purescript",
+        feature = "lang-lean",
+        feature = "lang-fortran",
+        feature = "lang-latex",
+        feature = "lang-typst",
+        feature = "lang-markdown"
+    )
+))]
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
 use panproto_parse::ParserRegistry;

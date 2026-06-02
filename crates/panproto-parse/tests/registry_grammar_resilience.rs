@@ -9,7 +9,18 @@
 //! - Erlang's `node-types.json` ends with a `{"@generated": true}`
 //!   marker that has no `type` field; it is skipped during extraction.
 
-#![cfg(feature = "grammars")]
+// Each test gates on a specific grammar's `lang-*` feature, none of which
+// the workspace-default `group-core` turns on as a cfg. Gate the whole
+// file on their union so the shared `assert_registered` helper is never
+// orphaned dead code, and the tests run when those features are enabled.
+#![cfg(all(
+    feature = "grammars",
+    any(
+        feature = "lang-csharp",
+        feature = "lang-al",
+        feature = "lang-erlang"
+    )
+))]
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use panproto_parse::{EmitVerificationStatus, ParserRegistry};

@@ -325,7 +325,24 @@ fn emit_one_probe() {
             let s1 = reg
                 .parse_with_protocol(&proto, src.as_bytes(), "probe")
                 .expect("parse");
-            let abstract_schema = s1.forget_layout();
+            // PP_STRIP_BYTE reproduces emit_pretty_core_pack's partial
+            // strip (byte spans + interstitials only, keeping ptrace /
+            // chose-alt / field constraints) to diagnose the replay path;
+            // default is the full canonical-section strip.
+            let abstract_schema = if std::env::var("PP_STRIP_BYTE").is_ok() {
+                let mut s = s1.clone();
+                for constraints in s.constraints.values_mut() {
+                    constraints.retain(|c| {
+                        let so = c.sort.as_ref();
+                        !(so == "start-byte"
+                            || so == "end-byte"
+                            || so.starts_with("interstitial-"))
+                    });
+                }
+                s
+            } else {
+                s1.forget_layout()
+            };
             if std::env::var("PP_DUMP").is_ok() {
                 for (id, v) in &abstract_schema.vertices {
                     let mut kids = abstract_schema

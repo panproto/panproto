@@ -3,7 +3,23 @@
 //! web-frontend grammars. Passing protocols are promoted to
 //! `VERIFIED_EMIT_PROTOCOLS` in the registry.
 
-#![cfg(feature = "grammars")]
+// Every test gates on a web-family grammar, none of which is in the
+// workspace-default `group-core`. Gate the whole file on their union so
+// it compiles to nothing (no orphaned helpers) when none is enabled, and
+// runs in full under `group-web`.
+#![cfg(all(
+    feature = "grammars",
+    any(
+        feature = "lang-html",
+        feature = "lang-css",
+        feature = "lang-scss",
+        feature = "lang-less",
+        feature = "lang-vue",
+        feature = "lang-svelte",
+        feature = "lang-astro",
+        feature = "lang-tsx"
+    )
+))]
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
 use panproto_parse::ParserRegistry;
