@@ -1256,13 +1256,21 @@ pub(crate) fn pick_choice_with_cursor<'a>(
     // schemas (the dominant case); the positional/fingerprint heuristics
     // below are the fallback for genuine under-determination (a tie or
     // no structural match) and are subsumed once trace-replay lands.
-    let demand: Vec<&str> = cursor
+    // `demand` is the ordered kinds of the unconsumed child edges; `labels`
+    // is their parallel field-name labels (`child_of` when not field-bound).
+    // Built together so they stay index-aligned through the same filter.
+    let (demand, labels): (Vec<&str>, Vec<&str>) = cursor
         .edges
         .iter()
         .enumerate()
         .filter(|(i, _)| !cursor.consumed[*i])
-        .filter_map(|(_, e)| schema.vertices.get(&e.tgt).map(|v| v.kind.as_ref()))
-        .collect();
+        .filter_map(|(_, e)| {
+            schema
+                .vertices
+                .get(&e.tgt)
+                .map(|v| (v.kind.as_ref(), e.kind.as_ref()))
+        })
+        .unzip();
     // The recorded literal-token fibre is the variant tag that
     // disambiguates CHOICEs the child demand alone ties on. Two sources,
     // both surviving as constraints:
@@ -1325,10 +1333,16 @@ pub(crate) fn pick_choice_with_cursor<'a>(
                 .collect()
         })
         .unwrap_or_default();
+    // A CHOICE that is the content of a FIELD inherits that field context,
+    // so a field-labeled child can still be consumed by the field's own
+    // production (go `F:body(CH[block | BLANK])`).
+    let field_ctx = current_field_context();
     if let Some(idx) = super::select_choice_with_trace(
         grammar,
         alternatives,
         &demand,
+        &labels,
+        field_ctx.as_deref(),
         &field_constraints,
         &trace_tokens,
     ) {

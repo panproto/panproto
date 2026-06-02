@@ -129,18 +129,46 @@ fn bare_symbol_name(prod: &Production) -> Option<&str> {
     }
 }
 
-/// Set-valued review: the demand positions reachable by matching
-/// `prod` against `demand` from `pos`. Empty result ⇒ no match.
+/// The field label recorded on demand slot `pos` (empty when the caller
+/// supplied no labels, or the edge is unlabeled / `child_of`). An empty
+/// `labels` slice makes every slot unlabeled, recovering the original
+/// label-blind matcher exactly — that is the call used for `num_viable`.
+fn slot_label<'a>(labels: &[&'a str], pos: usize) -> &'a str {
+    match labels.get(pos).copied().unwrap_or("") {
+        "child_of" => "",
+        l => l,
+    }
+}
+
+/// Whether a production in field context `field_ctx` may consume a demand
+/// slot labeled `slot`. An unlabeled slot is permissive. A field-labeled
+/// slot is consumable only from inside the matching `FIELD` — a non-field
+/// production (`field_ctx == None`) or a *different* field cannot take it.
+/// This is what stops an optional trailing production from swallowing the
+/// next field's child (JS for-header `= expr` eating the `right` operand)
+/// and a wrong field from claiming a labeled edge (rust `impl Foo`'s
+/// `F:trait` eating the `type` edge → spurious `for`).
+fn label_ok(slot: &str, field_ctx: Option<&str>) -> bool {
+    slot.is_empty() || field_ctx == Some(slot)
+}
+
+/// Set-valued review: the demand positions reachable by matching `prod`
+/// against `demand` from `pos`. Empty result ⇒ no match.
 ///
-/// `demand` is the ordered list of unconsumed child-edge kinds. Grammar
-/// literals are zero-width; concrete symbols/aliases consume one slot
-/// iff the child kind satisfies them; hidden/supertype symbols expand.
+/// `demand` is the ordered list of unconsumed child-edge kinds and
+/// `labels` their parallel field-name labels (see [`label_ok`]). Grammar
+/// literals are zero-width; concrete symbols/aliases consume one slot iff
+/// the child kind satisfies them AND the slot's label is compatible with
+/// `field_ctx`; hidden/supertype symbols expand. An empty `labels` slice
+/// is fully permissive (the label-blind matcher).
 #[must_use]
 pub(crate) fn match_demand<'g>(
     grammar: &'g Grammar,
     prod: &'g Production,
     demand: &[&str],
+    labels: &[&str],
     pos: usize,
+    field_ctx: Option<&str>,
     visited: &mut Vec<(&'g str, usize)>,
 ) -> Vec<usize> {
     match prod {
@@ -155,7 +183,7 @@ pub(crate) fn match_demand<'g>(
                 }
                 if let Some(rule) = grammar.rules.get(name) {
                     visited.push((name.as_str(), pos));
-                    let out = match_demand(grammar, rule, demand, pos, visited);
+                    let out = match_demand(grammar, rule, demand, labels, pos, field_ctx, visited);
                     visited.pop();
                     return out;
                 }
@@ -166,16 +194,24 @@ pub(crate) fn match_demand<'g>(
                 // External scanner token: zero-width.
                 return vec![pos];
             }
-            // Concrete symbol: consume one child iff it satisfies.
+            // Concrete symbol: consume one child iff it satisfies AND the
+            // slot's field label is compatible with this position.
             match demand.get(pos) {
-                Some(k) if sat(grammar, k, name) => vec![pos + 1],
+                Some(k) if sat(grammar, k, name) && label_ok(slot_label(labels, pos), field_ctx) => {
+                    vec![pos + 1]
+                }
                 _ => vec![],
             }
         }
         Production::Alias { named, value, .. } => {
             if *named && !value.is_empty() {
                 match demand.get(pos) {
-                    Some(k) if sat(grammar, k, value) => vec![pos + 1],
+                    Some(k)
+                        if sat(grammar, k, value)
+                            && label_ok(slot_label(labels, pos), field_ctx) =>
+                    {
+                        vec![pos + 1]
+                    }
                     _ => vec![],
                 }
             } else {
@@ -183,22 +219,24 @@ pub(crate) fn match_demand<'g>(
                 vec![pos]
             }
         }
+        Production::Field { name, content } => {
+            match_demand(grammar, content, demand, labels, pos, Some(name.as_str()), visited)
+        }
         Production::Token { content }
         | Production::ImmediateToken { content }
         | Production::Prec { content, .. }
         | Production::PrecLeft { content, .. }
         | Production::PrecRight { content, .. }
         | Production::PrecDynamic { content, .. }
-        | Production::Reserved { content, .. }
-        | Production::Field { content, .. } => {
-            match_demand(grammar, content, demand, pos, visited)
+        | Production::Reserved { content, .. } => {
+            match_demand(grammar, content, demand, labels, pos, field_ctx, visited)
         }
         Production::Seq { members } => {
             let mut frontier = vec![pos];
             for m in members {
                 let mut next: Vec<usize> = Vec::new();
                 for &p in &frontier {
-                    for end in match_demand(grammar, m, demand, p, visited) {
+                    for end in match_demand(grammar, m, demand, labels, p, field_ctx, visited) {
                         if !next.contains(&end) {
                             next.push(end);
                         }
@@ -214,7 +252,7 @@ pub(crate) fn match_demand<'g>(
         Production::Choice { members } => {
             let mut out: Vec<usize> = Vec::new();
             for m in members {
-                for end in match_demand(grammar, m, demand, pos, visited) {
+                for end in match_demand(grammar, m, demand, labels, pos, field_ctx, visited) {
                     if !out.contains(&end) {
                         out.push(end);
                     }
@@ -224,32 +262,39 @@ pub(crate) fn match_demand<'g>(
         }
         Production::Optional { content } => {
             let mut out = vec![pos];
-            for end in match_demand(grammar, content, demand, pos, visited) {
+            for end in match_demand(grammar, content, demand, labels, pos, field_ctx, visited) {
                 if !out.contains(&end) {
                     out.push(end);
                 }
             }
             out
         }
-        Production::Repeat { content } => closure(grammar, content, demand, pos, visited, true),
-        Production::Repeat1 { content } => closure(grammar, content, demand, pos, visited, false),
+        Production::Repeat { content } => {
+            closure(grammar, content, demand, labels, pos, field_ctx, visited, true)
+        }
+        Production::Repeat1 { content } => {
+            closure(grammar, content, demand, labels, pos, field_ctx, visited, false)
+        }
     }
 }
 
 /// Reflexive-transitive (REPEAT) or transitive-from-one (REPEAT1)
 /// closure of one iteration of `content`.
+#[allow(clippy::too_many_arguments)]
 fn closure<'g>(
     grammar: &'g Grammar,
     content: &'g Production,
     demand: &[&str],
+    labels: &[&str],
     pos: usize,
+    field_ctx: Option<&str>,
     visited: &mut Vec<(&'g str, usize)>,
     reflexive: bool,
 ) -> Vec<usize> {
     let mut seen = if reflexive { vec![pos] } else { vec![] };
     let mut frontier = vec![pos];
     while let Some(p) = frontier.pop() {
-        for end in match_demand(grammar, content, demand, p, visited) {
+        for end in match_demand(grammar, content, demand, labels, p, field_ctx, visited) {
             // A zero-progress iteration would loop forever; require advance.
             if end > p && !seen.contains(&end) {
                 seen.push(end);
@@ -480,33 +525,52 @@ fn choice_candidates(
     grammar: &Grammar,
     alternatives: &[Production],
     demand: &[&str],
+    labels: &[&str],
+    initial_field_ctx: Option<&str>,
     field_constraints: &[(&str, &str)],
 ) -> Candidates {
     let mut best_len = 0usize;
     let mut cands: Vec<usize> = Vec::new();
     let mut num_viable = 0usize;
     for (i, alt) in alternatives.iter().enumerate() {
+        // `num_viable` counts STRUCTURAL viability (can this alt consume the
+        // demand at all?) over ALL alternatives, label-BLIND. It drives the
+        // "only one viable" preemption, which neither field labels nor field
+        // values may perturb — changing it preempts the heuristics that
+        // legitimately resolve cpp/c ties (the lesson from the reverted
+        // global field-aware-demand attempt).
         let mut visited = Vec::new();
-        let Some(max_end) = match_demand(grammar, alt, demand, 0, &mut visited)
+        if match_demand(grammar, alt, demand, &[], 0, None, &mut visited)
             .into_iter()
             .max()
-        else {
-            // Empty match ⇒ structurally rejected (needs an absent child).
+            .is_none()
+        {
             continue;
-        };
-        // `num_viable` counts STRUCTURAL viability (can this alt consume the
-        // demand?) over ALL alternatives — it drives the "only one viable"
-        // preemption, which field values must not perturb (changing it
-        // preempts heuristics that legitimately resolve cpp/c ties).
+        }
         num_viable += 1;
-        // Field-value consistency excludes an alt only from WINNING: an alt
-        // whose pure-literal field contradicts (or whose forced literal
-        // field is absent from) the recorded `field:<name>` cannot be the
-        // parsed alternative, so it must not win on maximal-munch length —
-        // but it stays counted as structurally viable above.
+        // The WINNER (best_len / cands) is computed label-AWARE and
+        // field-value-consistent: an alt that would only reach a longer
+        // match by consuming a field-labeled edge through a non-matching
+        // field (rust `impl Foo`'s `F:trait` taking the `type` edge; JS
+        // for-header's optional `= expr` taking the `right` operand), or
+        // whose literal field contradicts the recorded value, must NOT win
+        // on maximal munch — but it stays counted as structurally viable.
         if !field_value_consistent(grammar, alt, field_constraints) {
             continue;
         }
+        // The labeled match starts in the CHOICE's enclosing field context
+        // (e.g. go `function_declaration`'s `F:body(CH[block | BLANK])` —
+        // the `block` is `body`-labeled, so the dispatch must begin with
+        // field_ctx = "body" or `label_ok` would reject the only real
+        // alternative and drop the function body).
+        let mut lv = Vec::new();
+        let Some(max_end) =
+            match_demand(grammar, alt, demand, labels, 0, initial_field_ctx, &mut lv)
+                .into_iter()
+                .max()
+        else {
+            continue;
+        };
         if max_end > best_len {
             best_len = max_end;
             cands = vec![i];
@@ -569,6 +633,8 @@ pub(crate) fn select_choice_with_trace(
     grammar: &Grammar,
     alternatives: &[Production],
     demand: &[&str],
+    labels: &[&str],
+    initial_field_ctx: Option<&str>,
     field_constraints: &[(&str, &str)],
     trace_tokens: &[String],
 ) -> Option<usize> {
@@ -576,7 +642,14 @@ pub(crate) fn select_choice_with_trace(
         best_len,
         cands,
         num_viable,
-    } = choice_candidates(grammar, alternatives, demand, field_constraints);
+    } = choice_candidates(
+        grammar,
+        alternatives,
+        demand,
+        labels,
+        initial_field_ctx,
+        field_constraints,
+    );
     if cands.is_empty() {
         // No alternative can consume the demand at all.
         return None;
@@ -702,12 +775,12 @@ mod tests {
         };
         // demand = two number children → first alt
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["number", "number"], &[], &[]),
+            select_choice_with_trace(&g, alts, &["number", "number"], &[], None, &[], &[]),
             Some(0)
         );
         // demand = two string children → second alt
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["string", "string"], &[], &[]),
+            select_choice_with_trace(&g, alts, &["string", "string"], &[], None, &[], &[]),
             Some(1)
         );
     }
@@ -742,14 +815,14 @@ mod tests {
         };
         // An identifier child picks `identifier`, not template_parameters.
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["identifier"], &[], &[]),
+            select_choice_with_trace(&g, alts, &["identifier"], &[], None, &[], &[]),
             Some(1)
         );
         // An int_literal child matches NEITHER concrete alternative
         // directly (template_parameters needs the whole < int > shape,
         // identifier needs an identifier) → defer, do not steal.
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["int_literal"], &[], &[]),
+            select_choice_with_trace(&g, alts, &["int_literal"], &[], None, &[], &[]),
             None
         );
     }
@@ -806,7 +879,7 @@ mod tests {
         // bare `declaration` (idx 1) and ALIAS=declaration (idx 2) both
         // match a `declaration` child; function_definition (idx 0) is
         // rejected. The direct bare symbol wins.
-        assert_eq!(select_choice_with_trace(&g, alts, &["declaration"], &[], &[]), Some(1));
+        assert_eq!(select_choice_with_trace(&g, alts, &["declaration"], &[], None, &[], &[]), Some(1));
     }
 
     /// Many-to-one aliasing is under-determined → defer (the ruby case).
@@ -834,7 +907,7 @@ mod tests {
             Production::Choice { members } => members,
             _ => panic!(),
         };
-        assert_eq!(select_choice_with_trace(&g, alts, &["binary"], &[], &[]), None);
+        assert_eq!(select_choice_with_trace(&g, alts, &["binary"], &[], None, &[], &[]), None);
     }
 
     /// An optional token defaults to absent (BLANK) when no child demands
@@ -857,10 +930,10 @@ mod tests {
             _ => panic!(),
         };
         // No child, no trace → omit the optional (BLANK, index 1).
-        assert_eq!(select_choice_with_trace(&g, alts, &[], &[], &[]), Some(1));
+        assert_eq!(select_choice_with_trace(&g, alts, &[], &[], None, &[], &[]), Some(1));
         // The parser recorded a ";" (in ptrace) → emit it (index 0).
         assert_eq!(
-            select_choice_with_trace(&g, alts, &[], &[], &[";".to_owned()]),
+            select_choice_with_trace(&g, alts, &[], &[], None, &[], &[";".to_owned()]),
             Some(0)
         );
     }
@@ -889,19 +962,19 @@ mod tests {
             _ => panic!(),
         };
         // No trace → genuine tie → defer.
-        assert_eq!(select_choice_with_trace(&g, alts, &["expr"], &[], &[]), None);
+        assert_eq!(select_choice_with_trace(&g, alts, &["expr"], &[], None, &[], &[]), None);
         // Trace contains "return" → first alt; "throw" → second.
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["expr"], &[], &["return".to_owned()]),
+            select_choice_with_trace(&g, alts, &["expr"], &[], None, &[], &["return".to_owned()]),
             Some(0)
         );
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["expr"], &[], &["throw".to_owned()]),
+            select_choice_with_trace(&g, alts, &["expr"], &[], None, &[], &["throw".to_owned()]),
             Some(1)
         );
         // Trace with neither keyword → still ambiguous → defer.
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["expr"], &[], &["xyz".to_owned()]),
+            select_choice_with_trace(&g, alts, &["expr"], &[], None, &[], &["xyz".to_owned()]),
             None
         );
     }
@@ -936,10 +1009,10 @@ mod tests {
         // No value child in the demand → `_initializer` (needs an
         // `expression` child) is structurally rejected; `BLANK` is the
         // unique viable alternative and must be chosen, not deferred.
-        assert_eq!(select_choice_with_trace(&g, alts, &[], &[], &[]), Some(1));
+        assert_eq!(select_choice_with_trace(&g, alts, &[], &[], None, &[], &[]), Some(1));
         // With a value child available, `_initializer` becomes viable and
         // consumes it → chosen over BLANK (maximal munch).
-        assert_eq!(select_choice_with_trace(&g, alts, &["expression"], &[], &[]), Some(0));
+        assert_eq!(select_choice_with_trace(&g, alts, &["expression"], &[], None, &[], &[]), Some(0));
     }
 
     /// REPEAT before a mandatory member must not swallow it (set-valued
@@ -962,7 +1035,7 @@ mod tests {
             .to_string(),
         );
         let mut v = Vec::new();
-        let ends = match_demand(&g, &g.rules["statements"], &["stmt", "stmt"], 0, &mut v);
+        let ends = match_demand(&g, &g.rules["statements"], &["stmt", "stmt"], &[], 0, None, &mut v);
         assert!(ends.contains(&2), "must fully consume 2 stmts: {ends:?}");
     }
 
@@ -1012,7 +1085,7 @@ mod tests {
         // unification defers (the downstream field-token tie-break picks 2) —
         // the essential property here is that the `var` member never wins.
         assert_ne!(
-            select_choice_with_trace(&g, alts, &["expr", "expr"], &[("kind", "const")], &[]),
+            select_choice_with_trace(&g, alts, &["expr", "expr"], &[], None, &[("kind", "const")], &[]),
             Some(1)
         );
         // `for (x in y)`: no kind recorded. Members 1 and 2 are forced to bind
@@ -1020,7 +1093,7 @@ mod tests {
         // is the unique remaining candidate and wins instead of emitting a
         // spurious `var`/`let`.
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["expr", "expr"], &[], &[]),
+            select_choice_with_trace(&g, alts, &["expr", "expr"], &[], None, &[], &[]),
             Some(0)
         );
     }
