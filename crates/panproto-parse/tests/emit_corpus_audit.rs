@@ -330,7 +330,7 @@ fn emit_one_probe() {
             // chose-alt / field constraints) to diagnose the replay path;
             // default is the full canonical-section strip.
             let abstract_schema = if std::env::var("PP_STRIP_BYTE").is_ok() {
-                let mut s = s1.clone();
+                let mut s = s1;
                 for constraints in s.constraints.values_mut() {
                     constraints.retain(|c| {
                         let so = c.sort.as_ref();

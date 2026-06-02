@@ -1306,8 +1306,32 @@ pub(crate) fn pick_choice_with_cursor<'a>(
                 .collect()
         })
         .unwrap_or_default();
-    if let Some(idx) = super::select_choice_with_trace(grammar, alternatives, &demand, &trace_tokens)
-    {
+    // The recorded `field:<name>=<value>` pairs. An alternative that binds
+    // field <name> to a literal set excluding <value> contradicts the parse
+    // and is rejected before maximal-munch (JS `for (const x of …)`: the
+    // `field('kind','var')` member must not out-consume the `let|const`
+    // member via its optional `= expr` swallowing the `right` operand).
+    let field_constraints: Vec<(&str, &str)> = schema
+        .constraints
+        .get(vertex_id)
+        .map(|cs| {
+            cs.iter()
+                .filter_map(|c| {
+                    c.sort
+                        .as_ref()
+                        .strip_prefix("field:")
+                        .map(|name| (name, c.value.as_str()))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    if let Some(idx) = super::select_choice_with_trace(
+        grammar,
+        alternatives,
+        &demand,
+        &field_constraints,
+        &trace_tokens,
+    ) {
         return Some(&alternatives[idx]);
     }
 

@@ -42,7 +42,7 @@
 //! stealing a child (`int_literal`) that belongs to a later mandatory
 //! member, while still admitting genuine supertype dispatch.
 
-use super::{Grammar, Production};
+use super::{collect_field_names, Grammar, Production};
 
 /// Does an abstract child of surface kind `k` satisfy a concrete
 /// grammar `SYMBOL`/`ALIAS` target named `name`?
@@ -273,7 +273,215 @@ struct Candidates {
     num_viable: usize,
 }
 
-fn choice_candidates(grammar: &Grammar, alternatives: &[Production], demand: &[&str]) -> Candidates {
+/// How an alternative binds a particular `FIELD` name, aggregated over its
+/// whole structure (so a field appearing in several `CHOICE` branches is
+/// summarised once).
+struct FieldBinding<'p> {
+    /// Union of literal values the field can take (STRING / anonymous-ALIAS
+    /// values through CHOICE and precedence/token wrappers).
+    literals: Vec<&'p str>,
+    /// Some binding of the field is a SYMBOL / PATTERN (a child edge), so the
+    /// parser may have recorded an edge rather than a `field:<name>`.
+    binds_symbol: bool,
+    /// The field is bound on EVERY path through the alternative (not
+    /// skippable via OPTIONAL / REPEAT, and bound in every CHOICE branch).
+    always: bool,
+}
+
+/// Analyse how `prod` binds the field named `target`. Literals are unioned
+/// across CHOICE branches (the alternative can take *any* of them), and
+/// `always` is the genuine mandatory analysis (every SEQ does all members;
+/// a CHOICE binds it only if all branches do; OPTIONAL/REPEAT never force
+/// it). This union semantics is essential for grammars that group operators
+/// in a nested CHOICE (cpp `binary_expression` = `CH[F:op '&&', F:op '|',
+/// …]`): the member is consistent with a recorded `field:operator="&&"` via
+/// its `&&` branch and must NOT be rejected for also offering `|`.
+fn analyse_field<'g>(
+    grammar: &'g Grammar,
+    prod: &'g Production,
+    target: &str,
+    visited: &mut Vec<&'g str>,
+) -> FieldBinding<'g> {
+    fn direct_literals<'g>(prod: &'g Production, out: &mut Vec<&'g str>) {
+        match prod {
+            Production::String { value } => out.push(value),
+            Production::Alias { named: false, value, .. } if !value.is_empty() => out.push(value),
+            Production::Choice { members } => {
+                for m in members {
+                    direct_literals(m, out);
+                }
+            }
+            Production::Token { content }
+            | Production::ImmediateToken { content }
+            | Production::Prec { content, .. }
+            | Production::PrecLeft { content, .. }
+            | Production::PrecRight { content, .. }
+            | Production::PrecDynamic { content, .. }
+            | Production::Reserved { content, .. } => direct_literals(content, out),
+            _ => {}
+        }
+    }
+    fn binds_symbol(prod: &Production) -> bool {
+        match prod {
+            Production::Symbol { .. } | Production::Pattern { .. } => true,
+            Production::Choice { members } | Production::Seq { members } => {
+                members.iter().any(binds_symbol)
+            }
+            Production::Repeat { content }
+            | Production::Repeat1 { content }
+            | Production::Optional { content }
+            | Production::Alias { content, .. }
+            | Production::Token { content }
+            | Production::ImmediateToken { content }
+            | Production::Prec { content, .. }
+            | Production::PrecLeft { content, .. }
+            | Production::PrecRight { content, .. }
+            | Production::PrecDynamic { content, .. }
+            | Production::Reserved { content, .. } => binds_symbol(content),
+            _ => false,
+        }
+    }
+    let empty = || FieldBinding {
+        literals: Vec::new(),
+        binds_symbol: false,
+        always: false,
+    };
+    match prod {
+        Production::Field { name, content } => {
+            if name == target {
+                let mut literals = Vec::new();
+                direct_literals(content, &mut literals);
+                FieldBinding {
+                    literals,
+                    binds_symbol: binds_symbol(content),
+                    always: true,
+                }
+            } else {
+                analyse_field(grammar, content, target, visited)
+            }
+        }
+        // Expand hidden / supertype rules (cycle-guarded): a field of the
+        // same name can be re-bound deeper, with other literals. bash
+        // `_expansion_body` member binds `field('operator','!')` shallowly
+        // but the recorded `field:operator="-"` lives in `_expansion_expression`
+        // reached through this symbol; without expansion the shallow `{!}`
+        // would spuriously contradict `-`.
+        Production::Symbol { name } => {
+            let is_dispatch = name.starts_with('_') || grammar.supertypes.contains(name);
+            if is_dispatch && !visited.contains(&name.as_str()) {
+                if let Some(rule) = grammar.rules.get(name) {
+                    visited.push(name.as_str());
+                    let fb = analyse_field(grammar, rule, target, visited);
+                    visited.pop();
+                    return fb;
+                }
+            }
+            empty()
+        }
+        Production::Seq { members } => {
+            let mut acc = empty();
+            for m in members {
+                let fb = analyse_field(grammar, m, target, visited);
+                acc.literals.extend(fb.literals);
+                acc.binds_symbol |= fb.binds_symbol;
+                // A SEQ binds the field if any member always binds it.
+                acc.always |= fb.always;
+            }
+            acc
+        }
+        Production::Choice { members } => {
+            let mut acc = FieldBinding {
+                literals: Vec::new(),
+                binds_symbol: false,
+                always: !members.is_empty(),
+            };
+            for m in members {
+                let fb = analyse_field(grammar, m, target, visited);
+                acc.literals.extend(fb.literals);
+                acc.binds_symbol |= fb.binds_symbol;
+                // A CHOICE binds the field only if every branch does.
+                acc.always &= fb.always;
+            }
+            acc
+        }
+        Production::Optional { content } | Production::Repeat { content } => {
+            let fb = analyse_field(grammar, content, target, visited);
+            FieldBinding {
+                literals: fb.literals,
+                binds_symbol: fb.binds_symbol,
+                always: false,
+            }
+        }
+        Production::Repeat1 { content }
+        | Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Alias { content, .. }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Reserved { content, .. } => {
+            analyse_field(grammar, content, target, visited)
+        }
+        _ => empty(),
+    }
+}
+
+/// Whether `alt` is consistent with the recorded `field:<name>=<value>`
+/// constraints. For each field `name` bound in `alt` (gathered via
+/// [`collect_field_names`]), with its binding analysed by [`analyse_field`]:
+///
+/// 1. **Contradiction.** If `name` is bound only to literals (never a
+///    symbol) and that literal union is non-empty, the recorded `value`
+///    must be among them. JS `_for_header`'s `field('kind','var')` against a
+///    recorded `field:kind="const"` is rejected, so it cannot out-consume
+///    the `let|const` alternative on maximal-munch length.
+/// 2. **Absent mandatory field.** If `name` is bound on every path to a
+///    literal (and never a symbol) but no `field:<name>` was recorded, the
+///    parser did not take `alt`. JS `for (x in y)` has no `kind`, so the
+///    var/let/const members are rejected and the bare `field('left', …)`
+///    member wins instead of emitting a spurious `var`.
+///
+/// A field that can bind a SYMBOL is skipped by both checks (the parser may
+/// have recorded a child edge, not a `field:<name>`). Both checks are safe
+/// by construction: the alternative the parser actually took produced the
+/// recorded value (so it is in the union) and recorded every mandatory
+/// literal field, so a correct alternative is never rejected.
+fn field_value_consistent(
+    grammar: &Grammar,
+    alt: &Production,
+    field_constraints: &[(&str, &str)],
+) -> bool {
+    let mut names = std::collections::HashSet::new();
+    collect_field_names(alt, &mut names);
+    for name in names {
+        let mut visited = Vec::new();
+        let fb = analyse_field(grammar, alt, name, &mut visited);
+        if fb.binds_symbol || fb.literals.is_empty() {
+            continue;
+        }
+        match field_constraints.iter().find(|(n, _)| *n == name) {
+            Some((_, value)) => {
+                if !fb.literals.iter().any(|l| l == value) {
+                    return false;
+                }
+            }
+            None => {
+                if fb.always {
+                    return false;
+                }
+            }
+        }
+    }
+    true
+}
+
+fn choice_candidates(
+    grammar: &Grammar,
+    alternatives: &[Production],
+    demand: &[&str],
+    field_constraints: &[(&str, &str)],
+) -> Candidates {
     let mut best_len = 0usize;
     let mut cands: Vec<usize> = Vec::new();
     let mut num_viable = 0usize;
@@ -286,7 +494,19 @@ fn choice_candidates(grammar: &Grammar, alternatives: &[Production], demand: &[&
             // Empty match ⇒ structurally rejected (needs an absent child).
             continue;
         };
+        // `num_viable` counts STRUCTURAL viability (can this alt consume the
+        // demand?) over ALL alternatives — it drives the "only one viable"
+        // preemption, which field values must not perturb (changing it
+        // preempts heuristics that legitimately resolve cpp/c ties).
         num_viable += 1;
+        // Field-value consistency excludes an alt only from WINNING: an alt
+        // whose pure-literal field contradicts (or whose forced literal
+        // field is absent from) the recorded `field:<name>` cannot be the
+        // parsed alternative, so it must not win on maximal-munch length —
+        // but it stays counted as structurally viable above.
+        if !field_value_consistent(grammar, alt, field_constraints) {
+            continue;
+        }
         if max_end > best_len {
             best_len = max_end;
             cands = vec![i];
@@ -349,13 +569,14 @@ pub(crate) fn select_choice_with_trace(
     grammar: &Grammar,
     alternatives: &[Production],
     demand: &[&str],
+    field_constraints: &[(&str, &str)],
     trace_tokens: &[String],
 ) -> Option<usize> {
     let Candidates {
         best_len,
         cands,
         num_viable,
-    } = choice_candidates(grammar, alternatives, demand);
+    } = choice_candidates(grammar, alternatives, demand, field_constraints);
     if cands.is_empty() {
         // No alternative can consume the demand at all.
         return None;
@@ -481,12 +702,12 @@ mod tests {
         };
         // demand = two number children → first alt
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["number", "number"], &[]),
+            select_choice_with_trace(&g, alts, &["number", "number"], &[], &[]),
             Some(0)
         );
         // demand = two string children → second alt
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["string", "string"], &[]),
+            select_choice_with_trace(&g, alts, &["string", "string"], &[], &[]),
             Some(1)
         );
     }
@@ -521,14 +742,14 @@ mod tests {
         };
         // An identifier child picks `identifier`, not template_parameters.
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["identifier"], &[]),
+            select_choice_with_trace(&g, alts, &["identifier"], &[], &[]),
             Some(1)
         );
         // An int_literal child matches NEITHER concrete alternative
         // directly (template_parameters needs the whole < int > shape,
         // identifier needs an identifier) → defer, do not steal.
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["int_literal"], &[]),
+            select_choice_with_trace(&g, alts, &["int_literal"], &[], &[]),
             None
         );
     }
@@ -585,7 +806,7 @@ mod tests {
         // bare `declaration` (idx 1) and ALIAS=declaration (idx 2) both
         // match a `declaration` child; function_definition (idx 0) is
         // rejected. The direct bare symbol wins.
-        assert_eq!(select_choice_with_trace(&g, alts, &["declaration"], &[]), Some(1));
+        assert_eq!(select_choice_with_trace(&g, alts, &["declaration"], &[], &[]), Some(1));
     }
 
     /// Many-to-one aliasing is under-determined → defer (the ruby case).
@@ -613,7 +834,7 @@ mod tests {
             Production::Choice { members } => members,
             _ => panic!(),
         };
-        assert_eq!(select_choice_with_trace(&g, alts, &["binary"], &[]), None);
+        assert_eq!(select_choice_with_trace(&g, alts, &["binary"], &[], &[]), None);
     }
 
     /// An optional token defaults to absent (BLANK) when no child demands
@@ -636,10 +857,10 @@ mod tests {
             _ => panic!(),
         };
         // No child, no trace → omit the optional (BLANK, index 1).
-        assert_eq!(select_choice_with_trace(&g, alts, &[], &[]), Some(1));
+        assert_eq!(select_choice_with_trace(&g, alts, &[], &[], &[]), Some(1));
         // The parser recorded a ";" (in ptrace) → emit it (index 0).
         assert_eq!(
-            select_choice_with_trace(&g, alts, &[], &[";".to_owned()]),
+            select_choice_with_trace(&g, alts, &[], &[], &[";".to_owned()]),
             Some(0)
         );
     }
@@ -668,19 +889,19 @@ mod tests {
             _ => panic!(),
         };
         // No trace → genuine tie → defer.
-        assert_eq!(select_choice_with_trace(&g, alts, &["expr"], &[]), None);
+        assert_eq!(select_choice_with_trace(&g, alts, &["expr"], &[], &[]), None);
         // Trace contains "return" → first alt; "throw" → second.
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["expr"], &["return".to_owned()]),
+            select_choice_with_trace(&g, alts, &["expr"], &[], &["return".to_owned()]),
             Some(0)
         );
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["expr"], &["throw".to_owned()]),
+            select_choice_with_trace(&g, alts, &["expr"], &[], &["throw".to_owned()]),
             Some(1)
         );
         // Trace with neither keyword → still ambiguous → defer.
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["expr"], &["xyz".to_owned()]),
+            select_choice_with_trace(&g, alts, &["expr"], &[], &["xyz".to_owned()]),
             None
         );
     }
@@ -715,10 +936,10 @@ mod tests {
         // No value child in the demand → `_initializer` (needs an
         // `expression` child) is structurally rejected; `BLANK` is the
         // unique viable alternative and must be chosen, not deferred.
-        assert_eq!(select_choice_with_trace(&g, alts, &[], &[]), Some(1));
+        assert_eq!(select_choice_with_trace(&g, alts, &[], &[], &[]), Some(1));
         // With a value child available, `_initializer` becomes viable and
         // consumes it → chosen over BLANK (maximal munch).
-        assert_eq!(select_choice_with_trace(&g, alts, &["expression"], &[]), Some(0));
+        assert_eq!(select_choice_with_trace(&g, alts, &["expression"], &[], &[]), Some(0));
     }
 
     /// REPEAT before a mandatory member must not swallow it (set-valued
@@ -743,5 +964,64 @@ mod tests {
         let mut v = Vec::new();
         let ends = match_demand(&g, &g.rules["statements"], &["stmt", "stmt"], 0, &mut v);
         assert!(ends.contains(&2), "must fully consume 2 stmts: {ends:?}");
+    }
+
+    /// A field-bound literal that contradicts the recorded `field:<name>`
+    /// must not let an alternative win by maximal-munch. Models the JS
+    /// `_for_header` shape: the `var`+optional-initializer member would
+    /// greedily consume two children, but with `field:kind="const"` recorded
+    /// it is rejected in favour of the `let|const` member.
+    #[test]
+    fn field_value_rejects_contradicting_and_absent_literal() {
+        let g = grammar(
+            &serde_json::json!({
+                "name": "test",
+                "rules": {
+                    "header": {"type": "CHOICE", "members": [
+                        // member 0: bare left, no `kind`.
+                        {"type": "FIELD", "name": "left", "content": sym("expr")},
+                        // member 1: `var` + optional initializer (can munch 2).
+                        {"type": "SEQ", "members": [
+                            {"type": "FIELD", "name": "kind", "content": str_("var")},
+                            {"type": "FIELD", "name": "left", "content": sym("expr")},
+                            {"type": "CHOICE", "members": [
+                                {"type": "SEQ", "members": [str_("="), sym("expr")]},
+                                {"type": "BLANK"},
+                            ]},
+                        ]},
+                        // member 2: `let`/`const`, no initializer (munches 1).
+                        {"type": "SEQ", "members": [
+                            {"type": "FIELD", "name": "kind", "content":
+                                {"type": "CHOICE", "members": [str_("let"), str_("const")]}},
+                            {"type": "FIELD", "name": "left", "content": sym("expr")},
+                        ]},
+                    ]},
+                    "expr": str_("x"),
+                }
+            })
+            .to_string(),
+        );
+        let alts = match &g.rules["header"] {
+            Production::Choice { members } => members,
+            _ => panic!(),
+        };
+        // `for (const x …)`: kind=const recorded, two `expr` children. The
+        // `var` member (1) contradicts the recorded kind, so it is excluded
+        // from the candidates and can NOT win by maximal munch. The bare
+        // `left` (0) and `let|const` (2) members tie at length 1, so
+        // unification defers (the downstream field-token tie-break picks 2) —
+        // the essential property here is that the `var` member never wins.
+        assert_ne!(
+            select_choice_with_trace(&g, alts, &["expr", "expr"], &[("kind", "const")], &[]),
+            Some(1)
+        );
+        // `for (x in y)`: no kind recorded. Members 1 and 2 are forced to bind
+        // a literal `kind`, so both are rejected; the bare `left` member (0)
+        // is the unique remaining candidate and wins instead of emitting a
+        // spurious `var`/`let`.
+        assert_eq!(
+            select_choice_with_trace(&g, alts, &["expr", "expr"], &[], &[]),
+            Some(0)
+        );
     }
 }
