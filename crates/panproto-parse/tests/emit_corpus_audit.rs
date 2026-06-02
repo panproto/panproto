@@ -326,6 +326,35 @@ fn emit_one_probe() {
                 .parse_with_protocol(&proto, src.as_bytes(), "probe")
                 .expect("parse");
             let abstract_schema = s1.forget_layout();
+            if std::env::var("PP_DUMP").is_ok() {
+                for (id, v) in &abstract_schema.vertices {
+                    let mut kids = abstract_schema
+                        .edges
+                        .iter()
+                        .filter(|(e, _)| &e.src == id)
+                        .filter_map(|(e, ord)| {
+                            abstract_schema.vertices.get(&e.tgt).map(|cv| {
+                                (
+                                    ord.as_ref().to_string(),
+                                    format!("{}={}", e.kind.as_ref(), cv.kind.as_ref()),
+                                )
+                            })
+                        })
+                        .collect::<Vec<_>>();
+                    kids.sort();
+                    let kids: Vec<String> = kids.into_iter().map(|(_, s)| s).collect();
+                    let cons: Vec<String> = abstract_schema
+                        .constraints
+                        .get(id)
+                        .map(|cs| {
+                            cs.iter()
+                                .map(|c| format!("{}={:?}", c.sort.as_ref(), c.value))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    eprintln!("DUMP {} [{}] kids={kids:?} cons={cons:?}", v.kind.as_ref(), id.as_ref());
+                }
+            }
             let e1 = reg
                 .emit_pretty_with_protocol(&proto, &abstract_schema)
                 .expect("emit");
