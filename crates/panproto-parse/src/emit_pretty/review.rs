@@ -915,7 +915,13 @@ pub(crate) fn emit_production_inner(
             // keyword text and re-parses to the same kind.
             if !*named && !value.is_empty() {
                 if let Production::Symbol { name: sym } = content.as_ref() {
-                    if sym.starts_with('_') && !grammar.rules.contains_key(sym) {
+                    // Any external scanner symbol (no grammar rule) aliased
+                    // to a literal: the alias value IS the token text. This
+                    // covers `_`-prefixed externals AND unprefixed ones like
+                    // rust's `string_close` (aliased to `"`); without it the
+                    // closing string delimiter emits nothing and every
+                    // string becomes an unterminated ERROR on re-parse.
+                    if !grammar.rules.contains_key(sym) {
                         out.token(value);
                         return Ok(());
                     }

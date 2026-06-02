@@ -18,6 +18,7 @@
 #![cfg(feature = "grammars")]
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use panproto_parse::ParserRegistry;
@@ -299,6 +300,117 @@ fn grade_audit(protocol: &str) -> (usize, usize, usize, usize) {
         }
     }
     (g1, g2, g3, skip)
+}
+
+/// Emit a single source snippet through the canonical section and print
+/// the result + AST-equivalence verdict. `PP_EMIT_PROTO=rust
+/// PP_EMIT_SRC='let s = "hi";'`.
+#[test]
+fn emit_one_probe() {
+    let (Ok(proto), Ok(src)) = (std::env::var("PP_EMIT_PROTO"), std::env::var("PP_EMIT_SRC")) else {
+        return;
+    };
+    std::thread::Builder::new()
+        .stack_size(256 * 1024 * 1024)
+        .spawn(move || {
+            let reg = ParserRegistry::new();
+            let s1 = reg
+                .parse_with_protocol(&proto, src.as_bytes(), "probe")
+                .expect("parse");
+            let abstract_schema = s1.forget_layout();
+            let e1 = reg
+                .emit_pretty_with_protocol(&proto, &abstract_schema)
+                .expect("emit");
+            eprintln!("PROBE src={src:?}");
+            eprintln!("PROBE out={:?}", String::from_utf8_lossy(&e1));
+            if let Ok(s2) = reg.parse_with_protocol(&proto, &e1, "probe2") {
+                let ok = kind_multiset(&abstract_schema) == kind_multiset(&s2)
+                    && edge_multiset(&abstract_schema) == edge_multiset(&s2);
+                eprintln!("PROBE ast_equal={ok}");
+                if !ok {
+                    let ka = kind_multiset(&abstract_schema);
+                    let kb = kind_multiset(&s2);
+                    let mut keys: std::collections::BTreeSet<String> = ka.keys().cloned().collect();
+                    keys.extend(kb.keys().cloned());
+                    for k in keys {
+                        let d = *kb.get(&k).unwrap_or(&0) as i64 - *ka.get(&k).unwrap_or(&0) as i64;
+                        if d != 0 {
+                            eprintln!("  delta {k}{d:+}");
+                        }
+                    }
+                }
+            } else {
+                eprintln!("PROBE reparse FAILED");
+            }
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+/// For each Grade-1 entry, print the kind-multiset DELTA (abstract vs
+/// re-parse) so the dominant breakage cause is visible. `PP_G1=proto`.
+#[test]
+fn corpus_g1_diff_report() {
+    let Ok(proto) = std::env::var("PP_G1") else {
+        eprintln!("set PP_G1=proto for the Grade-1 kind-delta report");
+        return;
+    };
+    std::thread::Builder::new()
+        .stack_size(256 * 1024 * 1024)
+        .spawn(move || {
+            let reg = ParserRegistry::new();
+            let file = format!("sample.{proto}");
+            let mut delta_tally: BTreeMap<String, i64> = BTreeMap::new();
+            let mut shown = 0;
+            for (name, src) in corpus_sources(&proto) {
+                let Ok(s1) = reg.parse_with_protocol(&proto, src.as_bytes(), &file) else {
+                    continue;
+                };
+                if s1.vertices.is_empty()
+                    || s1.vertices.values().any(|v| v.kind.as_ref().contains("ERROR"))
+                {
+                    continue;
+                }
+                let abstract_schema = s1.forget_layout();
+                let Ok(e1) = reg.emit_pretty_with_protocol(&proto, &abstract_schema) else {
+                    continue;
+                };
+                let Ok(s2) = reg.parse_with_protocol(&proto, &e1, &file) else {
+                    eprintln!("G1[{name}] REPARSE-FAIL");
+                    continue;
+                };
+                let ka = kind_multiset(&abstract_schema);
+                let kb = kind_multiset(&s2);
+                if ka == kb && edge_multiset(&abstract_schema) == edge_multiset(&s2) {
+                    continue;
+                }
+                // accumulate per-kind delta (re-parse minus abstract)
+                let mut keys: std::collections::BTreeSet<String> = ka.keys().cloned().collect();
+                keys.extend(kb.keys().cloned());
+                let mut line = Vec::new();
+                for k in keys {
+                    let d = *kb.get(&k).unwrap_or(&0) as i64 - *ka.get(&k).unwrap_or(&0) as i64;
+                    if d != 0 {
+                        *delta_tally.entry(k.clone()).or_default() += d;
+                        line.push(format!("{k}{d:+}"));
+                    }
+                }
+                if shown < 8 {
+                    eprintln!("G1[{name}]: {}", line.join(" "));
+                    shown += 1;
+                }
+            }
+            let mut sorted: Vec<_> = delta_tally.into_iter().collect();
+            sorted.sort_by_key(|(_, d)| -(d.abs()));
+            eprintln!("--- aggregate kind delta (top) ---");
+            for (k, d) in sorted.into_iter().take(15) {
+                eprintln!("  {k}: {d:+}");
+            }
+        })
+        .unwrap()
+        .join()
+        .unwrap();
 }
 
 /// Report the three-grade distribution. `PP_GRADE=proto1,proto2,...`
