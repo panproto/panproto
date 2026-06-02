@@ -370,7 +370,8 @@ fn emit_one_probe() {
                     let mut keys: std::collections::BTreeSet<String> = ka.keys().cloned().collect();
                     keys.extend(kb.keys().cloned());
                     for k in keys {
-                        let d = *kb.get(&k).unwrap_or(&0) as i64 - *ka.get(&k).unwrap_or(&0) as i64;
+                        let d = i64::try_from(*kb.get(&k).unwrap_or(&0)).unwrap_or(0)
+                            - i64::try_from(*ka.get(&k).unwrap_or(&0)).unwrap_or(0);
                         if d != 0 {
                             eprintln!("  delta {k}{d:+}");
                         }
@@ -427,7 +428,8 @@ fn corpus_g1_diff_report() {
                 keys.extend(kb.keys().cloned());
                 let mut line = Vec::new();
                 for k in keys {
-                    let d = *kb.get(&k).unwrap_or(&0) as i64 - *ka.get(&k).unwrap_or(&0) as i64;
+                    let d = i64::try_from(*kb.get(&k).unwrap_or(&0)).unwrap_or(0)
+                            - i64::try_from(*ka.get(&k).unwrap_or(&0)).unwrap_or(0);
                     if d != 0 {
                         *delta_tally.entry(k.clone()).or_default() += d;
                         line.push(format!("{k}{d:+}"));
