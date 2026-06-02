@@ -665,6 +665,41 @@ fn collect_mandatory_fields<'p>(production: &'p Production, mandatory: bool, out
     }
 }
 
+/// Every `FIELD` name appearing structurally in `production` (all fields,
+/// optional or not), without expanding `SYMBOL` references. Used to scope a
+/// `field:<name>` trace token to CHOICEs whose alternatives actually bind
+/// that field, so the recorded value cannot leak into an unrelated literal
+/// CHOICE that merely shares the text (bash `_statements`' trailing
+/// `_terminator` matching a sibling `case_item`'s `field:termination=";;"`).
+pub(crate) fn collect_field_names<'p>(
+    production: &'p Production,
+    out: &mut std::collections::HashSet<&'p str>,
+) {
+    match production {
+        Production::Field { name, content } => {
+            out.insert(name.as_str());
+            collect_field_names(content, out);
+        }
+        Production::Seq { members } | Production::Choice { members } => {
+            for m in members {
+                collect_field_names(m, out);
+            }
+        }
+        Production::Repeat { content }
+        | Production::Repeat1 { content }
+        | Production::Optional { content }
+        | Production::Alias { content, .. }
+        | Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Reserved { content, .. } => collect_field_names(content, out),
+        _ => {}
+    }
+}
+
 pub(crate) fn has_field_in(production: &Production, edge_kinds: &[&str]) -> bool {
     match production {
         Production::Field { name, .. } => edge_kinds.contains(&name.as_str()),

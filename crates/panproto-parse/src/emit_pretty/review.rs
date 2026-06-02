@@ -24,7 +24,7 @@
 
 //! `emit_pretty::review` (Phase A decomposition).
 
-use super::{Schema, Grammar, Output, ParseError, is_immediate_token, literal_value, children_for, TokenRole, leaf_terminal_role, ChildCursor, Production, EMIT_MU_FRAMES, EMIT_DEPTH, classify_seq_positions, seq_bracket_triggers_indent, unwrap_to_string, is_word_like, has_repeat_in, Token, member_has_leading_bracket, pattern_absorbs_leading_space, is_newline_like_pattern, is_whitespace_only_pattern, placeholder_for_pattern, current_field_context, vertex_id_kind, has_relevant_constraint, push_field_context, alias_content_is_terminal_pattern, Edge, clear_field_context, referenced_symbols, literal_strings, aliased_source_literals, first_unconsumed_target_fingerprint, yield_of_production, is_newline_alt, accepts_first_edge, has_field_in, mandatory_field_names, alt_satisfies_field_token_restrictions, alt_satisfies_pre_alias_constraints, prec_value, contains_newline_pattern, is_no_space_external, is_whitespace_external};
+use super::{Schema, Grammar, Output, ParseError, is_immediate_token, literal_value, children_for, TokenRole, leaf_terminal_role, ChildCursor, Production, EMIT_MU_FRAMES, EMIT_DEPTH, classify_seq_positions, seq_bracket_triggers_indent, unwrap_to_string, is_word_like, has_repeat_in, Token, member_has_leading_bracket, pattern_absorbs_leading_space, is_newline_like_pattern, is_whitespace_only_pattern, placeholder_for_pattern, current_field_context, vertex_id_kind, has_relevant_constraint, push_field_context, alias_content_is_terminal_pattern, Edge, clear_field_context, referenced_symbols, literal_strings, aliased_source_literals, first_unconsumed_target_fingerprint, yield_of_production, is_newline_alt, accepts_first_edge, has_field_in, mandatory_field_names, collect_field_names, alt_satisfies_field_token_restrictions, alt_satisfies_pre_alias_constraints, prec_value, contains_newline_pattern, is_no_space_external, is_whitespace_external};
 
 
 pub(crate) fn collect_roots(schema: &Schema) -> Vec<&panproto_gat::Name> {
@@ -1276,6 +1276,18 @@ pub(crate) fn pick_choice_with_cursor<'a>(
     //     carries no trace.
     // Together they are the literal component of the variant tag the
     // review consumes rather than re-deriving.
+    // Field names bound anywhere in this CHOICE's alternatives. A
+    // `field:<name>` trace token may only disambiguate the CHOICE when some
+    // alternative actually binds `<name>`; otherwise the recorded value
+    // leaks into an unrelated literal CHOICE that merely shares the text
+    // (bash `_statements`' trailing `_terminator` CH[';'|';;'|…] picking up
+    // a sibling `case_item`'s `field:termination=";;"`, emitting a spurious
+    // second `;;`). `ptrace-` tokens are positional/anonymous and stay
+    // unscoped — they are matched by literal as before.
+    let mut alt_field_names: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for alt in alternatives {
+        collect_field_names(alt, &mut alt_field_names);
+    }
     let trace_tokens: Vec<String> = schema
         .constraints
         .get(vertex_id)
@@ -1285,8 +1297,8 @@ pub(crate) fn pick_choice_with_cursor<'a>(
                     let s = c.sort.as_ref();
                     if s.starts_with("ptrace-") {
                         c.value.strip_prefix('T').map(ToOwned::to_owned)
-                    } else if s.starts_with("field:") {
-                        Some(c.value.clone())
+                    } else if let Some(field) = s.strip_prefix("field:") {
+                        alt_field_names.contains(field).then(|| c.value.clone())
                     } else {
                         None
                     }
