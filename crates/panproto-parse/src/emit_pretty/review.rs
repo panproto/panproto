@@ -24,7 +24,7 @@
 
 //! `emit_pretty::review` (Phase A decomposition).
 
-use super::{Schema, Grammar, Output, ParseError, is_immediate_token, literal_value, children_for, TokenRole, leaf_terminal_role, ChildCursor, Production, EMIT_MU_FRAMES, EMIT_DEPTH, classify_seq_positions, seq_bracket_triggers_indent, unwrap_to_string, is_word_like, has_repeat_in, Token, member_has_leading_bracket, pattern_absorbs_leading_space, is_newline_like_pattern, is_whitespace_only_pattern, placeholder_for_pattern, current_field_context, vertex_id_kind, has_relevant_constraint, push_field_context, alias_content_is_terminal_pattern, Edge, clear_field_context, referenced_symbols, literal_strings, aliased_source_literals, first_unconsumed_target_fingerprint, yield_of_production, is_newline_alt, accepts_first_edge, has_any_field, has_field_in, alt_satisfies_field_token_restrictions, alt_satisfies_pre_alias_constraints, prec_value, contains_newline_pattern, is_no_space_external, is_whitespace_external};
+use super::{Schema, Grammar, Output, ParseError, is_immediate_token, literal_value, children_for, TokenRole, leaf_terminal_role, ChildCursor, Production, EMIT_MU_FRAMES, EMIT_DEPTH, classify_seq_positions, seq_bracket_triggers_indent, unwrap_to_string, is_word_like, has_repeat_in, Token, member_has_leading_bracket, pattern_absorbs_leading_space, is_newline_like_pattern, is_whitespace_only_pattern, placeholder_for_pattern, current_field_context, vertex_id_kind, has_relevant_constraint, push_field_context, alias_content_is_terminal_pattern, Edge, clear_field_context, referenced_symbols, literal_strings, aliased_source_literals, first_unconsumed_target_fingerprint, yield_of_production, is_newline_alt, accepts_first_edge, has_field_in, mandatory_field_names, alt_satisfies_field_token_restrictions, alt_satisfies_pre_alias_constraints, prec_value, contains_newline_pattern, is_no_space_external, is_whitespace_external};
 
 
 pub(crate) fn collect_roots(schema: &Schema) -> Vec<&panproto_gat::Name> {
@@ -1777,7 +1777,18 @@ pub(crate) fn pick_choice_with_cursor<'a>(
         let mut yield_cache = grammar.yield_sets.clone();
         let mut matching_alts: Vec<&Production> = Vec::new();
         for alt in alternatives {
-            if has_any_field(alt) && !has_field_in(alt, &edge_kinds) {
+            // Skip an alt only when it is FORCED to bind a field that no
+            // unconsumed edge kind matches. An *optional* field (behind
+            // OPTIONAL / REPEAT / a CHOICE-with-BLANK) can simply be left
+            // unbound, so it must not disqualify the alt — otherwise a
+            // SEQ like bash `_expansion_body`'s `[opt field(operator,'!'),
+            // variable_name, …]` is wrongly rejected for a non-field-bound
+            // `variable_name` edge (labelled `child_of`), and the dispatch
+            // falls through to a structurally-impossible default.
+            let mandatory_fields = mandatory_field_names(alt);
+            if !mandatory_fields.is_empty()
+                && !mandatory_fields.iter().any(|f| edge_kinds.contains(f))
+            {
                 visited.clear();
                 continue;
             }

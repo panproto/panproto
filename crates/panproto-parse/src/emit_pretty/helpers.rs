@@ -607,27 +607,63 @@ pub(crate) fn prec_value(prod: &Production) -> i64 {
 }
 
 
-pub(crate) fn has_any_field(production: &Production) -> bool {
+/// Names of the `FIELD`s an alternative is *forced* to bind if taken: a
+/// field is mandatory unless it is reachable only through an `OPTIONAL`,
+/// a `REPEAT` (zero-or-more), or a `CHOICE` that offers a `BLANK` escape.
+/// Symbol references are NOT expanded — a field hidden behind a SYMBOL is
+/// the referenced rule's concern, not this alternative's surface demand.
+///
+/// Used to decide whether an alternative can consume a non-field-bound
+/// edge: an alt whose only fields are optional (e.g. bash `_expansion_body`
+/// SEQ with an optional `field('operator','!')` before a non-field
+/// `variable_name`) must NOT be rejected just because the field name does
+/// not match the generic `child_of` edge label.
+pub(crate) fn mandatory_field_names(production: &Production) -> Vec<&str> {
+    let mut out = Vec::new();
+    collect_mandatory_fields(production, true, &mut out);
+    out
+}
+
+fn collect_mandatory_fields<'p>(production: &'p Production, mandatory: bool, out: &mut Vec<&'p str>) {
     match production {
-        Production::Field { .. } => true,
-        Production::Seq { members } | Production::Choice { members } => {
-            members.iter().any(has_any_field)
+        Production::Field { name, content } => {
+            if mandatory {
+                out.push(name.as_str());
+            }
+            // A field's own body never re-introduces mandatory siblings.
+            collect_mandatory_fields(content, false, out);
         }
-        Production::Repeat { content }
-        | Production::Repeat1 { content }
-        | Production::Optional { content }
-        | Production::Alias { content, .. }
+        Production::Seq { members } => {
+            for m in members {
+                collect_mandatory_fields(m, mandatory, out);
+            }
+        }
+        Production::Choice { members } => {
+            // A CHOICE that offers BLANK is itself skippable: none of its
+            // branches is forced.
+            let escapable = members.iter().any(|m| matches!(m, Production::Blank));
+            let inner = mandatory && !escapable;
+            for m in members {
+                collect_mandatory_fields(m, inner, out);
+            }
+        }
+        Production::Optional { content } | Production::Repeat { content } => {
+            collect_mandatory_fields(content, false, out);
+        }
+        Production::Repeat1 { content }
         | Production::Token { content }
         | Production::ImmediateToken { content }
+        | Production::Alias { content, .. }
         | Production::Prec { content, .. }
         | Production::PrecLeft { content, .. }
         | Production::PrecRight { content, .. }
         | Production::PrecDynamic { content, .. }
-        | Production::Reserved { content, .. } => has_any_field(content),
-        _ => false,
+        | Production::Reserved { content, .. } => {
+            collect_mandatory_fields(content, mandatory, out);
+        }
+        _ => {}
     }
 }
-
 
 pub(crate) fn has_field_in(production: &Production, edge_kinds: &[&str]) -> bool {
     match production {
