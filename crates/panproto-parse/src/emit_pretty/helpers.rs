@@ -1058,11 +1058,19 @@ pub(crate) fn decode_simple_pattern_literal(pattern: &str) -> Option<String> {
 /// `_no_line_break` family). Emit them as a `NoSpace` so the layout pass
 /// suppresses the sibling-separation space (otherwise string content
 /// around an interpolation re-spaces and grows one space per emit).
+///
+/// The `_immediate_*` family is the same idea from the other direction: a
+/// zero-width marker the scanner emits only when the next token follows
+/// with NO intervening whitespace (julia `_immediate_brace` /
+/// `_immediate_paren` / `_immediate_bracket` / `_immediate_string_start`
+/// gate `Foo{T}`, `f(x)`, `a[i]`, `r"..."` postfix forms). Without the
+/// `NoSpace` the emitter inserts a separator (`Foo {T}`) and the immediacy
+/// scanner rejects it on re-parse, collapsing the construct to an ERROR.
 pub(crate) fn is_no_space_external(name: &str) -> bool {
     matches!(
         name,
         "_concat" | "_brace_concat" | "_concat_list" | "_no_space" | "_no_line_break"
-    )
+    ) || name.starts_with("_immediate")
 }
 
 /// The first literal member of a positive fixed-char class PATTERN
