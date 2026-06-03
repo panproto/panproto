@@ -393,6 +393,50 @@ pub(crate) fn unwrap_to_string(prod: &Production) -> Option<&str> {
     }
 }
 
+/// Unwrap the precedence wrappers (`Prec`, `PrecLeft`, `PrecRight`,
+/// `PrecDynamic`) off a production, leaving everything else intact.
+/// Precedence is irrelevant to emission; it only obscures the structural
+/// shape of an alternative when checking for left recursion.
+pub(crate) fn unwrap_prec(prod: &Production) -> &Production {
+    match prod {
+        Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. } => unwrap_prec(content),
+        other => other,
+    }
+}
+
+/// Collect every left-recursive alternative of a CHOICE rule body.
+///
+/// A rule `R = CHOICE[ base… | PREC(SEQ[R, rest…]) | … ]` is *left-recursive*:
+/// an alternative, after stripping precedence wrappers, is a SEQ whose first
+/// member is `SYMBOL(R)` — the rule referring to itself in head position. The
+/// top-down emit walker collapses such a chain (the inner self-reference
+/// re-enters the μ-frame and unfolds to the empty sequence, dropping every
+/// operand but the operators), so it must instead be unrolled.
+///
+/// Returns the SEQ member slices `[SYMBOL(R), rest…]` of every left-recursive
+/// alternative (a postfix rule like hcl `_expr_term` has several: `get_attr`,
+/// `index`, `splat`), or `None` when no alternative is left-recursive.
+pub(crate) fn left_recursive_alts<'a>(
+    members: &'a [Production],
+    rule_name: &str,
+) -> Option<Vec<&'a [Production]>> {
+    let seqs: Vec<&'a [Production]> = members
+        .iter()
+        .filter_map(|alt| match unwrap_prec(alt) {
+            Production::Seq { members: seq }
+                if matches!(seq.first(), Some(Production::Symbol { name }) if name == rule_name) =>
+            {
+                Some(seq.as_slice())
+            }
+            _ => None,
+        })
+        .collect();
+    (!seqs.is_empty()).then_some(seqs)
+}
+
 /// True when a production is a *quote delimiter*: a (possibly wrapped) `STRING`
 /// literal whose value ends in a string/char-literal quote character (`'`,
 /// `"`, or `` ` ``), or a `CHOICE` every alternative of which is such a quote

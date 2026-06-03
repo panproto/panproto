@@ -33,11 +33,11 @@ use super::{
     first_unconsumed_target_fingerprint, has_field_in, has_relevant_constraint, has_repeat_in,
     is_connector_punctuation, is_immediate_token, is_newline_alt, is_newline_like_pattern,
     is_no_space_external, is_whitespace_external, is_whitespace_only_pattern, is_word_like,
-    leaf_terminal_role, literal_strings, literal_value, mandatory_field_names,
+    leaf_terminal_role, left_recursive_alts, literal_strings, literal_value, mandatory_field_names,
     member_has_leading_bracket, pattern_absorbs_leading_space, placeholder_for_pattern, prec_value,
     push_field_context, reduces_to_immediate_token, referenced_symbols,
-    seq_bracket_triggers_indent, seq_open_bracket_index, unbounded_negated_class, unwrap_to_string,
-    vertex_id_kind, yield_of_production,
+    seq_bracket_triggers_indent, seq_open_bracket_index, unbounded_negated_class, unwrap_prec,
+    unwrap_to_string, vertex_id_kind, yield_of_production,
 };
 
 pub(crate) fn collect_roots(schema: &Schema) -> Vec<&panproto_gat::Name> {
@@ -682,6 +682,197 @@ pub(crate) fn emit_seq_with_roles(
     Ok(())
 }
 
+/// Count the cursor's unconsumed edges whose target kind is NOT a grammar
+/// extra (comment). Operand edges of an unrolled chain are these.
+fn unconsumed_non_extra(schema: &Schema, grammar: &Grammar, cursor: &ChildCursor<'_>) -> usize {
+    cursor
+        .edges
+        .iter()
+        .enumerate()
+        .filter(|(i, edge)| {
+            !cursor.consumed[*i]
+                && schema
+                    .vertices
+                    .get(&edge.tgt)
+                    .is_none_or(|v| !grammar.extras.contains(v.kind.as_ref()))
+        })
+        .count()
+}
+
+/// Emit one `step` of an unrolled left-recursive chain: the SEQ members of a
+/// left-recursive alternative *after* the leading head `SYMBOL(R)`. Operator
+/// literals emit with their role; an embedded `SYMBOL(R)` (the trailing
+/// operand of a binary rule) dispatches another base operand; any other
+/// member (a postfix suffix `SYMBOL(get_attr)` / FIELD) is walked against the
+/// cursor so its own child edge is consumed.
+#[allow(clippy::too_many_arguments)]
+fn emit_lr_step(
+    protocol: &str,
+    schema: &Schema,
+    grammar: &Grammar,
+    vertex_id: &panproto_gat::Name,
+    rule_name: &str,
+    rest: &[Production],
+    base_choice: &Production,
+    cursor: &mut ChildCursor<'_>,
+    out: &mut Output<'_>,
+) -> Result<(), ParseError> {
+    let mut prev_emitted = true;
+    for member in rest {
+        let tokens_before = out.tokens.len();
+        if matches!(member, Production::Symbol { name } if name == rule_name) {
+            emit_production(
+                protocol,
+                schema,
+                grammar,
+                vertex_id,
+                base_choice,
+                cursor,
+                out,
+            )?;
+        } else if let Some(value) = unwrap_to_string(member) {
+            let role = if is_word_like(value) {
+                TokenRole::Keyword
+            } else {
+                TokenRole::Operator
+            };
+            out.token_with_role(value, Some(role));
+        } else {
+            if !prev_emitted {
+                out.force_space();
+            }
+            emit_production(protocol, schema, grammar, vertex_id, member, cursor, out)?;
+        }
+        prev_emitted = out.tokens.len() > tokens_before;
+    }
+    Ok(())
+}
+
+/// Emit a left-recursive CHOICE rule body by *unrolling* the recursion.
+///
+/// For a rule `R = CHOICE[ base… | PREC(SEQ[R, rest…]) | … ]`, a top-down walk
+/// recurses into the head `R` and collapses (the μ-frame unfolds it to the
+/// empty sequence on re-entry), dropping every operand but the base. The
+/// parse, however, is a left-leaning chain `((base step₁) step₂) …` whose
+/// operands sit as sibling edges on this one vertex. We reconstruct that
+/// chain in source order. Two shapes:
+///
+/// * **Binary** — some left-recursive alt's `rest` ends in `SYMBOL(R)`
+///   (query `_group_expression = … | SEQ[R, ".", R]`). All operands share the
+///   base kind. Emit base, then repeat `op + base` while operand edges remain.
+/// * **Postfix** — no `rest` references `R` (hcl `_expr_term = … |
+///   SEQ[R, get_attr] | SEQ[R, index] | SEQ[R, splat]`). Emit the single base
+///   operand, then for each remaining child edge pick the matching suffix
+///   alternative (by which `rest` its kind satisfies) and emit it.
+///
+/// `rec_seqs` holds every left-recursive alt's SEQ `[SYMBOL(R), rest…]`;
+/// `base_alts` is the reduced CHOICE body (left-recursive alts removed).
+#[allow(clippy::too_many_arguments)]
+fn emit_left_recursive_unrolled(
+    protocol: &str,
+    schema: &Schema,
+    grammar: &Grammar,
+    vertex_id: &panproto_gat::Name,
+    rule_name: &str,
+    rec_seqs: &[&[Production]],
+    base_alts: Vec<Production>,
+    cursor: &mut ChildCursor<'_>,
+    out: &mut Output<'_>,
+) -> Result<(), ParseError> {
+    let base_choice = Production::Choice { members: base_alts };
+
+    // Binary when any left-recursive alternative's tail references R again.
+    let binary = rec_seqs.iter().any(|seq| {
+        seq[1..]
+            .iter()
+            .any(|m| matches!(m, Production::Symbol { name } if name == rule_name))
+    });
+
+    // 1. Leftmost / sole base operand.
+    emit_production(
+        protocol,
+        schema,
+        grammar,
+        vertex_id,
+        &base_choice,
+        cursor,
+        out,
+    )?;
+
+    // 2. Apply steps until no operand edge remains.
+    let mut guard = 0usize;
+    while unconsumed_non_extra(schema, grammar, cursor) > 0 {
+        guard += 1;
+        if guard > cursor.edges.len() + 1 {
+            break;
+        }
+        let before = unconsumed_non_extra(schema, grammar, cursor);
+
+        if binary {
+            // Single-shape repeat: the first left-recursive alt's `rest`.
+            emit_lr_step(
+                protocol,
+                schema,
+                grammar,
+                vertex_id,
+                rule_name,
+                &rec_seqs[0][1..],
+                &base_choice,
+                cursor,
+                out,
+            )?;
+        } else {
+            // Postfix: pick the alternative whose `rest` consumes the next
+            // unconsumed child edge (its leading suffix SYMBOL satisfies the
+            // edge's target kind). `kind_satisfies_symbol` follows the subtype
+            // closure, so an `index` alt matches a `new_index`/`legacy_index`
+            // child.
+            let next_kind = cursor
+                .edges
+                .iter()
+                .enumerate()
+                .find(|(i, edge)| {
+                    !cursor.consumed[*i]
+                        && schema
+                            .vertices
+                            .get(&edge.tgt)
+                            .is_none_or(|v| !grammar.extras.contains(v.kind.as_ref()))
+                })
+                .and_then(|(_, edge)| schema.vertices.get(&edge.tgt).map(|v| v.kind.as_ref()));
+            let chosen = rec_seqs.iter().find(|seq| {
+                seq[1..].iter().any(|m| match m {
+                    Production::Symbol { name } => kind_satisfies_symbol(grammar, next_kind, name),
+                    Production::Field { content, .. } => matches!(
+                        content.as_ref(),
+                        Production::Symbol { name }
+                            if kind_satisfies_symbol(grammar, next_kind, name)
+                    ),
+                    _ => false,
+                })
+            });
+            let Some(seq) = chosen else {
+                break;
+            };
+            emit_lr_step(
+                protocol,
+                schema,
+                grammar,
+                vertex_id,
+                rule_name,
+                &seq[1..],
+                &base_choice,
+                cursor,
+                out,
+            )?;
+        }
+
+        if unconsumed_non_extra(schema, grammar, cursor) >= before {
+            break;
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn emit_production_inner(
     protocol: &str,
     schema: &Schema,
@@ -987,6 +1178,46 @@ pub(crate) fn emit_production_inner(
             protocol, schema, grammar, vertex_id, members, cursor, out, false,
         ),
         Production::Choice { members } => {
+            // Left-recursive rule body `R = CHOICE[ base… | PREC(SEQ[R,…]) ]`:
+            // the top-down walk collapses the head self-reference (μ-frame
+            // unfold to ε), dropping every operand but the base. When we are
+            // inside the rule whose head this CHOICE is (`out.current_rule`),
+            // unroll the chain against the sibling operand edges instead of
+            // recursing. Requires at least one operand edge beyond the base
+            // so a single, non-chained occurrence still takes the ordinary
+            // dispatch path. Purely grammar-shape-derived: no language names.
+            //
+            // Restricted to HIDDEN (`_`-prefixed) rules: tree-sitter inlines a
+            // hidden rule into its parent, so a hidden left-recursive chain
+            // flattens its operands as sibling edges on ONE vertex (query
+            // `_group_expression`, hcl `_expr_term`) — exactly the shape the
+            // μ-frame collapses. A VISIBLE left-recursive rule (chuck
+            // `dur_expression`, every C-family precedence rule) instead nests
+            // its left operand as a real child vertex of the same kind; the
+            // ordinary SYMBOL recursion walks that nested vertex correctly and
+            // must not be unrolled.
+            if let Some(rule_name) = out.current_rule.clone() {
+                if rule_name.starts_with('_') {
+                    if let Some(rec_seqs) = left_recursive_alts(members, &rule_name) {
+                        if unconsumed_non_extra(schema, grammar, cursor) >= 2 {
+                            let base_alts: Vec<Production> = members
+                                .iter()
+                                .filter(|m| {
+                                    !matches!(unwrap_prec(m), Production::Seq { members: s }
+                                        if matches!(s.first(), Some(Production::Symbol { name }) if name == &rule_name))
+                                })
+                                .cloned()
+                                .collect();
+                            if !base_alts.is_empty() {
+                                return emit_left_recursive_unrolled(
+                                    protocol, schema, grammar, vertex_id, &rule_name, &rec_seqs,
+                                    base_alts, cursor, out,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
             if let Some(matched) = pick_choice_with_cursor(
                 schema,
                 grammar,
