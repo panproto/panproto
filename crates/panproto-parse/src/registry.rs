@@ -468,6 +468,7 @@ pub enum EmitVerificationStatus {
 const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "arduino",
     "bass",
+    "bicep",
     "bugs",
     "cairo",
     "chuck",

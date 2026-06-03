@@ -598,6 +598,7 @@ fn corpus_strip_audit_report() {
 const CORPUS_VERIFIED: &[&str] = &[
     "arduino",
     "bass",
+    "bicep",
     "cairo",
     "chuck",
     "elisp",
