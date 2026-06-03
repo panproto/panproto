@@ -462,10 +462,7 @@ impl GrammarCassette for CSharpCassette {
         //   (`"""…"""`), which the scanner captures verbatim.
         matches!(
             kind,
-            "string_content"
-                | "interpolation_brace"
-                | "interpolation_quote"
-                | "raw_string_content"
+            "string_content" | "interpolation_brace" | "interpolation_quote" | "raw_string_content"
         )
     }
 }

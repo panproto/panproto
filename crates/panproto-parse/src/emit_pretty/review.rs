@@ -1620,9 +1620,9 @@ fn unmarked_base_literal(alternatives: &[Production]) -> Option<&Production> {
     for &(prod, val) in &lits {
         // `val` is the base iff every OTHER literal ends with it and is
         // strictly longer (so `val` is a proper suffix, not an equal twin).
-        let is_base = lits.iter().all(|&(_, other)| {
-            other == val || (other.len() > val.len() && other.ends_with(val))
-        });
+        let is_base = lits
+            .iter()
+            .all(|&(_, other)| other == val || (other.len() > val.len() && other.ends_with(val)));
         if is_base {
             if base.is_some() {
                 return None; // Not unique.

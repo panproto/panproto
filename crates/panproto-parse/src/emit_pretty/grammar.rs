@@ -1974,9 +1974,10 @@ pub(crate) fn classify_string_content_kinds(grammar: &mut Grammar) {
             // The closer is the *last STRING member equal to the opener*;
             // a trailing suffix may follow (C#'s `string_literal` ends with
             // an optional `(u|U)8` encoding CHOICE after the close quote).
-            let Some(close_idx) = members.iter().rposition(|m| {
-                matches!(m, Production::String { value } if value == open)
-            }) else {
+            let Some(close_idx) = members
+                .iter()
+                .rposition(|m| matches!(m, Production::String { value } if value == open))
+            else {
                 continue;
             };
             if close_idx == 0 {
@@ -1988,7 +1989,10 @@ pub(crate) fn classify_string_content_kinds(grammar: &mut Grammar) {
             // commit only if the REPEAT body confirmed the string shape.
             let mut has_repeat_body = false;
             for member in &members[1..close_idx] {
-                if matches!(member, Production::Repeat { .. } | Production::Repeat1 { .. }) {
+                if matches!(
+                    member,
+                    Production::Repeat { .. } | Production::Repeat1 { .. }
+                ) {
                     has_repeat_body = true;
                 }
                 collect_string_content_kinds(member, &mut accum);
