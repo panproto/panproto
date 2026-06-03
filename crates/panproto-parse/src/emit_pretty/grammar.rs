@@ -283,6 +283,24 @@ pub struct Grammar {
     /// kinds and are excluded.
     #[serde(default, deserialize_with = "deserialize_extras")]
     pub extras: std::collections::HashSet<String>,
+    /// Tree-sitter `inline` rules: named rules the generator splices into
+    /// every referencing production rather than emitting as their own
+    /// node. An inlined rule's children (its FIELDs and bare SYMBOL
+    /// members) are promoted to be direct children of the referencing
+    /// vertex, so on the schema side there is no child vertex of the
+    /// inlined rule's kind. When the emit walk hits a `SYMBOL` member
+    /// naming an inlined rule it must therefore expand that rule's body
+    /// inline against the current cursor (the same treatment a hidden
+    /// `_`-prefixed rule gets), or the inlined members' edges are dropped
+    /// (brightscript `sub_impl`/`function_impl` drop `parameters`/`body`/
+    /// `end_statement`). Populated from grammar.json's top-level `inline`
+    /// array.
+    #[serde(
+        rename = "inline",
+        default,
+        deserialize_with = "deserialize_supertypes"
+    )]
+    pub inline_rules: std::collections::HashSet<String>,
     /// Precomputed subtyping closure: `subtypes[symbol_name]` is the
     /// set of vertex kinds that satisfy a SYMBOL `symbol_name`
     /// reference on the schema side.

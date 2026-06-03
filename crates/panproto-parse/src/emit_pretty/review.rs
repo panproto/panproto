@@ -999,8 +999,24 @@ pub(crate) fn emit_production_inner(
                 out.force_space();
                 return Ok(());
             }
-            if name.starts_with('_') {
-                // Hidden rule: not a vertex kind on the schema side.
+            // A rule listed in the grammar's top-level `inline` directive is
+            // spliced by tree-sitter into every referencing production: it
+            // emits NO node of its own and its children (FIELDs + bare
+            // SYMBOL members) are promoted to be direct children of the
+            // referencing vertex. On the schema side there is therefore no
+            // child vertex of this rule's kind, so `take_symbol_match` below
+            // would find nothing and the whole inlined body (parameters,
+            // body, end_statement, ...) would be silently dropped
+            // (brightscript `sub_impl`/`function_impl`). Treat such a rule
+            // like a hidden `_`-prefixed rule: expand its body inline so its
+            // promoted children take edges from the current cursor. Inline
+            // rules with their own literals (brightscript's `comment`) are
+            // still consumed correctly because the expansion walks the rule's
+            // SEQ in place.
+            let is_inlined = name.starts_with('_')
+                || (grammar.inline_rules.contains(name) && !grammar.extras.contains(name));
+            if is_inlined {
+                // Hidden / inlined rule: not a vertex kind on the schema side.
                 // Inline-expand the rule body so its children take
                 // edges from the current cursor, instead of trying to
                 // take a single child edge that "satisfies" the
