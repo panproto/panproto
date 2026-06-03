@@ -732,6 +732,38 @@ pub(crate) fn emit_production_inner(
             // no sibling field edges sit — and breaks after one
             // iteration.
             if let Some(field) = current_field_context() {
+                // A HIDDEN rule under a FIELD that wraps grammar literals
+                // around the field's child, e.g. solidity
+                // `FIELD(ancestor_arguments, _call_arguments)` where
+                // `_call_arguments = SEQ['(', call_argument, …, ')']`. The
+                // parser labels the inner `call_argument` edge with the FIELD
+                // name AND records the surrounding `(`/`)` as `field:<name>`
+                // literal constraints on this vertex. Taking a single field
+                // edge here emits the child bare (`AContract 1`) and DROPS the
+                // parens. When such `field:<name>` literal constraints exist,
+                // expand the hidden rule inline (retaining the field context so
+                // its inner bare symbol still takes the field edge) so its
+                // literals emit. Gated on the recorded field literals so the
+                // common `FIELD(x, _hidden)` pass-through (no wrapped literals,
+                // e.g. ruby's many hidden-rule fields) is untouched: there the
+                // single field-edge take is correct and expansion would wrongly
+                // re-walk / leak the field context.
+                let field_sort = format!("field:{field}");
+                let has_field_literals = schema
+                    .constraints
+                    .get(vertex_id)
+                    .is_some_and(|cs| cs.iter().any(|c| c.sort.as_ref() == field_sort));
+                if has_field_literals && name.starts_with('_') {
+                    if let Some(rule) = grammar.rules.get(name) {
+                        let old_rule = out.current_rule.take();
+                        out.current_rule = Some(name.to_owned());
+                        let result = walk_in_mu_frame(
+                            protocol, schema, grammar, vertex_id, name, rule, cursor, out,
+                        );
+                        out.current_rule = old_rule;
+                        return result;
+                    }
+                }
                 if let Some(edge) = cursor.take_field(&field) {
                     return emit_in_child_context(
                         protocol, schema, grammar, &edge.tgt, production, out,
