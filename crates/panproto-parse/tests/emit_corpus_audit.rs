@@ -595,6 +595,7 @@ const CORPUS_VERIFIED: &[&str] = &[
     "arduino",
     "bass",
     "chuck",
+    "elisp",
     "fidl",
     "firrtl",
     "graphql",
@@ -602,6 +603,7 @@ const CORPUS_VERIFIED: &[&str] = &[
     "json",
     "qmldir",
     "rego",
+    "sparql",
     "ungrammar",
 ];
 
@@ -660,6 +662,7 @@ fn corpus_verified_protocols_round_trip_full_corpus() {
 const STRIP_VERIFIED: &[&str] = &[
     "arduino",
     "bass",
+    "elisp",
     "fidl",
     "firrtl",
     "graphql",
@@ -667,6 +670,7 @@ const STRIP_VERIFIED: &[&str] = &[
     "json",
     "qmldir",
     "rego",
+    "sparql",
     "ungrammar",
 ];
 

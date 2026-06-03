@@ -470,6 +470,7 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "bass",
     "bugs",
     "chuck",
+    "elisp",
     "fidl",
     "firrtl",
     "graphql",
@@ -482,6 +483,7 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "qmldir",
     "rego",
     "scheme",
+    "sparql",
     "stan",
     "ungrammar",
 ];
