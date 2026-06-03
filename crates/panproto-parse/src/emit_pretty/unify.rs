@@ -365,6 +365,11 @@ struct Candidates {
     /// alternative with an empty match is structurally rejected: it
     /// requires a child the demand does not supply.
     num_viable: usize,
+    /// Indices of all *viable* alternatives (label-aware, field-consistent),
+    /// regardless of munch length. A direct bare-symbol match for the head
+    /// child may live here without being maximal (a recursive wrapper can
+    /// out-munch it), so the head-child preference is computed over this set.
+    viable: Vec<usize>,
 }
 
 /// How an alternative binds a particular `FIELD` name, aggregated over its
@@ -583,6 +588,7 @@ fn choice_candidates(
     let mut best_len = 0usize;
     let mut cands: Vec<usize> = Vec::new();
     let mut num_viable = 0usize;
+    let mut viable: Vec<usize> = Vec::new();
     for (i, alt) in alternatives.iter().enumerate() {
         // `num_viable` counts STRUCTURAL viability (can this alt consume the
         // demand at all?) over ALL alternatives, label-BLIND. It drives the
@@ -622,6 +628,7 @@ fn choice_candidates(
         else {
             continue;
         };
+        viable.push(i);
         if max_end > best_len {
             best_len = max_end;
             cands = vec![i];
@@ -633,6 +640,59 @@ fn choice_candidates(
         best_len,
         cands,
         num_viable,
+        viable,
+    }
+}
+
+/// Does `prod` reach a `Repeat`/`Repeat1` whose body references the hidden
+/// dispatch rule `self_rule` (directly or through transparent wrappers /
+/// nested SEQ/CHOICE)? This is the "recursive re-entry" signal: an
+/// alternative that out-munches by looping back into the same CHOICE rule
+/// it belongs to is absorbing sibling iterations, not a genuinely longer
+/// single production. Cycle-guarded on rule names.
+fn reenters_repeat<'g>(
+    grammar: &'g Grammar,
+    prod: &'g Production,
+    self_rule: &str,
+    in_repeat: bool,
+    visited: &mut Vec<&'g str>,
+) -> bool {
+    match prod {
+        Production::Symbol { name } => {
+            if in_repeat && name == self_rule {
+                return true;
+            }
+            // Follow hidden pass-through rules so a REPEAT of a hidden alias
+            // of `self_rule` still counts.
+            if name.starts_with('_') && !visited.contains(&name.as_str()) {
+                if let Some(rule) = grammar.rules.get(name) {
+                    visited.push(name.as_str());
+                    let r = reenters_repeat(grammar, rule, self_rule, in_repeat, visited);
+                    visited.pop();
+                    return r;
+                }
+            }
+            false
+        }
+        Production::Repeat { content } | Production::Repeat1 { content } => {
+            reenters_repeat(grammar, content, self_rule, true, visited)
+        }
+        Production::Seq { members } | Production::Choice { members } => members
+            .iter()
+            .any(|m| reenters_repeat(grammar, m, self_rule, in_repeat, visited)),
+        Production::Optional { content }
+        | Production::Field { content, .. }
+        | Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Alias { content, .. }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Reserved { content, .. } => {
+            reenters_repeat(grammar, content, self_rule, in_repeat, visited)
+        }
+        _ => false,
     }
 }
 
@@ -777,11 +837,13 @@ pub(crate) fn select_choice_with_trace(
     initial_field_ctx: Option<&str>,
     field_constraints: &[(&str, &str)],
     trace_tokens: &[String],
+    self_rule: Option<&str>,
 ) -> Option<usize> {
     let Candidates {
         best_len,
         cands,
         num_viable,
+        viable,
     } = choice_candidates(
         grammar,
         alternatives,
@@ -793,6 +855,41 @@ pub(crate) fn select_choice_with_trace(
     if cands.is_empty() {
         // No alternative can consume the demand at all.
         return None;
+    }
+    // Head-child direct match preempts a recursive-wrapper maximal munch.
+    // When this CHOICE is the body of the hidden dispatch rule `self_rule`
+    // (so it is being iterated ONE child at a time by a surrounding REPEAT),
+    // an alternative that out-munches the direct single-child match does so
+    // only by RE-ENTERING `self_rule` recursively and swallowing later
+    // sibling iterations (cmake `_untrimmed_argument = CHOICE[…, argument,
+    // _paren_argument]` where `_paren_argument = SEQ['(', REPEAT(
+    // _untrimmed_argument), ')']` absorbs every following `argument`, beating
+    // the direct single-child `argument` alt and emitting `()`). The direct
+    // one-to-one alternative is correct per REPEAT-iteration semantics.
+    // Guarded by `self_rule` so this NEVER fires for a CHOICE nested in a
+    // named SEQ (go grouped `const_declaration`, whose longer grouped
+    // alternative legitimately consumes every `const_spec`).
+    if let (Some(self_rule), Some(&child_kind)) = (self_rule, demand.first()) {
+        let direct_viable: Vec<usize> = viable
+            .iter()
+            .copied()
+            .filter(|&i| bare_symbol_name(&alternatives[i]) == Some(child_kind))
+            .collect();
+        if direct_viable.len() == 1 {
+            let d = direct_viable[0];
+            let winner_is_direct = cands
+                .iter()
+                .any(|&i| bare_symbol_name(&alternatives[i]) == Some(child_kind));
+            // Only preempt when the winner out-munched by recursive re-entry
+            // (not a genuinely-longer non-recursive alternative).
+            let winner_reenters = cands.iter().any(|&i| {
+                let mut v = Vec::new();
+                reenters_repeat(grammar, &alternatives[i], self_rule, false, &mut v)
+            });
+            if !winner_is_direct && !cands.contains(&d) && winner_reenters {
+                return Some(d);
+            }
+        }
     }
     // A unique structural answer exists when one alternative is maximal
     // AND there is real discrimination: either it consumed children
@@ -915,12 +1012,12 @@ mod tests {
         };
         // demand = two number children → first alt
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["number", "number"], &[], None, &[], &[]),
+            select_choice_with_trace(&g, alts, &["number", "number"], &[], None, &[], &[], None),
             Some(0)
         );
         // demand = two string children → second alt
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["string", "string"], &[], None, &[], &[]),
+            select_choice_with_trace(&g, alts, &["string", "string"], &[], None, &[], &[], None),
             Some(1)
         );
     }
@@ -955,14 +1052,14 @@ mod tests {
         };
         // An identifier child picks `identifier`, not template_parameters.
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["identifier"], &[], None, &[], &[]),
+            select_choice_with_trace(&g, alts, &["identifier"], &[], None, &[], &[], None),
             Some(1)
         );
         // An int_literal child matches NEITHER concrete alternative
         // directly (template_parameters needs the whole < int > shape,
         // identifier needs an identifier) → defer, do not steal.
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["int_literal"], &[], None, &[], &[]),
+            select_choice_with_trace(&g, alts, &["int_literal"], &[], None, &[], &[], None),
             None
         );
     }
@@ -1020,7 +1117,7 @@ mod tests {
         // match a `declaration` child; function_definition (idx 0) is
         // rejected. The direct bare symbol wins.
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["declaration"], &[], None, &[], &[]),
+            select_choice_with_trace(&g, alts, &["declaration"], &[], None, &[], &[], None),
             Some(1)
         );
     }
@@ -1051,7 +1148,7 @@ mod tests {
             _ => panic!(),
         };
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["binary"], &[], None, &[], &[]),
+            select_choice_with_trace(&g, alts, &["binary"], &[], None, &[], &[], None),
             None
         );
     }
@@ -1077,12 +1174,12 @@ mod tests {
         };
         // No child, no trace → omit the optional (BLANK, index 1).
         assert_eq!(
-            select_choice_with_trace(&g, alts, &[], &[], None, &[], &[]),
+            select_choice_with_trace(&g, alts, &[], &[], None, &[], &[], None),
             Some(1)
         );
         // The parser recorded a ";" (in ptrace) → emit it (index 0).
         assert_eq!(
-            select_choice_with_trace(&g, alts, &[], &[], None, &[], &[";".to_owned()]),
+            select_choice_with_trace(&g, alts, &[], &[], None, &[], &[";".to_owned()], None),
             Some(0)
         );
     }
@@ -1112,21 +1209,21 @@ mod tests {
         };
         // No trace → genuine tie → defer.
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["expr"], &[], None, &[], &[]),
+            select_choice_with_trace(&g, alts, &["expr"], &[], None, &[], &[], None),
             None
         );
         // Trace contains "return" → first alt; "throw" → second.
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["expr"], &[], None, &[], &["return".to_owned()]),
+            select_choice_with_trace(&g, alts, &["expr"], &[], None, &[], &["return".to_owned()], None),
             Some(0)
         );
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["expr"], &[], None, &[], &["throw".to_owned()]),
+            select_choice_with_trace(&g, alts, &["expr"], &[], None, &[], &["throw".to_owned()], None),
             Some(1)
         );
         // Trace with neither keyword → still ambiguous → defer.
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["expr"], &[], None, &[], &["xyz".to_owned()]),
+            select_choice_with_trace(&g, alts, &["expr"], &[], None, &[], &["xyz".to_owned()], None),
             None
         );
     }
@@ -1162,13 +1259,13 @@ mod tests {
         // `expression` child) is structurally rejected; `BLANK` is the
         // unique viable alternative and must be chosen, not deferred.
         assert_eq!(
-            select_choice_with_trace(&g, alts, &[], &[], None, &[], &[]),
+            select_choice_with_trace(&g, alts, &[], &[], None, &[], &[], None),
             Some(1)
         );
         // With a value child available, `_initializer` becomes viable and
         // consumes it → chosen over BLANK (maximal munch).
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["expression"], &[], None, &[], &[]),
+            select_choice_with_trace(&g, alts, &["expression"], &[], None, &[], &[], None),
             Some(0)
         );
     }
@@ -1258,7 +1355,8 @@ mod tests {
                 &[],
                 None,
                 &[("kind", "const")],
-                &[]
+                &[],
+                None
             ),
             Some(1)
         );
@@ -1267,7 +1365,7 @@ mod tests {
         // is the unique remaining candidate and wins instead of emitting a
         // spurious `var`/`let`.
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["expr", "expr"], &[], None, &[], &[]),
+            select_choice_with_trace(&g, alts, &["expr", "expr"], &[], None, &[], &[], None),
             Some(0)
         );
     }

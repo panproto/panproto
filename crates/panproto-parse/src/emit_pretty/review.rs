@@ -926,9 +926,14 @@ pub(crate) fn emit_production_inner(
             protocol, schema, grammar, vertex_id, members, cursor, out, false,
         ),
         Production::Choice { members } => {
-            if let Some(matched) =
-                pick_choice_with_cursor(schema, grammar, vertex_id, cursor, members)
-            {
+            if let Some(matched) = pick_choice_with_cursor(
+                schema,
+                grammar,
+                vertex_id,
+                cursor,
+                members,
+                out.current_rule.as_deref(),
+            ) {
                 match matched {
                     Production::Seq {
                         members: seq_members,
@@ -1689,12 +1694,31 @@ fn pattern_trailing_literal(value: &str) -> Option<String> {
     crate::emit_pretty::helpers::decode_simple_pattern_literal(after)
 }
 
+/// The `CHOICE` alternatives slice at the heart of a rule body, unwrapping
+/// transparent precedence / token wrappers. Returns an empty slice when the
+/// body is not a `CHOICE`. Used to test (by pointer identity) whether a
+/// dispatched `CHOICE`'s `alternatives` slice IS the body of `current_rule`.
+fn unwrap_choice_body(prod: &Production) -> &[Production] {
+    match prod {
+        Production::Choice { members } => members,
+        Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Reserved { content, .. } => unwrap_choice_body(content),
+        _ => &[],
+    }
+}
+
 pub(crate) fn pick_choice_with_cursor<'a>(
     schema: &Schema,
     grammar: &Grammar,
     vertex_id: &panproto_gat::Name,
     cursor: &ChildCursor<'_>,
     alternatives: &'a [Production],
+    current_rule: Option<&str>,
 ) -> Option<&'a Production> {
     // ── Canonical-section CHOICE dispatch (primary) ──────────────────
     // Grammar-unification: pick the alternative whose yield structurally
@@ -1790,6 +1814,21 @@ pub(crate) fn pick_choice_with_cursor<'a>(
         .unwrap_or_default();
     // (`field_ctx` is consumed below; it also lets a field-labeled child be
     // consumed by the field's own production, go `F:body(CH[block | BLANK])`.)
+    // `self_rule` is the hidden dispatch rule whose body IS this very CHOICE
+    // (`current_rule` set by the hidden-rule μ-frame expansion). A REPEAT body
+    // that is such a hidden CHOICE-rule iterates ONE child per iteration, so an
+    // alternative that out-munches by RE-ENTERING `self_rule` recursively must
+    // not beat the direct single-child match (the cmake `_untrimmed_argument`
+    // /`_paren_argument` self-recursion). Threaded so the unification can
+    // distinguish that from a legitimate longer alternative (go grouped
+    // `const_declaration`, whose CHOICE is nested in a named SEQ, not a hidden
+    // rule body, so `self_rule` is None and the longer alt wins normally).
+    let self_rule = current_rule.filter(|r| {
+        grammar
+            .rules
+            .get(*r)
+            .is_some_and(|body| std::ptr::eq(unwrap_choice_body(body), alternatives))
+    });
     if let Some(idx) = super::select_choice_with_trace(
         grammar,
         alternatives,
@@ -1798,6 +1837,7 @@ pub(crate) fn pick_choice_with_cursor<'a>(
         field_ctx.as_deref(),
         &field_constraints,
         &trace_tokens,
+        self_rule,
     ) {
         return Some(&alternatives[idx]);
     }
