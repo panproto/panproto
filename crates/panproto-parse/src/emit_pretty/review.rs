@@ -64,6 +64,131 @@ pub(crate) fn collect_roots(schema: &Schema) -> Vec<&panproto_gat::Name> {
     roots
 }
 
+/// The set of symbol names referenced anywhere in `rule`, expanding
+/// hidden (`_`-prefixed) and supertype rules transitively (cycle-guarded),
+/// so a child placeable only through a dispatch chain (cpp constructor's
+/// `field_initializer_list` is a direct member of
+/// `constructor_or_destructor_definition`) is reachable.
+fn rule_symbol_closure<'g>(
+    grammar: &'g Grammar,
+    rule: &'g Production,
+) -> std::collections::HashSet<&'g str> {
+    fn walk<'g>(
+        grammar: &'g Grammar,
+        prod: &'g Production,
+        out: &mut std::collections::HashSet<&'g str>,
+        visited: &mut std::collections::HashSet<&'g str>,
+    ) {
+        match prod {
+            Production::Symbol { name } => {
+                out.insert(name.as_str());
+                let expand = name.starts_with('_') || grammar.supertypes.contains(name.as_str());
+                if expand && visited.insert(name.as_str()) {
+                    if let Some(r) = grammar.rules.get(name) {
+                        walk(grammar, r, out, visited);
+                    }
+                }
+            }
+            Production::Alias {
+                content,
+                value,
+                named,
+            } => {
+                if *named && !value.is_empty() {
+                    out.insert(value.as_str());
+                }
+                walk(grammar, content, out, visited);
+            }
+            Production::Seq { members } | Production::Choice { members } => {
+                for m in members {
+                    walk(grammar, m, out, visited);
+                }
+            }
+            Production::Repeat { content }
+            | Production::Repeat1 { content }
+            | Production::Optional { content }
+            | Production::Field { content, .. }
+            | Production::Token { content }
+            | Production::ImmediateToken { content }
+            | Production::Prec { content, .. }
+            | Production::PrecLeft { content, .. }
+            | Production::PrecRight { content, .. }
+            | Production::PrecDynamic { content, .. }
+            | Production::Reserved { content, .. } => walk(grammar, content, out, visited),
+            _ => {}
+        }
+    }
+    let mut out = std::collections::HashSet::new();
+    let mut visited = std::collections::HashSet::new();
+    walk(grammar, rule, &mut out, &mut visited);
+    out
+}
+
+/// How many of the vertex's distinct child kinds the production `rule`
+/// can place (a child of kind K is placeable iff K satisfies some symbol
+/// the rule references through its dispatch closure).
+fn rule_admits_count(grammar: &Grammar, rule: &Production, demand: &[&str]) -> usize {
+    let syms = rule_symbol_closure(grammar, rule);
+    demand
+        .iter()
+        .filter(|k| {
+            syms.iter()
+                .any(|s| kind_satisfies_symbol(grammar, Some(k), s))
+        })
+        .count()
+}
+
+/// Choose which rule production to walk at a vertex of surface kind
+/// `kind`. Normally the vertex's own rule. But when several rules collapse
+/// to `kind` via `alias($.src, kind)` and the own rule cannot consume one
+/// of the vertex's child edges while an alias-source rule can, walk the
+/// source rule (the parser.c/grammar.json desync fallback, e.g. cpp
+/// constructor bodies surfaced as `function_definition` whose own rule
+/// lacks the `field_initializer_list` member).
+fn select_walk_rule<'g>(
+    schema: &Schema,
+    grammar: &'g Grammar,
+    edges: &[&Edge],
+    kind: &'g str,
+    own_rule: &'g Production,
+) -> (&'g str, &'g Production) {
+    let Some(sources) = grammar.named_alias_sources.get(kind) else {
+        return (kind, own_rule);
+    };
+    let demand: Vec<&str> = edges
+        .iter()
+        .filter_map(|e| schema.vertices.get(&e.tgt).map(|v| v.kind.as_ref()))
+        .collect();
+    if demand.is_empty() {
+        return (kind, own_rule);
+    }
+    let own_admits = rule_admits_count(grammar, own_rule, &demand);
+    if own_admits == demand.len() {
+        // The own rule already has a slot for every child; never override.
+        return (kind, own_rule);
+    }
+    // Find the alias source whose production admits strictly more of the
+    // demand than the own rule. Sources are tried in grammar order; the
+    // one admitting the most wins (full coverage preferred).
+    let mut best: Option<(&str, &Production, usize)> = None;
+    for src in sources {
+        if src == kind {
+            continue;
+        }
+        let Some(src_rule) = grammar.rules.get(src) else {
+            continue;
+        };
+        let c = rule_admits_count(grammar, src_rule, &demand);
+        if c > own_admits && best.as_ref().is_none_or(|&(_, _, bc)| c > bc) {
+            best = Some((src.as_str(), src_rule, c));
+        }
+    }
+    match best {
+        Some((name, r, _)) => (name, r),
+        None => (kind, own_rule),
+    }
+}
+
 pub(crate) fn emit_vertex(
     protocol: &str,
     schema: &Schema,
@@ -180,18 +305,40 @@ pub(crate) fn emit_vertex(
     let kind = vertex.kind.as_ref();
     let edges = children_for(schema, vertex_id);
     if let Some(rule) = grammar.rules.get(kind) {
+        // Rule selection among alias-collapsed siblings. Several distinct
+        // rules can collapse to the same surface kind via `alias($.src, K)`
+        // (cpp `function_definition` is also the alias value of
+        // `constructor_or_destructor_definition` / `inline_method_definition`
+        // / `operator_cast_definition`). When the parser.c-derived node-types
+        // give a vertex a child the *own* rule `K` cannot place (a desync:
+        // the collapsed `function_definition` rule omits the constructor-only
+        // `field_initializer_list` member), but an alias-source rule's
+        // production *does* admit the full child set, walk that source rule.
+        // Purely grammar-derived (the alias map + the unification matcher);
+        // only fires when the own rule genuinely under-consumes, so the
+        // common case (own rule consumes everything) is untouched.
+        let (walk_name, walk_rule): (&str, &Production) =
+            select_walk_rule(schema, grammar, &edges, kind, rule);
         let old_rule = out.current_rule.take();
-        out.current_rule = Some(kind.to_owned());
+        out.current_rule = Some(walk_name.to_owned());
         // An indented-block rule (`block = SEQ[REPEAT(_statement),
         // _dedent]`) is reached directly because its opening `_indent`
         // lives in the hidden parent. Synthesize the opening indent so
         // the body is indented; the rule's own `_dedent` closes it.
-        let synthetic_indent = grammar.synthetic_indent_rules.contains(kind);
+        let synthetic_indent = grammar.synthetic_indent_rules.contains(walk_name);
         if synthetic_indent {
             out.indent_open();
         }
         let mut cursor = ChildCursor::new(&edges);
-        emit_production(protocol, schema, grammar, vertex_id, rule, &mut cursor, out)?;
+        emit_production(
+            protocol,
+            schema,
+            grammar,
+            vertex_id,
+            walk_rule,
+            &mut cursor,
+            out,
+        )?;
         drain_extras(protocol, schema, grammar, &mut cursor, out)?;
         out.current_rule = old_rule;
         return Ok(());
@@ -1132,11 +1279,32 @@ pub(crate) fn emit_aliased_child(
     if let Production::Symbol { name } = content {
         if let Some(rule) = grammar.rules.get(name) {
             let edges = children_for(schema, child_id);
+            // Several rules may alias to the same surface kind (cpp
+            // `function_definition` is the alias value of
+            // `inline_method_definition`,
+            // `constructor_or_destructor_definition`, …). The parent CHOICE
+            // picked ONE of them, but they are indistinguishable to the
+            // demand matcher at the parent (each consumes one
+            // `function_definition` child). If the picked source's rule
+            // cannot place one of THIS child's grandchildren (the desync
+            // where the chosen rule lacks `field_initializer_list`) while a
+            // sibling alias source can, walk the better source. Keyed on the
+            // child's surface kind (the alias `value`).
+            let child_kind = vertex_id_kind(schema, child_id).unwrap_or(name);
+            let (walk_name, walk_rule) =
+                select_walk_rule(schema, grammar, &edges, child_kind, rule);
             let mut cursor = ChildCursor::new(&edges);
             let old_rule = out.current_rule.take();
-            out.current_rule = Some(name.to_owned());
-            let result =
-                emit_production(protocol, schema, grammar, child_id, rule, &mut cursor, out);
+            out.current_rule = Some(walk_name.to_owned());
+            let result = emit_production(
+                protocol,
+                schema,
+                grammar,
+                child_id,
+                walk_rule,
+                &mut cursor,
+                out,
+            );
             out.current_rule = old_rule;
             return result;
         }
@@ -1386,9 +1554,8 @@ pub(crate) fn pick_choice_with_cursor<'a>(
                     if s.starts_with("ptrace-") {
                         c.value.strip_prefix('T').map(ToOwned::to_owned)
                     } else if let Some(field) = s.strip_prefix("field:") {
-                        (alt_field_names.contains(field)
-                            || field_ctx.as_deref() == Some(field))
-                        .then(|| c.value.clone())
+                        (alt_field_names.contains(field) || field_ctx.as_deref() == Some(field))
+                            .then(|| c.value.clone())
                     } else {
                         None
                     }

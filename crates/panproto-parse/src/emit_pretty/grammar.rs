@@ -414,6 +414,17 @@ pub struct Grammar {
     /// the emitter can walk the source rule with proper token roles.
     #[serde(skip)]
     pub named_alias_map: std::collections::HashMap<String, String>,
+    /// Every source rule that aliases to a given kind, in grammar order.
+    /// A kind can be the `value` of several distinct `ALIAS` sites (cpp
+    /// `function_definition` is the alias value of `inline_method_definition`,
+    /// `constructor_or_destructor_definition`, `operator_cast_definition`, …,
+    /// AND has its own `function_definition` rule). When the vertex's own
+    /// rule cannot consume one of its child edges (a parser.c/grammar.json
+    /// desync where the collapsed-kind rule omits constructor-only members
+    /// like `field_initializer_list`), the emitter falls back to the alias
+    /// source whose production *does* admit the child set.
+    #[serde(skip)]
+    pub named_alias_sources: std::collections::HashMap<String, Vec<String>>,
     /// Named terminal kinds whose underlying `PATTERN` can match a leading
     /// space (e.g. INI's `setting_value = PATTERN ".+"`). A layout space
     /// emitted *before* such a terminal would fold into its captured text
@@ -540,6 +551,7 @@ impl Grammar {
             })?;
         grammar.subtypes = compute_subtype_closure(&grammar);
         grammar.named_alias_map = build_named_alias_map(&grammar);
+        grammar.named_alias_sources = build_named_alias_sources(&grammar);
         grammar.yield_sets = compute_yield_sets(&grammar);
         if let Some(nt_bytes) = node_types_bytes {
             let (all_children, field_children, nonfield_children) =
@@ -1306,6 +1318,57 @@ pub(crate) fn build_named_alias_map(
                 if *named && !value.is_empty() {
                     if let Production::Symbol { name } = content.as_ref() {
                         map.entry(value.clone()).or_insert_with(|| name.clone());
+                    }
+                }
+                walk(content, map);
+            }
+            Production::Choice { members } | Production::Seq { members } => {
+                for m in members {
+                    walk(m, map);
+                }
+            }
+            Production::Repeat { content }
+            | Production::Repeat1 { content }
+            | Production::Optional { content }
+            | Production::Field { content, .. }
+            | Production::Token { content }
+            | Production::ImmediateToken { content }
+            | Production::Prec { content, .. }
+            | Production::PrecLeft { content, .. }
+            | Production::PrecRight { content, .. }
+            | Production::PrecDynamic { content, .. }
+            | Production::Reserved { content, .. } => walk(content, map),
+            _ => {}
+        }
+    }
+    for rule in grammar.rules.values() {
+        walk(rule, &mut map);
+    }
+    map
+}
+
+/// Every source rule that aliases to each kind, deduplicated, in
+/// first-seen order. Unlike [`build_named_alias_map`] (which keeps only
+/// the first source per kind) this records the full set, so the emitter
+/// can choose, among several rules that collapse to the same surface
+/// kind, the one whose production admits a given vertex's children.
+pub(crate) fn build_named_alias_sources(
+    grammar: &Grammar,
+) -> std::collections::HashMap<String, Vec<String>> {
+    let mut map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    fn walk(prod: &Production, map: &mut std::collections::HashMap<String, Vec<String>>) {
+        match prod {
+            Production::Alias {
+                content,
+                named,
+                value,
+            } => {
+                if *named && !value.is_empty() {
+                    if let Production::Symbol { name } = content.as_ref() {
+                        let srcs = map.entry(value.clone()).or_default();
+                        if !srcs.contains(name) {
+                            srcs.push(name.clone());
+                        }
                     }
                 }
                 walk(content, map);
