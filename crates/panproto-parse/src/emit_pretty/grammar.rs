@@ -28,8 +28,8 @@ use super::{
     BTreeMap, Deserialize, ParseError, collect_all_symbol_refs, external_symbol_name,
     extract_line_comment_prefix, has_repeat_recursive, is_immediate_token, is_prefix_sigil,
     is_rest_of_line_pattern, is_word_like, kind_satisfies_symbol, leading_optional_sign,
-    matching_close_bracket, pattern_absorbs_leading_space, referenced_symbols, terminal_pattern_of,
-    unwrap_to_seq, unwrap_to_string,
+    literal_strings, matching_close_bracket, pattern_absorbs_leading_space, referenced_symbols,
+    terminal_pattern_of, unwrap_to_seq, unwrap_to_string,
 };
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1100,6 +1100,30 @@ pub(crate) fn augment_subtypes_from_node_types(grammar: &mut Grammar) {
         let mut non_field_symbols: Vec<String> = Vec::new();
         collect_field_symbols(rule, &mut field_symbols, &mut non_field_symbols, false);
 
+        // A node-types child kind `K` satisfies a grammar symbol `S` only
+        // when `S` is a legitimate *dispatch target* that can transparently
+        // yield `K` (a hidden `_`-rule, a declared supertype, or a rule with
+        // no literal tokens of its own that inlines under another kind). A
+        // *concrete self-anchored* rule (own literal tokens / brackets /
+        // keywords, e.g. cpp `attribute_declaration = SEQ["[[", …, "]]"]`)
+        // always materialises under its OWN name, so it can never be the
+        // surface kind of a *different* child. The node-types `children.types`
+        // list is a flat sibling set: a rule with several distinct non-field
+        // children (cpp `base_class_clause` = access_specifier + type_identifier
+        // + attribute_declaration) would otherwise cross-product every child
+        // kind with every symbol, spuriously making `type_identifier ⊑
+        // attribute_declaration` and letting a leading REPEAT(attribute_decl)
+        // steal the `type_identifier` (base-class reorder). Mirror `sat`'s
+        // non-transitivity: skip self-anchored concrete targets.
+        let dispatch_target = |grammar: &Grammar, sym: &str| -> bool {
+            sym.starts_with('_')
+                || grammar.supertypes.contains(sym)
+                || grammar
+                    .rules
+                    .get(sym)
+                    .is_none_or(|r| literal_strings(r).is_empty())
+        };
+
         // Per-field augmentation: for each FIELD F in the grammar rule,
         // match child kinds that node-types.json says appear in field F
         // against the symbols at field F's position.
@@ -1113,7 +1137,9 @@ pub(crate) fn augment_subtypes_from_node_types(grammar: &mut Grammar) {
                         continue;
                     }
                     for sym_name in rule_syms {
-                        if !kind_satisfies_symbol(grammar, Some(child_kind), sym_name) {
+                        if dispatch_target(grammar, sym_name)
+                            && !kind_satisfies_symbol(grammar, Some(child_kind), sym_name)
+                        {
                             pairs.push((child_kind.clone(), sym_name.clone()));
                         }
                     }
@@ -1129,7 +1155,9 @@ pub(crate) fn augment_subtypes_from_node_types(grammar: &mut Grammar) {
                     continue;
                 }
                 for sym_name in &non_field_symbols {
-                    if !kind_satisfies_symbol(grammar, Some(child_kind), sym_name) {
+                    if dispatch_target(grammar, sym_name)
+                        && !kind_satisfies_symbol(grammar, Some(child_kind), sym_name)
+                    {
                         pairs.push((child_kind.clone(), sym_name.clone()));
                     }
                 }
