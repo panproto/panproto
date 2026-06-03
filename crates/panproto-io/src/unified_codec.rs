@@ -23,7 +23,7 @@ use panproto_schema::Schema;
 
 use crate::cst_extract::{
     CstComplement, FormatKind, extract_json_cst, extract_tabular_cst, extract_xml_cst,
-    extract_yaml_cst, inject_json_cst, inject_xml_cst, inject_yaml_cst,
+    extract_yaml_cst, inject_json_cst, inject_tabular_cst, inject_xml_cst, inject_yaml_cst,
 };
 use crate::error::{EmitInstanceError, ParseInstanceError, UnifiedCodecError};
 use crate::traits::{InstanceEmitter, InstanceParser, NativeRepr};
@@ -237,6 +237,87 @@ impl UnifiedCodec {
             message: e.to_string(),
         })?;
 
+        self.lang_parser
+            .emit(&updated_cst)
+            .map_err(|e| EmitInstanceError::Emit {
+                protocol: self.protocol.clone(),
+                message: e.to_string(),
+            })
+    }
+
+    /// Parse raw bytes for a tabular (CSV/TSV) format, returning both the
+    /// `FInstance` and the CST complement needed for byte-preserving emission.
+    ///
+    /// Unlike [`InstanceParser::parse_functor`], which discards formatting
+    /// (and therefore loses column order on re-emit), this retains the CST
+    /// complement so [`emit_functor_preserving`](Self::emit_functor_preserving)
+    /// can reproduce the original bytes exactly.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParseInstanceError`] if the format is not tabular or parsing
+    /// fails.
+    pub fn parse_functor_preserving(
+        &self,
+        schema: &Schema,
+        input: &[u8],
+    ) -> Result<(FInstance, CstComplement), ParseInstanceError> {
+        match self.format {
+            FormatKind::Csv | FormatKind::Tsv => {}
+            _ => {
+                return Err(ParseInstanceError::UnsupportedRepresentation {
+                    protocol: self.protocol.clone(),
+                    requested: NativeRepr::Functor,
+                    native: self.native_repr,
+                });
+            }
+        }
+        let cst_schema = self.parse_to_cst(input)?;
+        let table_vertex = self
+            .table_vertex
+            .clone()
+            .or_else(|| find_root_vertex(schema))
+            .unwrap_or_else(|| "rows".to_string());
+        extract_tabular_cst(&cst_schema, schema, &table_vertex).map_err(|e| {
+            ParseInstanceError::Parse {
+                protocol: self.protocol.clone(),
+                message: e.to_string(),
+            }
+        })
+    }
+
+    /// Emit bytes from a tabular (CSV/TSV) `FInstance` using the CST complement
+    /// for byte-faithful format preservation.
+    ///
+    /// The instance's cell values are spliced back into the preserved CST
+    /// (retaining column order, quoting, and line endings), then emitted via
+    /// the unified replay path.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EmitInstanceError`] if the format is not tabular or emission
+    /// fails.
+    pub fn emit_functor_preserving(
+        &self,
+        schema: &Schema,
+        instance: &FInstance,
+        complement: &CstComplement,
+    ) -> Result<Vec<u8>, EmitInstanceError> {
+        match self.format {
+            FormatKind::Csv | FormatKind::Tsv => {}
+            _ => {
+                return Err(EmitInstanceError::UnsupportedRepresentation {
+                    protocol: self.protocol.clone(),
+                    requested: NativeRepr::Functor,
+                    native: self.native_repr,
+                });
+            }
+        }
+        let updated_cst =
+            inject_tabular_cst(instance, complement, schema).map_err(|e| EmitInstanceError::Emit {
+                protocol: self.protocol.clone(),
+                message: e.to_string(),
+            })?;
         self.lang_parser
             .emit(&updated_cst)
             .map_err(|e| EmitInstanceError::Emit {

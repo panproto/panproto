@@ -134,6 +134,28 @@ fn literal_text_deep(cst: &Schema, vertex_id: &str) -> String {
     buf
 }
 
+/// Resolve a cell/field vertex to the descendant that actually carries the
+/// `literal-value` constraint.
+///
+/// Tabular cells are wrapper nodes (`field → text`/`field → number`) whose
+/// text lives on a single `child_of` leaf, so a write aimed at the wrapper
+/// itself is a no-op. This descends through single-child wrappers to the leaf
+/// holding the value, mirroring [`literal_text_deep`]'s read path so that
+/// extraction and injection agree on which node owns the text. Falls back to
+/// the original vertex when no descendant carries a `literal-value` or when the
+/// branch forks (an ambiguous multi-leaf cell, which the simple value-replace
+/// cannot target unambiguously anyway).
+fn deepest_literal_vertex(cst: &Schema, vertex_id: &str) -> Name {
+    if literal_value(cst, vertex_id).is_some() {
+        return Name::from(vertex_id);
+    }
+    let children = cst_children_by_edge_kind(cst, vertex_id, "child_of");
+    if children.len() == 1 {
+        return deepest_literal_vertex(cst, children[0]);
+    }
+    Name::from(vertex_id)
+}
+
 /// Find a child of `parent` with the given edge kind in the CST.
 fn cst_child_by_edge_kind<'a>(cst: &'a Schema, parent: &str, edge_kind: &str) -> Option<&'a Name> {
     cst.outgoing_edges(parent)
@@ -1737,7 +1759,9 @@ pub fn extract_tabular_cst(
             // Encode (row_idx, col_idx) as a u32 key for the complement mapping.
             #[allow(clippy::cast_possible_truncation)]
             let cell_key = (row_idx as u32) * 10_000 + (col_idx as u32);
-            cell_to_cst.insert(cell_key, (*field_name).clone());
+            // Map to the leaf that owns the text, not the wrapper field, so
+            // injection can actually rewrite the value.
+            cell_to_cst.insert(cell_key, deepest_literal_vertex(cst, field_name));
         }
         rows.push(row);
     }
@@ -1779,9 +1803,14 @@ pub fn inject_tabular_cst(
             continue;
         }
         let header_fields = cst_children_by_edge_kind(&cst, row_vertices[0], "child_of");
+        // Match `extract_tabular_cst`: a header cell is usually a wrapper node
+        // whose text lives in a `child_of` leaf, so read it the same deep way
+        // the row keys were built from. Using the shallow `literal_value` here
+        // yielded empty header names, so every cell lookup missed and edits
+        // were silently dropped.
         let headers: Vec<String> = header_fields
             .iter()
-            .map(|f| literal_value(&cst, f).unwrap_or_default())
+            .map(|f| literal_text_deep(&cst, f))
             .collect();
 
         for (row_idx, row) in rows.iter().enumerate() {
