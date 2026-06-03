@@ -1,0 +1,28 @@
+---
+- name: Deploy panproto API servers
+  hosts: api_servers
+  become: true
+  vars:
+    app_version: "0.2.0"
+    app_dir: /opt/panproto
+    replicas: 3
+    feature_flags: []
+    extra: {}
+  tasks:
+    - name: Ensure app directory exists
+      ansible.builtin.file:
+        path: "{{ app_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Render config         # whitespace + comment preserved
+      ansible.builtin.template:
+        src: config.j2
+        dest: "{{ app_dir }}/config.toml"
+      notify:
+        - restart app
+  handlers:
+    - name: restart app
+      ansible.builtin.systemd:
+        name: panproto
+        state: restarted
