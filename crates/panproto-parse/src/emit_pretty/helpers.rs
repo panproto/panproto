@@ -321,15 +321,21 @@ pub(crate) fn extract_line_comment_prefix(prod: &Production) -> Option<String> {
         | Production::PrecDynamic { content, .. }
         | Production::Reserved { content, .. } => extract_line_comment_prefix(content),
         Production::Seq { members } if members.len() >= 2 => {
-            if let Production::String { value } = &members[0] {
-                // A line comment: a fixed prefix followed by the rest of
-                // the line (a pattern, or REPEAT of one, that excludes
-                // newlines). Recognising the prefix lets the layout pass
-                // insert a newline after the comment so consecutive
-                // comments do not collapse onto one line (and re-merge
-                // into a single comment node on re-parse).
+            // A line comment: a fixed prefix followed by the rest of the
+            // line (a pattern, or REPEAT of one, that excludes newlines).
+            // Recognising the prefix lets the layout pass insert a newline
+            // after the comment so consecutive comments do not collapse
+            // onto one line (and re-merge into a single comment node on
+            // re-parse). The prefix is a STRING (`//`, `--`) or a
+            // metacharacter-free PATTERN literal (julia's `#`).
+            let prefix = match &members[0] {
+                Production::String { value } => Some(value.clone()),
+                Production::Pattern { value } => fixed_literal_pattern(value),
+                _ => None,
+            };
+            if let Some(prefix) = prefix {
                 if members[1..].iter().any(seq_member_is_line_rest) {
-                    return Some(value.clone());
+                    return Some(prefix);
                 }
             }
             None
@@ -339,21 +345,54 @@ pub(crate) fn extract_line_comment_prefix(prod: &Production) -> Option<String> {
     }
 }
 
+/// If a regex is a fixed literal (no regex metacharacters), return that
+/// literal — its matched text is exactly the pattern itself, so it is a
+/// usable line-comment prefix. Julia writes its `#` prefix as `PATTERN("#")`
+/// rather than `STRING("#")`; this lets it be recognised. Any metacharacter
+/// (`. * + ? [ ( | \` etc.) means the matched text is not fixed.
+fn fixed_literal_pattern(value: &str) -> Option<String> {
+    if value.is_empty() {
+        return None;
+    }
+    let has_meta = value.bytes().any(|b| {
+        matches!(
+            b,
+            b'.' | b'*'
+                | b'+'
+                | b'?'
+                | b'['
+                | b']'
+                | b'('
+                | b')'
+                | b'|'
+                | b'{'
+                | b'}'
+                | b'^'
+                | b'$'
+                | b'\\'
+        )
+    });
+    if has_meta {
+        None
+    } else {
+        Some(value.to_string())
+    }
+}
+
 /// A SEQ member that consumes the rest of a line: a newline-excluding
 /// `PATTERN`, or a `REPEAT`/`REPEAT1`/wrapper thereof.
 fn seq_member_is_line_rest(prod: &Production) -> bool {
     match prod {
         Production::Pattern { value } => {
-            value.contains(".*")
-                || value.contains("[^\\n]")
-                || value.contains("[^\\r\\n]")
-                // A negated class that excludes the newline byte (toml's
-                // `[^\x00-\x08\x0a-\x1f\x7f]`): rest-of-line content.
-                || (value.starts_with("[^")
-                    && (value.contains("\\n")
-                        || value.contains("\\r")
-                        || value.contains("\\x0a")
-                        || value.contains("\\x0A")))
+            // `.*` (the canonical "rest of line" with DOTALL off) or any
+            // *negated* character class that excludes the newline byte —
+            // the latter covers the line-continuation-aware C-family form
+            // `(\\+(.|\r?\n)|[^\\\n])*`, the multi-terminator JS/TS form
+            // `[^\r\n  ]*`, and toml's `[^\x00-\x08\x0a-\x1f\x7f]`.
+            // Scanning every negated class (not just a leading one) is what
+            // recognises the c/cuda/move/pony/hare prefix where the class is
+            // nested inside an alternation.
+            value.contains(".*") || pattern_has_newline_excluding_class(value)
         }
         Production::Repeat { content }
         | Production::Repeat1 { content }
@@ -367,6 +406,51 @@ fn seq_member_is_line_rest(prod: &Production) -> bool {
         | Production::Reserved { content, .. } => seq_member_is_line_rest(content),
         _ => false,
     }
+}
+
+/// Whether a regex contains a *negated* character class `[^...]` whose body
+/// excludes the newline byte (lists `\n`, `\r`, or their hex escapes). Such
+/// a class is the regex idiom for "any character up to end of line", so a
+/// terminal built from it consumes the rest of the line. We scan all negated
+/// classes — not just a leading one — because the C-family line-comment body
+/// nests `[^\\\n]` inside an alternation `(\\+(.|\r?\n)|[^\\\n])*`.
+pub(crate) fn pattern_has_newline_excluding_class(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    let mut i = 0;
+    while i + 1 < bytes.len() {
+        // A negated class opens with `[^` not preceded by an escaping `\`.
+        if bytes[i] == b'[' && bytes[i + 1] == b'^' && (i == 0 || bytes[i - 1] != b'\\') {
+            // Find the unescaped closing `]` of this class.
+            let mut j = i + 2;
+            // A `]` immediately after `[^` is a literal member, not the end.
+            if j < bytes.len() && bytes[j] == b']' {
+                j += 1;
+            }
+            while j < bytes.len() {
+                if bytes[j] == b'\\' {
+                    j += 2;
+                    continue;
+                }
+                if bytes[j] == b']' {
+                    break;
+                }
+                j += 1;
+            }
+            let class_end = j.min(bytes.len());
+            let body = &value[i..class_end];
+            if body.contains("\\n")
+                || body.contains("\\r")
+                || body.contains("\\x0a")
+                || body.contains("\\x0A")
+            {
+                return true;
+            }
+            i = class_end + 1;
+        } else {
+            i += 1;
+        }
+    }
+    false
 }
 
 
@@ -1108,4 +1192,89 @@ pub(crate) fn is_whitespace_external(name: &str) -> bool {
         name,
         "_non_newline_whitespace" | "_whitespace" | "_space" | "_ws" | "whitespace"
     )
+}
+
+#[cfg(test)]
+mod line_comment_prefix_tests {
+    use super::*;
+
+    fn pat(v: &str) -> Production {
+        Production::Pattern { value: v.to_string() }
+    }
+    fn string(v: &str) -> Production {
+        Production::String { value: v.to_string() }
+    }
+
+    #[test]
+    fn newline_excluding_class_detected_anywhere() {
+        // C-family line-comment body: the negated class is nested inside an
+        // alternation, not at the start.
+        assert!(pattern_has_newline_excluding_class(r"(\\+(.|\r?\n)|[^\\\n])*"));
+        // JS/TS multi-terminator form.
+        assert!(pattern_has_newline_excluding_class(r"[^\r\n  ]*"));
+        // toml control-byte form.
+        assert!(pattern_has_newline_excluding_class(r"[^\x00-\x08\x0a-\x1f\x7f]"));
+        // A positive class containing \n is NOT a rest-of-line class.
+        assert!(!pattern_has_newline_excluding_class(r"[\n]+"));
+        // A bare wildcard is handled separately (no negated class here).
+        assert!(!pattern_has_newline_excluding_class("abc"));
+    }
+
+    #[test]
+    fn fixed_literal_pattern_accepts_plain_prefix() {
+        assert_eq!(fixed_literal_pattern("#"), Some("#".to_string()));
+        assert_eq!(fixed_literal_pattern("//"), Some("//".to_string()));
+        // Any metacharacter disqualifies it.
+        assert_eq!(fixed_literal_pattern(".*"), None);
+        assert_eq!(fixed_literal_pattern("a+"), None);
+        assert_eq!(fixed_literal_pattern(""), None);
+        // `#=` has no regex metacharacters, so it *is* a fixed literal;
+        // it is the SEQ-member shape (a SYMBOL rest, not a line rest) that
+        // keeps julia's block_comment from acquiring a prefix, not this.
+        assert_eq!(fixed_literal_pattern("#="), Some("#=".to_string()));
+    }
+
+    #[test]
+    fn julia_line_comment_prefix_from_pattern_first_member() {
+        // julia: SEQ[PATTERN("#"), PATTERN(".*")] — prefix is a PATTERN.
+        let rule = Production::Seq {
+            members: vec![pat("#"), pat(".*")],
+        };
+        assert_eq!(extract_line_comment_prefix(&rule), Some("#".to_string()));
+    }
+
+    #[test]
+    fn c_line_comment_prefix_from_nested_negated_class() {
+        // c: TOKEN(CHOICE[ SEQ["//", line-rest], SEQ["/*", .., "/"] ]).
+        let line = Production::Seq {
+            members: vec![string("//"), pat(r"(\\+(.|\r?\n)|[^\\\n])*")],
+        };
+        let block = Production::Seq {
+            members: vec![
+                string("/*"),
+                pat(r"[^*]*\*+([^/*][^*]*\*+)*"),
+                string("/"),
+            ],
+        };
+        let rule = Production::Token {
+            content: Box::new(Production::Choice {
+                members: vec![line, block],
+            }),
+        };
+        assert_eq!(extract_line_comment_prefix(&rule), Some("//".to_string()));
+    }
+
+    #[test]
+    fn block_comment_with_symbol_rest_yields_no_prefix() {
+        // julia block_comment: SEQ[PATTERN("#="), SYMBOL] — the second
+        // member is not a line-rest, so no prefix (otherwise a block
+        // comment would spuriously trigger a trailing newline).
+        let rule = Production::Seq {
+            members: vec![
+                pat("#="),
+                Production::Symbol { name: "_block_comment_rest".to_string() },
+            ],
+        };
+        assert_eq!(extract_line_comment_prefix(&rule), None);
+    }
 }
