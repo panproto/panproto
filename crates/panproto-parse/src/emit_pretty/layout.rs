@@ -104,6 +104,14 @@ pub(crate) enum Token {
     /// the categorical reading is "no source-level separator existed
     /// between these two sibling iterations of the body".
     NoSpace,
+    /// Guard emitted right after a greedy unbounded negated-class
+    /// terminal (`[^...]+`, e.g. HTML's unquoted `attribute_value`). The
+    /// carried string is the negated set's inner content. If the NEXT
+    /// `Lit` begins with a character that set ADMITS, the terminal would
+    /// swallow that character on re-parse (`Ok` + `/>` lexes as the value
+    /// `Ok/>`, turning a `self_closing_tag` into a `start_tag`), so the
+    /// layout fold forces a separator. Transparent otherwise.
+    AbsorberGuard(String),
 }
 
 pub(crate) struct Output<'a> {
@@ -339,6 +347,9 @@ pub(crate) fn layout(
     let mut last_text: String = String::new();
     let mut suppress_next_separator = false;
     let mut force_next_separator = false;
+    // The negated-class content of a greedy terminal that just emitted; if
+    // the next Lit's first char is admitted by it, force a separator.
+    let mut pending_absorber: Option<String> = None;
     let newline = policy.newline.as_bytes();
     let separator = policy.separator.as_bytes();
 
@@ -353,18 +364,21 @@ pub(crate) fn layout(
                 Token::LineBreak => eprintln!("  TOK: LineBreak"),
                 Token::NoSpace => eprintln!("  TOK: NoSpace"),
                 Token::ForceSpace => eprintln!("  TOK: ForceSpace"),
+                Token::AbsorberGuard(s) => eprintln!("  TOK: AbsorberGuard({s:?})"),
             }
         }
         match tok {
             Token::IndentOpen => indent += 1,
             Token::IndentClose => {
                 indent = indent.saturating_sub(1);
+                pending_absorber = None;
                 if !at_line_start {
                     bytes.extend_from_slice(newline);
                     at_line_start = true;
                 }
             }
             Token::LineBreak => {
+                pending_absorber = None;
                 if !at_line_start {
                     bytes.extend_from_slice(newline);
                     at_line_start = true;
@@ -376,7 +390,22 @@ pub(crate) fn layout(
             Token::ForceSpace => {
                 force_next_separator = true;
             }
+            Token::AbsorberGuard(negated) => {
+                pending_absorber = Some(negated.clone());
+            }
             Token::Lit(value, role) => {
+                // A greedy negated-class terminal just emitted: if it would
+                // lexically swallow this Lit's first char on re-parse, the
+                // boundary needs a separator regardless of the role pair.
+                if let Some(negated) = pending_absorber.take() {
+                    if value
+                        .chars()
+                        .next()
+                        .is_some_and(|c| negated_class_admits(&negated, c))
+                    {
+                        force_next_separator = true;
+                    }
+                }
                 // Block-opening bracket: BracketOpen followed by IndentOpen.
                 // After a Terminal/BracketClose, this should be spaced
                 // (`}\n` not `0{`).
@@ -428,6 +457,34 @@ pub(crate) fn layout(
         bytes.extend_from_slice(newline);
     }
     bytes
+}
+
+/// True when the negated character class `[^<negated>]` ADMITS `c` — i.e.
+/// `c` is not one of the excluded characters. `negated` is the inner text
+/// of the class (the part after `[^`, before `]`), with backslash escapes
+/// (`\s`, `\t`, `\n`, `\\`) and literal members. A greedy `[^...]+`
+/// terminal continues to consume any admitted character, so an admitted
+/// leading char on the following token would be swallowed on re-parse.
+fn negated_class_admits(negated: &str, c: char) -> bool {
+    let mut chars = negated.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            let excluded = match chars.next() {
+                Some('s') => c.is_whitespace(),
+                Some('t') => c == '\t',
+                Some('n') => c == '\n',
+                Some('r') => c == '\r',
+                Some(esc) => c == esc,
+                None => false,
+            };
+            if excluded {
+                return false;
+            }
+        } else if ch == c {
+            return false;
+        }
+    }
+    true
 }
 
 /// Effective spacing role: word-like bracket tokens (`function`, `end`,

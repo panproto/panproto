@@ -91,6 +91,53 @@ pub(crate) fn seq_bracket_triggers_indent(
     }
 }
 
+/// True when a SEQ opens with a non-word bracket pair `OPEN ... CLOSE`
+/// (`{ … }`, `( … )`, `[ … ]`) whose open literal precedes the first
+/// content member. Such a SEQ introduces a delimited region: a leading
+/// extra (a comment) attached to the SEQ's vertex but ordinally before
+/// the first element sits *inside* that region, so it must be emitted
+/// after the open bracket, never hoisted before it. Returns the index of
+/// the open-bracket member so the caller can drain extras right after it.
+///
+/// Grammar-derived: it only inspects the production's STRING members and
+/// the canonical bracket pairing (`matching_close_bracket`); no language
+/// names. Word-like openers (`begin`/`do`/`struct`) are excluded because
+/// their leading-comment semantics differ (the keyword is itself content
+/// the comment may legitimately precede) and the canonical pairing here
+/// targets the punctuation-delimited list forms (`field_declaration_list`,
+/// argument lists, block braces) where the open bracket is position 0.
+pub(crate) fn seq_open_bracket_index(members: &[Production]) -> Option<usize> {
+    let string_positions: Vec<(usize, &str)> = members
+        .iter()
+        .enumerate()
+        .filter_map(|(i, m)| unwrap_to_string(m).map(|s| (i, s)))
+        .collect();
+    let first_content_idx = members.iter().position(|m| unwrap_to_string(m).is_none())?;
+    for &(oi, ov) in &string_positions {
+        // The open bracket must precede the first content member (so a
+        // leading extra is genuinely inside the region, not before a
+        // prefix token).
+        if oi >= first_content_idx {
+            break;
+        }
+        let Some(close_text) = matching_close_bracket(ov) else {
+            continue;
+        };
+        if is_word_like(ov) {
+            continue;
+        }
+        if string_positions
+            .iter()
+            .rev()
+            .find(|(ci, _)| *ci > oi)
+            .is_some_and(|(_, v)| *v == close_text)
+        {
+            return Some(oi);
+        }
+    }
+    None
+}
+
 /// Check if a production's rule body starts with a bracket pair's open
 /// `STRING`. Used to suppress `ForceSpace` before call-pattern members
 /// (e.g. `argument_list` whose rule starts with `(`).
@@ -1127,6 +1174,45 @@ pub(crate) fn pattern_absorbs_leading_space(pattern: &str) -> bool {
             !(negated.contains(' ') || negated.contains("\\s") || negated.contains("\\t"))
         }
         _ => false,
+    }
+}
+
+/// If `pattern` is a greedy unbounded negated character class
+/// (`[^...]+` or `[^...]*`, optionally `^`-anchored, with nothing after
+/// the quantifier), return the class's inner content (the text between
+/// `[^` and `]`). Such a terminal keeps consuming any character the class
+/// admits, so an emitted-adjacent token whose first char is admitted
+/// would be swallowed on re-parse (HTML unquoted `attribute_value`
+/// `[^<>"'=\s]+` eating the `/` of a following `/>`). Returns `None` for
+/// any other shape (bounded classes, trailing anchors, alternations),
+/// which are not unbounded right-absorbers.
+pub(crate) fn unbounded_negated_class(pattern: &str) -> Option<&str> {
+    let pattern = pattern.strip_prefix('^').unwrap_or(pattern);
+    let inner = pattern.strip_prefix("[^")?;
+    // Find the (unescaped) closing `]` of the class.
+    let mut close = None;
+    let bytes = inner.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' {
+            i += 2;
+            continue;
+        }
+        if bytes[i] == b']' {
+            close = Some(i);
+            break;
+        }
+        i += 1;
+    }
+    let close = close?;
+    let rest = &inner[close + 1..];
+    // The class must be the whole pattern up to a single `+`/`*`
+    // quantifier; nothing may follow (a trailing literal or anchor would
+    // bound the match).
+    if rest == "+" || rest == "*" {
+        Some(&inner[..close])
+    } else {
+        None
     }
 }
 

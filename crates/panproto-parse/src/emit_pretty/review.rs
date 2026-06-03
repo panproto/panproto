@@ -35,8 +35,8 @@ use super::{
     is_whitespace_external, is_whitespace_only_pattern, is_word_like, leaf_terminal_role,
     literal_strings, literal_value, mandatory_field_names, member_has_leading_bracket,
     pattern_absorbs_leading_space, placeholder_for_pattern, prec_value, push_field_context,
-    referenced_symbols, seq_bracket_triggers_indent, unwrap_to_string, vertex_id_kind,
-    yield_of_production,
+    referenced_symbols, seq_bracket_triggers_indent, seq_open_bracket_index,
+    unbounded_negated_class, unwrap_to_string, vertex_id_kind, yield_of_production,
 };
 
 pub(crate) fn collect_roots(schema: &Schema) -> Vec<&panproto_gat::Name> {
@@ -295,6 +295,17 @@ pub(crate) fn emit_vertex(
                     out.no_space();
                 }
                 out.token_with_role(literal, Some(role));
+                // This leaf's rule may be a greedy unbounded negated class
+                // (`[^...]+`, HTML's unquoted `attribute_value`). Such a
+                // terminal keeps consuming admitted characters, so guard the
+                // boundary: a following literal whose first char it admits
+                // must stay separate (`value=Ok` then ` />`, not `Ok/>`).
+                if let Some(negated) = grammar.rules.get(vkind).and_then(|r| match r {
+                    Production::Pattern { value } => unbounded_negated_class(value),
+                    _ => None,
+                }) {
+                    out.tokens.push(Token::AbsorberGuard(negated.to_owned()));
+                }
                 // A rest-of-line terminal (`hash_bang_line = #!.*`) absorbs
                 // any following text on the same line, so the next sibling
                 // must start on a fresh line (the same fact as a line
@@ -430,7 +441,19 @@ pub(crate) fn emit_production(
             ),
         });
     }
-    drain_extras(protocol, schema, grammar, cursor, out)?;
+    // A SEQ that opens with a bracket pair (`{ … }`, `( … )`, `[ … ]`)
+    // introduces a delimited region: a leading extra (comment) attached to
+    // this vertex but ordinally before the first element sits INSIDE the
+    // brackets. Draining it here would hoist it before the open bracket
+    // (`struct // c {` instead of `struct { // c`). Defer the drain so
+    // `emit_seq_with_roles` emits it right after the open bracket instead.
+    let defer_leading_extras = matches!(
+        production,
+        Production::Seq { members } if seq_open_bracket_index(members).is_some()
+    );
+    if !defer_leading_extras {
+        drain_extras(protocol, schema, grammar, cursor, out)?;
+    }
     let result = emit_production_inner(
         protocol, schema, grammar, vertex_id, production, cursor, out,
     );
@@ -531,6 +554,12 @@ pub(crate) fn emit_seq_with_roles(
         }
     }
 
+    // The open-bracket position whose region encloses any leading extras
+    // (comments). `emit_production` deferred its top-level drain for such a
+    // SEQ; drain them here, right after the open bracket is emitted, so a
+    // comment ordinally before the first element stays INSIDE the brackets.
+    let leading_extra_after = seq_open_bracket_index(members);
+
     let mut prev_member_emitted_content = false;
     for (i, member) in members.iter().enumerate() {
         let tokens_before_member = out.tokens.len();
@@ -620,6 +649,12 @@ pub(crate) fn emit_seq_with_roles(
         prev_member_emitted_content = out.tokens[tokens_before_member..]
             .iter()
             .any(|t| matches!(t, Token::Lit(_, _)));
+        // Drain leading extras (comments) right after the open bracket, so
+        // a comment that the deferred top-level drain skipped lands INSIDE
+        // the bracket region rather than before the opener.
+        if leading_extra_after == Some(i) {
+            drain_extras(protocol, schema, grammar, cursor, out)?;
+        }
     }
     Ok(())
 }
@@ -647,6 +682,13 @@ pub(crate) fn emit_production_inner(
                     out.no_space();
                 }
                 out.token_with_role(literal, Some(TokenRole::Terminal));
+                // A greedy unbounded negated-class terminal (`[^...]+`)
+                // keeps consuming admitted characters: guard the boundary so
+                // a following literal whose first char it admits is kept
+                // separate (HTML `attribute_value` vs the trailing `/>`).
+                if let Some(negated) = unbounded_negated_class(value) {
+                    out.tokens.push(Token::AbsorberGuard(negated.to_owned()));
+                }
             } else if is_newline_like_pattern(value) {
                 // Patterns like `\r?\n`, `\n`, `\r\n` are the structural
                 // newline tokens grammars use to separate top-level
@@ -950,11 +992,30 @@ pub(crate) fn emit_production_inner(
                 _ => None,
             };
 
+            // A REPEAT whose body is a single FIELD-wrapped item (`field('item',
+            // $._expr)`) or a bare named-rule SYMBOL iterates over DISTINCT
+            // sibling vertices with no grammatical separator between them — the
+            // source separates them by whitespace alone (Lisp/janet list items:
+            // `[:hi @{...}]`). Consecutive whole-vertex items must therefore be
+            // space-separated, even when the next item's first token is a
+            // bracket-open (`@{`, `(`, `[`): the role table glues `Terminal`
+            // before `BracketOpen` (the `f(...)` call pattern), which would fuse
+            // two sibling items (`:hi@{...}`, mis-parsing the table as a struct).
+            // Force a separator between such items; an explicit NoSpace inside an
+            // item still wins (it is authoritative in the layout fold), so this
+            // never tightens an intra-item adjacency.
+            let item_per_iteration = matches!(content.as_ref(), Production::Field { .. })
+                || matches!(content.as_ref(), Production::Symbol { name }
+                    if grammar.rules.contains_key(name) && !name.starts_with('_'));
+
             let mut emitted_any = false;
             loop {
                 let cursor_snap = cursor.consumed.clone();
                 let out_snap = out.snapshot();
                 let consumed_before = cursor.consumed.iter().filter(|&&c| c).count();
+                if item_per_iteration && emitted_any {
+                    out.force_space();
+                }
                 let result: Result<(), ParseError> =
                     if let Some(seq_members) = separator_leading_seq {
                         // Emit the separator slot first and observe
