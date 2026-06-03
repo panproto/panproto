@@ -382,6 +382,41 @@ impl GrammarCassette for HtmlFamilyCassette {
 
 /// Cassette for the Bash / Zsh / Fish family, which share most
 /// externals (heredocs, variable expansions, brace-start markers).
+/// Cassette for R. Several R operators are written tight in idiomatic R
+/// and in the upstream corpus, but `grammar.json` spells them as plain
+/// `FIELD(operator, STRING)` members with no `IMMEDIATE_TOKEN`, so the
+/// generic role classifier spaces them. These are lexical conventions the
+/// scanner permits either way but the corpus fixes tight; declaring them
+/// here flips the affected entries from spaced (AST-faithful, byte-FP
+/// fail) to byte-exact without touching the generic emitter. Keyed by the
+/// owning rule so only the specific operator positions are affected (the
+/// arithmetic / assignment / comparison / pipe operators in
+/// `binary_operator` stay spaced).
+struct RCassette;
+
+impl GrammarCassette for RCassette {
+    fn external_token_default(&self, _token_name: &str) -> Option<&str> {
+        None
+    }
+
+    fn operator_is_tight(&self, rule: &str, token: &str) -> bool {
+        match rule {
+            // Namespace access: `pkg::name`, `pkg:::name`.
+            "namespace_operator" => matches!(token, "::" | ":::"),
+            // Component/slot extraction: `df$col`, `obj@slot`.
+            "extract_operator" => matches!(token, "$" | "@"),
+            // The sequence operator `1:5` is tight; every other operator in
+            // this rule (arithmetic, assignment, comparison, logical, the
+            // `|>` pipe) keeps its surrounding whitespace.
+            "binary_operator" => token == ":",
+            // A unary prefix operator hugs its operand (`!a`, `-a`, `+a`,
+            // `~x`, `?topic`).
+            "unary_operator" => matches!(token, "!" | "-" | "+" | "~" | "?"),
+            _ => false,
+        }
+    }
+}
+
 struct ShellFamilyCassette;
 
 impl GrammarCassette for ShellFamilyCassette {
@@ -555,6 +590,7 @@ pub fn cassette_for(protocol: &str) -> Arc<dyn GrammarCassette> {
             Arc::new(HtmlFamilyCassette)
         }
         "bash" | "zsh" | "fish" => Arc::new(ShellFamilyCassette),
+        "r" => Arc::new(RCassette),
         "csharp" => Arc::new(CSharpCassette),
         "cpp" | "cuda" | "hlsl" | "arduino" | "c" => Arc::new(CFamilyCassette),
         "javascript" | "typescript" | "tsx" | "qml" | "rescript" => Arc::new(JsFamilyCassette),
