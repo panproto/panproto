@@ -384,6 +384,18 @@ pub struct Grammar {
     /// (e.g. `string_end`). Emitted tight on the inside.
     #[serde(skip)]
     pub external_bracket_closes: std::collections::HashSet<String>,
+    /// Visible (non-`_`-prefixed) external scanner tokens that are the
+    /// captured *content* between a pair of string/heredoc delimiters in a
+    /// `SEQ[open_ext, REPEAT(content..), close_ext]` rule (ruby
+    /// `string_content` / `heredoc_content`, regex content, command-string
+    /// content). Such a token's text IS the literal source bytes between the
+    /// delimiters: the layout pass must NOT insert a sibling-separation
+    /// space around it (`"bar"`, not `" bar "`), or a space folds into the
+    /// captured text on re-parse and accretes one space per emit. Derived
+    /// structurally from the same delimiter shape as
+    /// [`external_bracket_opens`](Self::external_bracket_opens).
+    #[serde(skip)]
+    pub external_content_kinds: std::collections::HashSet<String>,
     /// Rule names that are indented blocks whose opening `_indent` lives
     /// in a (hidden) parent rule rather than the rule itself: their body
     /// references an external indent-*close* token (`_dedent`) but no
@@ -1702,6 +1714,7 @@ pub(crate) fn classify_external_bracket_delimiters(grammar: &mut Grammar) {
     let is_external = |name: &str| !grammar.rules.contains_key(name);
     let mut opens = std::collections::HashSet::new();
     let mut closes = std::collections::HashSet::new();
+    let mut content_kinds = std::collections::HashSet::new();
     for rule in grammar.rules.values() {
         let Production::Seq { members } = unwrap_to_seq(rule) else {
             continue;
@@ -1712,7 +1725,11 @@ pub(crate) fn classify_external_bracket_delimiters(grammar: &mut Grammar) {
         let (Some(first), Some(last)) = (members.first(), members.last()) else {
             continue;
         };
-        let (Some(open), Some(close)) = (external_symbol_name(first), external_symbol_name(last))
+        // The delimiter may be a bare external SYMBOL or an anonymous ALIAS
+        // renaming one (ruby `ALIAS{_string_start, value:"\""}`); unwrap to
+        // the underlying external name in both cases.
+        let (Some(open), Some(close)) =
+            (delimiter_external_name(first), delimiter_external_name(last))
         else {
             continue;
         };
@@ -1721,14 +1738,85 @@ pub(crate) fn classify_external_bracket_delimiters(grammar: &mut Grammar) {
         }
         // Content between the delimiters (a REPEAT of string content, an
         // interpolation choice, …) — at least one non-delimiter member.
-        let has_content_between = members.len() > 2;
-        if has_content_between {
-            opens.insert(open.to_owned());
-            closes.insert(close.to_owned());
+        opens.insert(open.to_owned());
+        closes.insert(close.to_owned());
+        // The visible (non-`_`) external symbols reachable from the members
+        // *between* the delimiters are the captured-content tokens (ruby
+        // `string_content`/`heredoc_content`, regex content). They carry the
+        // literal source bytes and must emit tight; collect them, expanding
+        // hidden-rule references (ruby wraps the content in the hidden
+        // `_literal_contents = REPEAT1(CHOICE[string_content, …])`).
+        for member in &members[1..members.len() - 1] {
+            collect_visible_external_content(grammar, member, &mut content_kinds, &mut Vec::new());
         }
     }
     grammar.external_bracket_opens = opens;
     grammar.external_bracket_closes = closes;
+    grammar.external_content_kinds = content_kinds;
+}
+
+/// The external scanner-token name a delimiter member resolves to: either
+/// a bare `SYMBOL` or an anonymous `ALIAS` renaming one (`ALIAS{
+/// _string_start, value: "\""}`). `None` for any other shape.
+fn delimiter_external_name(prod: &Production) -> Option<&str> {
+    match prod {
+        Production::Symbol { name } => Some(name.as_str()),
+        Production::Alias {
+            content,
+            named: false,
+            ..
+        } => external_symbol_name(content),
+        _ => None,
+    }
+}
+
+/// Collect the visible (non-`_`-prefixed) external scanner tokens reachable
+/// from a string-body production, expanding hidden-rule references (the
+/// content is often wrapped in a hidden `_literal_contents` rule). A visible
+/// external has no rule and no leading underscore. Cycle-guarded on the
+/// hidden rules visited.
+fn collect_visible_external_content<'g>(
+    grammar: &'g Grammar,
+    prod: &'g Production,
+    out: &mut std::collections::HashSet<String>,
+    visiting: &mut Vec<&'g str>,
+) {
+    match prod {
+        Production::Symbol { name } => {
+            if !grammar.rules.contains_key(name) {
+                if !name.starts_with('_') {
+                    out.insert(name.clone());
+                }
+            } else if name.starts_with('_') && !visiting.contains(&name.as_str()) {
+                // Expand a hidden rule reference to reach its content tokens.
+                visiting.push(name.as_str());
+                if let Some(rule) = grammar.rules.get(name) {
+                    collect_visible_external_content(grammar, rule, out, visiting);
+                }
+                visiting.pop();
+            }
+        }
+        Production::Choice { members } | Production::Seq { members } => {
+            for m in members {
+                collect_visible_external_content(grammar, m, out, visiting);
+            }
+        }
+        Production::Repeat { content }
+        | Production::Repeat1 { content }
+        | Production::Optional { content }
+        | Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Reserved { content, .. }
+        | Production::Field { content, .. }
+        | Production::Alias { content, .. } => {
+            collect_visible_external_content(grammar, content, out, visiting);
+        }
+        Production::String { .. } | Production::Pattern { .. } | Production::Blank => {}
+    }
 }
 
 

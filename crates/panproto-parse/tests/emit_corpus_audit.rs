@@ -329,7 +329,11 @@ fn emit_one_probe() {
             // strip (byte spans + interstitials only, keeping ptrace /
             // chose-alt / field constraints) to diagnose the replay path;
             // default is the full canonical-section strip.
-            let abstract_schema = if std::env::var("PP_STRIP_BYTE").is_ok() {
+            let abstract_schema = if std::env::var("PP_REPLAY").is_ok() {
+                // Keep the FULL complement: the byte-exact replay path that
+                // the byte-FP corpus audit exercises.
+                s1
+            } else if std::env::var("PP_STRIP_BYTE").is_ok() {
                 let mut s = s1;
                 for constraints in s.constraints.values_mut() {
                     constraints.retain(|c| {
@@ -396,6 +400,52 @@ fn emit_one_probe() {
                 }
             } else {
                 eprintln!("PROBE reparse FAILED");
+            }
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+/// List the NAMES of corpus entries that FAIL the byte-FP audit (the
+/// `audit` fixed-point + multiset check), for before/after diffing.
+/// `PP_BYTEFAIL=proto`.
+#[test]
+fn corpus_bytefail_report() {
+    let Ok(proto) = std::env::var("PP_BYTEFAIL") else {
+        return;
+    };
+    std::thread::Builder::new()
+        .stack_size(256 * 1024 * 1024)
+        .spawn(move || {
+            let reg = ParserRegistry::new();
+            let file = format!("sample.{proto}");
+            for (name, src) in corpus_sources(&proto) {
+                let Ok(s1) = reg.parse_with_protocol(&proto, src.as_bytes(), &file) else {
+                    continue;
+                };
+                let has_error = s1.vertices.values().any(|v| {
+                    matches!(v.kind.as_ref(), "ERROR" | "MISSING")
+                        || v.kind.as_ref().contains("ERROR")
+                });
+                if s1.vertices.is_empty() || has_error {
+                    continue;
+                }
+                let Ok(e1) = reg.emit_pretty_with_protocol(&proto, &s1) else {
+                    eprintln!("BYTEFAIL[{name}] EMIT-ERR");
+                    continue;
+                };
+                let Ok(s2) = reg.parse_with_protocol(&proto, &e1, &file) else {
+                    eprintln!("BYTEFAIL[{name}] REPARSE-ERR");
+                    continue;
+                };
+                let e2 = reg.emit_pretty_with_protocol(&proto, &s2).unwrap_or_default();
+                let ok = e1 == e2
+                    && kind_multiset(&s1) == kind_multiset(&s2)
+                    && edge_multiset(&s1) == edge_multiset(&s2);
+                if !ok {
+                    eprintln!("BYTEFAIL[{name}]");
+                }
             }
         })
         .unwrap()

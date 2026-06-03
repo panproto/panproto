@@ -118,6 +118,21 @@ pub(crate) fn emit_vertex(
                     out.no_space();
                     return Ok(());
                 }
+                // Captured-content external token between string/heredoc
+                // delimiters (ruby `string_content`/`heredoc_content`, regex
+                // content). Its literal text IS the verbatim source between
+                // the delimiters; the layout pass must not wrap it in
+                // sibling-separation spaces (`"bar"`, not `" bar "`), which
+                // would fold into the captured text on re-parse and accrete
+                // one space per emit. Derived structurally (the
+                // `SEQ[open_ext, content.., close_ext]` shape), so it stays
+                // in the generic emitter rather than a per-language cassette.
+                if grammar.external_content_kinds.contains(vkind) {
+                    out.no_space();
+                    out.token_with_role(literal, Some(TokenRole::Terminal));
+                    out.no_space();
+                    return Ok(());
+                }
                 let role = if is_bracket_pair {
                     TokenRole::BracketClose
                 } else {

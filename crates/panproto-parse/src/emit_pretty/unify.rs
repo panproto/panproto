@@ -28,9 +28,10 @@
 //! returns the set of demand positions reachable by matching that
 //! production from `pos`. A grammar literal (`STRING`/`PATTERN`/token)
 //! is zero-width against the demand — the grammar provides those bytes,
-//! they consume no child edge. Only a *concrete* `SYMBOL`/`ALIAS`
-//! consumes one demand slot, and only when the child kind
-//! [`satisfies`](sat) it.
+//! they consume no child edge. A *concrete* `SYMBOL`/`ALIAS`, or a
+//! *visible* external scanner token (a non-`_`-prefixed external that
+//! materializes as a named node, e.g. ruby `heredoc_content`), consumes
+//! one demand slot, and only when the child kind [`satisfies`](sat) it.
 //!
 //! ## The relation
 //!
@@ -191,7 +192,22 @@ pub(crate) fn match_demand<'g>(
                 return vec![pos];
             }
             if !grammar.rules.contains_key(name) {
-                // External scanner token: zero-width.
+                // A non-dispatch symbol with no rule is an external scanner
+                // token declared in the grammar's `externals` block. Two
+                // kinds: a *visible* external (no leading `_`) materializes
+                // as a named node in the tree (ruby `heredoc_beginning` /
+                // `heredoc_content` / `heredoc_end`, `string_content`), so it
+                // consumes a demand child of its own kind exactly like a
+                // concrete symbol; a *hidden* external (`_line_break`,
+                // `_indent`) is `_`-prefixed and never reaches here (it was
+                // routed through the dispatch branch above). So if this
+                // external's name satisfies the next demand child, consume it;
+                // otherwise it contributes no node and stays zero-width.
+                if let Some(k) = demand.get(pos) {
+                    if sat(grammar, k, name) && label_ok(slot_label(labels, pos), field_ctx) {
+                        return vec![pos + 1];
+                    }
+                }
                 return vec![pos];
             }
             // Concrete symbol: consume one child iff it satisfies AND the
