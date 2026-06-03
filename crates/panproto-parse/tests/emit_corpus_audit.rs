@@ -92,7 +92,9 @@ fn parse_corpus_file(text: &str, out: &mut Vec<(String, String)>) {
             j += 1;
         }
         // j is the closing `===`. Source runs until the `---` divider.
-        let mut k = j + 1;
+        // A truncated/malformed trailing header can leave `j` at end-of-file,
+        // so clamp the source window to the available range.
+        let mut k = (j + 1).min(lines.len());
         let src_start = k;
         while k < lines.len() && !is_dash(lines[k]) {
             k += 1;
