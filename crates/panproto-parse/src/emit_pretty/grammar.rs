@@ -399,6 +399,22 @@ pub struct Grammar {
     /// [`external_bracket_opens`](Self::external_bracket_opens).
     #[serde(skip)]
     pub external_content_kinds: std::collections::HashSet<String>,
+    /// Named content kinds that sit *between a matched pair of quote
+    /// delimiters* spelled as literal `STRING` tokens, in a rule shaped
+    /// `SEQ[STRING q, REPEAT(CHOICE[content..]), STRING q]` (the same
+    /// quote opens and closes). The CSS `string_value` and the C# / Java
+    /// `string_literal` are the canonical cases: the body is a `REPEAT`
+    /// over `CHOICE[string_content (an ALIAS over a PATTERN),
+    /// escape_sequence]`. Each such content / escape leaf carries the
+    /// verbatim source bytes and must emit *tight* on both sides
+    /// (`"ab\t"`, not `"ab \t "`), exactly like
+    /// [`external_content_kinds`](Self::external_content_kinds) but for the
+    /// STRING-delimited (rather than external-delimited) string shape that
+    /// `classify_external_bracket_delimiters` skips (it only matches
+    /// *external* delimiters). Derived purely from grammar structure (the
+    /// matched-literal-quote envelope), so it stays in the generic emitter.
+    #[serde(skip)]
+    pub string_content_kinds: std::collections::HashSet<String>,
     /// Rule names that are indented blocks whose opening `_indent` lives
     /// in a (hidden) parent rule rather than the rule itself: their body
     /// references an external indent-*close* token (`_dedent`) but no
@@ -579,6 +595,7 @@ impl Grammar {
         grammar.line_comment_prefixes = extract_line_comment_prefixes(&grammar);
         classify_external_layout_tokens(&mut grammar);
         classify_external_bracket_delimiters(&mut grammar);
+        classify_string_content_kinds(&mut grammar);
         classify_synthetic_indent_rules(&mut grammar);
         grammar.leading_space_terminals = classify_leading_space_terminals(&grammar);
         grammar.line_rest_kinds = classify_line_rest_kinds(&grammar);
@@ -1908,6 +1925,145 @@ fn collect_visible_external_content<'g>(
             collect_visible_external_content(grammar, content, out, visiting);
         }
         Production::String { .. } | Production::Pattern { .. } | Production::Blank => {}
+    }
+}
+
+/// Classify the *content kinds* of literal-quote-delimited string rules:
+/// rules shaped `SEQ[STRING q, body.., STRING q]` where the same quote
+/// literal opens and closes (CSS `string_value`, C# / Java
+/// `string_literal`). The body is a `REPEAT`/`REPEAT1` over a `CHOICE` of
+/// content pieces (`string_content` aliased over a PATTERN,
+/// `escape_sequence`); each piece carries verbatim source bytes and must
+/// emit *tight* on both sides so the layout pass does not accrete a space
+/// between adjacent content / escape leaves (`"ab\t"`, not `"ab \t "`).
+///
+/// This is the literal-delimiter twin of
+/// [`classify_external_bracket_delimiters`], which only matches *external*
+/// (scanner) delimiters and so skips these STRING-quoted rules. Both feed
+/// the same tight-content emission path. The match is anchored on a
+/// *matched quote pair* and a `REPEAT` body, so it does not fire for
+/// ordinary bracketed constructs (`( … )`, `{ … }`) whose opener and
+/// closer differ, nor for indent blocks (no STRING delimiter).
+/// The `SEQ` alternatives of a rule: a single `SEQ` yields itself; a
+/// top-level `CHOICE` yields each alternative (unwrapped through
+/// precedence / token wrappers). The CSS `string_value` is a
+/// `CHOICE[SEQ['…'], SEQ["…"]]` (one alternative per quote style), so a
+/// string classifier must look at each branch.
+fn seq_alternatives(rule: &Production) -> Vec<&Production> {
+    match unwrap_to_seq(rule) {
+        Production::Choice { members } => members.iter().map(unwrap_to_seq).collect(),
+        other => vec![other],
+    }
+}
+
+pub(crate) fn classify_string_content_kinds(grammar: &mut Grammar) {
+    let mut accum = StringContentAccum::new();
+    for rule in grammar.rules.values() {
+        for seq in seq_alternatives(rule) {
+            let Production::Seq { members } = seq else {
+                continue;
+            };
+            if members.len() < 3 {
+                continue;
+            }
+            // The opener is the first member and must be a literal quote
+            // STRING (`'…'`, `"…"`).
+            let Some(Production::String { value: open }) = members.first() else {
+                continue;
+            };
+            // The closer is the *last STRING member equal to the opener*;
+            // a trailing suffix may follow (C#'s `string_literal` ends with
+            // an optional `(u|U)8` encoding CHOICE after the close quote).
+            let Some(close_idx) = members.iter().rposition(|m| {
+                matches!(m, Production::String { value } if value == open)
+            }) else {
+                continue;
+            };
+            if close_idx == 0 {
+                continue;
+            }
+            // The body must be a REPEAT over content (the unbounded string
+            // body), distinguishing a quoted string from a fixed two-quote
+            // token. Collect the named content kinds it can yield, then
+            // commit only if the REPEAT body confirmed the string shape.
+            let mut has_repeat_body = false;
+            for member in &members[1..close_idx] {
+                if matches!(member, Production::Repeat { .. } | Production::Repeat1 { .. }) {
+                    has_repeat_body = true;
+                }
+                collect_string_content_kinds(member, &mut accum);
+            }
+            if has_repeat_body {
+                accum.commit();
+            } else {
+                accum.clear_in_rule_guard();
+            }
+        }
+    }
+    grammar.string_content_kinds = accum.into_set();
+}
+
+/// Accumulator that only retains content kinds collected from a body that
+/// actually had a `REPEAT` (an unbounded string body). A small helper so
+/// `classify_string_content_kinds` can discard a false match without
+/// losing kinds collected from other rules.
+struct StringContentAccum {
+    confirmed: std::collections::HashSet<String>,
+    pending: std::collections::HashSet<String>,
+}
+
+impl StringContentAccum {
+    fn new() -> Self {
+        Self {
+            confirmed: std::collections::HashSet::new(),
+            pending: std::collections::HashSet::new(),
+        }
+    }
+    fn insert(&mut self, kind: String) {
+        self.pending.insert(kind);
+    }
+    fn commit(&mut self) {
+        for k in self.pending.drain() {
+            self.confirmed.insert(k);
+        }
+    }
+    fn clear_in_rule_guard(&mut self) {
+        self.pending.clear();
+    }
+    fn into_set(mut self) -> std::collections::HashSet<String> {
+        self.commit();
+        self.confirmed
+    }
+}
+
+/// Recursively collect the named content kinds reachable inside a string
+/// body: named `ALIAS` values (`string_content` over a PATTERN) and named
+/// `SYMBOL` references (`escape_sequence`). Hidden (`_`-prefixed) symbols
+/// are not vertices, so they are skipped; concrete sub-rules are not
+/// recursed into (they are their own vertices with their own layout).
+fn collect_string_content_kinds(prod: &Production, out: &mut StringContentAccum) {
+    match prod {
+        Production::Alias {
+            value, named: true, ..
+        } => out.insert(value.clone()),
+        Production::Symbol { name } if !name.starts_with('_') => out.insert(name.clone()),
+        Production::Choice { members } | Production::Seq { members } => {
+            for m in members {
+                collect_string_content_kinds(m, out);
+            }
+        }
+        Production::Repeat { content }
+        | Production::Repeat1 { content }
+        | Production::Optional { content }
+        | Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Reserved { content, .. }
+        | Production::Field { content, .. } => collect_string_content_kinds(content, out),
+        _ => {}
     }
 }
 

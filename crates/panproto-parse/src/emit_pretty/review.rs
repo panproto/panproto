@@ -269,6 +269,19 @@ pub(crate) fn emit_vertex(
                     out.no_space();
                     return Ok(());
                 }
+                // Content / escape leaves of a literal-quote-delimited
+                // string (`SEQ[STRING q, REPEAT(CHOICE[string_content,
+                // escape_sequence]), STRING q]`: CSS `string_value`, C# /
+                // Java `string_literal`). The same tight-on-both-sides rule
+                // as `external_content_kinds`, but for STRING (not external)
+                // delimiters — `"ab\t"`, not `"ab \t "` (which splits the
+                // run into extra content leaves on re-parse).
+                if grammar.string_content_kinds.contains(vkind) {
+                    out.no_space();
+                    out.token_with_role(literal, Some(TokenRole::Terminal));
+                    out.no_space();
+                    return Ok(());
+                }
                 let role = if is_bracket_pair {
                     TokenRole::BracketClose
                 } else {
