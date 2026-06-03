@@ -90,6 +90,25 @@ pub trait GrammarCassette: Send + Sync {
         let _ = token_name;
         false
     }
+
+    /// Returns `true` when an external scanner token must abut its
+    /// predecessor with NO intervening whitespace. This is the
+    /// per-language analogue of the generic `_immediate*` / `_concat`
+    /// convention ([`crate::emit_pretty::is_no_space_external`]) for
+    /// externals whose names do not follow that convention but whose
+    /// scanner nonetheless requires immediate adjacency. C#'s interpolated
+    /// string delimiters are the motivating case: the opening quote of
+    /// `$"…"` is the external `interpolation_start_quote`, which the
+    /// scanner only emits when it immediately follows the `$`
+    /// (`interpolation_start`); a separating space (`$ "`) makes the
+    /// re-parse see a bare `$` and a plain string, collapsing the
+    /// `interpolated_string_expression`. Keyed by the external's own name,
+    /// so it never fires for a sibling C-family grammar that lacks the
+    /// token.
+    fn external_leads_no_space(&self, token_name: &str) -> bool {
+        let _ = token_name;
+        false
+    }
 }
 
 /// Compose the language-specific override with the common fallback.
@@ -392,6 +411,21 @@ struct CFamilyCassette;
 impl GrammarCassette for CFamilyCassette {
     fn external_token_default(&self, _token_name: &str) -> Option<&str> {
         None // Common layer handles raw_string_* uniformly.
+    }
+
+    fn external_leads_no_space(&self, token_name: &str) -> bool {
+        // C# interpolated strings: `$"…{…}…"`. The scanner emits these
+        // delimiters only when immediately adjacent. The opening quote
+        // must hug the `$`; the interpolation braces must hug the content
+        // and the surrounding string spans. None of these token names
+        // appear in C/C++/CUDA/HLSL/Arduino, so this is inert for them.
+        matches!(
+            token_name,
+            "interpolation_start_quote"
+                | "interpolation_open_brace"
+                | "interpolation_close_brace"
+                | "interpolation_end_quote"
+        )
     }
 }
 

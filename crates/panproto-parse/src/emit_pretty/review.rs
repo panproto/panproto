@@ -596,6 +596,9 @@ pub(crate) fn emit_production_inner(
                         None
                     };
                     if let Some(alias_value) = grammar.external_alias_map.get(name) {
+                        if out.cassette.is_some_and(|c| c.external_leads_no_space(name)) {
+                            out.no_space();
+                        }
                         match bracket_role {
                             Some(role) => out.token_with_role(alias_value, Some(role)),
                             None => out.token(alias_value),
@@ -933,6 +936,14 @@ pub(crate) fn emit_production_inner(
                     // closing string delimiter emits nothing and every
                     // string becomes an unterminated ERROR on re-parse.
                     if !grammar.rules.contains_key(sym) {
+                        // A cassette-declared immediate external (C#'s
+                        // interpolation delimiters) must hug its predecessor.
+                        if out
+                            .cassette
+                            .is_some_and(|c| c.external_leads_no_space(sym))
+                        {
+                            out.no_space();
+                        }
                         out.token(value);
                         return Ok(());
                     }
