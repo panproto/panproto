@@ -471,6 +471,72 @@ pub(crate) fn terminal_pattern_of(prod: &Production) -> Option<&str> {
 }
 
 
+/// True when a `PATTERN` regex consumes the rest of the source line: it
+/// ends in an unbounded `.*` / `.+` (the regex `.` excludes newlines, so
+/// such a tail greedily runs to the end of the line). A bare named rule of
+/// this shape (`hash_bang_line = #!.*`, `shebang = #!...`) is a
+/// *rest-of-line terminal*: like a line comment, the token it emits absorbs
+/// any following text on the same line, so the next sibling must start on a
+/// fresh line or it re-parses as part of this token. This is the same
+/// structural fact `seq_member_is_line_rest` recognises for the body of a
+/// line comment (a STRING prefix then a rest-of-line PATTERN); here the
+/// whole token *is* the rest-of-line pattern, so there is no STRING prefix
+/// to register in `line_comment_prefixes`.
+///
+/// The tail must be genuinely unbounded: `firrtl`'s `info = @\[.*\]` has a
+/// `]` after the `.*`, so the `.*` is bounded and the token does NOT run to
+/// end-of-line. We require that nothing meaningful follows the final
+/// `.*`/`.+` except an optional captured newline / end-anchor / closing
+/// group or quantifier.
+pub(crate) fn is_rest_of_line_pattern(value: &str) -> bool {
+    // Find the last `.*` or `.+` whose `.` is a real metacharacter (not an
+    // escaped literal dot `\.`).
+    let bytes = value.as_bytes();
+    let mut tail_start = None;
+    let mut i = 0;
+    while i + 1 < bytes.len() {
+        if bytes[i] == b'.' && (bytes[i + 1] == b'*' || bytes[i + 1] == b'+') {
+            // Not an escaped dot: count preceding backslashes; an even
+            // count (including zero) leaves the dot as a metacharacter.
+            let mut bs = 0;
+            let mut j = i;
+            while j > 0 && bytes[j - 1] == b'\\' {
+                bs += 1;
+                j -= 1;
+            }
+            if bs % 2 == 0 {
+                tail_start = Some(i + 2);
+            }
+        }
+        i += 1;
+    }
+    let Some(start) = tail_start else {
+        return false;
+    };
+    // Everything after the final unbounded `.*`/`.+` must be inert: an
+    // optional captured newline, an end anchor, or a closing group /
+    // quantifier (rust's `([^\[\n].*)?\n` ends `)?\n`). Any literal that
+    // could appear on the same line (a `]`, a word char, ...) means the
+    // tail is bounded and this is NOT a rest-of-line terminal.
+    let rest = &value[start..];
+    let mut k = 0;
+    let rb = rest.as_bytes();
+    while k < rb.len() {
+        match rb[k] {
+            b')' | b'?' | b'*' | b'+' | b'$' => k += 1,
+            b'\\' if k + 1 < rb.len() => {
+                match rb[k + 1] {
+                    b'n' | b'r' | b'f' | b't' | b'v' | b'z' | b'Z' => k += 2,
+                    _ => return false,
+                }
+            }
+            _ => return false,
+        }
+    }
+    true
+}
+
+
 /// The role for a leaf vertex's captured `literal-value`, given its
 /// kind: a string/heredoc delimiter external (`string_start`/`string_end`)
 /// brackets its content tightly, so it is emitted as a bracket rather

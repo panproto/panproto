@@ -24,7 +24,7 @@
 
 //! `emit_pretty::grammar` (Phase A decomposition).
 
-use super::{Deserialize, BTreeMap, ParseError, kind_satisfies_symbol, unwrap_to_string, is_word_like, has_repeat_recursive, leading_optional_sign, is_prefix_sigil, matching_close_bracket, is_immediate_token, extract_line_comment_prefix, collect_all_symbol_refs, unwrap_to_seq, external_symbol_name, referenced_symbols, terminal_pattern_of, pattern_absorbs_leading_space};
+use super::{Deserialize, BTreeMap, ParseError, kind_satisfies_symbol, unwrap_to_string, is_word_like, has_repeat_recursive, leading_optional_sign, is_prefix_sigil, matching_close_bracket, is_immediate_token, extract_line_comment_prefix, collect_all_symbol_refs, unwrap_to_seq, external_symbol_name, referenced_symbols, terminal_pattern_of, pattern_absorbs_leading_space, is_rest_of_line_pattern};
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -406,6 +406,14 @@ pub struct Grammar {
     /// to their predecessor. See [`pattern_absorbs_leading_space`].
     #[serde(skip)]
     pub leading_space_terminals: std::collections::HashSet<String>,
+    /// Named terminal kinds whose underlying `PATTERN` runs to the end of
+    /// the source line (an unbounded trailing `.*` / `.+`, e.g. JS's
+    /// `hash_bang_line = #!.*`). Like a line comment, such a token absorbs
+    /// any text that follows it on the same line, so the layout pass emits a
+    /// newline after it: otherwise the next sibling re-parses as part of the
+    /// token. See [`is_rest_of_line_pattern`].
+    #[serde(skip)]
+    pub line_rest_kinds: std::collections::HashSet<String>,
 }
 
 
@@ -539,6 +547,7 @@ impl Grammar {
         classify_external_bracket_delimiters(&mut grammar);
         classify_synthetic_indent_rules(&mut grammar);
         grammar.leading_space_terminals = classify_leading_space_terminals(&grammar);
+        grammar.line_rest_kinds = classify_line_rest_kinds(&grammar);
         grammar.yield_sets = compute_yield_sets(&grammar);
         Ok(grammar)
     }
@@ -1784,6 +1793,66 @@ pub(crate) fn classify_leading_space_terminals(grammar: &Grammar) -> std::collec
             } => {
                 if let Some(p) = terminal_pattern_of(content) {
                     if pattern_absorbs_leading_space(p) {
+                        out.insert(value.clone());
+                    }
+                }
+                walk(content, out);
+            }
+            Production::Alias { content, .. }
+            | Production::Repeat { content }
+            | Production::Repeat1 { content }
+            | Production::Optional { content }
+            | Production::Field { content, .. }
+            | Production::Token { content }
+            | Production::ImmediateToken { content }
+            | Production::Prec { content, .. }
+            | Production::PrecLeft { content, .. }
+            | Production::PrecRight { content, .. }
+            | Production::PrecDynamic { content, .. }
+            | Production::Reserved { content, .. } => walk(content, out),
+            Production::Seq { members } | Production::Choice { members } => {
+                for m in members {
+                    walk(m, out);
+                }
+            }
+            _ => {}
+        }
+    }
+    for rule in grammar.rules.values() {
+        walk(rule, &mut out);
+    }
+    out
+}
+
+
+/// Classify named terminal kinds whose underlying `PATTERN` runs to the end
+/// of the line (`hash_bang_line = #!.*`, `shebang = #!...`). These are
+/// rest-of-line terminals: the layout pass emits a newline after them so the
+/// next sibling does not merge into the token on re-parse. The generalised
+/// counterpart of `line_comment_prefixes` (a line comment is a STRING prefix
+/// then a rest-of-line PATTERN; here the whole token is the pattern).
+pub(crate) fn classify_line_rest_kinds(grammar: &Grammar) -> std::collections::HashSet<String> {
+    let mut out = std::collections::HashSet::new();
+
+    // Named rules that are themselves a bare rest-of-line pattern.
+    for (name, rule) in &grammar.rules {
+        if let Some(p) = terminal_pattern_of(rule) {
+            if is_rest_of_line_pattern(p) {
+                out.insert(name.clone());
+            }
+        }
+    }
+
+    // Named aliases wrapping a rest-of-line pattern.
+    fn walk(prod: &Production, out: &mut std::collections::HashSet<String>) {
+        match prod {
+            Production::Alias {
+                content,
+                named: true,
+                value,
+            } => {
+                if let Some(p) = terminal_pattern_of(content) {
+                    if is_rest_of_line_pattern(p) {
                         out.insert(value.clone());
                     }
                 }

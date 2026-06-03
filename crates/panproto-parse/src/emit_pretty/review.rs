@@ -137,6 +137,17 @@ pub(crate) fn emit_vertex(
                     out.no_space();
                 }
                 out.token_with_role(literal, Some(role));
+                // A rest-of-line terminal (`hash_bang_line = #!.*`) absorbs
+                // any following text on the same line, so the next sibling
+                // must start on a fresh line (the same fact as a line
+                // comment, keyed on kind rather than a text prefix). If the
+                // captured text already ends in a newline, `token_with_role`
+                // emitted the LineBreak; only add one when it did not.
+                if grammar.line_rest_kinds.contains(vkind)
+                    && !literal.ends_with(['\n', '\r'])
+                {
+                    out.newline();
+                }
                 return Ok(());
             }
         }

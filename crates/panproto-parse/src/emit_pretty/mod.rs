@@ -186,6 +186,36 @@ mod tests {
     }
 
     #[test]
+    fn rest_of_line_pattern_detects_unbounded_tail_only() {
+        // Genuine rest-of-line terminals (unbounded `.*` / `.+` to EOL).
+        assert!(is_rest_of_line_pattern("#!.*"));
+        assert!(is_rest_of_line_pattern("#![\\r\\f\\t\\v ]*([^\\[\\n].*)?\\n"));
+        assert!(is_rest_of_line_pattern("(;|#!|# ).*"));
+        // Bounded or non-line tails must NOT be treated as rest-of-line.
+        assert!(!is_rest_of_line_pattern("@\\[.*\\]")); // firrtl info: `.*` then `]`
+        assert!(!is_rest_of_line_pattern("[^\"\\\\\\r\\n]+")); // string fragment
+        assert!(!is_rest_of_line_pattern("[^\\\\\"\\n]+")); // json string_content
+        assert!(!is_rest_of_line_pattern("[a-z]+")); // plain identifier
+        assert!(!is_rest_of_line_pattern("foo\\.*bar")); // escaped dot, not a metachar
+    }
+
+    #[test]
+    fn line_rest_kinds_classifies_hash_bang() {
+        let bytes = br##"{
+            "name": "tiny",
+            "rules": {
+                "hash_bang_line": {"type": "PATTERN", "value": "#!.*"},
+                "info": {"type": "PATTERN", "value": "@\\[.*\\]"},
+                "ident": {"type": "PATTERN", "value": "[a-z]+"}
+            }
+        }"##;
+        let g = Grammar::from_bytes("tiny", bytes).expect("valid grammar");
+        assert!(g.line_rest_kinds.contains("hash_bang_line"));
+        assert!(!g.line_rest_kinds.contains("info"));
+        assert!(!g.line_rest_kinds.contains("ident"));
+    }
+
+    #[test]
     fn grammar_from_bytes_rejects_malformed_input() {
         let result = Grammar::from_bytes("malformed", b"not json");
         let err = result.expect_err("malformed bytes must yield Err");
