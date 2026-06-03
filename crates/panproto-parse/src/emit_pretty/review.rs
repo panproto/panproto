@@ -1068,6 +1068,23 @@ pub(crate) fn emit_production_inner(
                 || matches!(content.as_ref(), Production::Symbol { name }
                     if grammar.rules.contains_key(name) && !name.starts_with('_'));
 
+            // A REPEAT body `SEQ[item.., CHOICE[<newline-separator>|BLANK]]`
+            // whose TRAILING optional slot is a statement-terminating NEWLINE
+            // separator (a newline-classified external, or a newline pattern)
+            // iterates whole statements separated by a newline. When that slot
+            // is absent (BLANK chosen, the canonical default for optionals),
+            // consecutive statements merge onto one line; for grammars where a
+            // statement boundary is significant (V's `_automatic_separator`
+            // between `*ap = size` and the prior stmt — without it the leading
+            // `*` re-lexes as a binary `&u64(a) * ap`), force a newline between
+            // iterations so the statement boundary survives.
+            let trailing_newline_separator = match content.as_ref() {
+                Production::Seq { members } if members.len() >= 2 => members
+                    .last()
+                    .is_some_and(|last| seq_trailing_newline_separator(grammar, last)),
+                _ => false,
+            };
+
             let mut emitted_any = false;
             loop {
                 let cursor_snap = cursor.consumed.clone();
@@ -1075,6 +1092,9 @@ pub(crate) fn emit_production_inner(
                 let consumed_before = cursor.consumed.iter().filter(|&&c| c).count();
                 if item_per_iteration && emitted_any {
                     out.force_space();
+                }
+                if trailing_newline_separator && emitted_any {
+                    out.newline();
                 }
                 let result: Result<(), ParseError> =
                     if let Some(seq_members) = separator_leading_seq {
@@ -1744,6 +1764,40 @@ fn pattern_trailing_literal(value: &str) -> Option<String> {
     }
     // The remainder must be a clean constant literal (no further metachars).
     crate::emit_pretty::helpers::decode_simple_pattern_literal(after)
+}
+
+/// Whether the trailing REPEAT-body slot `prod` is an OPTIONAL statement
+/// NEWLINE separator: a `CHOICE` containing `BLANK` (or an `OPTIONAL`) whose
+/// non-BLANK alternative is a newline-classified external scanner token
+/// (`_automatic_separator`, `*_newline`, `*_line_ending`) or a newline-like
+/// pattern. Such a separator being absent (BLANK) merges adjacent statements,
+/// so the REPEAT walker forces a newline between iterations to keep the
+/// statement boundary (V `*ap = size` after `&u64(a)`).
+fn seq_trailing_newline_separator(grammar: &Grammar, prod: &Production) -> bool {
+    fn alt_is_newline(grammar: &Grammar, p: &Production) -> bool {
+        match p {
+            Production::Symbol { name } => {
+                grammar.external_newlines.contains(name)
+                    || (name.starts_with('_')
+                        && !grammar.rules.contains_key(name)
+                        && (name.contains("newline") || name.contains("line_ending")))
+            }
+            Production::Pattern { value } => is_newline_like_pattern(value),
+            Production::Token { content }
+            | Production::ImmediateToken { content }
+            | Production::Prec { content, .. }
+            | Production::PrecLeft { content, .. }
+            | Production::PrecRight { content, .. }
+            | Production::PrecDynamic { content, .. }
+            | Production::Reserved { content, .. } => alt_is_newline(grammar, content),
+            _ => false,
+        }
+    }
+    match prod {
+        Production::Choice { members } => members.iter().any(|m| alt_is_newline(grammar, m)),
+        Production::Optional { content } => alt_is_newline(grammar, content),
+        _ => false,
+    }
 }
 
 /// Whether the REPEAT-body separator slot `prod` (a `CHOICE` containing

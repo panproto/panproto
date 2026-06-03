@@ -1817,6 +1817,12 @@ pub(crate) fn classify_external_layout_tokens(grammar: &mut Grammar) {
         } else if name.contains("line_ending")
             || name.contains("newline")
             || name.ends_with("_or_eof")
+            // `_automatic_separator` is the tree-sitter ASI convention for a
+            // scanner-inserted statement terminator that is a NEWLINE (V's
+            // statement separator between `*ap = size` and the prior stmt).
+            // Unclassified, it emitted nothing and merged adjacent statements
+            // onto one line, so `& u64(a)` `*ap` re-lexed as a multiplication.
+            || name.contains("automatic_separator")
         {
             grammar.external_newlines.insert(name.clone());
         } else if name.contains("semicolon") {
