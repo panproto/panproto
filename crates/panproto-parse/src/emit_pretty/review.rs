@@ -1612,28 +1612,51 @@ fn default_choice<'a>(
         .find(|alt| !matches!(alt, Production::Blank))
 }
 
-/// When `alternatives` are *all* bare literal `STRING`s and exactly one is
-/// a strict suffix of every other, return that suffix alternative (the
-/// unmarked base form of a prefixed-literal CHOICE, e.g. `"` in
-/// `["L\"","u\"","U\"","u8\"","\""]`). `None` otherwise.
+/// When the `alternatives` of a string-opener CHOICE all reduce to a
+/// trailing constant delimiter and exactly one bare `STRING` alternative is
+/// a strict suffix of every other, return that `STRING` (the unmarked base
+/// form). The prefixed variants may be either bare literal `STRING`s
+/// (C/C++/Obj-C opener `["L\"","u\"","U\"","u8\"","\""]`: `"` is the suffix
+/// of each) OR a prefix `PATTERN` whose only variation is a leading
+/// character class over a constant tail (PHP / SQL binary-string opener
+/// `[PATTERN "[bB]'", STRING "'"]`: the `[bB]` prefix precedes the same `'`
+/// the base `STRING` carries). `forget_layout` strips which prefix the
+/// source used, so the canonical section must default to the base `'`/`"` —
+/// picking the first alt (`[bB]'` rendered through the placeholder, or `L"`)
+/// otherwise corrupts EVERY such literal. The byte-faithful replay path is
+/// unaffected: it recovers the real prefix from the recorded `ptrace`.
+/// Narrow by construction (a unique bare-STRING strict suffix of every
+/// alternative's trailing literal), so it cannot fire for an ordinary
+/// literal CHOICE whose alternatives are unrelated tokens.
 fn unmarked_base_literal(alternatives: &[Production]) -> Option<&Production> {
-    let lits: Vec<(&Production, &str)> = alternatives
+    // Each alternative's trailing constant literal: a bare STRING is itself;
+    // a prefix-PATTERN (`[class]<lit>`) contributes its constant tail. Any
+    // other shape disqualifies the whole CHOICE (returns None).
+    let tails: Vec<(&Production, String)> = alternatives
         .iter()
         .map(|a| match a {
-            Production::String { value } => Some((a, value.as_str())),
+            Production::String { value } => Some((a, value.clone())),
+            Production::Pattern { value } => {
+                pattern_trailing_literal(value).map(|tail| (a, tail))
+            }
             _ => None,
         })
         .collect::<Option<Vec<_>>>()?;
-    if lits.len() < 2 {
+    if tails.len() < 2 {
         return None;
     }
     let mut base: Option<&Production> = None;
-    for &(prod, val) in &lits {
-        // `val` is the base iff every OTHER literal ends with it and is
-        // strictly longer (so `val` is a proper suffix, not an equal twin).
-        let is_base = lits
+    for &(prod, ref val) in &tails {
+        // Only a bare STRING can be the base form (a PATTERN renders through
+        // the placeholder and is never the canonical unmarked spelling).
+        if !matches!(prod, Production::String { .. }) {
+            continue;
+        }
+        // `val` is the base iff every OTHER alternative's trailing literal
+        // ends with it and is strictly longer (a proper suffix, not a twin).
+        let is_base = tails
             .iter()
-            .all(|&(_, other)| other == val || (other.len() > val.len() && other.ends_with(val)));
+            .all(|(_, other)| other == val || (other.len() > val.len() && other.ends_with(val)));
         if is_base {
             if base.is_some() {
                 return None; // Not unique.
@@ -1642,6 +1665,28 @@ fn unmarked_base_literal(alternatives: &[Production]) -> Option<&Production> {
         }
     }
     base
+}
+
+/// The constant trailing literal of a `PATTERN` shaped `[<char-class>]<lit>`:
+/// a leading bracketed character class (optionally quantified) followed by a
+/// constant byte sequence with no further regex metacharacters. PHP's
+/// binary-string opener `[bB]'` yields `'`; SQL's `[xX]'` yields `'`.
+/// `None` for any pattern that is not a leading-class-then-literal shape.
+fn pattern_trailing_literal(value: &str) -> Option<String> {
+    let rest = value.strip_prefix('[')?;
+    let end = rest.find(']')?;
+    let after = &rest[end + 1..];
+    // Skip an optional quantifier on the class.
+    let after = after
+        .strip_prefix('*')
+        .or_else(|| after.strip_prefix('+'))
+        .or_else(|| after.strip_prefix('?'))
+        .unwrap_or(after);
+    if after.is_empty() {
+        return None;
+    }
+    // The remainder must be a clean constant literal (no further metachars).
+    crate::emit_pretty::helpers::decode_simple_pattern_literal(after)
 }
 
 pub(crate) fn pick_choice_with_cursor<'a>(
@@ -2317,4 +2362,55 @@ pub(crate) fn pick_choice_with_cursor<'a>(
     // regresses even arduino 0/3), so they stay until the review is
     // strengthened, but the default section is now factored out.
     default_choice(schema, grammar, cursor, alternatives)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod review_tests {
+    use super::{pattern_trailing_literal, unmarked_base_literal};
+    use crate::emit_pretty::Production;
+
+    fn s(v: &str) -> Production {
+        Production::String { value: v.into() }
+    }
+    fn p(v: &str) -> Production {
+        Production::Pattern { value: v.into() }
+    }
+
+    #[test]
+    fn pattern_trailing_literal_extracts_constant_tail() {
+        assert_eq!(pattern_trailing_literal("[bB]'").as_deref(), Some("'"));
+        assert_eq!(pattern_trailing_literal("[xX]'").as_deref(), Some("'"));
+        assert_eq!(pattern_trailing_literal("[bB]*'").as_deref(), Some("'"));
+        // No constant tail, or not a leading-class shape.
+        assert_eq!(pattern_trailing_literal("[bB]"), None);
+        assert_eq!(pattern_trailing_literal("'"), None);
+        assert_eq!(pattern_trailing_literal("[a-z]+[0-9]"), None);
+    }
+
+    #[test]
+    fn unmarked_base_prefers_bare_string_over_prefix_pattern() {
+        // PHP single-quote opener: CHOICE[PATTERN "[bB]'", STRING "'"].
+        // The bare STRING "'" is the unmarked base; the PATTERN is the
+        // binary-string prefix variant.
+        let alts = [p("[bB]'"), s("'")];
+        let base = unmarked_base_literal(&alts).unwrap();
+        assert!(matches!(base, Production::String { value } if value == "'"));
+    }
+
+    #[test]
+    fn unmarked_base_all_string_suffix_still_works() {
+        // C-family opener: " is the suffix of every prefixed variant.
+        let alts = [s("L\""), s("u\""), s("U\""), s("u8\""), s("\"")];
+        let base = unmarked_base_literal(&alts).unwrap();
+        assert!(matches!(base, Production::String { value } if value == "\""));
+    }
+
+    #[test]
+    fn unmarked_base_declines_unrelated_choice() {
+        // An ordinary CHOICE of unrelated literals has no unique suffix base.
+        assert!(unmarked_base_literal(&[s("+"), s("-")]).is_none());
+        // A non-string / non-prefix-pattern member disqualifies the CHOICE.
+        assert!(unmarked_base_literal(&[p("[a-z]+"), s("'")]).is_none());
+    }
 }
