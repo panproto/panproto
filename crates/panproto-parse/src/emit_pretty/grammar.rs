@@ -2171,6 +2171,32 @@ fn seq_alternatives(rule: &Production) -> Vec<&Production> {
     }
 }
 
+/// True when a string-body member is *unbounded*: it is directly a
+/// `REPEAT`/`REPEAT1`, or it references a named symbol whose own rule is an
+/// unbounded content rule (reached through `CHOICE`/`BLANK`/`OPTIONAL`/`FIELD`
+/// wrappers). This lets a `string` whose body delegates the open-ended content
+/// to a separate rule (query's `string_content = REPEAT1(...)`) still register
+/// as a quoted-string shape. One hop only, to keep the classifier cheap and
+/// avoid following arbitrary rule graphs.
+fn member_is_unbounded_body(
+    prod: &Production,
+    rules: &std::collections::BTreeMap<String, Production>,
+) -> bool {
+    match prod {
+        Production::Repeat { .. } | Production::Repeat1 { .. } => true,
+        Production::Symbol { name } => rules
+            .get(name)
+            .is_some_and(|r| matches!(r, Production::Repeat { .. } | Production::Repeat1 { .. })),
+        Production::Choice { members } | Production::Seq { members } => members
+            .iter()
+            .any(|m| member_is_unbounded_body(m, rules)),
+        Production::Optional { content } | Production::Field { content, .. } => {
+            member_is_unbounded_body(content, rules)
+        }
+        _ => false,
+    }
+}
+
 pub(crate) fn classify_string_content_kinds(grammar: &mut Grammar) {
     let mut accum = StringContentAccum::new();
     for rule in grammar.rules.values() {
@@ -2183,31 +2209,46 @@ pub(crate) fn classify_string_content_kinds(grammar: &mut Grammar) {
             }
             // The opener is the first member and must be a literal quote
             // STRING (`'…'`, `"…"`).
-            let Some(Production::String { value: open }) = members.first() else {
+            let Some(first @ Production::String { value: open }) = members.first() else {
                 continue;
             };
-            // The closer is the *last STRING member equal to the opener*;
-            // a trailing suffix may follow (C#'s `string_literal` ends with
-            // an optional `(u|U)8` encoding CHOICE after the close quote).
+            // Only a genuine *quote* delimiter (`'`, `"`, `` ` ``) opens a
+            // string body. A bracket-like paired STRING (`|…|` block params,
+            // `(…)`) is NOT a string: its inner symbols (`identifier`) are
+            // structural children, not verbatim content, and must not be
+            // emitted tight. (The old direct-`REPEAT` body guard happened to
+            // exclude `|…|`; once the unbounded-body check follows a symbol
+            // hop, the quote guard is what keeps the classifier sound.)
+            if !is_quote_delimiter(first) {
+                continue;
+            }
+            // The closer is the *last member whose (possibly wrapped) STRING
+            // equals the opener*; a trailing suffix may follow (C#'s
+            // `string_literal` ends with an optional `(u|U)8` encoding CHOICE
+            // after the close quote). The close may be wrapped in an
+            // `IMMEDIATE_TOKEN` (the scanner-tight close common to many string
+            // rules, e.g. query `SEQ["\"", body, IMMEDIATE_TOKEN("\"")]`), so
+            // unwrap before comparing.
             let Some(close_idx) = members
                 .iter()
-                .rposition(|m| matches!(m, Production::String { value } if value == open))
+                .rposition(|m| unwrap_to_string(m) == Some(open.as_str()))
             else {
                 continue;
             };
             if close_idx == 0 {
                 continue;
             }
-            // The body must be a REPEAT over content (the unbounded string
-            // body), distinguishing a quoted string from a fixed two-quote
-            // token. Collect the named content kinds it can yield, then
-            // commit only if the REPEAT body confirmed the string shape.
+            // The body must be unbounded (the open-ended string body),
+            // distinguishing a quoted string from a fixed two-quote token. A
+            // body member is unbounded when it is itself a REPEAT/REPEAT1 or
+            // when it references a named symbol whose own rule is an unbounded
+            // content rule (query's `string` body is `CHOICE[string_content |
+            // BLANK]` where `string_content = REPEAT1(...)`). Collect the named
+            // content kinds it can yield, then commit only if the body confirmed
+            // the string shape.
             let mut has_repeat_body = false;
             for member in &members[1..close_idx] {
-                if matches!(
-                    member,
-                    Production::Repeat { .. } | Production::Repeat1 { .. }
-                ) {
+                if member_is_unbounded_body(member, &grammar.rules) {
                     has_repeat_body = true;
                 }
                 collect_string_content_kinds(member, &mut accum);

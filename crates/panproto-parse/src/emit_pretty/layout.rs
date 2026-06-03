@@ -162,8 +162,14 @@ impl<'a> Output<'a> {
         if value.is_empty() {
             return;
         }
+        // Verbatim string-region content is glued to its delimiters and is
+        // *data*, not syntax: a literal `;`/`#`/`//` inside the captured text
+        // must not be re-interpreted as a line-comment opener (which would
+        // append a newline in the layout fold). The `Immediate` role is
+        // unconditionally tight on both sides and is excluded from the
+        // line-comment-prefix newline, so it is the correct role for content.
         self.tokens
-            .push(Token::Lit(value.to_owned(), TokenRole::Terminal));
+            .push(Token::Lit(value.to_owned(), TokenRole::Immediate));
     }
 
     pub(crate) fn token_with_role(&mut self, value: &str, explicit_role: Option<TokenRole>) {
@@ -461,9 +467,13 @@ pub(crate) fn layout(
                 last_role = Some(*role);
                 last_text.clear();
                 last_text.push_str(value);
-                if line_comment_prefixes
-                    .iter()
-                    .any(|p| value.starts_with(p.as_str()))
+                // A verbatim string-region content leaf (`Immediate` role) is
+                // data, not syntax: a `;`/`#`/`//` inside captured string text
+                // must not open a line comment.
+                if *role != TokenRole::Immediate
+                    && line_comment_prefixes
+                        .iter()
+                        .any(|p| value.starts_with(p.as_str()))
                 {
                     bytes.extend_from_slice(newline);
                     at_line_start = true;
