@@ -1104,7 +1104,27 @@ pub(crate) fn emit_production_inner(
                         match sep_result {
                             Err(e) => Err(e),
                             Ok(()) => {
-                                if !cassette_replaces_sep && !out.lit_emitted_since(pre_sep) {
+                                // The separator slot emitted no Lit (its BLANK
+                                // alternative was chosen). Normally that means
+                                // the two iterations were tightly adjacent in
+                                // source, so suppress the policy separator
+                                // (NoSpace). But when the separator CHOICE
+                                // offers an explicit SEPARATOR token (`;`/`,`/a
+                                // newline pattern) as its non-BLANK alternative,
+                                // its absence means the items were separated by
+                                // WHITESPACE/newline (pony `block = SEQ[expr,
+                                // REPEAT(SEQ[CHOICE[";"|BLANK], expr])]` lists
+                                // `1`/`2`/`3` on separate lines), NOT glued: a
+                                // forced NoSpace would FUSE two value terminals
+                                // (`1 2`->`12`, re-parsed as one number). In
+                                // that case let the default role spacing apply
+                                // (keeps them separate) instead of NoSpace.
+                                let sep_is_optional_statement_sep =
+                                    choice_offers_separator_literal(&seq_members[0]);
+                                if !cassette_replaces_sep
+                                    && !sep_is_optional_statement_sep
+                                    && !out.lit_emitted_since(pre_sep)
+                                {
                                     out.no_space();
                                 }
                                 let mut rest_result = Ok(());
@@ -1724,6 +1744,36 @@ fn pattern_trailing_literal(value: &str) -> Option<String> {
     }
     // The remainder must be a clean constant literal (no further metachars).
     crate::emit_pretty::helpers::decode_simple_pattern_literal(after)
+}
+
+/// Whether the REPEAT-body separator slot `prod` (a `CHOICE` containing
+/// `BLANK`, or an `OPTIONAL`) offers an explicit statement / list separator
+/// token as its non-BLANK alternative: a `;` / `,` literal, or a newline-like
+/// pattern. Such a separator being absent (BLANK chosen) means the iterations
+/// were whitespace/newline separated in source, NOT glued — so the REPEAT
+/// walker must NOT force them tight (which would fuse adjacent value tokens).
+/// A separator slot with NO such literal (pure juxtaposition) keeps the tight
+/// default.
+fn choice_offers_separator_literal(prod: &Production) -> bool {
+    fn alt_is_separator(p: &Production) -> bool {
+        match p {
+            Production::String { value } => value == ";" || value == ",",
+            Production::Pattern { value } => is_newline_like_pattern(value),
+            Production::Token { content }
+            | Production::ImmediateToken { content }
+            | Production::Prec { content, .. }
+            | Production::PrecLeft { content, .. }
+            | Production::PrecRight { content, .. }
+            | Production::PrecDynamic { content, .. }
+            | Production::Reserved { content, .. } => alt_is_separator(content),
+            _ => false,
+        }
+    }
+    match prod {
+        Production::Choice { members } => members.iter().any(alt_is_separator),
+        Production::Optional { content } => alt_is_separator(content),
+        _ => false,
+    }
 }
 
 /// The `CHOICE` alternatives slice at the heart of a rule body, unwrapping
