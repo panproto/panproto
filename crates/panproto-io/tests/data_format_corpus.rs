@@ -286,6 +286,72 @@ fn conllu_edit_rewrites_one_cell() {
 }
 
 #[test]
+fn xml_mixed_content_round_trips_byte_faithfully() {
+    // The four mixed-content XML fixtures interleave CDATA sections,
+    // comments, processing instructions, and entity references with text and
+    // elements. They exercise the structural extraction path
+    // (`emit_mixed_content`) and the single-`CharData`-leaf splice guard:
+    // entity-split text runs (`Aaron &amp; Blaine`) must replay verbatim, not
+    // collapse the entity into a dropped fragment.
+    let schema = generic_schema();
+    for name in [
+        "domain/atom_feed.xml",
+        "domain/rss_namespaced.xml",
+        "web_document/docx_mixed.xml",
+        "web_document/odf_styled.xml",
+    ] {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("fixtures")
+            .join(name);
+        let input = std::fs::read(&path).expect("read fixture");
+        let codec = UnifiedCodec::xml("fixture").expect("codec");
+        let (instance, complement) = codec
+            .parse_wtype_preserving(&schema, &input)
+            .expect("parse");
+        let out = codec
+            .emit_wtype_preserving(&schema, &instance, &complement)
+            .expect("emit");
+        assert_eq!(
+            out, input,
+            "{name}: mixed-content XML must round-trip byte-faithfully"
+        );
+    }
+}
+
+#[test]
+fn xml_entity_text_canonical_emit_is_node_count_idempotent() {
+    // The coupled property: a text run containing an entity reference
+    // (`&amp;`/`&apos;`) parses as `CharData EntityRef CharData`. The
+    // canonical (non-complement) emit re-escapes the value, so the re-parse
+    // re-splits the run; the entity-merging extractor folds both shapes to the
+    // same node count, keeping `emit_wtype`/`parse_wtype` idempotent (the
+    // property `roundtrip_rss_atom` also pins). Opaque constructs
+    // (CDATA/comments/PIs) are *not* covered here: their position and bytes
+    // live only in the layout complement, so they round-trip via the
+    // preserving path above, not the canonical emit, and the canonical section
+    // legitimately drops them. This test isolates the entity case (no opaque
+    // siblings) to lock the merge fix.
+    use panproto_io::traits::{InstanceEmitter, InstanceParser};
+    let schema = generic_schema();
+    let codec = UnifiedCodec::xml("fixture").expect("codec");
+    // Entity-only mixed content: a leaf run and an element-interleaved run,
+    // each carrying an `&amp;`/`&apos;`.
+    let input = b"<doc><name>Aaron &amp; Blaine</name><p>the team&apos;s <em>first</em> release &amp; more</p></doc>";
+    let inst = codec.parse_wtype(&schema, input).expect("parse");
+    let emitted = codec.emit_wtype(&schema, &inst).expect("emit");
+    let inst2 = codec.parse_wtype(&schema, &emitted).expect("reparse");
+    assert_eq!(
+        inst.node_count(),
+        inst2.node_count(),
+        "entity-split text must not inflate node count across a canonical round-trip"
+    );
+    // And a second canonical round-trip must be a fixed point.
+    let emitted2 = codec.emit_wtype(&schema, &inst2).expect("emit2");
+    let inst3 = codec.parse_wtype(&schema, &emitted2).expect("reparse2");
+    assert_eq!(inst2.node_count(), inst3.node_count(), "second round-trip");
+}
+
+#[test]
 fn amr_edit_rewrites_one_cell() {
     // AMR rides the tree-sitter TSV preserving path; an edited cell value
     // re-emits changed while the rest of the table stays byte-identical.

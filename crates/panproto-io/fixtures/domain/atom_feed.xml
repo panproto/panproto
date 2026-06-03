@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+  <title>panproto release notes</title>
+  <link href="https://panproto.dev/" rel="alternate"/>
+  <link href="https://panproto.dev/feed.atom" rel="self"/>
+  <id>urn:uuid:60a76c80-d399-11d9-b93C-0003939e0af6</id>
+  <updated>2026-03-12T15:30:00Z</updated>
+  <author>
+    <name>Aaron &amp; Blaine</name>
+    <email>team@panproto.dev</email>
+  </author>
+  <entry>
+    <title type="html">Release &lt;b&gt;0.2.0&lt;/b&gt;</title>
+    <link href="https://panproto.dev/blog/0.2.0"/>
+    <id>urn:uuid:1225c695-cfb8-4ebb-aaaa-80da344efa6a</id>
+    <updated>2026-03-12T15:30:00Z</updated>
+    <!-- summary contains CDATA to preserve raw markup -->
+    <summary type="html"><![CDATA[<p>Round-trip support for café & 世界.</p>]]></summary>
+  </entry>
+</feed>
