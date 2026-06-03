@@ -31,11 +31,11 @@ use super::{
     alt_satisfies_pre_alias_constraints, children_for, classify_seq_positions, clear_field_context,
     collect_field_names, contains_newline_pattern, current_field_context,
     first_unconsumed_target_fingerprint, has_field_in, has_relevant_constraint, has_repeat_in,
-    is_immediate_token, is_newline_alt, is_newline_like_pattern, is_no_space_external,
-    is_whitespace_external, is_whitespace_only_pattern, is_word_like, leaf_terminal_role,
-    literal_strings, literal_value, mandatory_field_names, member_has_leading_bracket,
-    pattern_absorbs_leading_space, placeholder_for_pattern, prec_value, push_field_context,
-    reduces_to_immediate_token, referenced_symbols, seq_bracket_triggers_indent,
+    is_connector_punctuation, is_immediate_token, is_newline_alt, is_newline_like_pattern,
+    is_no_space_external, is_whitespace_external, is_whitespace_only_pattern, is_word_like,
+    leaf_terminal_role, literal_strings, literal_value, mandatory_field_names,
+    member_has_leading_bracket, pattern_absorbs_leading_space, placeholder_for_pattern, prec_value,
+    push_field_context, reduces_to_immediate_token, referenced_symbols, seq_bracket_triggers_indent,
     seq_open_bracket_index,
     unbounded_negated_class, unwrap_to_string, vertex_id_kind, yield_of_production,
 };
@@ -921,6 +921,24 @@ pub(crate) fn emit_production_inner(
                         if !default.is_empty() {
                             match bracket_role {
                                 Some(role) => out.token_with_role(default, Some(role)),
+                                // A connector punctuation resolved from the
+                                // cassette (the Haskell-family module-path
+                                // `_dot` -> `.`) is tight on both sides
+                                // (`Foo.Bar`); without the Connector role the
+                                // sibling-separation glues a space and the
+                                // re-parse splits the qualified name.
+                                None if is_connector_punctuation(default) => {
+                                    // A connector punctuation resolved from the
+                                    // cassette joins its neighbours into one
+                                    // lexeme and hugs both sides. NoSpace is
+                                    // authoritative in the layout fold, so it
+                                    // survives a surrounding sibling-separation
+                                    // ForceSpace (the REPEAT separator that
+                                    // would otherwise split `Foo.Bar`).
+                                    out.no_space();
+                                    out.token_with_role(default, Some(TokenRole::Connector));
+                                    out.no_space();
+                                }
                                 None => out.token(default),
                             }
                         }

@@ -312,6 +312,16 @@ pub(crate) fn is_prefix_sigil(s: &str) -> bool {
     }
 }
 
+/// A connector punctuation token is tight on BOTH sides: it joins a
+/// left and right operand into one lexeme (`Foo.Bar`, `a::b`, `x->y`).
+/// These are the access / path / member-resolution operators, never
+/// spaced. Used when a token's role is not recovered from the grammar
+/// (an external scanner token resolved by a cassette, e.g. the
+/// Haskell-family module-path `_dot`) so it still hugs its neighbours.
+pub(crate) fn is_connector_punctuation(s: &str) -> bool {
+    matches!(s, "." | "::" | "->")
+}
+
 /// Unwrap wrapper productions (`Token`, `ImmediateToken`, `Prec`, `PrecLeft`,
 /// `PrecRight`, `PrecDynamic`, `Field`, `Reserved`) to find the inner `STRING`
 /// value. Returns `None` if the production is not a (possibly wrapped)

@@ -486,8 +486,18 @@ impl GrammarCassette for JsFamilyCassette {
 struct IndentBasedCassette;
 
 impl GrammarCassette for IndentBasedCassette {
-    fn external_token_default(&self, _token_name: &str) -> Option<&str> {
-        None // Common layer handles _newline / _indent / _dedent.
+    fn external_token_default(&self, token_name: &str) -> Option<&str> {
+        match token_name {
+            // The Haskell-family module-path separator is an external
+            // scanner token with no text in `grammar.json` (idris /
+            // purescript `_qualifying_module = REPEAT1(SEQ[module_name,
+            // _dot])`). Unresolved it emitted nothing and the
+            // sibling-separation glued a space, so `module Foo.Bar`
+            // re-parsed as `module Foo Bar` (two separate module names).
+            "_dot" => Some("."),
+            // Common layer handles _newline / _indent / _dedent.
+            _ => None,
+        }
     }
 }
 
