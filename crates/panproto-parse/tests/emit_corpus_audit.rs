@@ -598,6 +598,7 @@ fn corpus_strip_audit_report() {
 const CORPUS_VERIFIED: &[&str] = &[
     "arduino",
     "bass",
+    "cairo",
     "chuck",
     "elisp",
     "fidl",
@@ -674,6 +675,7 @@ fn corpus_verified_protocols_round_trip_full_corpus() {
 const STRIP_VERIFIED: &[&str] = &[
     "arduino",
     "bass",
+    "cairo",
     "elisp",
     "fidl",
     "firrtl",

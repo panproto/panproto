@@ -469,6 +469,7 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "arduino",
     "bass",
     "bugs",
+    "cairo",
     "chuck",
     "elisp",
     "fidl",
