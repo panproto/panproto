@@ -59,7 +59,11 @@ fn fixture_corpus_is_byte_faithful() {
     let mut fixtures = Vec::new();
     collect_fixtures(&dir, &mut fixtures);
     fixtures.sort();
-    assert!(!fixtures.is_empty(), "no fixtures found under {}", dir.display());
+    assert!(
+        !fixtures.is_empty(),
+        "no fixtures found under {}",
+        dir.display()
+    );
 
     let schema = generic_schema();
     let mut covered = 0usize;
@@ -71,7 +75,11 @@ fn fixture_corpus_is_byte_faithful() {
             .and_then(|e| e.to_str())
             .unwrap_or("")
             .to_string();
-        let label = fixture.strip_prefix(&dir).unwrap_or(fixture).display().to_string();
+        let label = fixture
+            .strip_prefix(&dir)
+            .unwrap_or(fixture)
+            .display()
+            .to_string();
 
         if LEGACY_NO_PRESERVING.contains(&ext.as_str()) {
             continue;

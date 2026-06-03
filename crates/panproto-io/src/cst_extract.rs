@@ -1042,15 +1042,6 @@ fn extract_xml_element(
     if let Some(ref content) = content_vertex {
         let content_children = ordered_content_children(cst, content);
         let has_elements = content_children.iter().any(|(kind, _)| kind == "element");
-        // Content that interleaves CDATA sections, comments, or processing
-        // instructions with text cannot be collapsed into a single
-        // `node.value` (that path overwrites the first `CharData` leaf with
-        // the concatenated text and drops the non-text siblings). When any
-        // such sibling is present, fall through to the structural path and
-        // let `emit` replay the CST verbatim.
-        let has_nontext_nonelement = content_children
-            .iter()
-            .any(|(kind, _)| kind != "CharData" && kind != "element");
         let has_nonempty_text = content_children.iter().any(|(kind, name)| {
             kind == "CharData"
                 && !literal_value(cst, name)
@@ -1060,7 +1051,7 @@ fn extract_xml_element(
         });
         let domain_edges: Vec<Edge> = domain_schema.outgoing_edges(domain_vertex).to_vec();
 
-        if !has_elements && !has_nontext_nonelement {
+        if !has_elements {
             // Pure text content: collapse to node.value (existing
             // semantics; preserves the leaf-element fast path where a
             // round-trip just stores the captured text).
