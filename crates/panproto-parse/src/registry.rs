@@ -486,6 +486,7 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "javascript",
     "json",
     "julia",
+    "nqc",
     "prolog",
     "promql",
     "python",
