@@ -466,6 +466,20 @@ pub struct Grammar {
     /// re-parse as extra `character` nodes).
     #[serde(skip)]
     pub immediate_token_alias_kinds: std::collections::HashSet<String>,
+    /// Text to emit for an external *closing* delimiter whose matching
+    /// *opener* is a literal `STRING` (a rule shaped `SEQ[STRING q, body..,
+    /// EXTERNAL close]`, the asymmetric twin of the all-external and
+    /// all-STRING delimiter shapes). TOML's `_multiline_basic_string =
+    /// SEQ[STRING """, REPEAT(..), _multiline_basic_string_end]` is the
+    /// canonical case: the open `"""` is a grammar literal, but the close is
+    /// a scanner external with no rule and no resolvable text, so the
+    /// emitter would drop it and leave the string unterminated. A multiline
+    /// string closes with the same delimiter it opens with, so the external
+    /// close emits the opener's literal. Derived purely from grammar
+    /// structure (the STRING-open / external-close envelope); stays in the
+    /// generic emitter.
+    #[serde(skip)]
+    pub external_close_text: std::collections::HashMap<String, String>,
 }
 
 pub(crate) fn deserialize_supertypes<'de, D>(
@@ -595,6 +609,7 @@ impl Grammar {
         grammar.line_comment_prefixes = extract_line_comment_prefixes(&grammar);
         classify_external_layout_tokens(&mut grammar);
         classify_external_bracket_delimiters(&mut grammar);
+        classify_external_close_text(&mut grammar);
         classify_string_content_kinds(&mut grammar);
         classify_synthetic_indent_rules(&mut grammar);
         grammar.leading_space_terminals = classify_leading_space_terminals(&grammar);
@@ -1862,6 +1877,83 @@ pub(crate) fn classify_external_bracket_delimiters(grammar: &mut Grammar) {
     grammar.external_bracket_opens = opens;
     grammar.external_bracket_closes = closes;
     grammar.external_content_kinds = content_kinds;
+}
+
+/// Derive the emitted text for an external *closing* delimiter whose
+/// matching *opener* is a literal `STRING`. A rule shaped `SEQ[STRING q,
+/// body.., EXTERNAL close]` opens with a grammar literal but closes with a
+/// scanner external that has no rule and no otherwise-resolvable text
+/// (TOML's `_multiline_basic_string` / `_multiline_literal_string`). Such a
+/// string closes with the same delimiter it opens with, so the external
+/// close emits the opener's literal. Matches only the asymmetric
+/// STRING-open / external-close shape (the all-external and all-STRING
+/// shapes are handled by `classify_external_bracket_delimiters` /
+/// `classify_string_content_kinds`); the close must be an external with no
+/// rule, so ordinary bracketed constructs do not match.
+pub(crate) fn classify_external_close_text(grammar: &mut Grammar) {
+    let is_external = |name: &str| !grammar.rules.contains_key(name);
+    let mut close_text = std::collections::HashMap::new();
+    for rule in grammar.rules.values() {
+        let Production::Seq { members } = unwrap_to_seq(rule) else {
+            continue;
+        };
+        if members.len() < 3 {
+            continue;
+        }
+        let (Some(first), Some(last)) = (members.first(), members.last()) else {
+            continue;
+        };
+        // Opener: a literal STRING (possibly wrapped in a token/precedence
+        // node) that is a *quote delimiter* — its first character is a
+        // string quote (`"`, `'`, or a backtick). A keyword opener (FIRRTL
+        // `memory = SEQ["mem", .., _dedent]`) is NOT a string delimiter, so
+        // its trailing external is a layout token, not a closing quote.
+        let Some(open) = string_literal_value(first) else {
+            continue;
+        };
+        if !open.starts_with(['"', '\'', '`']) {
+            continue;
+        }
+        // Closer: a bare external SYMBOL with no rule that is NOT a layout
+        // token (a `_dedent` / `_newline` / `_indent` closing an indent
+        // block or terminating a line is structural layout, not a string
+        // terminator — emitting the open quote in its place corrupts the
+        // block structure).
+        let Some(close) = delimiter_external_name(last) else {
+            continue;
+        };
+        if !is_external(close)
+            || grammar.external_indent_closes.contains(close)
+            || grammar.external_indent_opens.contains(close)
+            || grammar.external_newlines.contains(close)
+            || close.contains("indent")
+            || close.contains("dedent")
+            || close.contains("newline")
+            || close.contains("line_ending")
+            || close.ends_with("_or_eof")
+        {
+            continue;
+        }
+        close_text.insert(close.to_owned(), open.to_owned());
+    }
+    grammar.external_close_text = close_text;
+}
+
+/// The literal `STRING` value a delimiter member resolves to, unwrapping
+/// token / immediate-token / precedence wrappers. `None` for any other
+/// shape.
+fn string_literal_value(prod: &Production) -> Option<&str> {
+    match prod {
+        Production::String { value } => Some(value.as_str()),
+        Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Reserved { content, .. } => string_literal_value(content),
+        _ => None,
+    }
 }
 
 /// The external scanner-token name a delimiter member resolves to: either

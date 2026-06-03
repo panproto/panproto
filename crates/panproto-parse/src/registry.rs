@@ -491,6 +491,7 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "scheme",
     "sparql",
     "stan",
+    "toml",
     "turtle",
     "ungrammar",
     "xcompose",

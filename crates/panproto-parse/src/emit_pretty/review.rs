@@ -835,7 +835,18 @@ pub(crate) fn emit_production_inner(
                         }
                         return Ok(());
                     }
-                    if is_whitespace_external(name) {
+                    if let Some(close_lit) = grammar.external_close_text.get(name) {
+                        // An external *closing* delimiter whose opener is a
+                        // literal STRING (TOML `_multiline_basic_string_end`
+                        // closes the `"""`-opened string). The scanner token
+                        // has no rule and no resolvable text, so without this
+                        // the string is left unterminated (`"""..` with no
+                        // close) and the re-parse ERRORs. The string closes
+                        // with the same delimiter it opens with; emit it tight
+                        // (BracketClose) so it hugs the preceding content.
+                        out.no_space();
+                        out.token_with_role(close_lit, Some(TokenRole::BracketClose));
+                    } else if is_whitespace_external(name) {
                         // A required inter-token whitespace external
                         // (dockerfile `_non_newline_whitespace` between
                         // path args): no text of its own, but it must

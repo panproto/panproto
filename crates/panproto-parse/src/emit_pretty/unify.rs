@@ -645,6 +645,95 @@ fn alt_literals(prod: &Production) -> Vec<String> {
     out
 }
 
+/// The literal tokens an alternative would emit, **resolving bare `SYMBOL`
+/// references one hop through the grammar** to reach the referenced rule's
+/// leading delimiter literal. A `CHOICE` whose alternatives are bare
+/// symbols discriminated by their opening delimiter (TOML's `string =
+/// CHOICE[_basic_string, _multiline_basic_string, …]`, keyed by `"` vs
+/// `"""` vs `'` vs `'''`) has no inline literals on the alternative itself —
+/// the discriminating literal lives at the head of the referenced rule's
+/// `SEQ`. The recorded variant tag (`ptrace` `T<open-delimiter>`) names
+/// that opener, so collecting the resolved rule's leading literal lets the
+/// tie-break pick the alternative whose delimiter the parser actually saw.
+/// Cycle-guarded; only the *leading* literal(s) of a `SEQ` are taken (a
+/// trailing literal deep in the rule is not a discriminator and could
+/// false-match the trace).
+fn alt_literals_resolved(grammar: &Grammar, prod: &Production) -> Vec<String> {
+    let inline = alt_literals(prod);
+    if !inline.is_empty() {
+        return inline;
+    }
+    let Some(name) = bare_symbol_name(prod) else {
+        return inline;
+    };
+    let mut out = Vec::new();
+    let mut visiting = Vec::new();
+    collect_leading_literals(grammar, name, &mut out, &mut visiting);
+    out
+}
+
+/// Collect the *leading* literal token(s) reachable from the named rule:
+/// the head of a `SEQ`, every branch of a leading `CHOICE`, or the body of
+/// a leading `REPEAT`/`OPTIONAL`/precedence/token wrapper. Stops at the
+/// first non-literal-yielding member of a `SEQ` (a delimiter precedes the
+/// variable content). Resolves one further bare-`SYMBOL` hop (cycle-guarded
+/// on the visiting stack).
+fn collect_leading_literals<'g>(
+    grammar: &'g Grammar,
+    name: &'g str,
+    out: &mut Vec<String>,
+    visiting: &mut Vec<&'g str>,
+) {
+    if visiting.contains(&name) {
+        return;
+    }
+    let Some(rule) = grammar.rules.get(name) else {
+        return;
+    };
+    visiting.push(name);
+    leading_literals_of(grammar, rule, out, visiting);
+    visiting.pop();
+}
+
+fn leading_literals_of<'g>(
+    grammar: &'g Grammar,
+    prod: &'g Production,
+    out: &mut Vec<String>,
+    visiting: &mut Vec<&'g str>,
+) {
+    match prod {
+        Production::String { value } => out.push(value.clone()),
+        Production::Seq { members } => {
+            if let Some(first) = members.first() {
+                leading_literals_of(grammar, first, out, visiting);
+            }
+        }
+        Production::Choice { members } => {
+            for m in members {
+                leading_literals_of(grammar, m, out, visiting);
+            }
+        }
+        Production::Repeat { content }
+        | Production::Repeat1 { content }
+        | Production::Optional { content }
+        | Production::Field { content, .. }
+        | Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Reserved { content, .. }
+        | Production::Alias { content, .. } => {
+            leading_literals_of(grammar, content, out, visiting);
+        }
+        Production::Symbol { name } => {
+            collect_leading_literals(grammar, name, out, visiting);
+        }
+        _ => {}
+    }
+}
+
 fn collect_literals(prod: &Production, out: &mut Vec<String>) {
     match prod {
         Production::String { value } => out.push(value.clone()),
@@ -751,7 +840,7 @@ pub(crate) fn select_choice_with_trace(
         let mut winner: Option<usize> = None;
         let mut winner_count = 0usize;
         for &i in &cands {
-            let lits = alt_literals(&alternatives[i]);
+            let lits = alt_literals_resolved(grammar, &alternatives[i]);
             let overlap = lits.iter().filter(|l| trace_tokens.contains(l)).count();
             if overlap > best_overlap {
                 best_overlap = overlap;

@@ -614,6 +614,7 @@ const CORPUS_VERIFIED: &[&str] = &[
     "qmldir",
     "rego",
     "sparql",
+    "toml",
     "turtle",
     "ungrammar",
     "xcompose",
