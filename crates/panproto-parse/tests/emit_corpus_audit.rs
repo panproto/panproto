@@ -613,6 +613,7 @@ const CORPUS_VERIFIED: &[&str] = &[
     "qmldir",
     "rego",
     "sparql",
+    "turtle",
     "ungrammar",
 ];
 
@@ -685,6 +686,7 @@ const STRIP_VERIFIED: &[&str] = &[
     "qmldir",
     "rego",
     "sparql",
+    "turtle",
     "ungrammar",
 ];
 

@@ -490,6 +490,7 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "scheme",
     "sparql",
     "stan",
+    "turtle",
     "ungrammar",
 ];
 
