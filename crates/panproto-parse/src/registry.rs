@@ -472,6 +472,7 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "bugs",
     "cairo",
     "chuck",
+    "csv",
     "elisp",
     "fidl",
     "firrtl",
