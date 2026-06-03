@@ -485,6 +485,7 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "json",
     "julia",
     "prolog",
+    "promql",
     "python",
     "qmldir",
     "rego",

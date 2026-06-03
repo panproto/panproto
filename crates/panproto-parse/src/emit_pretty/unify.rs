@@ -838,6 +838,7 @@ pub(crate) fn select_choice_with_trace(
     field_constraints: &[(&str, &str)],
     trace_tokens: &[String],
     self_rule: Option<&str>,
+    positional_remaining: &str,
 ) -> Option<usize> {
     let Candidates {
         best_len,
@@ -932,6 +933,11 @@ pub(crate) fn select_choice_with_trace(
     // maximum. This runs FIRST so a recorded literal (e.g. a `;` the
     // parser actually emitted, present in `ptrace`) wins — byte-faithful
     // reconstruction is preserved.
+    // Whether this CHOICE is an OPTIONAL slot consuming no child
+    // (`best_len == 0`) that offers a `BLANK` alternative — the categorical
+    // shape of an optional trailing token / separator.
+    let optional_with_blank =
+        best_len == 0 && alternatives.iter().any(|a| matches!(a, Production::Blank));
     if !trace_tokens.is_empty() {
         let mut best_overlap = 0usize;
         let mut winner: Option<usize> = None;
@@ -948,6 +954,33 @@ pub(crate) fn select_choice_with_trace(
             }
         }
         if best_overlap > 0 && winner_count == 1 {
+            // Positional guard for an optional separator slot. `trace_tokens`
+            // is an UNORDERED multiset of the vertex's recorded literals, so a
+            // separator literal that the parser emitted as a REPEAT separator
+            // (e.g. promql `on(a,b)`'s single `,` between the two label_names)
+            // still appears here and would falsely satisfy the trailing
+            // `CHOICE[",", BLANK]` optional-trailing-separator slot, emitting a
+            // spurious `on(a,b,)`. When this is such an optional-with-BLANK slot
+            // and we have positional layout evidence FROM the current cursor
+            // position forward (`positional_remaining`), the trace literal only
+            // genuinely belongs here if it still occurs in that remaining
+            // layout text; if it does not, the recorded occurrence was consumed
+            // upstream — defer to `BLANK` rather than re-emit it. With no
+            // positional evidence (by-construction schemas; the unit tests) the
+            // unordered trace win stands, preserving byte-faithful replay for
+            // genuine optionals (kotlin's trailing `;`).
+            if optional_with_blank && !positional_remaining.is_empty() {
+                let literal_in_layout = winner.is_some_and(|i| {
+                    alt_literals_resolved(grammar, &alternatives[i])
+                        .iter()
+                        .any(|l| positional_remaining.contains(l.as_str()))
+                });
+                if !literal_in_layout {
+                    return alternatives
+                        .iter()
+                        .position(|a| matches!(a, Production::Blank));
+                }
+            }
             return winner;
         }
     }
@@ -1012,12 +1045,32 @@ mod tests {
         };
         // demand = two number children → first alt
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["number", "number"], &[], None, &[], &[], None),
+            select_choice_with_trace(
+                &g,
+                alts,
+                &["number", "number"],
+                &[],
+                None,
+                &[],
+                &[],
+                None,
+                ""
+            ),
             Some(0)
         );
         // demand = two string children → second alt
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["string", "string"], &[], None, &[], &[], None),
+            select_choice_with_trace(
+                &g,
+                alts,
+                &["string", "string"],
+                &[],
+                None,
+                &[],
+                &[],
+                None,
+                ""
+            ),
             Some(1)
         );
     }
@@ -1052,14 +1105,14 @@ mod tests {
         };
         // An identifier child picks `identifier`, not template_parameters.
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["identifier"], &[], None, &[], &[], None),
+            select_choice_with_trace(&g, alts, &["identifier"], &[], None, &[], &[], None, ""),
             Some(1)
         );
         // An int_literal child matches NEITHER concrete alternative
         // directly (template_parameters needs the whole < int > shape,
         // identifier needs an identifier) → defer, do not steal.
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["int_literal"], &[], None, &[], &[], None),
+            select_choice_with_trace(&g, alts, &["int_literal"], &[], None, &[], &[], None, ""),
             None
         );
     }
@@ -1117,7 +1170,7 @@ mod tests {
         // match a `declaration` child; function_definition (idx 0) is
         // rejected. The direct bare symbol wins.
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["declaration"], &[], None, &[], &[], None),
+            select_choice_with_trace(&g, alts, &["declaration"], &[], None, &[], &[], None, ""),
             Some(1)
         );
     }
@@ -1148,7 +1201,7 @@ mod tests {
             _ => panic!(),
         };
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["binary"], &[], None, &[], &[], None),
+            select_choice_with_trace(&g, alts, &["binary"], &[], None, &[], &[], None, ""),
             None
         );
     }
@@ -1174,12 +1227,12 @@ mod tests {
         };
         // No child, no trace → omit the optional (BLANK, index 1).
         assert_eq!(
-            select_choice_with_trace(&g, alts, &[], &[], None, &[], &[], None),
+            select_choice_with_trace(&g, alts, &[], &[], None, &[], &[], None, ""),
             Some(1)
         );
         // The parser recorded a ";" (in ptrace) → emit it (index 0).
         assert_eq!(
-            select_choice_with_trace(&g, alts, &[], &[], None, &[], &[";".to_owned()], None),
+            select_choice_with_trace(&g, alts, &[], &[], None, &[], &[";".to_owned()], None, ""),
             Some(0)
         );
     }
@@ -1209,7 +1262,7 @@ mod tests {
         };
         // No trace → genuine tie → defer.
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["expr"], &[], None, &[], &[], None),
+            select_choice_with_trace(&g, alts, &["expr"], &[], None, &[], &[], None, ""),
             None
         );
         // Trace contains "return" → first alt; "throw" → second.
@@ -1222,7 +1275,8 @@ mod tests {
                 None,
                 &[],
                 &["return".to_owned()],
-                None
+                None,
+                ""
             ),
             Some(0)
         );
@@ -1235,7 +1289,8 @@ mod tests {
                 None,
                 &[],
                 &["throw".to_owned()],
-                None
+                None,
+                ""
             ),
             Some(1)
         );
@@ -1249,7 +1304,8 @@ mod tests {
                 None,
                 &[],
                 &["xyz".to_owned()],
-                None
+                None,
+                ""
             ),
             None
         );
@@ -1286,13 +1342,13 @@ mod tests {
         // `expression` child) is structurally rejected; `BLANK` is the
         // unique viable alternative and must be chosen, not deferred.
         assert_eq!(
-            select_choice_with_trace(&g, alts, &[], &[], None, &[], &[], None),
+            select_choice_with_trace(&g, alts, &[], &[], None, &[], &[], None, ""),
             Some(1)
         );
         // With a value child available, `_initializer` becomes viable and
         // consumes it → chosen over BLANK (maximal munch).
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["expression"], &[], None, &[], &[], None),
+            select_choice_with_trace(&g, alts, &["expression"], &[], None, &[], &[], None, ""),
             Some(0)
         );
     }
@@ -1383,7 +1439,8 @@ mod tests {
                 None,
                 &[("kind", "const")],
                 &[],
-                None
+                None,
+                ""
             ),
             Some(1)
         );
@@ -1392,7 +1449,7 @@ mod tests {
         // is the unique remaining candidate and wins instead of emitting a
         // spurious `var`/`let`.
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["expr", "expr"], &[], None, &[], &[], None),
+            select_choice_with_trace(&g, alts, &["expr", "expr"], &[], None, &[], &[], None, ""),
             Some(0)
         );
     }

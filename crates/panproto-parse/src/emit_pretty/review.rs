@@ -1963,33 +1963,14 @@ pub(crate) fn pick_choice_with_cursor<'a>(
             .get(*r)
             .is_some_and(|body| std::ptr::eq(unwrap_choice_body(body), alternatives))
     });
-    if let Some(idx) = super::select_choice_with_trace(
-        grammar,
-        alternatives,
-        &demand,
-        &labels,
-        field_ctx.as_deref(),
-        &field_constraints,
-        &trace_tokens,
-        self_rule,
-    ) {
-        return Some(&alternatives[idx]);
-    }
-
-    // Positional discriminator: use the interstitials FROM the
-    // current cursor position forward. Interstitials are indexed by
-    // their gap position (interstitial-k is the gap before the k-th
-    // named child); the slice from `consumed_count` onward captures
-    // exactly the text the remaining CHOICE branches must consume.
-    // This eliminates the cross-position contamination of the prior
-    // flat blob (where a trailing-CHOICE-with-BLANK saw all the
-    // commas separating earlier REPEAT iterations and wrongly
-    // preferred the comma alt).
-    //
-    // The chose-alt-fingerprint (a single string joined from every
-    // non-empty interstitial trimmed) is retained as a fallback for
-    // by-construction schemas with no positional interstitials; it
-    // is strictly less precise than positional matching.
+    // Positional layout slice FROM the current cursor position forward
+    // (interstitial-k is the gap before the k-th named child). Computed here
+    // so the unification's optional-separator tie-break can subtract a
+    // separator literal that the parser emitted upstream (a REPEAT separator)
+    // and that no longer occurs in the remaining layout — its presence in the
+    // UNORDERED trace would otherwise falsely satisfy a trailing
+    // `CHOICE[sep, BLANK]` optional slot. Re-used by the positional
+    // discriminator below.
     let consumed_count = cursor.consumed.iter().filter(|&&c| c).count();
     let positional_interstitials: Vec<&str> = schema
         .constraints
@@ -2020,6 +2001,34 @@ pub(crate) fn pick_choice_with_cursor<'a>(
             .collect::<Vec<&str>>()
             .join(" ")
     };
+    if let Some(idx) = super::select_choice_with_trace(
+        grammar,
+        alternatives,
+        &demand,
+        &labels,
+        field_ctx.as_deref(),
+        &field_constraints,
+        &trace_tokens,
+        self_rule,
+        &positional_slice,
+    ) {
+        return Some(&alternatives[idx]);
+    }
+
+    // Positional discriminator: use the interstitials FROM the
+    // current cursor position forward. Interstitials are indexed by
+    // their gap position (interstitial-k is the gap before the k-th
+    // named child); the slice from `consumed_count` onward captures
+    // exactly the text the remaining CHOICE branches must consume.
+    // This eliminates the cross-position contamination of the prior
+    // flat blob (where a trailing-CHOICE-with-BLANK saw all the
+    // commas separating earlier REPEAT iterations and wrongly
+    // preferred the comma alt).
+    //
+    // The chose-alt-fingerprint (a single string joined from every
+    // non-empty interstitial trimmed) is retained as a fallback for
+    // by-construction schemas with no positional interstitials; it
+    // is strictly less precise than positional matching.
     let fingerprint_blob = schema
         .constraints
         .get(vertex_id)
