@@ -479,6 +479,7 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "html",
     "jags",
     "janet",
+    "java",
     "javascript",
     "json",
     "julia",
