@@ -43,7 +43,7 @@
 //! stealing a child (`int_literal`) that belongs to a later mandatory
 //! member, while still admitting genuine supertype dispatch.
 
-use super::{collect_field_names, Grammar, Production};
+use super::{Grammar, Production, collect_field_names};
 
 /// Does an abstract child of surface kind `k` satisfy a concrete
 /// grammar `SYMBOL`/`ALIAS` target named `name`?
@@ -213,7 +213,9 @@ pub(crate) fn match_demand<'g>(
             // Concrete symbol: consume one child iff it satisfies AND the
             // slot's field label is compatible with this position.
             match demand.get(pos) {
-                Some(k) if sat(grammar, k, name) && label_ok(slot_label(labels, pos), field_ctx) => {
+                Some(k)
+                    if sat(grammar, k, name) && label_ok(slot_label(labels, pos), field_ctx) =>
+                {
                     vec![pos + 1]
                 }
                 _ => vec![],
@@ -235,9 +237,15 @@ pub(crate) fn match_demand<'g>(
                 vec![pos]
             }
         }
-        Production::Field { name, content } => {
-            match_demand(grammar, content, demand, labels, pos, Some(name.as_str()), visited)
-        }
+        Production::Field { name, content } => match_demand(
+            grammar,
+            content,
+            demand,
+            labels,
+            pos,
+            Some(name.as_str()),
+            visited,
+        ),
         Production::Token { content }
         | Production::ImmediateToken { content }
         | Production::Prec { content, .. }
@@ -285,12 +293,12 @@ pub(crate) fn match_demand<'g>(
             }
             out
         }
-        Production::Repeat { content } => {
-            closure(grammar, content, demand, labels, pos, field_ctx, visited, true)
-        }
-        Production::Repeat1 { content } => {
-            closure(grammar, content, demand, labels, pos, field_ctx, visited, false)
-        }
+        Production::Repeat { content } => closure(
+            grammar, content, demand, labels, pos, field_ctx, visited, true,
+        ),
+        Production::Repeat1 { content } => closure(
+            grammar, content, demand, labels, pos, field_ctx, visited, false,
+        ),
     }
 }
 
@@ -366,7 +374,11 @@ fn analyse_field<'g>(
     fn direct_literals<'g>(prod: &'g Production, out: &mut Vec<&'g str>) {
         match prod {
             Production::String { value } => out.push(value),
-            Production::Alias { named: false, value, .. } if !value.is_empty() => out.push(value),
+            Production::Alias {
+                named: false,
+                value,
+                ..
+            } if !value.is_empty() => out.push(value),
             Production::Choice { members } => {
                 for m in members {
                     direct_literals(m, out);
@@ -481,9 +493,7 @@ fn analyse_field<'g>(
         | Production::PrecLeft { content, .. }
         | Production::PrecRight { content, .. }
         | Production::PrecDynamic { content, .. }
-        | Production::Reserved { content, .. } => {
-            analyse_field(grammar, content, target, visited)
-        }
+        | Production::Reserved { content, .. } => analyse_field(grammar, content, target, visited),
         _ => empty(),
     }
 }
@@ -895,7 +905,10 @@ mod tests {
         // bare `declaration` (idx 1) and ALIAS=declaration (idx 2) both
         // match a `declaration` child; function_definition (idx 0) is
         // rejected. The direct bare symbol wins.
-        assert_eq!(select_choice_with_trace(&g, alts, &["declaration"], &[], None, &[], &[]), Some(1));
+        assert_eq!(
+            select_choice_with_trace(&g, alts, &["declaration"], &[], None, &[], &[]),
+            Some(1)
+        );
     }
 
     /// Many-to-one aliasing is under-determined → defer (the ruby case).
@@ -923,7 +936,10 @@ mod tests {
             Production::Choice { members } => members,
             _ => panic!(),
         };
-        assert_eq!(select_choice_with_trace(&g, alts, &["binary"], &[], None, &[], &[]), None);
+        assert_eq!(
+            select_choice_with_trace(&g, alts, &["binary"], &[], None, &[], &[]),
+            None
+        );
     }
 
     /// An optional token defaults to absent (BLANK) when no child demands
@@ -946,7 +962,10 @@ mod tests {
             _ => panic!(),
         };
         // No child, no trace → omit the optional (BLANK, index 1).
-        assert_eq!(select_choice_with_trace(&g, alts, &[], &[], None, &[], &[]), Some(1));
+        assert_eq!(
+            select_choice_with_trace(&g, alts, &[], &[], None, &[], &[]),
+            Some(1)
+        );
         // The parser recorded a ";" (in ptrace) → emit it (index 0).
         assert_eq!(
             select_choice_with_trace(&g, alts, &[], &[], None, &[], &[";".to_owned()]),
@@ -978,7 +997,10 @@ mod tests {
             _ => panic!(),
         };
         // No trace → genuine tie → defer.
-        assert_eq!(select_choice_with_trace(&g, alts, &["expr"], &[], None, &[], &[]), None);
+        assert_eq!(
+            select_choice_with_trace(&g, alts, &["expr"], &[], None, &[], &[]),
+            None
+        );
         // Trace contains "return" → first alt; "throw" → second.
         assert_eq!(
             select_choice_with_trace(&g, alts, &["expr"], &[], None, &[], &["return".to_owned()]),
@@ -1025,10 +1047,16 @@ mod tests {
         // No value child in the demand → `_initializer` (needs an
         // `expression` child) is structurally rejected; `BLANK` is the
         // unique viable alternative and must be chosen, not deferred.
-        assert_eq!(select_choice_with_trace(&g, alts, &[], &[], None, &[], &[]), Some(1));
+        assert_eq!(
+            select_choice_with_trace(&g, alts, &[], &[], None, &[], &[]),
+            Some(1)
+        );
         // With a value child available, `_initializer` becomes viable and
         // consumes it → chosen over BLANK (maximal munch).
-        assert_eq!(select_choice_with_trace(&g, alts, &["expression"], &[], None, &[], &[]), Some(0));
+        assert_eq!(
+            select_choice_with_trace(&g, alts, &["expression"], &[], None, &[], &[]),
+            Some(0)
+        );
     }
 
     /// REPEAT before a mandatory member must not swallow it (set-valued
@@ -1051,7 +1079,15 @@ mod tests {
             .to_string(),
         );
         let mut v = Vec::new();
-        let ends = match_demand(&g, &g.rules["statements"], &["stmt", "stmt"], &[], 0, None, &mut v);
+        let ends = match_demand(
+            &g,
+            &g.rules["statements"],
+            &["stmt", "stmt"],
+            &[],
+            0,
+            None,
+            &mut v,
+        );
         assert!(ends.contains(&2), "must fully consume 2 stmts: {ends:?}");
     }
 
@@ -1101,7 +1137,15 @@ mod tests {
         // unification defers (the downstream field-token tie-break picks 2) —
         // the essential property here is that the `var` member never wins.
         assert_ne!(
-            select_choice_with_trace(&g, alts, &["expr", "expr"], &[], None, &[("kind", "const")], &[]),
+            select_choice_with_trace(
+                &g,
+                alts,
+                &["expr", "expr"],
+                &[],
+                None,
+                &[("kind", "const")],
+                &[]
+            ),
             Some(1)
         );
         // `for (x in y)`: no kind recorded. Members 1 and 2 are forced to bind

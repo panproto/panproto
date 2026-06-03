@@ -257,7 +257,11 @@ impl VertexComplement {
             push(&mut out, format!("field:{field}"), text.clone());
         }
         for itl in &self.interstitials {
-            push(&mut out, format!("interstitial-{}", itl.slot), itl.text.clone());
+            push(
+                &mut out,
+                format!("interstitial-{}", itl.slot),
+                itl.text.clone(),
+            );
             if let Some(b) = itl.start_byte {
                 push(
                     &mut out,
@@ -377,9 +381,13 @@ mod tests {
         assert_eq!(
             vc.trace,
             Some(vec![
-                TraceSlot::Child { kind: "number".into() },
+                TraceSlot::Child {
+                    kind: "number".into()
+                },
                 TraceSlot::Token { text: "+".into() },
-                TraceSlot::Child { kind: "number".into() },
+                TraceSlot::Child {
+                    kind: "number".into()
+                },
             ])
         );
         assert_eq!(vc.byte_span, Some((0, 7)));
@@ -388,7 +396,10 @@ mod tests {
         assert_eq!(vc.interstitials.len(), 1);
         assert_eq!(vc.interstitials[0].text, " ");
         assert_eq!(vc.interstitials[0].start_byte, Some(1));
-        assert_eq!(vc.field_tokens.get("operator").map(String::as_str), Some("+"));
+        assert_eq!(
+            vc.field_tokens.get("operator").map(String::as_str),
+            Some("+")
+        );
         assert_eq!(vc.indent.as_deref(), Some("    "));
         assert_eq!(vc.blank_lines_before, Some(2));
         assert!(!vc.is_empty());

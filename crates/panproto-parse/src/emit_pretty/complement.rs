@@ -24,8 +24,10 @@
 
 //! `emit_pretty::complement` (Phase A decomposition).
 
-use super::{Grammar, Production, literal_strings, Schema, ChildCursor, literal_choice_set, yield_of_production, Edge};
-
+use super::{
+    ChildCursor, Edge, Grammar, Production, Schema, literal_choice_set, literal_strings,
+    yield_of_production,
+};
 
 /// The literal keyword / punctuation tokens carried by the rule that an
 /// `ALIAS` content references, unwrapping precedence / token wrappers to the
@@ -52,7 +54,6 @@ pub(crate) fn aliased_source_literals(grammar: &Grammar, content: &Production) -
         .unwrap_or_default()
 }
 
-
 /// The `chose-alt-fingerprint` witness of the first unconsumed cursor edge
 /// whose target vertex has kind `kind`, if recorded. This is the child's
 /// operator / literal witness, used by the same-kind-alias disambiguation.
@@ -74,7 +75,6 @@ pub(crate) fn first_unconsumed_target_fingerprint(
             .map(|c| c.value.clone())
     })
 }
-
 
 /// Collect every `(field_name, restricted_token_set)` pair under `production`
 /// where the FIELD's body is an ALIAS whose inner content is a CHOICE of
@@ -116,7 +116,6 @@ pub(crate) fn collect_field_token_restrictions<'a>(
     }
 }
 
-
 /// Categorical acceptance predicate: does `production` accept a cursor
 /// edge whose field name is `edge_field` (or `child_of`) and whose target
 /// vertex has kind `target_kind`?
@@ -144,7 +143,6 @@ pub(crate) fn accepts_first_edge(
     let mut visited = std::collections::HashSet::new();
     accepts_first_edge_inner(grammar, production, edge_field, target_kind, &mut visited)
 }
-
 
 /// Inductive acceptance predicate. `visited` guards the hidden/supertype
 /// `SYMBOL → rule` expansion against cyclic rule graphs (e.g. Zig's
@@ -261,11 +259,13 @@ pub(crate) fn accepts_first_edge_inner(
     }
 }
 
-
 /// Read the walker-recorded `pre-alias-symbol` constraint for a vertex.
 /// Returns `None` when the vertex has no such constraint (either there
 /// was no alias rewrite or the schema was built without the walker).
-pub(crate) fn pre_alias_symbol<'a>(schema: &'a Schema, vertex_id: &panproto_gat::Name) -> Option<&'a str> {
+pub(crate) fn pre_alias_symbol<'a>(
+    schema: &'a Schema,
+    vertex_id: &panproto_gat::Name,
+) -> Option<&'a str> {
     schema.constraints.get(vertex_id).and_then(|cs| {
         cs.iter()
             .find(|c| c.sort.as_ref() == "pre-alias-symbol")
@@ -273,13 +273,16 @@ pub(crate) fn pre_alias_symbol<'a>(schema: &'a Schema, vertex_id: &panproto_gat:
     })
 }
 
-
 /// Walk `production` and collect every alias-source-symbol declared
 /// inside a FIELD with name `field_name`. Specifically, for each
 /// `FIELD { name = field_name, content = ALIAS { content = SYMBOL X,
 /// named: true, value: _ } }`, append `X`. Returns an empty Vec when
 /// the alt's FIELD body is not a named-ALIAS-over-SYMBOL.
-pub(crate) fn field_alias_sources<'a>(production: &'a Production, field_name: &str, out: &mut Vec<&'a str>) {
+pub(crate) fn field_alias_sources<'a>(
+    production: &'a Production,
+    field_name: &str,
+    out: &mut Vec<&'a str>,
+) {
     fn unwrap_to_alias_source(p: &Production) -> Option<&str> {
         let inner = match p {
             Production::Prec { content, .. }
@@ -330,7 +333,6 @@ pub(crate) fn field_alias_sources<'a>(production: &'a Production, field_name: &s
     }
 }
 
-
 /// Categorical alias-source discriminator: when the cursor edge for a
 /// field-named edge has a recorded `pre-alias-symbol = X`, an alt
 /// whose FIELD of that name takes its content from `ALIAS { SYMBOL Y }`
@@ -368,7 +370,6 @@ pub(crate) fn alt_satisfies_pre_alias_constraints(
     }
     true
 }
-
 
 /// Returns true iff `alt` is structurally compatible with the cursor under
 /// the field-token-restriction discipline: for every FIELD in `alt` whose
@@ -408,7 +409,6 @@ pub(crate) fn alt_satisfies_field_token_restrictions(
     true
 }
 
-
 pub(crate) fn has_relevant_constraint(
     production: &Production,
     schema: &Schema,
@@ -446,8 +446,10 @@ pub(crate) fn has_relevant_constraint(
     walk(production, constraints)
 }
 
-
-pub(crate) fn children_for<'a>(schema: &'a Schema, vertex_id: &panproto_gat::Name) -> Vec<&'a Edge> {
+pub(crate) fn children_for<'a>(
+    schema: &'a Schema,
+    vertex_id: &panproto_gat::Name,
+) -> Vec<&'a Edge> {
     // Walk `outgoing` (insertion-ordered by SchemaBuilder via SmallVec
     // append) rather than the unordered `edges` HashMap so abstract
     // schemas under REPEAT(CHOICE(...)) preserve the order their edges
@@ -480,13 +482,17 @@ pub(crate) fn children_for<'a>(schema: &'a Schema, vertex_id: &panproto_gat::Nam
     indexed.into_iter().map(|(_, _, e)| e).collect()
 }
 
-
-pub(crate) fn vertex_id_kind<'a>(schema: &'a Schema, vertex_id: &panproto_gat::Name) -> Option<&'a str> {
+pub(crate) fn vertex_id_kind<'a>(
+    schema: &'a Schema,
+    vertex_id: &panproto_gat::Name,
+) -> Option<&'a str> {
     schema.vertices.get(vertex_id).map(|v| v.kind.as_ref())
 }
 
-
-pub(crate) fn literal_value<'a>(schema: &'a Schema, vertex_id: &panproto_gat::Name) -> Option<&'a str> {
+pub(crate) fn literal_value<'a>(
+    schema: &'a Schema,
+    vertex_id: &panproto_gat::Name,
+) -> Option<&'a str> {
     schema
         .constraints
         .get(vertex_id)?

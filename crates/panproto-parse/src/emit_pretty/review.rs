@@ -24,8 +24,20 @@
 
 //! `emit_pretty::review` (Phase A decomposition).
 
-use super::{Schema, Grammar, Output, ParseError, is_immediate_token, literal_value, children_for, TokenRole, leaf_terminal_role, ChildCursor, Production, EMIT_MU_FRAMES, EMIT_DEPTH, classify_seq_positions, seq_bracket_triggers_indent, unwrap_to_string, is_word_like, has_repeat_in, Token, member_has_leading_bracket, pattern_absorbs_leading_space, is_newline_like_pattern, is_whitespace_only_pattern, placeholder_for_pattern, current_field_context, vertex_id_kind, has_relevant_constraint, push_field_context, alias_content_is_terminal_pattern, Edge, clear_field_context, referenced_symbols, literal_strings, aliased_source_literals, first_unconsumed_target_fingerprint, yield_of_production, is_newline_alt, accepts_first_edge, has_field_in, mandatory_field_names, collect_field_names, alt_satisfies_field_token_restrictions, alt_satisfies_pre_alias_constraints, prec_value, contains_newline_pattern, is_no_space_external, is_whitespace_external};
-
+use super::{
+    ChildCursor, EMIT_DEPTH, EMIT_MU_FRAMES, Edge, Grammar, Output, ParseError, Production, Schema,
+    Token, TokenRole, accepts_first_edge, alias_content_is_terminal_pattern,
+    aliased_source_literals, alt_satisfies_field_token_restrictions,
+    alt_satisfies_pre_alias_constraints, children_for, classify_seq_positions, clear_field_context,
+    collect_field_names, contains_newline_pattern, current_field_context,
+    first_unconsumed_target_fingerprint, has_field_in, has_relevant_constraint, has_repeat_in,
+    is_immediate_token, is_newline_alt, is_newline_like_pattern, is_no_space_external,
+    is_whitespace_external, is_whitespace_only_pattern, is_word_like, leaf_terminal_role,
+    literal_strings, literal_value, mandatory_field_names, member_has_leading_bracket,
+    pattern_absorbs_leading_space, placeholder_for_pattern, prec_value, push_field_context,
+    referenced_symbols, seq_bracket_triggers_indent, unwrap_to_string, vertex_id_kind,
+    yield_of_production,
+};
 
 pub(crate) fn collect_roots(schema: &Schema) -> Vec<&panproto_gat::Name> {
     if !schema.entries.is_empty() {
@@ -51,7 +63,6 @@ pub(crate) fn collect_roots(schema: &Schema) -> Vec<&panproto_gat::Name> {
     roots.sort();
     roots
 }
-
 
 pub(crate) fn emit_vertex(
     protocol: &str,
@@ -158,9 +169,7 @@ pub(crate) fn emit_vertex(
                 // comment, keyed on kind rather than a text prefix). If the
                 // captured text already ends in a newline, `token_with_role`
                 // emitted the LineBreak; only add one when it did not.
-                if grammar.line_rest_kinds.contains(vkind)
-                    && !literal.ends_with(['\n', '\r'])
-                {
+                if grammar.line_rest_kinds.contains(vkind) && !literal.ends_with(['\n', '\r']) {
                     out.newline();
                 }
                 return Ok(());
@@ -213,7 +222,6 @@ pub(crate) fn emit_vertex(
     Ok(())
 }
 
-
 /// Walk a rule at a vertex inside a μ-binder. The wrapping frame is
 /// pushed before recursion and popped after, so any SYMBOL inside
 /// `rule` that re-enters the same `(vertex_id, rule_name)` pair
@@ -243,7 +251,6 @@ pub(crate) fn walk_in_mu_frame(
     });
     result
 }
-
 
 pub(crate) fn emit_production(
     protocol: &str,
@@ -276,7 +283,6 @@ pub(crate) fn emit_production(
     EMIT_DEPTH.with(|d| d.set(d.get() - 1));
     result
 }
-
 
 /// Consume and emit every leading edge on `cursor` whose target kind
 /// is in `grammar.extras` (typically `line_comment` / `block_comment`).
@@ -317,7 +323,6 @@ pub(crate) fn drain_extras(
         emit_vertex(protocol, schema, grammar, target, out)?;
     }
 }
-
 
 /// Emit a SEQ production with positionally classified token roles.
 ///
@@ -465,7 +470,6 @@ pub(crate) fn emit_seq_with_roles(
     Ok(())
 }
 
-
 pub(crate) fn emit_production_inner(
     protocol: &str,
     schema: &Schema,
@@ -611,7 +615,10 @@ pub(crate) fn emit_production_inner(
                         None
                     };
                     if let Some(alias_value) = grammar.external_alias_map.get(name) {
-                        if out.cassette.is_some_and(|c| c.external_leads_no_space(name)) {
+                        if out
+                            .cassette
+                            .is_some_and(|c| c.external_leads_no_space(name))
+                        {
                             out.no_space();
                         }
                         match bracket_role {
@@ -953,10 +960,7 @@ pub(crate) fn emit_production_inner(
                     if !grammar.rules.contains_key(sym) {
                         // A cassette-declared immediate external (C#'s
                         // interpolation delimiters) must hug its predecessor.
-                        if out
-                            .cassette
-                            .is_some_and(|c| c.external_leads_no_space(sym))
-                        {
+                        if out.cassette.is_some_and(|c| c.external_leads_no_space(sym)) {
                             out.no_space();
                         }
                         out.token(value);
@@ -993,7 +997,6 @@ pub(crate) fn emit_production_inner(
     }
 }
 
-
 /// Take the next cursor edge whose target vertex's kind matches the
 /// SYMBOL `name` directly or via inline expansion of a hidden rule.
 pub(crate) fn take_symbol_match<'a>(
@@ -1023,7 +1026,6 @@ pub(crate) fn take_symbol_match<'a>(
     })
 }
 
-
 /// Decide whether a schema vertex of kind `target_kind` satisfies a
 /// SYMBOL `name` reference in the grammar.
 ///
@@ -1033,7 +1035,11 @@ pub(crate) fn take_symbol_match<'a>(
 /// grammar's hidden, supertype, and named-alias dispatch": this is
 /// exactly the relation tree-sitter induces on `(parser-visible kind,
 /// rule-position)` pairs.
-pub(crate) fn kind_satisfies_symbol(grammar: &Grammar, target_kind: Option<&str>, name: &str) -> bool {
+pub(crate) fn kind_satisfies_symbol(
+    grammar: &Grammar,
+    target_kind: Option<&str>,
+    name: &str,
+) -> bool {
     let Some(target) = target_kind else {
         return false;
     };
@@ -1045,7 +1051,6 @@ pub(crate) fn kind_satisfies_symbol(grammar: &Grammar, target_kind: Option<&str>
         .get(target)
         .is_some_and(|set| set.contains(name))
 }
-
 
 /// Emit a child reached through an ALIAS production using the
 /// alias's inner content as the rule, not `grammar.rules[child.kind]`.
@@ -1151,7 +1156,6 @@ pub(crate) fn emit_aliased_child(
     )
 }
 
-
 pub(crate) fn emit_in_child_context(
     protocol: &str,
     schema: &Schema,
@@ -1201,7 +1205,6 @@ pub(crate) fn emit_in_child_context(
         }
     }
 }
-
 
 /// The canonical default section for a `CHOICE`, used when the dependent-
 /// optic review (grammar unification + variant-tag tie-break) does not

@@ -313,11 +313,12 @@ impl UnifiedCodec {
                 });
             }
         }
-        let updated_cst =
-            inject_tabular_cst(instance, complement, schema).map_err(|e| EmitInstanceError::Emit {
+        let updated_cst = inject_tabular_cst(instance, complement, schema).map_err(|e| {
+            EmitInstanceError::Emit {
                 protocol: self.protocol.clone(),
                 message: e.to_string(),
-            })?;
+            }
+        })?;
         self.lang_parser
             .emit(&updated_cst)
             .map_err(|e| EmitInstanceError::Emit {

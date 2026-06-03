@@ -26,14 +26,12 @@
 
 use super::Edge;
 
-
 /// Linear cursor over a vertex's outgoing edges, used to thread
 /// children through a production rule without double-consuming them.
 pub(crate) struct ChildCursor<'a> {
     pub(crate) edges: &'a [&'a Edge],
     pub(crate) consumed: Vec<bool>,
 }
-
 
 impl<'a> ChildCursor<'a> {
     pub(crate) fn new(edges: &'a [&'a Edge]) -> Self {
@@ -80,7 +78,6 @@ impl<'a> ChildCursor<'a> {
     }
 }
 
-
 thread_local! {
     pub(crate) static EMIT_DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     /// Set of `(vertex_id, rule_name)` pairs that are currently being
@@ -111,10 +108,8 @@ thread_local! {
         const { std::cell::RefCell::new(None) };
 }
 
-
 /// RAII guard that restores the prior `EMIT_FIELD_CONTEXT` value on drop.
 pub(crate) struct FieldContextGuard(Option<String>);
-
 
 impl Drop for FieldContextGuard {
     fn drop(&mut self) {
@@ -122,12 +117,10 @@ impl Drop for FieldContextGuard {
     }
 }
 
-
 pub(crate) fn push_field_context(name: &str) -> FieldContextGuard {
     let prev = EMIT_FIELD_CONTEXT.with(|f| f.borrow_mut().replace(name.to_owned()));
     FieldContextGuard(prev)
 }
-
 
 /// Clear the field context for the duration of a child-context walk.
 /// The child's own production has its own FIELDs that set their own
@@ -136,7 +129,6 @@ pub(crate) fn clear_field_context() -> FieldContextGuard {
     let prev = EMIT_FIELD_CONTEXT.with(|f| f.borrow_mut().take());
     FieldContextGuard(prev)
 }
-
 
 pub(crate) fn current_field_context() -> Option<String> {
     EMIT_FIELD_CONTEXT.with(|f| f.borrow().clone())

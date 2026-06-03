@@ -315,7 +315,8 @@ fn grade_audit(protocol: &str) -> (usize, usize, usize, usize) {
 /// PP_EMIT_SRC='let s = "hi";'`.
 #[test]
 fn emit_one_probe() {
-    let (Ok(proto), Ok(src)) = (std::env::var("PP_EMIT_PROTO"), std::env::var("PP_EMIT_SRC")) else {
+    let (Ok(proto), Ok(src)) = (std::env::var("PP_EMIT_PROTO"), std::env::var("PP_EMIT_SRC"))
+    else {
         return;
     };
     std::thread::Builder::new()
@@ -338,9 +339,7 @@ fn emit_one_probe() {
                 for constraints in s.constraints.values_mut() {
                     constraints.retain(|c| {
                         let so = c.sort.as_ref();
-                        !(so == "start-byte"
-                            || so == "end-byte"
-                            || so.starts_with("interstitial-"))
+                        !(so == "start-byte" || so == "end-byte" || so.starts_with("interstitial-"))
                     });
                 }
                 s
@@ -373,7 +372,11 @@ fn emit_one_probe() {
                                 .collect()
                         })
                         .unwrap_or_default();
-                    eprintln!("DUMP {} [{}] kids={kids:?} cons={cons:?}", v.kind.as_ref(), id.as_ref());
+                    eprintln!(
+                        "DUMP {} [{}] kids={kids:?} cons={cons:?}",
+                        v.kind.as_ref(),
+                        id.as_ref()
+                    );
                 }
             }
             let e1 = reg
@@ -439,7 +442,9 @@ fn corpus_bytefail_report() {
                     eprintln!("BYTEFAIL[{name}] REPARSE-ERR");
                     continue;
                 };
-                let e2 = reg.emit_pretty_with_protocol(&proto, &s2).unwrap_or_default();
+                let e2 = reg
+                    .emit_pretty_with_protocol(&proto, &s2)
+                    .unwrap_or_default();
                 let ok = e1 == e2
                     && kind_multiset(&s1) == kind_multiset(&s2)
                     && edge_multiset(&s1) == edge_multiset(&s2);
@@ -473,7 +478,10 @@ fn corpus_g1_diff_report() {
                     continue;
                 };
                 if s1.vertices.is_empty()
-                    || s1.vertices.values().any(|v| v.kind.as_ref().contains("ERROR"))
+                    || s1
+                        .vertices
+                        .values()
+                        .any(|v| v.kind.as_ref().contains("ERROR"))
                 {
                     continue;
                 }
@@ -496,7 +504,7 @@ fn corpus_g1_diff_report() {
                 let mut line = Vec::new();
                 for k in keys {
                     let d = i64::try_from(*kb.get(&k).unwrap_or(&0)).unwrap_or(0)
-                            - i64::try_from(*ka.get(&k).unwrap_or(&0)).unwrap_or(0);
+                        - i64::try_from(*ka.get(&k).unwrap_or(&0)).unwrap_or(0);
                     if d != 0 {
                         *delta_tally.entry(k.clone()).or_default() += d;
                         line.push(format!("{k}{d:+}"));

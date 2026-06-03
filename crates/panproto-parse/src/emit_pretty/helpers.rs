@@ -24,8 +24,7 @@
 
 //! `emit_pretty::helpers` (Phase A decomposition).
 
-use super::{Production, Grammar, TokenRole, BTreeMap};
-
+use super::{BTreeMap, Grammar, Production, TokenRole};
 
 /// Check if a SEQ's bracket at position `idx` triggers indentation.
 #[allow(clippy::branches_sharing_code)]
@@ -92,7 +91,6 @@ pub(crate) fn seq_bracket_triggers_indent(
     }
 }
 
-
 /// Check if a production's rule body starts with a bracket pair's open
 /// `STRING`. Used to suppress `ForceSpace` before call-pattern members
 /// (e.g. `argument_list` whose rule starts with `(`).
@@ -139,7 +137,6 @@ pub(crate) fn member_has_leading_bracket(prod: &Production, grammar: &Grammar) -
     }
 }
 
-
 pub(crate) fn first_string_of(prod: &Production) -> Option<&str> {
     match prod {
         Production::String { value } => Some(value.as_str()),
@@ -155,12 +152,10 @@ pub(crate) fn first_string_of(prod: &Production) -> Option<&str> {
     }
 }
 
-
 /// Check if any member of a slice contains REPEAT/REPEAT1 recursively.
 pub(crate) fn has_repeat_recursive(members: &[Production]) -> bool {
     members.iter().any(has_repeat_in)
 }
-
 
 pub(crate) fn has_repeat_in(prod: &Production) -> bool {
     match prod {
@@ -182,7 +177,6 @@ pub(crate) fn has_repeat_in(prod: &Production) -> bool {
     }
 }
 
-
 /// A single-character unary sign (`-`, `+`) that, when it sits in an
 /// optional *leading* slot before a single operand, glues to that
 /// operand (`signed_number`: `-1.0`, not `- 1.0`). These are excluded
@@ -192,7 +186,6 @@ pub(crate) fn has_repeat_in(prod: &Production) -> bool {
 pub(crate) fn is_unary_sign(s: &str) -> bool {
     matches!(s, "-" | "+")
 }
-
 
 /// Extract the unary sign STRING(s) carried by an optional *leading*
 /// SEQ member: a `CHOICE[sign | … | BLANK]` or `OPTIONAL(sign)`. Returns
@@ -223,7 +216,6 @@ pub(crate) fn leading_optional_sign(prod: &Production) -> Vec<String> {
     }
 }
 
-
 /// The canonical closing delimiter for an opening bracket STRING, if it
 /// is one of the universal nesting brackets. `<`/`>` are excluded: they
 /// are ambiguous with comparison operators and are handled by the
@@ -237,14 +229,12 @@ pub(crate) fn matching_close_bracket(open: &str) -> Option<&'static str> {
     }
 }
 
-
 /// Check if a string value is word-like (alphanumeric/underscore).
 pub(crate) fn is_word_like(s: &str) -> bool {
     !s.is_empty()
         && s.chars().all(|c| c.is_alphanumeric() || c == '_')
         && s.starts_with(|c: char| c.is_alphabetic() || c == '_')
 }
-
 
 /// A prefix `STRING` (position before all content in a non-`CHOICE` SEQ) is a
 /// tight sigil (`BracketOpen`) only when it is NOT a common binary/assignment
@@ -275,7 +265,6 @@ pub(crate) fn is_prefix_sigil(s: &str) -> bool {
     }
 }
 
-
 /// Unwrap wrapper productions (`Token`, `ImmediateToken`, `Prec`, `PrecLeft`,
 /// `PrecRight`, `PrecDynamic`, `Field`, `Reserved`) to find the inner `STRING`
 /// value. Returns `None` if the production is not a (possibly wrapped)
@@ -294,7 +283,6 @@ pub(crate) fn is_immediate_token(prod: &Production) -> bool {
     }
 }
 
-
 pub(crate) fn unwrap_to_string(prod: &Production) -> Option<&str> {
     match prod {
         Production::String { value } => Some(value.as_str()),
@@ -309,7 +297,6 @@ pub(crate) fn unwrap_to_string(prod: &Production) -> Option<&str> {
         _ => None,
     }
 }
-
 
 pub(crate) fn extract_line_comment_prefix(prod: &Production) -> Option<String> {
     match prod {
@@ -453,7 +440,6 @@ pub(crate) fn pattern_has_newline_excluding_class(value: &str) -> bool {
     false
 }
 
-
 /// The `PATTERN` regex of a (possibly token/precedence-wrapped) bare
 /// terminal production, or `None` if it is not a bare pattern.
 pub(crate) fn terminal_pattern_of(prod: &Production) -> Option<&str> {
@@ -469,7 +455,6 @@ pub(crate) fn terminal_pattern_of(prod: &Production) -> Option<&str> {
         _ => None,
     }
 }
-
 
 /// True when a `PATTERN` regex consumes the rest of the source line: it
 /// ends in an unbounded `.*` / `.+` (the regex `.` excludes newlines, so
@@ -524,18 +509,15 @@ pub(crate) fn is_rest_of_line_pattern(value: &str) -> bool {
     while k < rb.len() {
         match rb[k] {
             b')' | b'?' | b'*' | b'+' | b'$' => k += 1,
-            b'\\' if k + 1 < rb.len() => {
-                match rb[k + 1] {
-                    b'n' | b'r' | b'f' | b't' | b'v' | b'z' | b'Z' => k += 2,
-                    _ => return false,
-                }
-            }
+            b'\\' if k + 1 < rb.len() => match rb[k + 1] {
+                b'n' | b'r' | b'f' | b't' | b'v' | b'z' | b'Z' => k += 2,
+                _ => return false,
+            },
             _ => return false,
         }
     }
     true
 }
-
 
 /// The role for a leaf vertex's captured `literal-value`, given its
 /// kind: a string/heredoc delimiter external (`string_start`/`string_end`)
@@ -551,7 +533,6 @@ pub(crate) fn leaf_terminal_role(grammar: &Grammar, kind: &str) -> TokenRole {
         TokenRole::Terminal
     }
 }
-
 
 /// True when a production is (a possibly precedence/token-wrapped) bare
 /// `PATTERN` terminal — the shape a case-insensitive keyword takes inside
@@ -571,7 +552,6 @@ pub(crate) fn alias_content_is_terminal_pattern(prod: &Production) -> bool {
     }
 }
 
-
 /// Unwrap precedence/token wrappers to reach a SEQ production.
 pub(crate) fn unwrap_to_seq(prod: &Production) -> &Production {
     match prod {
@@ -585,7 +565,6 @@ pub(crate) fn unwrap_to_seq(prod: &Production) -> &Production {
     }
 }
 
-
 /// The SYMBOL name a member references directly (no aliasing), if it is a
 /// bare `SYMBOL`. Used to spot external delimiter tokens.
 pub(crate) fn external_symbol_name(prod: &Production) -> Option<&str> {
@@ -594,7 +573,6 @@ pub(crate) fn external_symbol_name(prod: &Production) -> Option<&str> {
         _ => None,
     }
 }
-
 
 /// Collect all SYMBOL names referenced anywhere in the grammar rules.
 pub(crate) fn collect_all_symbol_refs(
@@ -632,7 +610,6 @@ pub(crate) fn collect_all_symbol_refs(
     refs
 }
 
-
 /// Collect every literal STRING token directly inside `production`
 /// (without descending into SYMBOLs / hidden rules). Used to score
 /// CHOICE alternatives against the parent vertex's interstitials so
@@ -668,7 +645,6 @@ pub(crate) fn literal_strings(production: &Production) -> Vec<String> {
     walk(production, &mut out);
     out
 }
-
 
 /// Collect every SYMBOL name reachable from `production` without
 /// crossing into nested rules. Used by `pick_choice_with_cursor` to
@@ -722,7 +698,6 @@ pub(crate) fn referenced_symbols(production: &Production) -> Vec<&str> {
     out
 }
 
-
 #[cfg(test)]
 pub(crate) fn first_symbol(production: &Production) -> Option<&str> {
     match production {
@@ -745,7 +720,6 @@ pub(crate) fn first_symbol(production: &Production) -> Option<&str> {
     }
 }
 
-
 pub(crate) fn prec_value(prod: &Production) -> i64 {
     match prod {
         Production::Prec { value, .. }
@@ -755,7 +729,6 @@ pub(crate) fn prec_value(prod: &Production) -> i64 {
         _ => 0,
     }
 }
-
 
 /// Names of the `FIELD`s an alternative is *forced* to bind if taken: a
 /// field is mandatory unless it is reachable only through an `OPTIONAL`,
@@ -774,7 +747,11 @@ pub(crate) fn mandatory_field_names(production: &Production) -> Vec<&str> {
     out
 }
 
-fn collect_mandatory_fields<'p>(production: &'p Production, mandatory: bool, out: &mut Vec<&'p str>) {
+fn collect_mandatory_fields<'p>(
+    production: &'p Production,
+    mandatory: bool,
+    out: &mut Vec<&'p str>,
+) {
     match production {
         Production::Field { name, content } => {
             if mandatory {
@@ -871,7 +848,6 @@ pub(crate) fn has_field_in(production: &Production, edge_kinds: &[&str]) -> bool
     }
 }
 
-
 /// If `p` unwraps to an ALIAS whose inner content is a CHOICE-of-STRINGs
 /// (or a single STRING), return that set. Otherwise None.
 pub(crate) fn literal_choice_set(p: &Production) -> Option<Vec<&str>> {
@@ -908,7 +884,6 @@ pub(crate) fn literal_choice_set(p: &Production) -> Option<Vec<&str>> {
     }
 }
 
-
 /// True iff `pattern` matches a (possibly optional / repeated) sequence
 /// of carriage-return and newline characters only. Examples: `\r?\n`,
 /// `\n`, `\r\n`, `\n+`, `\r?\n+`. Distinguishes structural newline
@@ -941,7 +916,6 @@ pub(crate) fn is_newline_alt(grammar: &Grammar, alt: &Production) -> bool {
     }
 }
 
-
 pub(crate) fn contains_newline_pattern(prod: &Production) -> bool {
     match prod {
         Production::Pattern { value } => is_newline_like_pattern(value),
@@ -962,7 +936,6 @@ pub(crate) fn contains_newline_pattern(prod: &Production) -> bool {
     }
 }
 
-
 pub(crate) fn is_newline_like_pattern(pattern: &str) -> bool {
     if pattern.is_empty() {
         return false;
@@ -976,7 +949,6 @@ pub(crate) fn is_newline_like_pattern(pattern: &str) -> bool {
         .iter()
         .all(|branch| is_newline_branch(branch))
 }
-
 
 /// One branch of a newline pattern: a non-empty run of `\n` / `\r` atoms
 /// (raw or escaped), newline-only character classes (`[\r\n]`), and
@@ -1032,7 +1004,6 @@ pub(crate) fn is_newline_branch(branch: &str) -> bool {
     saw_newline_atom
 }
 
-
 /// Split a regex on its top-level `|` alternation operators, ignoring `|`
 /// that is escaped (`\|`) or inside a character class (`[...]`). Returns the
 /// whole pattern as a single element when there is no top-level alternation.
@@ -1060,7 +1031,6 @@ pub(crate) fn split_top_level_alternation(pattern: &str) -> Vec<&str> {
     parts.push(&pattern[start..]);
     parts
 }
-
 
 /// True iff `pattern` matches a (possibly quantified) run of generic
 /// whitespace characters: `\s+`, `[ \t]+`, ` +`, `\s*`. Such patterns
@@ -1099,7 +1069,6 @@ pub(crate) fn is_whitespace_only_pattern(pattern: &str) -> bool {
     false
 }
 
-
 /// True iff `pattern` can match a string whose first character is an
 /// ordinary space, so that any layout space the emitter inserts *before*
 /// this terminal would be absorbed into the terminal's text on re-parse.
@@ -1133,7 +1102,6 @@ pub(crate) fn pattern_absorbs_leading_space(pattern: &str) -> bool {
     }
 }
 
-
 pub(crate) fn placeholder_for_pattern(pattern: &str) -> String {
     // Heuristic placeholder for unconstrained PATTERN terminals.
     //
@@ -1166,7 +1134,6 @@ pub(crate) fn placeholder_for_pattern(pattern: &str) -> String {
         "_".into()
     }
 }
-
 
 /// Decode a tree-sitter PATTERN whose regex is a simple literal
 /// (newline, semicolon, comma, etc.) to the byte sequence it matches.
@@ -1265,21 +1232,29 @@ mod line_comment_prefix_tests {
     use super::*;
 
     fn pat(v: &str) -> Production {
-        Production::Pattern { value: v.to_string() }
+        Production::Pattern {
+            value: v.to_string(),
+        }
     }
     fn string(v: &str) -> Production {
-        Production::String { value: v.to_string() }
+        Production::String {
+            value: v.to_string(),
+        }
     }
 
     #[test]
     fn newline_excluding_class_detected_anywhere() {
         // C-family line-comment body: the negated class is nested inside an
         // alternation, not at the start.
-        assert!(pattern_has_newline_excluding_class(r"(\\+(.|\r?\n)|[^\\\n])*"));
+        assert!(pattern_has_newline_excluding_class(
+            r"(\\+(.|\r?\n)|[^\\\n])*"
+        ));
         // JS/TS multi-terminator form.
         assert!(pattern_has_newline_excluding_class(r"[^\r\n  ]*"));
         // toml control-byte form.
-        assert!(pattern_has_newline_excluding_class(r"[^\x00-\x08\x0a-\x1f\x7f]"));
+        assert!(pattern_has_newline_excluding_class(
+            r"[^\x00-\x08\x0a-\x1f\x7f]"
+        ));
         // A positive class containing \n is NOT a rest-of-line class.
         assert!(!pattern_has_newline_excluding_class(r"[\n]+"));
         // A bare wildcard is handled separately (no negated class here).
@@ -1316,11 +1291,7 @@ mod line_comment_prefix_tests {
             members: vec![string("//"), pat(r"(\\+(.|\r?\n)|[^\\\n])*")],
         };
         let block = Production::Seq {
-            members: vec![
-                string("/*"),
-                pat(r"[^*]*\*+([^/*][^*]*\*+)*"),
-                string("/"),
-            ],
+            members: vec![string("/*"), pat(r"[^*]*\*+([^/*][^*]*\*+)*"), string("/")],
         };
         let rule = Production::Token {
             content: Box::new(Production::Choice {
@@ -1338,7 +1309,9 @@ mod line_comment_prefix_tests {
         let rule = Production::Seq {
             members: vec![
                 pat("#="),
-                Production::Symbol { name: "_block_comment_rest".to_string() },
+                Production::Symbol {
+                    name: "_block_comment_rest".to_string(),
+                },
             ],
         };
         assert_eq!(extract_line_comment_prefix(&rule), None);

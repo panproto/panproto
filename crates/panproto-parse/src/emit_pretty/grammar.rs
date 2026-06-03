@@ -24,8 +24,13 @@
 
 //! `emit_pretty::grammar` (Phase A decomposition).
 
-use super::{Deserialize, BTreeMap, ParseError, kind_satisfies_symbol, unwrap_to_string, is_word_like, has_repeat_recursive, leading_optional_sign, is_prefix_sigil, matching_close_bracket, is_immediate_token, extract_line_comment_prefix, collect_all_symbol_refs, unwrap_to_seq, external_symbol_name, referenced_symbols, terminal_pattern_of, pattern_absorbs_leading_space, is_rest_of_line_pattern};
-
+use super::{
+    BTreeMap, Deserialize, ParseError, collect_all_symbol_refs, external_symbol_name,
+    extract_line_comment_prefix, has_repeat_recursive, is_immediate_token, is_prefix_sigil,
+    is_rest_of_line_pattern, is_word_like, kind_satisfies_symbol, leading_optional_sign,
+    matching_close_bracket, pattern_absorbs_leading_space, referenced_symbols, terminal_pattern_of,
+    unwrap_to_seq, unwrap_to_string,
+};
 
 // ═══════════════════════════════════════════════════════════════════
 // Grammar JSON model
@@ -204,7 +209,6 @@ pub enum Production {
     },
 }
 
-
 /// Structural role of a STRING token within a grammar rule.
 ///
 /// Derived at Grammar construction time from the token's position in
@@ -242,7 +246,6 @@ pub enum TokenRole {
     /// [`panproto_gat::LayoutRole::Immediate`].
     Immediate,
 }
-
 
 /// A grammar's production-rule table, deserialized from `grammar.json`.
 ///
@@ -428,7 +431,6 @@ pub struct Grammar {
     pub line_rest_kinds: std::collections::HashSet<String>,
 }
 
-
 pub(crate) fn deserialize_supertypes<'de, D>(
     deserializer: D,
 ) -> Result<std::collections::HashSet<String>, D::Error>
@@ -452,7 +454,6 @@ where
     }
     Ok(out)
 }
-
 
 pub(crate) fn deserialize_extras<'de, D>(
     deserializer: D,
@@ -495,7 +496,6 @@ where
     }
     Ok(out)
 }
-
 
 impl Grammar {
     /// Parse a grammar's `grammar.json` bytes.
@@ -564,7 +564,6 @@ impl Grammar {
         Ok(grammar)
     }
 }
-
 
 /// Compute the subtyping relation as a forward-indexed map from a
 /// SYMBOL name to the set of vertex kinds that satisfy that SYMBOL.
@@ -872,7 +871,6 @@ pub(crate) fn compute_subtype_closure(
     subtypes
 }
 
-
 /// Compute the Yield set for every rule in the grammar.
 ///
 /// `Yield(P)` is the set of concrete vertex kinds that can appear as
@@ -897,7 +895,6 @@ pub(crate) fn compute_yield_sets(
     }
     cache
 }
-
 
 /// Compute the Yield set of an arbitrary production node.
 ///
@@ -1014,7 +1011,6 @@ pub(crate) fn yield_of_production(
     }
 }
 
-
 // ═══════════════════════════════════════════════════════════════════
 // node-types.json integration
 // ═══════════════════════════════════════════════════════════════════
@@ -1029,7 +1025,6 @@ pub(crate) type NodeTypeResult = (
     >,
     std::collections::HashMap<String, std::collections::HashSet<String>>,
 );
-
 
 pub(crate) fn build_node_type_children(nt_bytes: &[u8]) -> NodeTypeResult {
     use std::collections::{HashMap, HashSet};
@@ -1080,7 +1075,6 @@ pub(crate) fn build_node_type_children(nt_bytes: &[u8]) -> NodeTypeResult {
     }
     (all_map, field_map, nonfield_map)
 }
-
 
 /// Augment `grammar.subtypes` with child-kind data from node-types.json.
 ///
@@ -1151,7 +1145,6 @@ pub(crate) fn augment_subtypes_from_node_types(grammar: &mut Grammar) {
     }
 }
 
-
 /// Walk a production and collect referenced symbols, separating those
 /// inside FIELD bodies (keyed by field name) from those outside any FIELD.
 pub(crate) fn collect_field_symbols(
@@ -1191,7 +1184,6 @@ pub(crate) fn collect_field_symbols(
     }
 }
 
-
 pub(crate) fn collect_symbols_flat(prod: &Production, out: &mut Vec<String>) {
     match prod {
         Production::Symbol { name } => out.push(name.clone()),
@@ -1216,10 +1208,11 @@ pub(crate) fn collect_symbols_flat(prod: &Production, out: &mut Vec<String>) {
     }
 }
 
-
 /// Build a map from external scanner symbol names to their anonymous
 /// ALIAS values by walking every rule body in the grammar.
-pub(crate) fn build_external_alias_map(grammar: &Grammar) -> std::collections::HashMap<String, String> {
+pub(crate) fn build_external_alias_map(
+    grammar: &Grammar,
+) -> std::collections::HashMap<String, String> {
     let mut map = std::collections::HashMap::new();
     fn walk(
         grammar: &Grammar,
@@ -1266,13 +1259,14 @@ pub(crate) fn build_external_alias_map(grammar: &Grammar) -> std::collections::H
     map
 }
 
-
 /// Build a map from named-alias values to their source symbol names.
 /// When tree-sitter emits a vertex with kind `V` via
 /// `alias($.source, $.V)`, the grammar has no rule keyed by `V`.
 /// This map lets the emitter resolve `V → source` and walk the source
 /// rule with proper token roles and bracket pairs.
-pub(crate) fn build_named_alias_map(grammar: &Grammar) -> std::collections::HashMap<String, String> {
+pub(crate) fn build_named_alias_map(
+    grammar: &Grammar,
+) -> std::collections::HashMap<String, String> {
     let mut map = std::collections::HashMap::new();
     fn walk(prod: &Production, map: &mut std::collections::HashMap<String, String>) {
         match prod {
@@ -1313,7 +1307,6 @@ pub(crate) fn build_named_alias_map(grammar: &Grammar) -> std::collections::Hash
     map
 }
 
-
 /// Compute token roles for every STRING value in every grammar rule.
 ///
 /// For each rule R, analyzes the production body to classify every
@@ -1326,10 +1319,10 @@ pub(crate) fn build_named_alias_map(grammar: &Grammar) -> std::collections::Hash
 /// set. Two STRINGs are a matched pair iff they are the first and
 /// last STRING-typed members of the same SEQ with at least one
 /// non-STRING member between them and open != close.
-pub(crate) type RoleMap = std::collections::HashMap<String, std::collections::HashMap<String, TokenRole>>;
+pub(crate) type RoleMap =
+    std::collections::HashMap<String, std::collections::HashMap<String, TokenRole>>;
 
 pub(crate) type IndentSet = std::collections::HashSet<(String, String)>;
-
 
 pub(crate) fn compute_token_roles(grammar: &Grammar) -> (RoleMap, IndentSet) {
     use std::collections::{HashMap, HashSet};
@@ -1346,7 +1339,6 @@ pub(crate) fn compute_token_roles(grammar: &Grammar) -> (RoleMap, IndentSet) {
 
     (all_roles, indent_triggers)
 }
-
 
 /// Recursively classify STRING tokens in a production body.
 pub(crate) fn classify_production(
@@ -1395,7 +1387,6 @@ pub(crate) fn classify_production(
         _ => {}
     }
 }
-
 
 /// Classify STRING tokens within a SEQ. This is where bracket pairs
 /// are detected and roles assigned.
@@ -1499,7 +1490,6 @@ pub(crate) fn classify_seq(
     }
 }
 
-
 /// Classify STRING tokens in a REPEAT body. The first STRING in a
 /// REPEAT body's inner SEQ is a separator (e.g. `,` in
 /// `REPEAT(SEQ [",", item])`).
@@ -1520,12 +1510,14 @@ pub(crate) fn classify_repeat_body(
     }
 }
 
-
 /// Classify STRING tokens within a SEQ by structural position, returning
 /// a role for each member position. Non-STRING positions get `None`.
 /// This is the inline variant of `classify_seq` used at emission time
 /// to avoid the flat per-rule map's conflation of same-text tokens.
-pub(crate) fn classify_seq_positions(members: &[Production], in_choice: bool) -> Vec<Option<TokenRole>> {
+pub(crate) fn classify_seq_positions(
+    members: &[Production],
+    in_choice: bool,
+) -> Vec<Option<TokenRole>> {
     let mut roles: Vec<Option<TokenRole>> = vec![None; members.len()];
 
     let string_positions: Vec<(usize, &str)> = members
@@ -1645,7 +1637,6 @@ pub(crate) fn classify_seq_positions(members: &[Production], in_choice: bool) ->
     roles
 }
 
-
 /// Extract line-comment prefixes from the grammar's extras rules.
 ///
 /// A line comment is identified by: the rule name is in
@@ -1663,7 +1654,6 @@ pub(crate) fn extract_line_comment_prefixes(grammar: &Grammar) -> Vec<String> {
     }
     prefixes
 }
-
 
 // ═══════════════════════════════════════════════════════════════════
 // Format policy
@@ -1701,7 +1691,6 @@ pub(crate) fn classify_external_layout_tokens(grammar: &mut Grammar) {
     }
 }
 
-
 /// Identify external scanner tokens that bracket content, derived from
 /// grammar structure: a rule whose (unwrapped) body is a SEQ whose first
 /// and last members are external SYMBOLs (no grammar rule of their own)
@@ -1728,9 +1717,10 @@ pub(crate) fn classify_external_bracket_delimiters(grammar: &mut Grammar) {
         // The delimiter may be a bare external SYMBOL or an anonymous ALIAS
         // renaming one (ruby `ALIAS{_string_start, value:"\""}`); unwrap to
         // the underlying external name in both cases.
-        let (Some(open), Some(close)) =
-            (delimiter_external_name(first), delimiter_external_name(last))
-        else {
+        let (Some(open), Some(close)) = (
+            delimiter_external_name(first),
+            delimiter_external_name(last),
+        ) else {
             continue;
         };
         if open == close || !is_external(open) || !is_external(close) {
@@ -1819,7 +1809,6 @@ fn collect_visible_external_content<'g>(
     }
 }
 
-
 /// Identify indented-block rules whose opening `_indent` is supplied by
 /// a hidden parent: the rule's body references an external indent-close
 /// token (`_dedent`) but no indent-open token. Python's `block = SEQ[
@@ -1847,7 +1836,6 @@ pub(crate) fn classify_synthetic_indent_rules(grammar: &mut Grammar) {
     grammar.synthetic_indent_rules = rules;
 }
 
-
 /// Collect named terminal kinds whose underlying `PATTERN` can match a
 /// leading space (see [`pattern_absorbs_leading_space`]). Two shapes
 /// produce such a kind on the schema:
@@ -1859,7 +1847,9 @@ pub(crate) fn classify_synthetic_indent_rules(grammar: &mut Grammar) {
 /// In both cases the captured text round-trips through `K`, so a layout
 /// space emitted before it would be absorbed and grow. The pattern is read
 /// through token/precedence wrappers via [`terminal_pattern_of`].
-pub(crate) fn classify_leading_space_terminals(grammar: &Grammar) -> std::collections::HashSet<String> {
+pub(crate) fn classify_leading_space_terminals(
+    grammar: &Grammar,
+) -> std::collections::HashSet<String> {
     let mut out = std::collections::HashSet::new();
 
     // Named rules that are themselves a bare terminal pattern.
@@ -1911,7 +1901,6 @@ pub(crate) fn classify_leading_space_terminals(grammar: &Grammar) -> std::collec
     }
     out
 }
-
 
 /// Classify named terminal kinds whose underlying `PATTERN` runs to the end
 /// of the line (`hash_bang_line = #!.*`, `shebang = #!...`). These are

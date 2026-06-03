@@ -15,11 +15,7 @@
 // orphaned dead code, and the tests run when those features are enabled.
 #![cfg(all(
     feature = "grammars",
-    any(
-        feature = "lang-csharp",
-        feature = "lang-al",
-        feature = "lang-erlang"
-    )
+    any(feature = "lang-csharp", feature = "lang-al", feature = "lang-erlang")
 ))]
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 

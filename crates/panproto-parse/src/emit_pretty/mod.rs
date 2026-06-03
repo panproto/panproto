@@ -67,23 +67,23 @@
 //! per-language conventions) is a polish layer that lives outside
 //! this module.
 
+mod complement;
+mod cursor;
 mod grammar;
 mod helpers;
-mod cursor;
-mod complement;
 mod layout;
 mod review;
 mod unify;
 
-pub(crate) use std::collections::BTreeMap;
+pub(crate) use crate::error::ParseError;
 pub(crate) use panproto_schema::{Edge, Schema};
 pub(crate) use serde::Deserialize;
-pub(crate) use crate::error::ParseError;
+pub(crate) use std::collections::BTreeMap;
 
+pub(crate) use complement::*;
+pub(crate) use cursor::*;
 pub(crate) use grammar::*;
 pub(crate) use helpers::*;
-pub(crate) use cursor::*;
-pub(crate) use complement::*;
 pub(crate) use layout::*;
 pub(crate) use review::*;
 pub(crate) use unify::*;
@@ -91,7 +91,6 @@ pub(crate) use unify::*;
 // Public API surface (reached via crate::emit_pretty::*).
 pub use grammar::{Grammar, Production, TokenRole};
 pub use layout::FormatPolicy;
-
 
 // ═══════════════════════════════════════════════════════════════════
 // Emitter
@@ -141,7 +140,6 @@ pub fn emit_pretty(
     Ok(out.finish())
 }
 
-
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -189,7 +187,9 @@ mod tests {
     fn rest_of_line_pattern_detects_unbounded_tail_only() {
         // Genuine rest-of-line terminals (unbounded `.*` / `.+` to EOL).
         assert!(is_rest_of_line_pattern("#!.*"));
-        assert!(is_rest_of_line_pattern("#![\\r\\f\\t\\v ]*([^\\[\\n].*)?\\n"));
+        assert!(is_rest_of_line_pattern(
+            "#![\\r\\f\\t\\v ]*([^\\[\\n].*)?\\n"
+        ));
         assert!(is_rest_of_line_pattern("(;|#!|# ).*"));
         // Bounded or non-line tails must NOT be treated as rest-of-line.
         assert!(!is_rest_of_line_pattern("@\\[.*\\]")); // firrtl info: `.*` then `]`

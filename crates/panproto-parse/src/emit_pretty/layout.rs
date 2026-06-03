@@ -24,8 +24,7 @@
 
 //! `emit_pretty::layout` (Phase A decomposition).
 
-use super::{TokenRole, Grammar, is_word_like};
-
+use super::{Grammar, TokenRole, is_word_like};
 
 // ═══════════════════════════════════════════════════════════════════
 
@@ -56,7 +55,6 @@ pub struct FormatPolicy {
     pub indent_close: Vec<String>,
 }
 
-
 impl Default for FormatPolicy {
     fn default() -> Self {
         Self {
@@ -69,7 +67,6 @@ impl Default for FormatPolicy {
         }
     }
 }
-
 
 // ═══════════════════════════════════════════════════════════════════
 // Token list output with Spacing algebra
@@ -109,7 +106,6 @@ pub(crate) enum Token {
     NoSpace,
 }
 
-
 pub(crate) struct Output<'a> {
     pub(crate) tokens: Vec<Token>,
     pub(crate) policy: &'a FormatPolicy,
@@ -118,12 +114,10 @@ pub(crate) struct Output<'a> {
     pub(crate) cassette: Option<&'a dyn crate::languages::cassettes::GrammarCassette>,
 }
 
-
 #[derive(Clone)]
 pub(crate) struct OutputSnapshot {
     pub(crate) tokens_len: usize,
 }
-
 
 impl<'a> Output<'a> {
     pub(crate) fn new(
@@ -328,13 +322,16 @@ impl<'a> Output<'a> {
     }
 }
 
-
 /// Fold a token list into bytes. The algebra:
 /// * adjacent `Lit`s get a single space iff `needs_space_between(a, b)`,
 /// * `IndentOpen` / `IndentClose` adjust a depth counter,
 /// * `LineBreak` writes `\n` if not already at line start, then the
 ///   next `Lit` writes `indent * indent_width` spaces of indent.
-pub(crate) fn layout(tokens: &[Token], policy: &FormatPolicy, line_comment_prefixes: &[String]) -> Vec<u8> {
+pub(crate) fn layout(
+    tokens: &[Token],
+    policy: &FormatPolicy,
+    line_comment_prefixes: &[String],
+) -> Vec<u8> {
     let mut bytes = Vec::new();
     let mut indent: usize = 0;
     let mut at_line_start = true;
@@ -433,7 +430,6 @@ pub(crate) fn layout(tokens: &[Token], policy: &FormatPolicy, line_comment_prefi
     bytes
 }
 
-
 /// Effective spacing role: word-like bracket tokens (`function`, `end`,
 /// `begin`, `done`, etc.) are structurally brackets (for indentation)
 /// but space like keywords (they need whitespace on both sides).
@@ -446,11 +442,15 @@ pub(crate) fn effective_spacing_role(role: TokenRole, text: &str) -> TokenRole {
     }
 }
 
-
 /// Role-pair spacing table. Determines whether a space separator
 /// should be inserted between two adjacent tokens based on their
 /// structural roles and word-likeness.
-pub(crate) fn needs_space_by_role(last: TokenRole, last_text: &str, next: TokenRole, next_text: &str) -> bool {
+pub(crate) fn needs_space_by_role(
+    last: TokenRole,
+    last_text: &str,
+    next: TokenRole,
+    next_text: &str,
+) -> bool {
     let last = effective_spacing_role(last, last_text);
     let next = effective_spacing_role(next, next_text);
     match (last, next) {
