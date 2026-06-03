@@ -597,9 +597,9 @@ pub(crate) fn terminal_pattern_of(prod: &Production) -> Option<&str> {
 /// `.*`/`.+` except an optional captured newline / end-anchor / closing
 /// group or quantifier.
 pub(crate) fn is_rest_of_line_pattern(value: &str) -> bool {
+    let bytes = value.as_bytes();
     // Find the last `.*` or `.+` whose `.` is a real metacharacter (not an
     // escaped literal dot `\.`).
-    let bytes = value.as_bytes();
     let mut tail_start = None;
     let mut i = 0;
     while i + 1 < bytes.len() {
@@ -618,17 +618,125 @@ pub(crate) fn is_rest_of_line_pattern(value: &str) -> bool {
         }
         i += 1;
     }
-    let Some(start) = tail_start else {
-        return false;
-    };
-    // Everything after the final unbounded `.*`/`.+` must be inert: an
-    // optional captured newline, an end anchor, or a closing group /
-    // quantifier (rust's `([^\[\n].*)?\n` ends `)?\n`). Any literal that
-    // could appear on the same line (a `]`, a word char, ...) means the
-    // tail is bounded and this is NOT a rest-of-line terminal.
-    let rest = &value[start..];
-    let mut k = 0;
+    if let Some(start) = tail_start {
+        return rest_after_unbounded_tail_is_inert(&value[start..]);
+    }
+    // No `.*`/`.+`: a line comment may instead end in an unbounded
+    // *newline-excluding negated class* quantifier — forth's `\\[^\n]*`,
+    // the `//[^\n]*` / `#[^\r\n]*` idiom. Find the last `[^...]` whose body
+    // excludes the newline byte and is immediately quantified by `*`/`+`,
+    // then require the remainder to be inert (same rule as the `.*` tail).
+    let mut neg_tail_start = None;
+    let mut i = 0;
+    while i + 1 < bytes.len() {
+        // An unescaped `[^`: count preceding backslashes; an even count
+        // (including zero) leaves the `[` as a class-open metacharacter.
+        // forth's `\\[^\n]*` has two backslashes (an escaped literal `\`)
+        // before the `[`, so the class IS real.
+        let class_open = bytes[i] == b'[' && bytes[i + 1] == b'^' && {
+            let mut bs = 0;
+            let mut j = i;
+            while j > 0 && bytes[j - 1] == b'\\' {
+                bs += 1;
+                j -= 1;
+            }
+            bs % 2 == 0
+        };
+        if class_open {
+            // Locate the unescaped closing `]` of this negated class.
+            let mut j = i + 2;
+            if j < bytes.len() && bytes[j] == b']' {
+                j += 1; // leading literal `]`
+            }
+            while j < bytes.len() {
+                if bytes[j] == b'\\' {
+                    j += 2;
+                    continue;
+                }
+                if bytes[j] == b']' {
+                    break;
+                }
+                j += 1;
+            }
+            if j < bytes.len() && bytes[j] == b']' {
+                // The inner members (between `[^` and `]`).
+                let inner = &value[i + 2..j];
+                let quant = j + 1;
+                let unbounded = quant < bytes.len()
+                    && (bytes[quant] == b'*' || bytes[quant] == b'+');
+                // A genuine "rest of line" class excludes ONLY newline bytes
+                // (`\n`, optionally `\r`). A class that ALSO excludes other
+                // members (`[^"\\\r\n]` — a quote/backslash-bounded string
+                // fragment) is bounded on the same line and is NOT a line
+                // comment tail.
+                if unbounded && negated_class_excludes_only_newlines(inner) {
+                    neg_tail_start = Some(quant + 1);
+                }
+                i = j + 1;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    match neg_tail_start {
+        Some(start) => rest_after_unbounded_tail_is_inert(&value[start..]),
+        None => false,
+    }
+}
+
+/// Whether a negated character class body (the `...` of `[^...]`) excludes
+/// *only* newline bytes — `\n`, `\r`, and their hex/octal escapes — and
+/// nothing else. Such a class is the regex idiom for "any character up to end
+/// of line" (forth `[^\n]`, `[^\r\n]`); a class that also excludes other
+/// members (`[^"\\\r\n]`) is a same-line-bounded fragment, not a rest-of-line
+/// tail. The body must list at least one newline byte and no non-newline
+/// member.
+fn negated_class_excludes_only_newlines(inner: &str) -> bool {
+    let bytes = inner.as_bytes();
+    let mut i = 0;
+    let mut saw_newline = false;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' && i + 1 < bytes.len() {
+            match bytes[i + 1] {
+                b'n' | b'r' => {
+                    saw_newline = true;
+                    i += 2;
+                }
+                b'x' => {
+                    // `\x0a` / `\x0A` / `\x0d` / `\x0D` are newline bytes.
+                    let hex = inner.get(i + 2..i + 4).unwrap_or("");
+                    if matches!(hex, "0a" | "0A" | "0d" | "0D") {
+                        saw_newline = true;
+                        i += 4;
+                    } else {
+                        return false;
+                    }
+                }
+                _ => return false,
+            }
+        } else {
+            // Any literal member that is not itself a newline disqualifies.
+            match bytes[i] {
+                b'\n' | b'\r' => {
+                    saw_newline = true;
+                    i += 1;
+                }
+                _ => return false,
+            }
+        }
+    }
+    saw_newline
+}
+
+/// Everything after an unbounded rest-of-line tail (`.*`/`.+` or a
+/// newline-excluding `[^...]*`) must be inert for the terminal to genuinely
+/// run to end of line: an optional captured newline, an end anchor, or a
+/// closing group / quantifier (rust's `([^\[\n].*)?\n` ends `)?\n`). Any
+/// literal that could appear on the same line (a `]`, a word char, ...) means
+/// the tail is bounded and this is NOT a rest-of-line terminal.
+fn rest_after_unbounded_tail_is_inert(rest: &str) -> bool {
     let rb = rest.as_bytes();
+    let mut k = 0;
     while k < rb.len() {
         match rb[k] {
             b')' | b'?' | b'*' | b'+' | b'$' => k += 1,

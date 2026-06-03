@@ -191,12 +191,21 @@ mod tests {
             "#![\\r\\f\\t\\v ]*([^\\[\\n].*)?\\n"
         ));
         assert!(is_rest_of_line_pattern("(;|#!|# ).*"));
+        // A line comment may end in an unbounded *newline-only* negated class
+        // (`[^\n]*` / `[^\r\n]*`) rather than `.*` — forth's `\\[^\n]*`, the
+        // `//[^\n]*` / `#[^\r\n]*` idiom.
+        assert!(is_rest_of_line_pattern("\\\\[^\\n]*")); // forth `\` line comment
+        assert!(is_rest_of_line_pattern("//[^\\n]*"));
+        assert!(is_rest_of_line_pattern("#[^\\r\\n]*"));
         // Bounded or non-line tails must NOT be treated as rest-of-line.
         assert!(!is_rest_of_line_pattern("@\\[.*\\]")); // firrtl info: `.*` then `]`
         assert!(!is_rest_of_line_pattern("[^\"\\\\\\r\\n]+")); // string fragment
         assert!(!is_rest_of_line_pattern("[^\\\\\"\\n]+")); // json string_content
         assert!(!is_rest_of_line_pattern("[a-z]+")); // plain identifier
         assert!(!is_rest_of_line_pattern("foo\\.*bar")); // escaped dot, not a metachar
+        // A newline-excluding class that ALSO excludes other members is a
+        // same-line-bounded fragment, not a line-comment tail.
+        assert!(!is_rest_of_line_pattern("\"[^\"\\n]*\"")); // quoted string body
     }
 
     #[test]
