@@ -216,6 +216,90 @@ mod tests {
     }
 
     #[test]
+    fn immediate_token_alias_kinds_classifies_char_body() {
+        // `char_literal` = SEQ[quote-open, REPEAT1(ALIAS{IMMEDIATE_TOKEN
+        // PATTERN, value:"character"}), quote-close]: a quote-pair-delimited
+        // body, so `character` IS tightened. `brace_expression` aliases the
+        // same `\d+` shape to `number` but is bracket-delimited (`{`/`}`), so
+        // `number` is NOT tightened (it is also a freestanding command
+        // argument that must keep its space).
+        let bytes = br#"{
+            "name": "tiny",
+            "rules": {
+                "char_literal": {
+                    "type": "SEQ",
+                    "members": [
+                        {"type": "STRING", "value": "'"},
+                        {
+                            "type": "REPEAT1",
+                            "content": {
+                                "type": "ALIAS",
+                                "named": true,
+                                "value": "character",
+                                "content": {
+                                    "type": "IMMEDIATE_TOKEN",
+                                    "content": {"type": "PATTERN", "value": "[^\\n']"}
+                                }
+                            }
+                        },
+                        {"type": "STRING", "value": "'"}
+                    ]
+                },
+                "brace_expression": {
+                    "type": "SEQ",
+                    "members": [
+                        {"type": "STRING", "value": "{"},
+                        {
+                            "type": "ALIAS",
+                            "named": true,
+                            "value": "number",
+                            "content": {
+                                "type": "IMMEDIATE_TOKEN",
+                                "content": {"type": "PATTERN", "value": "\\d+"}
+                            }
+                        },
+                        {"type": "STRING", "value": "}"}
+                    ]
+                },
+                "plain_alias": {
+                    "type": "ALIAS",
+                    "named": true,
+                    "value": "ident",
+                    "content": {"type": "SYMBOL", "name": "x"}
+                },
+                "kw_literal": {
+                    "type": "SEQ",
+                    "members": [
+                        {"type": "STRING", "value": "'"},
+                        {
+                            "type": "ALIAS",
+                            "named": true,
+                            "value": "identifier",
+                            "content": {
+                                "type": "IMMEDIATE_TOKEN",
+                                "content": {"type": "STRING", "value": "module"}
+                            }
+                        },
+                        {"type": "STRING", "value": "'"}
+                    ]
+                }
+            }
+        }"#;
+        let g = Grammar::from_bytes("tiny", bytes).expect("valid grammar");
+        // Quote-pair-delimited char-class body: tightened.
+        assert!(g.immediate_token_alias_kinds.contains("character"));
+        // Bracket-delimited numeric brace-range body: NOT tightened (the same
+        // `number` kind is a spaced command argument elsewhere). This is the
+        // narrowing that removes db9b280's bash `exit 1` -> `exit1` regression.
+        assert!(!g.immediate_token_alias_kinds.contains("number"));
+        assert!(!g.immediate_token_alias_kinds.contains("ident"));
+        // A word-like keyword alias (Julia `identifier` = IMMEDIATE_TOKEN over
+        // a STRING) is NOT a content fragment and must keep its spacing, even
+        // inside a quote pair.
+        assert!(!g.immediate_token_alias_kinds.contains("identifier"));
+    }
+
+    #[test]
     fn grammar_from_bytes_rejects_malformed_input() {
         let result = Grammar::from_bytes("malformed", b"not json");
         let err = result.expect_err("malformed bytes must yield Err");

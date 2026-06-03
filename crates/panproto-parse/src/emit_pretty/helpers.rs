@@ -298,6 +298,34 @@ pub(crate) fn unwrap_to_string(prod: &Production) -> Option<&str> {
     }
 }
 
+/// True when a production is a *quote delimiter*: a (possibly wrapped) `STRING`
+/// literal whose value ends in a string/char-literal quote character (`'`,
+/// `"`, or `` ` ``), or a `CHOICE` every alternative of which is such a quote
+/// `STRING`. This is the structural signature of the opening/closing token of
+/// a string or character literal (C `char_literal` opens with
+/// `CHOICE["L'","u'","U'","u8'","'"]` and closes with `STRING "'"`; the
+/// `string_literal` quote pair is the `"`-suffixed analogue).
+///
+/// It deliberately does NOT match bracket delimiters (`{`, `(`, `[`) nor an
+/// alias-over-`SYMBOL` delimiter (bash `brace_expression` opens with
+/// `ALIAS{SYMBOL _brace_start, value:"{"}` and closes with
+/// `IMMEDIATE_TOKEN(STRING "}")`), so a numeric brace-range body is never
+/// mistaken for a quoted string body.
+pub(crate) fn is_quote_delimiter(prod: &Production) -> bool {
+    fn ends_in_quote(s: &str) -> bool {
+        matches!(s.chars().last(), Some('\'' | '"' | '`'))
+    }
+    match prod {
+        Production::Choice { members } => {
+            !members.is_empty()
+                && members
+                    .iter()
+                    .all(|m| unwrap_to_string(m).is_some_and(ends_in_quote))
+        }
+        other => unwrap_to_string(other).is_some_and(ends_in_quote),
+    }
+}
+
 pub(crate) fn extract_line_comment_prefix(prod: &Production) -> Option<String> {
     match prod {
         Production::Token { content }

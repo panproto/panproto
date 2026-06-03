@@ -287,6 +287,13 @@ pub(crate) fn emit_vertex(
                 {
                     out.no_space();
                 }
+                // An immediate-token alias (`character` in a `char_literal`)
+                // is lexed only with no preceding whitespace, so hug it to
+                // its predecessor: `'hey'` stays tight rather than re-spacing
+                // to `' h e y'` (whose spaces re-parse as extra `character`s).
+                if grammar.immediate_token_alias_kinds.contains(vkind) {
+                    out.no_space();
+                }
                 out.token_with_role(literal, Some(role));
                 // A rest-of-line terminal (`hash_bang_line = #!.*`) absorbs
                 // any following text on the same line, so the next sibling
@@ -1259,6 +1266,9 @@ pub(crate) fn emit_aliased_child(
                 if grammar.leading_space_terminals.contains(kind)
                     && literal.starts_with([' ', '\t'])
                 {
+                    out.no_space();
+                }
+                if grammar.immediate_token_alias_kinds.contains(kind) {
                     out.no_space();
                 }
                 out.token_with_role(literal, Some(leaf_terminal_role(grammar, kind)));

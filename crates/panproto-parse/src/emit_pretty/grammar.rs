@@ -27,9 +27,10 @@
 use super::{
     BTreeMap, Deserialize, ParseError, collect_all_symbol_refs, external_symbol_name,
     extract_line_comment_prefix, has_repeat_recursive, is_immediate_token, is_prefix_sigil,
-    is_rest_of_line_pattern, is_word_like, kind_satisfies_symbol, leading_optional_sign,
-    literal_strings, matching_close_bracket, pattern_absorbs_leading_space, referenced_symbols,
-    terminal_pattern_of, unwrap_to_seq, unwrap_to_string,
+    is_quote_delimiter, is_rest_of_line_pattern, is_word_like, kind_satisfies_symbol,
+    leading_optional_sign, literal_strings, matching_close_bracket,
+    pattern_absorbs_leading_space, referenced_symbols, terminal_pattern_of, unwrap_to_seq,
+    unwrap_to_string,
 };
 
 // ═══════════════════════════════════════════════════════════════════
@@ -440,6 +441,16 @@ pub struct Grammar {
     /// token. See [`is_rest_of_line_pattern`].
     #[serde(skip)]
     pub line_rest_kinds: std::collections::HashSet<String>,
+    /// Named alias values whose ALIAS content reduces to an `IMMEDIATE_TOKEN`
+    /// (e.g. C's `char_literal` body `ALIAS{IMMEDIATE_TOKEN PATTERN "[^\n']",
+    /// value: "character"}`). The lexer admits such a token only with no
+    /// preceding whitespace, so the emitter hugs it to its predecessor: the
+    /// alias-value carries no grammar rule, so the rule-head `IMMEDIATE_TOKEN`
+    /// no-space check in `emit_vertex` never fires for it. Emitting these
+    /// leaves tight keeps `'hey'` from re-spacing to `' h e y'` (whose spaces
+    /// re-parse as extra `character` nodes).
+    #[serde(skip)]
+    pub immediate_token_alias_kinds: std::collections::HashSet<String>,
 }
 
 pub(crate) fn deserialize_supertypes<'de, D>(
@@ -572,6 +583,7 @@ impl Grammar {
         classify_synthetic_indent_rules(&mut grammar);
         grammar.leading_space_terminals = classify_leading_space_terminals(&grammar);
         grammar.line_rest_kinds = classify_line_rest_kinds(&grammar);
+        grammar.immediate_token_alias_kinds = classify_immediate_token_alias_kinds(&grammar);
         grammar.yield_sets = compute_yield_sets(&grammar);
         Ok(grammar)
     }
@@ -1984,6 +1996,121 @@ pub(crate) fn classify_leading_space_terminals(
                     walk(m, out);
                 }
             }
+            _ => {}
+        }
+    }
+    for rule in grammar.rules.values() {
+        walk(rule, &mut out);
+    }
+    out
+}
+
+/// Classify named alias values whose ALIAS content is an `IMMEDIATE_TOKEN`
+/// wrapping a bare `PATTERN` content fragment AND which appears as the
+/// quote-pair-delimited *body* of a string/character literal (C
+/// `char_literal`'s `character` = `[^\n']`, `string_literal`'s
+/// `string_content` = `[^\\"\n]+`). Such a token is lexed only with no
+/// preceding whitespace; since the alias value has no grammar rule, the
+/// rule-head `IMMEDIATE_TOKEN` no-space check never fires, so the emitter
+/// records these kinds to emit them tight (`'hey'` stays tight rather than
+/// re-spacing to `' h e y'`, whose spaces re-parse as extra `character`s).
+///
+/// Two structural conditions, BOTH required:
+///
+/// 1. The immediate-token content reduces to a bare `PATTERN` (a character-
+///    class content fragment), NOT a `STRING` / `CHOICE`-of-strings. Julia
+///    spells a context-sensitive keyword-as-identifier as
+///    `ALIAS{IMMEDIATE_TOKEN CHOICE[STRING "module", …], value:"identifier"}`,
+///    a word-like token that must keep its surrounding whitespace
+///    (`function foo`, not `functionfoo`). `terminal_pattern_of` returns
+///    `Some` only for the bare-PATTERN shape, so it draws exactly this line.
+///
+/// 2. The alias is a member (through repeat/optional/choice wrappers) of a
+///    `SEQ` whose first and last members are *quote delimiters* (a `STRING`
+///    or `CHOICE`-of-`STRING`s ending in `'`/`"`/`` ` ``): i.e. it is the
+///    delimited body of a quote pair. This excludes content fragments that
+///    are numeric brace-range / bracket bodies whose `IMMEDIATE_TOKEN` is a
+///    scanner immediacy fact LOCAL to that one construct, not a property of
+///    the kind everywhere: bash `brace_expression = SEQ["{", number, "..",
+///    number, "}"]` aliases `\d+` to `number`, but the very same `number`
+///    kind is also a freestanding command argument (`exit 1`, `echo 1`)
+///    where it must keep its leading space. The `{`/`}` brackets are not
+///    quote delimiters, so `number` is not collected, and the argument
+///    `number` is left spaced. Without this guard, db9b280 tightened every
+///    `number` and regressed bash (`exit 1` → `exit1`).
+pub(crate) fn classify_immediate_token_alias_kinds(
+    grammar: &Grammar,
+) -> std::collections::HashSet<String> {
+    let mut out = std::collections::HashSet::new();
+    // Collect every immediate-token bare-PATTERN alias reachable inside a
+    // production (used for the interior body of a detected quote pair).
+    fn collect_aliases(prod: &Production, out: &mut std::collections::HashSet<String>) {
+        match prod {
+            Production::Alias {
+                content,
+                named: true,
+                value,
+            } => {
+                if is_immediate_token(content) && terminal_pattern_of(content).is_some() {
+                    out.insert(value.clone());
+                }
+                collect_aliases(content, out);
+            }
+            Production::Alias { content, .. }
+            | Production::Repeat { content }
+            | Production::Repeat1 { content }
+            | Production::Optional { content }
+            | Production::Field { content, .. }
+            | Production::Token { content }
+            | Production::ImmediateToken { content }
+            | Production::Prec { content, .. }
+            | Production::PrecLeft { content, .. }
+            | Production::PrecRight { content, .. }
+            | Production::PrecDynamic { content, .. }
+            | Production::Reserved { content, .. } => collect_aliases(content, out),
+            Production::Seq { members } | Production::Choice { members } => {
+                for m in members {
+                    collect_aliases(m, out);
+                }
+            }
+            _ => {}
+        }
+    }
+    // Walk every production; whenever a `SEQ` is bracketed by quote
+    // delimiters (a string/char literal), harvest the immediate-token
+    // aliases from its interior body.
+    fn walk(prod: &Production, out: &mut std::collections::HashSet<String>) {
+        match prod {
+            Production::Seq { members } => {
+                if members.len() >= 2
+                    && is_quote_delimiter(&members[0])
+                    && is_quote_delimiter(&members[members.len() - 1])
+                {
+                    for m in &members[1..members.len() - 1] {
+                        collect_aliases(m, out);
+                    }
+                }
+                for m in members {
+                    walk(m, out);
+                }
+            }
+            Production::Choice { members } => {
+                for m in members {
+                    walk(m, out);
+                }
+            }
+            Production::Alias { content, .. }
+            | Production::Repeat { content }
+            | Production::Repeat1 { content }
+            | Production::Optional { content }
+            | Production::Field { content, .. }
+            | Production::Token { content }
+            | Production::ImmediateToken { content }
+            | Production::Prec { content, .. }
+            | Production::PrecLeft { content, .. }
+            | Production::PrecRight { content, .. }
+            | Production::PrecDynamic { content, .. }
+            | Production::Reserved { content, .. } => walk(content, out),
             _ => {}
         }
     }
