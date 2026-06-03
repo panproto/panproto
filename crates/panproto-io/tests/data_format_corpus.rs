@@ -24,7 +24,7 @@
 //!   cell values.
 
 #![cfg(feature = "tree-sitter")]
-#![allow(clippy::expect_used, clippy::unwrap_used)]
+#![allow(clippy::expect_used, clippy::unwrap_used, clippy::too_many_lines)]
 
 use panproto_inst::value::Value;
 use panproto_io::byte_tabular::ByteTabularCodec;

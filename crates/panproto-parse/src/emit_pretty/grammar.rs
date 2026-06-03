@@ -28,9 +28,8 @@ use super::{
     BTreeMap, Deserialize, ParseError, collect_all_symbol_refs, external_symbol_name,
     extract_line_comment_prefix, has_repeat_recursive, is_immediate_token, is_prefix_sigil,
     is_quote_delimiter, is_rest_of_line_pattern, is_word_like, kind_satisfies_symbol,
-    leading_optional_sign, literal_strings, matching_close_bracket,
-    pattern_absorbs_leading_space, referenced_symbols, terminal_pattern_of, unwrap_to_seq,
-    unwrap_to_string,
+    leading_optional_sign, literal_strings, matching_close_bracket, pattern_absorbs_leading_space,
+    referenced_symbols, terminal_pattern_of, unwrap_to_seq, unwrap_to_string,
 };
 
 // ═══════════════════════════════════════════════════════════════════

@@ -170,12 +170,14 @@ impl ByteTabularCodec {
         instance: &FInstance,
         complement: &ByteTabularComplement,
     ) -> Result<Vec<u8>, EmitInstanceError> {
-        let rows = instance.tables.get(&self.table_vertex).ok_or_else(|| {
-            EmitInstanceError::Emit {
-                protocol: self.protocol.clone(),
-                message: format!("table '{}' not found in instance", self.table_vertex),
-            }
-        })?;
+        let rows =
+            instance
+                .tables
+                .get(&self.table_vertex)
+                .ok_or_else(|| EmitInstanceError::Emit {
+                    protocol: self.protocol.clone(),
+                    message: format!("table '{}' not found in instance", self.table_vertex),
+                })?;
 
         let mut output = Vec::with_capacity(complement.lines.len() * 16);
         let mut data_idx = 0usize;
@@ -351,12 +353,14 @@ impl InstanceEmitter for ByteTabularCodec {
         // delimited file from the positional cells. This is the non-preserving
         // fallback used by the generic `InstanceEmitter` seam; the byte-faithful
         // path is `emit` with a complement.
-        let rows = instance.tables.get(&self.table_vertex).ok_or_else(|| {
-            EmitInstanceError::Emit {
-                protocol: self.protocol.clone(),
-                message: format!("table '{}' not found in instance", self.table_vertex),
-            }
-        })?;
+        let rows =
+            instance
+                .tables
+                .get(&self.table_vertex)
+                .ok_or_else(|| EmitInstanceError::Emit {
+                    protocol: self.protocol.clone(),
+                    message: format!("table '{}' not found in instance", self.table_vertex),
+                })?;
         let mut output = Vec::new();
         for row in rows {
             let mut i = 0usize;
