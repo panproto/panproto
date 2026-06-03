@@ -1713,9 +1713,7 @@ fn unmarked_base_literal(alternatives: &[Production]) -> Option<&Production> {
         .iter()
         .map(|a| match a {
             Production::String { value } => Some((a, value.clone())),
-            Production::Pattern { value } => {
-                pattern_trailing_literal(value).map(|tail| (a, tail))
-            }
+            Production::Pattern { value } => pattern_trailing_literal(value).map(|tail| (a, tail)),
             _ => None,
         })
         .collect::<Option<Vec<_>>>()?;

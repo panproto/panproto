@@ -1342,7 +1342,9 @@ fn strip_leading_ws_run(s: &str) -> Option<&str> {
     let end = rest.find(']')?;
     let class = &rest[..end];
     let after = &rest[end + 1..];
-    let after = after.strip_prefix('*').or_else(|| after.strip_prefix('+'))?;
+    let after = after
+        .strip_prefix('*')
+        .or_else(|| after.strip_prefix('+'))?;
     if !is_whitespace_only_pattern(&format!("[{class}]*")) {
         return None;
     }

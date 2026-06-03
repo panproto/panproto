@@ -1214,16 +1214,43 @@ mod tests {
         );
         // Trace contains "return" → first alt; "throw" → second.
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["expr"], &[], None, &[], &["return".to_owned()], None),
+            select_choice_with_trace(
+                &g,
+                alts,
+                &["expr"],
+                &[],
+                None,
+                &[],
+                &["return".to_owned()],
+                None
+            ),
             Some(0)
         );
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["expr"], &[], None, &[], &["throw".to_owned()], None),
+            select_choice_with_trace(
+                &g,
+                alts,
+                &["expr"],
+                &[],
+                None,
+                &[],
+                &["throw".to_owned()],
+                None
+            ),
             Some(1)
         );
         // Trace with neither keyword → still ambiguous → defer.
         assert_eq!(
-            select_choice_with_trace(&g, alts, &["expr"], &[], None, &[], &["xyz".to_owned()], None),
+            select_choice_with_trace(
+                &g,
+                alts,
+                &["expr"],
+                &[],
+                None,
+                &[],
+                &["xyz".to_owned()],
+                None
+            ),
             None
         );
     }
