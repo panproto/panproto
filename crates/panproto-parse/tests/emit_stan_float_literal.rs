@@ -9,7 +9,7 @@
 //! tightness from the grammar so emit is a byte fixed point and no bytes
 //! are dropped on the round trip.
 
-#![cfg(feature = "grammars")]
+#![cfg(all(feature = "grammars", feature = "lang-stan"))]
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
 use panproto_parse::ParserRegistry;
