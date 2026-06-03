@@ -436,6 +436,25 @@ impl GrammarCassette for ElmCassette {
     }
 }
 
+/// Kotlin's primary-constructor keyword is an external scanner token
+/// (`_primary_constructor_keyword`) with no text in `grammar.json`: the
+/// scanner emits it for the literal `constructor`. Its presence is the
+/// only anchor for constructor modifiers/annotations: `private constructor
+/// (x: Int)` re-parses as a `primary_constructor` with a `modifiers` node
+/// only when the `constructor` keyword separates the modifier from the
+/// parameter list. Without the keyword text, `private(x: Int)` loses the
+/// `modifiers` node on re-parse.
+struct KotlinCassette;
+
+impl GrammarCassette for KotlinCassette {
+    fn external_token_default(&self, token_name: &str) -> Option<&str> {
+        match token_name {
+            "_primary_constructor_keyword" => Some("constructor"),
+            _ => None,
+        }
+    }
+}
+
 /// Look up the cassette for a grammar by protocol name.
 ///
 /// Grammars not enumerated here get the default empty cassette, which
@@ -457,6 +476,7 @@ pub fn cassette_for(protocol: &str) -> Arc<dyn GrammarCassette> {
         "cpp" | "cuda" | "hlsl" | "arduino" | "csharp" | "c" => Arc::new(CFamilyCassette),
         "javascript" | "typescript" | "tsx" | "qml" | "rescript" => Arc::new(JsFamilyCassette),
         "elm" => Arc::new(ElmCassette),
+        "kotlin" => Arc::new(KotlinCassette),
         "agda" | "fsharp" | "fsharp_signature" | "earthfile" | "firrtl" | "cooklang" | "djot"
         | "idris" | "nim" | "purescript" | "haskell" => Arc::new(IndentBasedCassette),
         _ => Arc::new(DefaultCassette),
