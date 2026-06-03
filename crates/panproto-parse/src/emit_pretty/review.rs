@@ -1573,6 +1573,22 @@ fn default_choice<'a>(
                 .any(|&(ek, tk)| accepts_first_edge(grammar, alt, ek, tk))
         });
     if !any_unconsumed || no_alt_accepts_remaining {
+        // Unmarked-base preference for a string-prefix CHOICE. When every
+        // alternative is a bare literal STRING and exactly one is a strict
+        // SUFFIX of all the others, that suffix is the unmarked base form
+        // and the others are prefixed variants (C/C++ string/char opener
+        // `CHOICE["L\"","u\"","U\"","u8\"","\""]`: `"` is the suffix of every
+        // other). `forget_layout` strips which prefix the source used, so
+        // the canonical section must default to the base `"` — picking the
+        // first alt (`L"`) instead corrupts EVERY string literal into a
+        // wide-char `L"…"`. The byte-faithful replay path is unaffected: it
+        // recovers the real prefix from the recorded `ptrace`. Narrow by
+        // construction (all-STRING, a unique strict suffix), so it cannot
+        // fire for an ordinary literal CHOICE whose alternatives are
+        // unrelated tokens.
+        if let Some(base) = unmarked_base_literal(alternatives) {
+            return Some(base);
+        }
         if let Some(pure_lit) = alternatives
             .iter()
             .find(|alt| referenced_symbols(alt).is_empty() && !matches!(alt, Production::Blank))
@@ -1583,6 +1599,38 @@ fn default_choice<'a>(
     alternatives
         .iter()
         .find(|alt| !matches!(alt, Production::Blank))
+}
+
+/// When `alternatives` are *all* bare literal `STRING`s and exactly one is
+/// a strict suffix of every other, return that suffix alternative (the
+/// unmarked base form of a prefixed-literal CHOICE, e.g. `"` in
+/// `["L\"","u\"","U\"","u8\"","\""]`). `None` otherwise.
+fn unmarked_base_literal(alternatives: &[Production]) -> Option<&Production> {
+    let lits: Vec<(&Production, &str)> = alternatives
+        .iter()
+        .map(|a| match a {
+            Production::String { value } => Some((a, value.as_str())),
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>()?;
+    if lits.len() < 2 {
+        return None;
+    }
+    let mut base: Option<&Production> = None;
+    for &(prod, val) in &lits {
+        // `val` is the base iff every OTHER literal ends with it and is
+        // strictly longer (so `val` is a proper suffix, not an equal twin).
+        let is_base = lits.iter().all(|&(_, other)| {
+            other == val || (other.len() > val.len() && other.ends_with(val))
+        });
+        if is_base {
+            if base.is_some() {
+                return None; // Not unique.
+            }
+            base = Some(prod);
+        }
+    }
+    base
 }
 
 pub(crate) fn pick_choice_with_cursor<'a>(
