@@ -492,6 +492,8 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "stan",
     "turtle",
     "ungrammar",
+    "xcompose",
+    "yuck",
 ];
 
 impl ParserRegistry {

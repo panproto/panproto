@@ -615,6 +615,8 @@ const CORPUS_VERIFIED: &[&str] = &[
     "sparql",
     "turtle",
     "ungrammar",
+    "xcompose",
+    "yuck",
 ];
 
 #[test]
@@ -688,6 +690,8 @@ const STRIP_VERIFIED: &[&str] = &[
     "sparql",
     "turtle",
     "ungrammar",
+    "xcompose",
+    "yuck",
 ];
 
 #[test]
