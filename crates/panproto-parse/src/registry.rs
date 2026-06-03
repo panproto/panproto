@@ -474,6 +474,8 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "chuck",
     "circom",
     "csv",
+    "cylc",
+    "devicetree",
     "dot",
     "elisp",
     "fidl",

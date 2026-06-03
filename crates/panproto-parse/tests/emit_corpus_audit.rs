@@ -605,6 +605,8 @@ const CORPUS_VERIFIED: &[&str] = &[
     "chuck",
     "circom",
     "csv",
+    "cylc",
+    "devicetree",
     "dot",
     "elisp",
     "fidl",
