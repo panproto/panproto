@@ -510,7 +510,11 @@ fn corpus_g1_diff_report() {
                         line.push(format!("{k}{d:+}"));
                     }
                 }
-                if shown < 8 {
+                let cap = std::env::var("PP_G1_CAP")
+                    .ok()
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .unwrap_or(8);
+                if shown < cap {
                     eprintln!("G1[{name}]: {}", line.join(" "));
                     shown += 1;
                 }

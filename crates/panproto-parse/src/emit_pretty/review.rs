@@ -1365,6 +1365,13 @@ pub(crate) fn pick_choice_with_cursor<'a>(
     // a sibling `case_item`'s `field:termination=";;"`, emitting a spurious
     // second `;;`). `ptrace-` tokens are positional/anonymous and stay
     // unscoped — they are matched by literal as before.
+    // A CHOICE that is the direct content of a FIELD inherits that field
+    // context. The field name `<f>` is the variant tag scope for this CHOICE
+    // even when the alternatives are bare literals that do not themselves
+    // re-declare the FIELD (`field('operator', CHOICE['!','~','-','+'])`):
+    // the enclosing FIELD proves the CHOICE binds `<f>`, so `field:<f>` is a
+    // legitimate disambiguator (C unary/update operator selection).
+    let field_ctx = current_field_context();
     let mut alt_field_names: std::collections::HashSet<&str> = std::collections::HashSet::new();
     for alt in alternatives {
         collect_field_names(alt, &mut alt_field_names);
@@ -1379,7 +1386,9 @@ pub(crate) fn pick_choice_with_cursor<'a>(
                     if s.starts_with("ptrace-") {
                         c.value.strip_prefix('T').map(ToOwned::to_owned)
                     } else if let Some(field) = s.strip_prefix("field:") {
-                        alt_field_names.contains(field).then(|| c.value.clone())
+                        (alt_field_names.contains(field)
+                            || field_ctx.as_deref() == Some(field))
+                        .then(|| c.value.clone())
                     } else {
                         None
                     }
@@ -1406,10 +1415,8 @@ pub(crate) fn pick_choice_with_cursor<'a>(
                 .collect()
         })
         .unwrap_or_default();
-    // A CHOICE that is the content of a FIELD inherits that field context,
-    // so a field-labeled child can still be consumed by the field's own
-    // production (go `F:body(CH[block | BLANK])`).
-    let field_ctx = current_field_context();
+    // (`field_ctx` is consumed below; it also lets a field-labeled child be
+    // consumed by the field's own production, go `F:body(CH[block | BLANK])`.)
     if let Some(idx) = super::select_choice_with_trace(
         grammar,
         alternatives,
