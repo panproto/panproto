@@ -403,28 +403,69 @@ impl GrammarCassette for ShellFamilyCassette {
 }
 
 /// Cassette for the C-family raw-string grammars (C++, CUDA, HLSL,
-/// Arduino, C#). These share `raw_string_delimiter` and
-/// `raw_string_content` externals whose actual text is parse-time
-/// dependent; emit empty when there is no captured literal.
+/// Arduino). These share `raw_string_delimiter` and `raw_string_content`
+/// externals whose actual text is parse-time dependent; emit empty when
+/// there is no captured literal.
 struct CFamilyCassette;
 
 impl GrammarCassette for CFamilyCassette {
     fn external_token_default(&self, _token_name: &str) -> Option<&str> {
         None // Common layer handles raw_string_* uniformly.
     }
+}
+
+/// Cassette for C#. Its interpolated strings (`$"…{x}…"`) carry the whole
+/// string span — delimiters, captured content, and the `{`/`}`
+/// interpolation braces — as scanner-driven external tokens whose layout
+/// `grammar.json` cannot describe: the scanner only re-lexes the string
+/// when the delimiters and braces abut their neighbours. The generic
+/// emitter would split `$"` (the external open quote must hug the `$`),
+/// space the captured `string_content`, and treat the literal `{` of
+/// `interpolation_brace` as a block opener (newline + indent), all of
+/// which the re-parse rejects. These are lexical facts the cassette
+/// declares; none of the token names appear in the sibling C-family
+/// grammars, so the split keeps each cassette inert for the others.
+struct CSharpCassette;
+
+impl GrammarCassette for CSharpCassette {
+    fn external_token_default(&self, _token_name: &str) -> Option<&str> {
+        None // Common layer handles raw_string_* uniformly.
+    }
 
     fn external_leads_no_space(&self, token_name: &str) -> bool {
-        // C# interpolated strings: `$"…{…}…"`. The scanner emits these
-        // delimiters only when immediately adjacent. The opening quote
-        // must hug the `$`; the interpolation braces must hug the content
-        // and the surrounding string spans. None of these token names
-        // appear in C/C++/CUDA/HLSL/Arduino, so this is inert for them.
+        // The opening quote of `$"…"` is the external
+        // `interpolation_start_quote`, emitted only immediately after the
+        // `$` (`interpolation_start`); a separating space (`$ "`) makes the
+        // re-parse see a bare `$` and a plain string, collapsing the
+        // `interpolated_string_expression`.
         matches!(
             token_name,
             "interpolation_start_quote"
                 | "interpolation_open_brace"
                 | "interpolation_close_brace"
                 | "interpolation_end_quote"
+        )
+    }
+
+    fn kind_is_tight_content(&self, kind: &str) -> bool {
+        // The captured content of an interpolated / raw string and the
+        // `{`/`}` interpolation braces are part of one lexical string
+        // span: each must emit tight on both sides (no inserted space, no
+        // `{`-triggered block newline) so the re-parse re-lexes the same
+        // `interpolated_string_expression` / `interpolation` / raw string.
+        //
+        // - `string_content`: the interpolated-string text run.
+        // - `interpolation_brace`: the named alias of the `{`/`}` braces.
+        // - `interpolation_quote`: the `"""` raw-interpolation quote, which
+        //   must hug the `$` opener (`$"""…`) and the content.
+        // - `raw_string_content`: the body of a raw string literal
+        //   (`"""…"""`), which the scanner captures verbatim.
+        matches!(
+            kind,
+            "string_content"
+                | "interpolation_brace"
+                | "interpolation_quote"
+                | "raw_string_content"
         )
     }
 }
@@ -507,7 +548,8 @@ pub fn cassette_for(protocol: &str) -> Arc<dyn GrammarCassette> {
             Arc::new(HtmlFamilyCassette)
         }
         "bash" | "zsh" | "fish" => Arc::new(ShellFamilyCassette),
-        "cpp" | "cuda" | "hlsl" | "arduino" | "csharp" | "c" => Arc::new(CFamilyCassette),
+        "csharp" => Arc::new(CSharpCassette),
+        "cpp" | "cuda" | "hlsl" | "arduino" | "c" => Arc::new(CFamilyCassette),
         "javascript" | "typescript" | "tsx" | "qml" | "rescript" => Arc::new(JsFamilyCassette),
         "elm" => Arc::new(ElmCassette),
         "kotlin" => Arc::new(KotlinCassette),

@@ -189,6 +189,30 @@ fn select_walk_rule<'g>(
     }
 }
 
+/// True when a leaf of this `kind` is verbatim string-region content that
+/// must emit tight on both sides with no layout side effects. Three
+/// sources, all converging on the same emission:
+///
+/// * the cassette's [`kind_is_tight_content`](crate::languages::cassettes::GrammarCassette::kind_is_tight_content)
+///   (HTML/markup `text`; C#'s `string_content` / `interpolation_brace`);
+/// * [`external_content_kinds`](crate::emit_pretty::Grammar::external_content_kinds)
+///   — content between *external* string/heredoc delimiters;
+/// * [`string_content_kinds`](crate::emit_pretty::Grammar::string_content_kinds)
+///   — content / escape leaves between *literal-quote* delimiters.
+///
+/// Shared by the [`emit_vertex`] and [`emit_aliased_child`] leaf shortcuts
+/// so a string-region leaf is treated identically whether the walker
+/// reaches it as a standalone vertex or as a named ALIAS child.
+fn is_tight_content_kind(
+    grammar: &Grammar,
+    cassette: Option<&dyn crate::languages::cassettes::GrammarCassette>,
+    kind: &str,
+) -> bool {
+    cassette.is_some_and(|c| c.kind_is_tight_content(kind))
+        || grammar.external_content_kinds.contains(kind)
+        || grammar.string_content_kinds.contains(kind)
+}
+
 pub(crate) fn emit_vertex(
     protocol: &str,
     schema: &Schema,
@@ -244,41 +268,16 @@ pub(crate) fn emit_vertex(
                 // (`return ()`). That is exactly the BracketClose role
                 // (tight inner/left edge, keyword-spaced). Other leaves
                 // keep their delimiter-or-terminal role.
-                // Raw inline content (HTML/markup element `text`) abuts
-                // its surrounding tags with no inserted whitespace; emit
-                // it tight on both sides so the layout pass does not grow
-                // the captured text on each re-emit.
-                if out.cassette.is_some_and(|c| c.kind_is_tight_content(vkind)) {
+                // A verbatim string-region leaf (HTML `text`, ruby/regex
+                // `string_content`, a literal-quoted string's content /
+                // escape run, C#'s interpolation braces): emit it tight on
+                // both sides with no layout side effects, so the captured
+                // text neither grows a sibling-separation space nor (for a
+                // literal `{`/`;`) triggers a spurious block newline. See
+                // [`is_tight_content_kind`].
+                if is_tight_content_kind(grammar, out.cassette, vkind) {
                     out.no_space();
-                    out.token_with_role(literal, Some(TokenRole::Terminal));
-                    out.no_space();
-                    return Ok(());
-                }
-                // Captured-content external token between string/heredoc
-                // delimiters (ruby `string_content`/`heredoc_content`, regex
-                // content). Its literal text IS the verbatim source between
-                // the delimiters; the layout pass must not wrap it in
-                // sibling-separation spaces (`"bar"`, not `" bar "`), which
-                // would fold into the captured text on re-parse and accrete
-                // one space per emit. Derived structurally (the
-                // `SEQ[open_ext, content.., close_ext]` shape), so it stays
-                // in the generic emitter rather than a per-language cassette.
-                if grammar.external_content_kinds.contains(vkind) {
-                    out.no_space();
-                    out.token_with_role(literal, Some(TokenRole::Terminal));
-                    out.no_space();
-                    return Ok(());
-                }
-                // Content / escape leaves of a literal-quote-delimited
-                // string (`SEQ[STRING q, REPEAT(CHOICE[string_content,
-                // escape_sequence]), STRING q]`: CSS `string_value`, C# /
-                // Java `string_literal`). The same tight-on-both-sides rule
-                // as `external_content_kinds`, but for STRING (not external)
-                // delimiters — `"ab\t"`, not `"ab \t "` (which splits the
-                // run into extra content leaves on re-parse).
-                if grammar.string_content_kinds.contains(vkind) {
-                    out.no_space();
-                    out.token_with_role(literal, Some(TokenRole::Terminal));
+                    out.tight_token(literal);
                     out.no_space();
                     return Ok(());
                 }
@@ -1326,13 +1325,32 @@ pub(crate) fn emit_aliased_child(
     // literals when the production resolves to a rule with those brackets.
     if let Some(literal) = literal_value(schema, child_id) {
         if children_for(schema, child_id).is_empty() {
+            let kind = vertex_id_kind(schema, child_id).unwrap_or("");
+            // A verbatim string-region leaf reached as an aliased child
+            // (C#'s `interpolation_brace` / `string_content`, which the
+            // interpolation rule walks as named ALIASes rather than as
+            // standalone vertices): emit tight with no layout side effects,
+            // exactly as the `emit_vertex` leaf shortcut does. This is
+            // checked BEFORE the bracket-pair guard below, because a
+            // string's captured content may itself *look* like a bracket
+            // pair (an interpolated `$"{{nope}}"` has the verbatim escaped
+            // text `{{nope}}` as one `string_content` leaf): treating it as
+            // a `{ … }` block would drop it through the rule-walk path. A
+            // string-content kind is never a structural bracket, whatever
+            // its bytes. Without this the literal `{` of an interpolation
+            // brace also block-indents (`{\n  x }`), breaking the re-parse.
+            if is_tight_content_kind(grammar, out.cassette, kind) {
+                out.no_space();
+                out.tight_token(literal);
+                out.no_space();
+                return Ok(());
+            }
             let is_bracket_pair = literal.len() >= 2
                 && matches!(
                     (literal.as_bytes().first(), literal.as_bytes().last()),
                     (Some(b'('), Some(b')')) | (Some(b'['), Some(b']')) | (Some(b'{'), Some(b'}'))
                 );
             if !is_bracket_pair {
-                let kind = vertex_id_kind(schema, child_id).unwrap_or("");
                 // See the matching guard in `emit_vertex`: a captured leading
                 // whitespace is the separator, so suppress the redundant layout
                 // space to keep the fixed point (INI's `setting_value`); keep

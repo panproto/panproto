@@ -146,6 +146,26 @@ impl<'a> Output<'a> {
         self.token_with_role(value, None);
     }
 
+    /// Emit a verbatim string-region leaf with NO layout side effects:
+    /// the literal is pushed with the `Terminal` role but the
+    /// `line_break_after` / `indent_open` machinery is bypassed. Tight
+    /// string content (`kind_is_tight_content`, `string_content_kinds`,
+    /// `external_content_kinds`) and the interpolation braces of a string
+    /// (`$"…{x}…"`) are part of one lexical span where a literal `{`, `}`
+    /// or `;` inside the captured text is data, not a block opener or a
+    /// statement terminator: routing them through `token_with_role` would
+    /// insert a newline / indent that the re-parse cannot absorb (the
+    /// scanner only re-lexes the interpolation when the brace abuts its
+    /// neighbours). The caller is responsible for any surrounding
+    /// [`no_space`](Self::no_space) markers.
+    pub(crate) fn tight_token(&mut self, value: &str) {
+        if value.is_empty() {
+            return;
+        }
+        self.tokens
+            .push(Token::Lit(value.to_owned(), TokenRole::Terminal));
+    }
+
     pub(crate) fn token_with_role(&mut self, value: &str, explicit_role: Option<TokenRole>) {
         if value.is_empty() {
             return;
