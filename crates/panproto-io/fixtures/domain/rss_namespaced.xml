@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="rss.xsl"?>
+<rss version="2.0"
+     xmlns:content="http://purl.org/rss/1.0/modules/content/"
+     xmlns:dc="http://purl.org/dc/elements/1.1/"
+     xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Mixed Namespace Feed</title>
+    <atom:link href="https://example.org/feed" rel="self" type="application/rss+xml"/>
+    <link>https://example.org/</link>
+    <description>Demonstrates prefixed elements &amp; CDATA.</description>
+    <item>
+      <title>First post</title>
+      <dc:creator>Jane Doe</dc:creator>
+      <content:encoded><![CDATA[<p>Inline <strong>HTML</strong> with &nbsp; entities.</p>]]></content:encoded>
+      <guid isPermaLink="false">tag:example.org,2026:1</guid>
+      <pubDate>Tue, 10 Jun 2003 04:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>
