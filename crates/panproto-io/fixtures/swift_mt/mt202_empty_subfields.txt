@@ -1,0 +1,9 @@
+tag:20:REF202
+value:COV2603130099
+tag:21:Related Reference
+value:FT2603130001
+tag:32A::USD500000,00
+tag:58A:Beneficiary Institution
+value:::CHASUS33
+tag:72:Sender to Receiver
+value:

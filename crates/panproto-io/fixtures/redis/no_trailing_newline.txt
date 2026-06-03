@@ -1,0 +1,3 @@
+key session:42
+ttl 3600
+last_ip 10.0.0.1

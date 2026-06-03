@@ -1,0 +1,10 @@
+# sent_id = ellipsis-1
+# text = Sue likes coffee and Bill tea.
+1	Sue	Sue	PROPN	NNP	Number=Sing	2	nsubj	_	_
+2	likes	like	VERB	VBZ	Number=Sing	0	root	_	_
+3	coffee	coffee	NOUN	NN	Number=Sing	2	obj	_	_
+4	and	and	CCONJ	CC	_	6	cc	_	_
+5	Bill	Bill	PROPN	NNP	Number=Sing	6	nsubj	_	_
+6	tea	tea	NOUN	NN	Number=Sing	2	conj	_	SpaceAfter=No
+6.1	likes	like	VERB	VBZ	_	_	_	2:conj	CopyOf=2
+7	.	.	PUNCT	.	_	2	punct	_	_

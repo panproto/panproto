@@ -1,0 +1,5 @@
+key user:1001
+name Alice Chen
+email alice@example.com
+score 94.5
+active true

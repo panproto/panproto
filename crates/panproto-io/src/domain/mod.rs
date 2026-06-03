@@ -4,17 +4,19 @@
 //! - XML-based: rss_atom
 //! - Delimited: swift_mt (colon-delimited), edi_x12 (asterisk-delimited)
 
+use crate::byte_tabular::ByteTabularCodec;
 use crate::registry::ProtocolRegistry;
-#[allow(deprecated)]
-use crate::tabular_codec::TabularCodec;
 
 /// Register all domain protocol codecs with the registry.
 #[allow(deprecated)]
 pub fn register_all(registry: &mut ProtocolRegistry) {
-    // Colon-delimited and asterisk-delimited formats have no tree-sitter
-    // grammars, so they always use the legacy tabular codec.
-    registry.register(TabularCodec::with_delimiter("swift_mt", "fields", b':'));
-    registry.register(TabularCodec::with_delimiter("edi_x12", "segments", b'*'));
+    // Colon-delimited (SWIFT MT) and asterisk-delimited (EDI X12) formats have
+    // no tree-sitter grammar. The byte-faithful tabular codec records the exact
+    // original layout (field segments, line endings, blank lines) and replays
+    // it, so a `parse → emit` round-trip is byte-identical and a single-cell
+    // edit re-emits exactly that cell.
+    registry.register(ByteTabularCodec::new("swift_mt", "fields", b':', None));
+    registry.register(ByteTabularCodec::new("edi_x12", "segments", b'*', None));
 
     #[cfg(feature = "tree-sitter")]
     {

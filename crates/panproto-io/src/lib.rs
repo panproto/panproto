@@ -86,6 +86,10 @@ pub mod tabular_pathway;
 #[allow(deprecated)]
 pub mod tabular_codec;
 
+/// Byte-faithful codec for delimited line-oriented formats with no tree-sitter
+/// grammar (redis/RESP, SWIFT MT, EDI X12, CoNLL-U).
+pub mod byte_tabular;
+
 /// CST-to-Instance extraction lens for format-preserving round-trips.
 pub mod cst_extract;
 

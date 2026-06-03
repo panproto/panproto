@@ -9,6 +9,7 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use panproto_io::ProtocolRegistry;
+use panproto_io::byte_tabular::ByteTabularCodec;
 use panproto_io::traits::NativeRepr;
 use panproto_schema::{Protocol, SchemaBuilder};
 
@@ -420,41 +421,27 @@ xml_wtype_roundtrip!(
 
 #[test]
 fn roundtrip_conllu() {
-    let reg = registry();
-    let schema = tabular_schema("conllu");
+    // CoNLL-U now rides the byte-faithful `ByteTabularCodec`: comment lines and
+    // blank-line sentence boundaries are preserved verbatim, every token line
+    // (including multiword `N-M` rows) becomes a positional `rows` entry, and a
+    // `parse → emit` round-trip is byte-identical. The fixture is a real UD
+    // CoNLL-U file with multiword tokens, so it exercises every quirk.
+    let codec = ByteTabularCodec::new("conllu", "rows", b'\t', Some(b'#'));
     let input = include_bytes!("../fixtures/annotation/sample.conllu");
 
-    let instance = reg
-        .parse_functor("conllu", &schema, input)
-        .expect("parse conllu");
-
-    let tokens = instance.tables.get("token").expect("token table");
+    let (instance, complement) = codec.parse(input).expect("parse conllu");
+    let rows = instance.tables.get("rows").expect("rows table");
     assert!(
-        tokens.len() >= 100,
-        "Real UD CoNLL-U fixture should have many tokens, got {}",
-        tokens.len()
+        rows.len() >= 100,
+        "Real UD CoNLL-U fixture should have many token rows, got {}",
+        rows.len()
     );
 
-    let sentences = instance.tables.get("sentence").expect("sentence table");
-    assert!(
-        sentences.len() >= 5,
-        "Real UD CoNLL-U fixture should have multiple sentences, got {}",
-        sentences.len()
-    );
-
-    let emitted = reg
-        .emit_functor("conllu", &schema, &instance)
-        .expect("emit conllu");
-
-    let instance2 = reg
-        .parse_functor("conllu", &schema, &emitted)
-        .expect("re-parse conllu");
-
-    let tokens2 = instance2.tables.get("token").expect("re-parsed tokens");
+    let emitted = codec.emit(&instance, &complement).expect("emit conllu");
     assert_eq!(
-        tokens.len(),
-        tokens2.len(),
-        "token count mismatch after round-trip"
+        emitted.as_slice(),
+        &input[..],
+        "CoNLL-U round-trip must be byte-identical"
     );
 }
 
