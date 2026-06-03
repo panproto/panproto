@@ -1189,6 +1189,7 @@ pub(crate) fn emit_in_child_context(
 /// `BLANK` when the cursor is exhausted (ε is correct iff no child
 /// remains), else a pure-literal alternative, else the first non-`BLANK`.
 fn default_choice<'a>(
+    schema: &Schema,
     grammar: &Grammar,
     cursor: &ChildCursor<'_>,
     alternatives: &'a [Production],
@@ -1204,6 +1205,20 @@ fn default_choice<'a>(
         .enumerate()
         .filter(|(i, _)| !cursor.consumed[*i])
         .map(|(_, e)| e.kind.as_ref())
+        .collect();
+    // The (edge-label, target-kind) pairs of the unconsumed edges, for the
+    // `accepts_first_edge` acceptance test below.
+    let uc_edge_pairs: Vec<(&str, &str)> = cursor
+        .edges
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !cursor.consumed[*i])
+        .filter_map(|(_, e)| {
+            schema
+                .vertices
+                .get(&e.tgt)
+                .map(|v| (e.kind.as_ref(), v.kind.as_ref()))
+        })
         .collect();
 
     // FIELD dispatch: an alternative whose FIELD name matches an
@@ -1238,9 +1253,27 @@ fn default_choice<'a>(
         }
         return alternatives.iter().find(|a| matches!(a, Production::Blank));
     }
-    // Cursor exhausted, no BLANK: a pure-literal alternative (only
-    // STRINGs/PATTERNs) produces output without consuming a child.
-    if !any_unconsumed {
+    // A pure-literal alternative (only STRINGs/PATTERNs, no SYMBOL/ALIAS)
+    // always materializes its bytes without consuming a child. Prefer it
+    // over a symbol-bearing alternative that would emit nothing here:
+    //   * the cursor is exhausted (`!any_unconsumed`), so no symbol alt can
+    //     consume anything; or
+    //   * children remain, but NO alternative can `accept` any of the
+    //     unconsumed edges — the symbol alts are all inapplicable at this
+    //     position, so falling to the first non-BLANK (a symbol) drops the
+    //     structural literal. This is csharp's
+    //     `REPEAT1[CHOICE[explicit_interface_specifier, "operator",
+    //     "checked"]]` in a conversion operator: the `type`/`parameters`/
+    //     `body` edges match no alt, so the bare `operator` keyword must
+    //     materialize rather than the unmatchable `explicit_interface_specifier`
+    //     symbol emitting nothing (which drops `operator` and breaks the parse).
+    let no_alt_accepts_remaining = any_unconsumed
+        && !alternatives.iter().any(|alt| {
+            uc_edge_pairs
+                .iter()
+                .any(|&(ek, tk)| accepts_first_edge(grammar, alt, ek, tk))
+        });
+    if !any_unconsumed || no_alt_accepts_remaining {
         if let Some(pure_lit) = alternatives
             .iter()
             .find(|alt| referenced_symbols(alt).is_empty() && !matches!(alt, Production::Blank))
@@ -1919,5 +1952,5 @@ pub(crate) fn pick_choice_with_cursor<'a>(
     // measurement confirmed they are NOT yet subsumed (bypassing them
     // regresses even arduino 0/3), so they stay until the review is
     // strengthened, but the default section is now factored out.
-    default_choice(grammar, cursor, alternatives)
+    default_choice(schema, grammar, cursor, alternatives)
 }
