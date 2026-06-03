@@ -35,9 +35,9 @@ use super::{
     is_no_space_external, is_whitespace_external, is_whitespace_only_pattern, is_word_like,
     leaf_terminal_role, left_recursive_alts, literal_strings, literal_value, mandatory_field_names,
     member_has_leading_bracket, pattern_absorbs_leading_space, placeholder_for_pattern, prec_value,
-    push_field_context, reduces_to_immediate_token, referenced_symbols,
+    push_field_context, reconstruct_subtree_bytes, reduces_to_immediate_token, referenced_symbols,
     seq_bracket_triggers_indent, seq_open_bracket_index, unbounded_negated_class, unwrap_prec,
-    unwrap_to_string, vertex_id_kind, yield_of_production,
+    unwrap_to_string, vertex_has_interstitials, vertex_id_kind, yield_of_production,
 };
 
 pub(crate) fn collect_roots(schema: &Schema) -> Vec<&panproto_gat::Name> {
@@ -228,6 +228,29 @@ pub(crate) fn emit_vertex(
             protocol: protocol.to_owned(),
             reason: format!("vertex '{vertex_id}' not found"),
         })?;
+
+    // ── Interstitial replay (the byte-faithful layout fibre) ──────────
+    // When this vertex records `interstitial-N` constraints, the layout
+    // complement carries the EXACT source text between its named children
+    // (and the leading / trailing gaps). If that fibre tiles the vertex's
+    // `[start-byte, end-byte)` span completely (`reconstruct_subtree_bytes`
+    // returns `Some`), replay those bytes verbatim instead of letting the
+    // role table approximate the inter-token spacing — circom
+    // `circom  2.0.0 ;` → `circom 2.0.0;`, cylc `end  = True` → `end = True`.
+    //
+    // This is canonical-only-OFF by construction: a by-construction /
+    // transpiled schema carries no interstitials (forget_layout strips them),
+    // so it never enters this branch and keeps the canonical role-table
+    // section. And because the reconstruction is taken ONLY when the fibre is
+    // self-consistent (the completeness check), it is byte-faithful exactly
+    // where the role table already was — it can only ever FIX a boundary the
+    // role table got wrong, never corrupt one it got right.
+    if vertex_has_interstitials(schema, vertex_id) {
+        if let Some(bytes) = reconstruct_subtree_bytes(schema, vertex_id) {
+            out.verbatim(&bytes);
+            return Ok(());
+        }
+    }
 
     // IMMEDIATE_TOKEN at the rule head: emit a tightness marker
     // before any content the leaf shortcut or rule-body walk produces.
@@ -686,7 +709,7 @@ pub(crate) fn emit_seq_with_roles(
         }
         prev_member_emitted_content = out.tokens[tokens_before_member..]
             .iter()
-            .any(|t| matches!(t, Token::Lit(_, _)));
+            .any(|t| matches!(t, Token::Lit(_, _) | Token::Verbatim(_)));
         // Drain leading extras (comments) right after the open bracket, so
         // a comment that the deferred top-level drain skipped lands INSIDE
         // the bracket region rather than before the opener.

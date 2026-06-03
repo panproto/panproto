@@ -500,3 +500,131 @@ pub(crate) fn literal_value<'a>(
         .find(|c| c.sort.as_ref() == "literal-value")
         .map(|c| c.value.as_str())
 }
+
+/// The named integer value of a `start-byte` / `end-byte` constraint on a
+/// vertex, if present.
+fn byte_anchor(schema: &Schema, vertex_id: &panproto_gat::Name, sort: &str) -> Option<usize> {
+    schema
+        .constraints
+        .get(vertex_id)?
+        .iter()
+        .find(|c| c.sort.as_ref() == sort)
+        .and_then(|c| c.value.parse::<usize>().ok())
+}
+
+/// True iff `vertex_id` records at least one `interstitial-N` constraint.
+/// This is the per-vertex replay witness: an `interstitial-N` is the exact
+/// source text between two of the vertex's named children (and the leading /
+/// trailing gaps), so its presence means the layout fibre carries the verbatim
+/// inter-child spacing the role table only approximates.
+pub(crate) fn vertex_has_interstitials(schema: &Schema, vertex_id: &panproto_gat::Name) -> bool {
+    schema
+        .constraints
+        .get(vertex_id)
+        .is_some_and(|cs| {
+            cs.iter().any(|c| {
+                let s = c.sort.as_ref();
+                s.starts_with("interstitial-") && !s.ends_with("-start-byte")
+            })
+        })
+}
+
+/// Reconstruct the EXACT source bytes of the subtree rooted at `vertex_id`
+/// from the recorded layout fibre, returning `None` unless the reconstruction
+/// is provably complete (tiles the root's `[start-byte, end-byte)` span with no
+/// gap or overlap).
+///
+/// This is the per-subtree form of [`emit_from_schema`](crate::languages::common):
+/// every vertex in the subtree contributes its `literal-value` (anchored at its
+/// `start-byte`) and every `interstitial-N` (anchored at its companion
+/// `interstitial-N-start-byte`) as a `(pos, text)` fragment. Sorting the
+/// fragments by source position and concatenating non-overlapping runs replays
+/// the original bytes — the named-child spans and the interstitial gaps between
+/// them tile the parent span exactly. The completeness check (the cursor must
+/// advance from the root `start-byte` to the root `end-byte` with no hole)
+/// makes this byte-faithful BY CONSTRUCTION: it is taken only when the fibre is
+/// self-consistent, so it can never corrupt a replay the role table got right —
+/// where the tiling is incomplete (a by-construction child with no anchor, an
+/// external-scanner token outside the fibre) it declines and the caller keeps
+/// the structural role-table walk.
+pub(crate) fn reconstruct_subtree_bytes(
+    schema: &Schema,
+    vertex_id: &panproto_gat::Name,
+) -> Option<String> {
+    let root_start = byte_anchor(schema, vertex_id, "start-byte")?;
+    let root_end = byte_anchor(schema, vertex_id, "end-byte")?;
+    if root_end < root_start {
+        return None;
+    }
+
+    // Collect the subtree's vertices (reachable from `vertex_id` via edges).
+    let mut subtree: std::collections::HashSet<panproto_gat::Name> = std::collections::HashSet::new();
+    let mut stack = vec![vertex_id.clone()];
+    while let Some(v) = stack.pop() {
+        if !subtree.insert(v.clone()) {
+            continue;
+        }
+        if let Some(edges) = schema.outgoing.get(&v) {
+            for e in edges {
+                stack.push(e.tgt.clone());
+            }
+        }
+    }
+
+    // Gather every text fragment in the subtree with its source position.
+    let mut fragments: Vec<(usize, &str)> = Vec::new();
+    for v in &subtree {
+        let Some(cons) = schema.constraints.get(v) else {
+            continue;
+        };
+        let start = cons
+            .iter()
+            .find(|c| c.sort.as_ref() == "start-byte")
+            .and_then(|c| c.value.parse::<usize>().ok());
+        if let Some(s) = start {
+            if let Some(lit) = cons.iter().find(|c| c.sort.as_ref() == "literal-value") {
+                fragments.push((s, lit.value.as_str()));
+            }
+        }
+        for c in cons {
+            let sort = c.sort.as_ref();
+            if sort.starts_with("interstitial-") && !sort.ends_with("-start-byte") {
+                let pos_sort = format!("{sort}-start-byte");
+                if let Some(pos) = cons
+                    .iter()
+                    .find(|c2| c2.sort.as_ref() == pos_sort.as_str())
+                    .and_then(|c2| c2.value.parse::<usize>().ok())
+                {
+                    fragments.push((pos, c.value.as_str()));
+                }
+            }
+        }
+    }
+
+    fragments.sort_by_key(|(pos, _)| *pos);
+
+    // Tile [root_start, root_end): each fragment must abut the running cursor
+    // (no hole) and stay within the root span. Fragments that begin before the
+    // cursor are overlaps already covered by an earlier (longer) fragment and
+    // are skipped, mirroring `emit_from_schema`'s dedup.
+    let mut out = String::new();
+    let mut cursor = root_start;
+    for (pos, text) in fragments {
+        if pos < root_start || pos < cursor {
+            continue;
+        }
+        if pos > cursor {
+            // A hole: some bytes in the span carry no fragment (an external
+            // scanner token, a by-construction child). The reconstruction is
+            // not provably faithful, so decline.
+            return None;
+        }
+        out.push_str(text);
+        cursor = pos + text.len();
+    }
+    if cursor == root_end {
+        Some(out)
+    } else {
+        None
+    }
+}

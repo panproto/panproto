@@ -112,6 +112,16 @@ pub(crate) enum Token {
     /// `Ok/>`, turning a `self_closing_tag` into a `start_tag`), so the
     /// layout fold forces a separator. Transparent otherwise.
     AbsorberGuard(String),
+    /// Exact source bytes replayed from the layout complement
+    /// (`reconstruct_subtree_bytes`): a whole vertex subtree whose
+    /// `interstitial-N` / `literal-value` fibre tiled its byte span exactly.
+    /// The fold writes these bytes verbatim and inserts NO role-derived
+    /// separator on either side — the replayed text already carries its own
+    /// leading and trailing whitespace, so the byte-faithful path bypasses the
+    /// role table entirely. The carried bytes may contain newlines; they are
+    /// written through without disturbing the indent counter (the replay is
+    /// self-contained, including its own indentation).
+    Verbatim(String),
 }
 
 pub(crate) struct Output<'a> {
@@ -294,6 +304,18 @@ impl<'a> Output<'a> {
         self.tokens.push(Token::LineBreak);
     }
 
+    /// Push exact replayed source bytes (see [`Token::Verbatim`]). The bytes
+    /// are written through the layout fold with no role-derived spacing on
+    /// either edge: the layout complement already encodes the verbatim
+    /// inter-token whitespace, so the byte-faithful replay path bypasses the
+    /// role table for this span.
+    pub(crate) fn verbatim(&mut self, bytes: &str) {
+        if bytes.is_empty() {
+            return;
+        }
+        self.tokens.push(Token::Verbatim(bytes.to_owned()));
+    }
+
     /// Open an indent scope: subsequent `LineBreak`s render at the
     /// new depth until a matching `indent_close` pops it. Used by the
     /// external-token fallback to render indent-based grammars'
@@ -327,7 +349,7 @@ impl<'a> Output<'a> {
     pub(crate) fn lit_emitted_since(&self, snap: OutputSnapshot) -> bool {
         self.tokens[snap.tokens_len..]
             .iter()
-            .any(|t| matches!(t, Token::Lit(_, _)))
+            .any(|t| matches!(t, Token::Lit(_, _) | Token::Verbatim(_)))
     }
 
     /// Push a marker that suppresses the next inter-Lit separator the
@@ -391,6 +413,7 @@ pub(crate) fn layout(
                 Token::NoSpace => eprintln!("  TOK: NoSpace"),
                 Token::ForceSpace => eprintln!("  TOK: ForceSpace"),
                 Token::AbsorberGuard(s) => eprintln!("  TOK: AbsorberGuard({s:?})"),
+                Token::Verbatim(s) => eprintln!("  TOK: Verbatim({s:?})"),
             }
         }
         match tok {
@@ -418,6 +441,29 @@ pub(crate) fn layout(
             }
             Token::AbsorberGuard(negated) => {
                 pending_absorber = Some(negated.clone());
+            }
+            Token::Verbatim(bytes_str) => {
+                // Exact replayed source: written through with NO role-derived
+                // separator on either edge. The complement already encodes the
+                // verbatim whitespace, so the byte-faithful path must not let
+                // the role table inject or suppress a space here. Any pending
+                // absorber/force/suppress markers are discharged without effect.
+                pending_absorber = None;
+                suppress_next_separator = false;
+                force_next_separator = false;
+                // Indentation only applies to the FIRST line of the blob if we
+                // were at a fresh line start; the blob carries its own internal
+                // indentation thereafter.
+                if at_line_start && !bytes_str.is_empty() {
+                    bytes.extend(std::iter::repeat_n(b' ', indent * policy.indent_width));
+                }
+                bytes.extend_from_slice(bytes_str.as_bytes());
+                // The trailing byte determines the line state for whatever
+                // follows; the role chain is reset so the next `Lit` does not
+                // role-space against a stale predecessor.
+                at_line_start = bytes_str.ends_with(['\n', '\r']);
+                last_role = None;
+                last_text.clear();
             }
             Token::Lit(value, role) => {
                 // A greedy negated-class terminal just emitted: if it would
