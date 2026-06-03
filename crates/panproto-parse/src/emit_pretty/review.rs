@@ -308,6 +308,21 @@ pub(crate) fn emit_vertex(
                     out.no_space();
                 }
                 out.token_with_role(literal, Some(role));
+                // Symmetric to the leading-space suppression above: a terminal
+                // whose regex absorbs whitespace and whose captured text *ends*
+                // with whitespace carries its own trailing separator. An
+                // additional layout space after it would fold into the text on
+                // re-parse and accrete one space per emit. Suppress the
+                // following layout space so the captured trailing whitespace is
+                // the only separator (angular `icu_category = [^{}]+` captures
+                // `=0 `; without this the layout adds a space → `=0  {`, which
+                // re-parses with the extra space swallowed back into
+                // `icu_category`, breaking the case boundary).
+                if grammar.leading_space_terminals.contains(vkind)
+                    && literal.ends_with([' ', '\t'])
+                {
+                    out.no_space();
+                }
                 // This leaf's rule may be a greedy unbounded negated class
                 // (`[^...]+`, HTML's unquoted `attribute_value`). Such a
                 // terminal keeps consuming admitted characters, so guard the
@@ -1728,6 +1743,14 @@ pub(crate) fn emit_aliased_child(
                     out.no_space();
                 }
                 out.token_with_role(literal, Some(leaf_terminal_role(grammar, kind)));
+                // Symmetric trailing-space suppression (see `emit_vertex`): a
+                // captured trailing whitespace is the separator, so suppress
+                // the redundant following layout space to keep the fixed point.
+                if grammar.leading_space_terminals.contains(kind)
+                    && literal.ends_with([' ', '\t'])
+                {
+                    out.no_space();
+                }
                 return Ok(());
             }
         }
