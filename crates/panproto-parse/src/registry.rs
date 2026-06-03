@@ -479,6 +479,8 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "json",
     "julia",
     "python",
+    "qmldir",
+    "rego",
     "scheme",
     "stan",
     "ungrammar",

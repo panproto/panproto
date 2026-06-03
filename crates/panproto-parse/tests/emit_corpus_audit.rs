@@ -542,6 +542,8 @@ const CORPUS_VERIFIED: &[&str] = &[
     "graphql",
     "gstlaunch",
     "json",
+    "qmldir",
+    "rego",
     "ungrammar",
 ];
 
@@ -605,6 +607,8 @@ const STRIP_VERIFIED: &[&str] = &[
     "graphql",
     "gstlaunch",
     "json",
+    "qmldir",
+    "rego",
     "ungrammar",
 ];
 
