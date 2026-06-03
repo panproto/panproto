@@ -599,6 +599,10 @@ impl Grammar {
             grammar.node_type_children = all_children;
             grammar.node_type_field_children = field_children;
             grammar.node_type_nonfield_children = nonfield_children;
+            // Repair grammar.json/parser.c FIELD-name drift before any
+            // field-driven precompute or augmentation reads the rule bodies,
+            // so the corrected names flow everywhere downstream.
+            reconcile_field_names(&mut grammar);
             augment_subtypes_from_node_types(&mut grammar);
         }
         grammar.yield_sets = compute_yield_sets(&grammar);
@@ -1083,10 +1087,17 @@ pub(crate) type NodeTypeResult = (
 
 pub(crate) fn build_node_type_children(nt_bytes: &[u8]) -> NodeTypeResult {
     use std::collections::{HashMap, HashSet};
-    let node_types: Vec<crate::theory_extract::NodeType> = match serde_json::from_slice(nt_bytes) {
-        Ok(v) => v,
-        Err(_) => return (HashMap::new(), HashMap::new(), HashMap::new()),
-    };
+    // Use the resilient parser, not a direct `from_slice`: recent
+    // tree-sitter releases append non-node metadata markers (e.g. erlang's
+    // `{"@generated": true}`) with no `type` field, which a strict
+    // `Vec<NodeType>` deserialization rejects — silently zeroing the whole
+    // node-types child map (and with it FIELD-name reconciliation and the
+    // subtype augmentation it feeds).
+    let node_types: Vec<crate::theory_extract::NodeType> =
+        match crate::theory_extract::parse_node_types(nt_bytes) {
+            Ok(v) => v,
+            Err(_) => return (HashMap::new(), HashMap::new(), HashMap::new()),
+        };
     let mut all_map: HashMap<String, HashSet<String>> = HashMap::new();
     let mut field_map: HashMap<String, HashMap<String, HashSet<String>>> = HashMap::new();
     let mut nonfield_map: HashMap<String, HashSet<String>> = HashMap::new();
@@ -1230,6 +1241,112 @@ pub(crate) fn augment_subtypes_from_node_types(grammar: &mut Grammar) {
 
 /// Walk a production and collect referenced symbols, separating those
 /// inside FIELD bodies (keyed by field name) from those outside any FIELD.
+/// Reconcile grammar.json `FIELD` names against node-types.json when they
+/// desync. The vendored `grammar.json` and the generated `parser.c`
+/// (reflected by `node-types.json`) can drift: a `FIELD(exprs, _expr)` in
+/// `grammar.json` may correspond to a field the parser actually emits as
+/// `expr` (erlang `list_comprehension`'s template). The schema's child
+/// edges carry the *parser's* field name, so the emit walker's
+/// `take_field("exprs")` finds nothing and the child is dropped.
+///
+/// `node-types.json` is authoritative for the parser's field names. For
+/// each rule whose kind appears there, when there is exactly ONE grammar
+/// `FIELD` name absent from the node-types field set and exactly ONE
+/// node-types field name absent from the grammar's field set, the grammar
+/// name is the stale one: rewrite every `FIELD` carrying it to the
+/// node-types name. The 1-to-1 constraint keeps this to the unambiguous
+/// rename case (a genuine drift), never a structural reinterpretation.
+pub(crate) fn reconcile_field_names(grammar: &mut Grammar) {
+    use std::collections::HashSet;
+    let mut renames: Vec<(String, String, String)> = Vec::new();
+    for (kind, nt_fields) in &grammar.node_type_field_children {
+        let Some(rule) = grammar.rules.get(kind) else {
+            continue;
+        };
+        let mut grammar_fields: HashSet<String> = HashSet::new();
+        collect_grammar_field_names(rule, &mut grammar_fields);
+        let nt_names: HashSet<&String> = nt_fields.keys().collect();
+        let grammar_only: Vec<&String> = grammar_fields
+            .iter()
+            .filter(|f| !nt_names.contains(f))
+            .collect();
+        let nt_only: Vec<&String> = nt_fields
+            .keys()
+            .filter(|f| !grammar_fields.contains(*f))
+            .collect();
+        // Exactly one stale grammar field and one unmatched parser field:
+        // the unambiguous drift. (Zero-diff rules and many-to-many
+        // reshuffles are left untouched.)
+        if grammar_only.len() == 1 && nt_only.len() == 1 {
+            renames.push((kind.clone(), grammar_only[0].clone(), nt_only[0].clone()));
+        }
+    }
+    for (kind, from, to) in renames {
+        if let Some(rule) = grammar.rules.get_mut(&kind) {
+            rename_field_in(rule, &from, &to);
+        }
+    }
+}
+
+/// Collect the set of `FIELD` names appearing anywhere in `prod`.
+fn collect_grammar_field_names(
+    prod: &Production,
+    out: &mut std::collections::HashSet<String>,
+) {
+    match prod {
+        Production::Field { name, content } => {
+            out.insert(name.clone());
+            collect_grammar_field_names(content, out);
+        }
+        Production::Choice { members } | Production::Seq { members } => {
+            for m in members {
+                collect_grammar_field_names(m, out);
+            }
+        }
+        Production::Repeat { content }
+        | Production::Repeat1 { content }
+        | Production::Optional { content }
+        | Production::Alias { content, .. }
+        | Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Reserved { content, .. } => collect_grammar_field_names(content, out),
+        _ => {}
+    }
+}
+
+/// Rewrite every `FIELD(from, …)` to `FIELD(to, …)` within `prod`.
+fn rename_field_in(prod: &mut Production, from: &str, to: &str) {
+    match prod {
+        Production::Field { name, content } => {
+            if name == from {
+                to.clone_into(name);
+            }
+            rename_field_in(content, from, to);
+        }
+        Production::Choice { members } | Production::Seq { members } => {
+            for m in members {
+                rename_field_in(m, from, to);
+            }
+        }
+        Production::Repeat { content }
+        | Production::Repeat1 { content }
+        | Production::Optional { content }
+        | Production::Alias { content, .. }
+        | Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Reserved { content, .. } => rename_field_in(content, from, to),
+        _ => {}
+    }
+}
+
 pub(crate) fn collect_field_symbols(
     prod: &Production,
     field_map: &mut std::collections::HashMap<String, Vec<String>>,
