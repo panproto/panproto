@@ -130,27 +130,52 @@ fn bare_symbol_name(prod: &Production) -> Option<&str> {
     }
 }
 
-/// The field label recorded on demand slot `pos` (empty when the caller
-/// supplied no labels, or the edge is unlabeled / `child_of`). An empty
-/// `labels` slice makes every slot unlabeled, recovering the original
-/// label-blind matcher exactly — that is the call used for `num_viable`.
+/// The field label recorded on demand slot `pos`. Three distinct values:
+///
+/// * `""` — the **label-blind** call: the caller passed an empty `labels`
+///   slice (the `num_viable` pass). [`label_ok`] is fully permissive here,
+///   which is the keystone invariant that `num_viable` ignores labels.
+/// * `"child_of"` — a genuine **unlabeled** child edge (not field-bound).
+/// * any other — the edge's field name.
+///
+/// Preserving `"child_of"` distinct from `""` is what lets [`label_ok`]
+/// reject an unlabeled edge from a named `FIELD` slot in the WINNER pass
+/// while leaving the label-blind `num_viable` pass untouched.
 fn slot_label<'a>(labels: &[&'a str], pos: usize) -> &'a str {
-    match labels.get(pos).copied().unwrap_or("") {
-        "child_of" => "",
-        l => l,
-    }
+    labels.get(pos).copied().unwrap_or("")
 }
 
 /// Whether a production in field context `field_ctx` may consume a demand
-/// slot labeled `slot`. An unlabeled slot is permissive. A field-labeled
-/// slot is consumable only from inside the matching `FIELD` — a non-field
-/// production (`field_ctx == None`) or a *different* field cannot take it.
-/// This is what stops an optional trailing production from swallowing the
-/// next field's child (JS for-header `= expr` eating the `right` operand)
-/// and a wrong field from claiming a labeled edge (rust `impl Foo`'s
-/// `F:trait` eating the `type` edge → spurious `for`).
+/// slot labeled `slot`. This mirrors emit's `ChildCursor::take_field`
+/// exactly, so the WINNER demand-match and the actual emit agree on which
+/// edge a `FIELD` binds:
+///
+/// * The label-blind slot (`""`, an empty `labels` slice) is fully
+///   permissive — this is the `num_viable` pass, which the keystone keeps
+///   label-blind so the "only one viable" preemption (and the heuristics
+///   it guards) is never perturbed.
+/// * A **named** field context (`field_ctx == Some(f)`) consumes a slot
+///   ONLY when it is labeled `f`. It must NOT consume an unlabeled
+///   (`child_of`) slot, because emit's `take_field(f)` requires
+///   `edge.kind == f` and would bind nothing — so counting an unlabeled
+///   edge toward a named `FIELD`'s match makes the CHOICE winner disagree
+///   with emit (csharp `argument`'s optional `FIELD(name, identifier) ":"`
+///   munching a bare `m(x)` argument as its `name`, then emitting a
+///   spurious `: x`).
+/// * A non-field context (`field_ctx == None`) consumes only the unlabeled
+///   (`child_of`) slot; a field-labeled edge is bound by its own `FIELD`
+///   via `take_field`, never positionally (this stops rust `impl Foo`'s
+///   `F:trait` eating the `type` edge → spurious `for`, and the JS
+///   for-header `= expr` swallowing the `right` operand).
 fn label_ok(slot: &str, field_ctx: Option<&str>) -> bool {
-    slot.is_empty() || field_ctx == Some(slot)
+    if slot.is_empty() {
+        // Label-blind call (num_viable): permissive.
+        return true;
+    }
+    match field_ctx {
+        Some(f) => slot == f,
+        None => slot == "child_of",
+    }
 }
 
 /// Set-valued review: the demand positions reachable by matching `prod`
