@@ -986,6 +986,37 @@ pub(crate) fn emit_production_inner(
                         protocol, schema, grammar, &edge.tgt, production, out,
                     );
                 }
+                // grammar.json ↔ parser.c FIELD desync: the grammar rule
+                // declares this FIELD, but the generated parser (authoritative
+                // via node-types.json) does NOT bind it — the field's child is
+                // recorded as a plain `child_of` edge, not `field=`. Detect the
+                // desync precisely: the parent kind appears in node-types as a
+                // parent with NON-field children, yet node-types lists NO field
+                // of this name for it. (enforce's `if` rule has
+                // FIELD(condition)/FIELD(consequence) but its node-types entry
+                // has `fields: {}` and emits the condition/consequence as
+                // unnamed children, so the field demand drops them →
+                // `if (true) a;` → `if ()`.) In that case fall back to taking
+                // a `child_of` edge whose target satisfies this FIELD's SYMBOL,
+                // in source order. Gated on the node-types desync signature so a
+                // grammar whose fields the parser DOES bind (the common case,
+                // where node_type_field_children carries the field) keeps the
+                // exact field-edge match and is never loosened.
+                let parent_kind = vertex_id_kind(schema, vertex_id);
+                let field_absent_in_node_types = parent_kind.is_some_and(|pk| {
+                    grammar.node_type_nonfield_children.contains_key(pk)
+                        && !grammar
+                            .node_type_field_children
+                            .get(pk)
+                            .is_some_and(|fields| fields.contains_key(field.as_str()))
+                });
+                if field_absent_in_node_types {
+                    if let Some(edge) = take_symbol_match(grammar, schema, cursor, name) {
+                        return emit_in_child_context(
+                            protocol, schema, grammar, &edge.tgt, production, out,
+                        );
+                    }
+                }
                 // No child edge for this field. If the field's value was
                 // an anonymous token (no named child) the walker captured
                 // it as a `field:<name>` constraint on this vertex (rust
