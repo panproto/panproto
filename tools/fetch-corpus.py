@@ -58,7 +58,13 @@ def fetch_corpus(name: str, spec: dict) -> int:
             return 0
         root = clone / directory if directory else clone
         # tree-sitter corpus lives at test/corpus or (older) corpus/.
+        # When a grammar is a subdirectory of a multi-grammar repo (directory
+        # set), the corpus frequently lives at the REPO ROOT test/corpus rather
+        # than the directory-scoped path (typescript, tsx, php, ocaml, fsharp).
+        # Check the directory-scoped paths first, then fall back to repo root.
         candidates = [root / "test" / "corpus", root / "corpus"]
+        if directory:
+            candidates += [clone / "test" / "corpus", clone / "corpus"]
         src = next((c for c in candidates if c.exists()), None)
         if src is None:
             print("no corpus dir")
