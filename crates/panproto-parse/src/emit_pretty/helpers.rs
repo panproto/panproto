@@ -1229,6 +1229,16 @@ pub(crate) fn placeholder_for_pattern(pattern: &str) -> String {
         return lit;
     }
 
+    // A literal core wrapped in optional-whitespace classes
+    // (`[ \t]*:[ \t]*` -> ":", GLSL's `#extension` `extension : behavior`
+    // separator). The whitespace runs are optional padding the layout pass
+    // re-supplies; the constant `:` between them is the actual separator
+    // token and must be emitted, not a `_` placeholder (which breaks the
+    // re-parse of the surrounding directive).
+    if let Some(lit) = decode_whitespace_padded_literal(pattern) {
+        return lit;
+    }
+
     // A positive char class of fixed literals (`[;#]`, `[<>]`): emit the
     // first member -- a valid token of the terminal (an ini/properties
     // comment marker `[;#]` reparses as a comment), unlike the `_`
@@ -1280,6 +1290,63 @@ pub(crate) fn decode_simple_pattern_literal(pattern: &str) -> Option<String> {
         }
     }
     Some(out)
+}
+
+/// Decode a PATTERN of the shape `<ws-pad><literal><ws-pad>` where each
+/// `<ws-pad>` is an optional run of a whitespace character class (`[ \t]*`,
+/// `\s*`) and `<literal>` is a constant byte sequence with no further regex
+/// metacharacters. Returns the literal core. GLSL's `#extension`
+/// `preproc_extension` separates `extension : behavior` with
+/// `IMMEDIATE_TOKEN([ \t]*:[ \t]*)`: the `:` is the real separator token,
+/// the surrounding `[ \t]*` is padding the layout pass re-supplies. Without
+/// this the whole pattern hits the `_` placeholder, dropping the `:` and
+/// breaking the directive's re-parse. Returns `None` unless exactly one
+/// whitespace-class run brackets each side and the middle is a clean literal.
+pub(crate) fn decode_whitespace_padded_literal(pattern: &str) -> Option<String> {
+    // Strip a leading optional-whitespace-class run `[ \t]*` / `\s*`.
+    let body = strip_leading_ws_run(pattern)?;
+    // Strip a trailing optional-whitespace-class run from the END.
+    let body = if let Some(idx) = body.rfind('[') {
+        let tail = &body[idx..];
+        // The tail must be exactly a whitespace-class run with nothing after.
+        if strip_leading_ws_run(tail) == Some("") {
+            &body[..idx]
+        } else {
+            body
+        }
+    } else if let Some(stripped) = body
+        .strip_suffix("\\s*")
+        .or_else(|| body.strip_suffix("\\s+"))
+    {
+        stripped
+    } else {
+        body
+    };
+    if body.is_empty() {
+        return None;
+    }
+    // The remaining body must be a clean literal (no regex metacharacters).
+    decode_simple_pattern_literal(body)
+}
+
+/// Strip a single leading optional-whitespace-class run (`[ \t]*` / `\s*` /
+/// `\s+`) from the front of a regex, returning the remainder. `None` if no
+/// such run is present.
+fn strip_leading_ws_run(s: &str) -> Option<&str> {
+    if let Some(rest) = s.strip_prefix("\\s*").or_else(|| s.strip_prefix("\\s+")) {
+        return Some(rest);
+    }
+    // A bracketed class `[...]` followed by `*` or `+`, where the class
+    // contains only whitespace atoms.
+    let rest = s.strip_prefix('[')?;
+    let end = rest.find(']')?;
+    let class = &rest[..end];
+    let after = &rest[end + 1..];
+    let after = after.strip_prefix('*').or_else(|| after.strip_prefix('+'))?;
+    if !is_whitespace_only_pattern(&format!("[{class}]*")) {
+        return None;
+    }
+    Some(after)
 }
 
 /// A scanner concatenation / no-space marker external token: the

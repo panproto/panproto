@@ -547,6 +547,20 @@ mod tests {
     }
 
     #[test]
+    fn placeholder_decodes_whitespace_padded_literal() {
+        // A literal separator wrapped in optional-whitespace classes
+        // (GLSL `#extension` `extension : behavior`) emits the literal
+        // core, not the `_` placeholder.
+        assert_eq!(placeholder_for_pattern("[ \\t]*:[ \\t]*"), ":");
+        assert_eq!(placeholder_for_pattern("\\s*=\\s*"), "=");
+        assert_eq!(placeholder_for_pattern("[ \\t]*->"), "->");
+        // A non-whitespace leading class is not padding: the
+        // whitespace-padded decoder declines and the pattern routes
+        // through the general heuristic.
+        assert_eq!(placeholder_for_pattern("[a-z]*:[ \\t]*"), "_");
+    }
+
+    #[test]
     fn supertypes_decode_from_grammar_json_strings() {
         // Tree-sitter older grammars list supertypes as bare strings.
         let bytes = br#"{
