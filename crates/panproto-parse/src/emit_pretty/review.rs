@@ -35,7 +35,8 @@ use super::{
     is_whitespace_external, is_whitespace_only_pattern, is_word_like, leaf_terminal_role,
     literal_strings, literal_value, mandatory_field_names, member_has_leading_bracket,
     pattern_absorbs_leading_space, placeholder_for_pattern, prec_value, push_field_context,
-    referenced_symbols, seq_bracket_triggers_indent, seq_open_bracket_index,
+    reduces_to_immediate_token, referenced_symbols, seq_bracket_triggers_indent,
+    seq_open_bracket_index,
     unbounded_negated_class, unwrap_to_string, vertex_id_kind, yield_of_production,
 };
 
@@ -597,6 +598,16 @@ pub(crate) fn emit_seq_with_roles(
             } else {
                 out.token_with_role(value, Some(role));
             }
+        } else if reduces_to_immediate_token(member) {
+            // The member is an ALIAS-wrapped IMMEDIATE_TOKEN: the lexer admits
+            // it only with no preceding whitespace, so hug it to the previous
+            // token (tidal `repeat_suffix` `*`<-`2`). This is the alias-wrapped
+            // analogue of the rule-head no-space check in `emit_vertex`; it is
+            // derived purely from the production shape, so it stays generic.
+            if prev_member_emitted_content {
+                out.no_space();
+            }
+            emit_production(protocol, schema, grammar, vertex_id, member, cursor, out)?;
         } else {
             // ForceSpace between consecutive content-producing SEQ
             // members so that sibling-vertex tokens are separated

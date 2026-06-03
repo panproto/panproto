@@ -330,6 +330,44 @@ pub(crate) fn is_immediate_token(prod: &Production) -> bool {
     }
 }
 
+/// True when a production, once emitted, contributes a token the lexer admits
+/// only with no preceding whitespace. This is [`is_immediate_token`] extended
+/// through a named `ALIAS` wrapper: tree-sitter wraps an `IMMEDIATE_TOKEN` in
+/// an `ALIAS` to give the resulting node a kind name (tidal's `repeat_suffix =
+/// SEQ["*", ALIAS{IMMEDIATE_TOKEN PATTERN, value:"number"}]` — the `2` must hug
+/// the `*` or the suffix fails to lex). The alias-wrapped form does not reach
+/// the rule-head no-space check in `emit_vertex` (it carries no rule), so the
+/// SEQ walk consults this to hug such a member to its left neighbour.
+pub(crate) fn reduces_to_immediate_token(prod: &Production) -> bool {
+    match prod {
+        Production::ImmediateToken { .. } => true,
+        Production::Alias { content, .. }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Token { content }
+        | Production::Field { content, .. }
+        | Production::Reserved { content, .. } => reduces_to_immediate_token(content),
+        // A CHOICE whose only materializing alternatives are immediate tokens
+        // (the rest `BLANK`): whichever alt is selected hugs its left
+        // neighbour (tidal `replicate_suffix = SEQ["!", CHOICE[number, BLANK]]`,
+        // the `3` in `!3`).
+        Production::Choice { members } => {
+            let mut saw_immediate = false;
+            for m in members {
+                match m {
+                    Production::Blank => {}
+                    _ if reduces_to_immediate_token(m) => saw_immediate = true,
+                    _ => return false,
+                }
+            }
+            saw_immediate
+        }
+        _ => false,
+    }
+}
+
 pub(crate) fn unwrap_to_string(prod: &Production) -> Option<&str> {
     match prod {
         Production::String { value } => Some(value.as_str()),
@@ -1498,5 +1536,35 @@ mod line_comment_prefix_tests {
             ],
         };
         assert_eq!(extract_line_comment_prefix(&rule), None);
+    }
+
+    #[test]
+    fn reduces_to_immediate_through_alias_and_choice() {
+        let alias = |inner: Production| Production::Alias {
+            content: Box::new(inner),
+            named: true,
+            value: "number".to_string(),
+        };
+        let imm = || Production::ImmediateToken {
+            content: Box::new(pat("[0-9]+")),
+        };
+        // Bare IMMEDIATE_TOKEN.
+        assert!(reduces_to_immediate_token(&imm()));
+        // Named ALIAS over an IMMEDIATE_TOKEN (tidal `repeat_suffix` number).
+        assert!(reduces_to_immediate_token(&alias(imm())));
+        // CHOICE of [immediate, BLANK] (tidal `replicate_suffix`).
+        assert!(reduces_to_immediate_token(&Production::Choice {
+            members: vec![alias(imm()), Production::Blank],
+        }));
+        // A CHOICE with a non-immediate, non-blank alternative is NOT immediate
+        // (whichever alt is selected may carry preceding whitespace).
+        assert!(!reduces_to_immediate_token(&Production::Choice {
+            members: vec![alias(imm()), string("x")],
+        }));
+        // A plain STRING / SYMBOL is not immediate.
+        assert!(!reduces_to_immediate_token(&string("*")));
+        assert!(!reduces_to_immediate_token(&Production::Symbol {
+            name: "number".to_string(),
+        }));
     }
 }
