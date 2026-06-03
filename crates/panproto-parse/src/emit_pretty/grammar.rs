@@ -1289,10 +1289,7 @@ pub(crate) fn reconcile_field_names(grammar: &mut Grammar) {
 }
 
 /// Collect the set of `FIELD` names appearing anywhere in `prod`.
-fn collect_grammar_field_names(
-    prod: &Production,
-    out: &mut std::collections::HashSet<String>,
-) {
+fn collect_grammar_field_names(prod: &Production, out: &mut std::collections::HashSet<String>) {
     match prod {
         Production::Field { name, content } => {
             out.insert(name.clone());
@@ -2187,9 +2184,9 @@ fn member_is_unbounded_body(
         Production::Symbol { name } => rules
             .get(name)
             .is_some_and(|r| matches!(r, Production::Repeat { .. } | Production::Repeat1 { .. })),
-        Production::Choice { members } | Production::Seq { members } => members
-            .iter()
-            .any(|m| member_is_unbounded_body(m, rules)),
+        Production::Choice { members } | Production::Seq { members } => {
+            members.iter().any(|m| member_is_unbounded_body(m, rules))
+        }
         Production::Optional { content } | Production::Field { content, .. } => {
             member_is_unbounded_body(content, rules)
         }

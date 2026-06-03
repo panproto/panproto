@@ -35,9 +35,9 @@ use super::{
     is_no_space_external, is_whitespace_external, is_whitespace_only_pattern, is_word_like,
     leaf_terminal_role, literal_strings, literal_value, mandatory_field_names,
     member_has_leading_bracket, pattern_absorbs_leading_space, placeholder_for_pattern, prec_value,
-    push_field_context, reduces_to_immediate_token, referenced_symbols, seq_bracket_triggers_indent,
-    seq_open_bracket_index,
-    unbounded_negated_class, unwrap_to_string, vertex_id_kind, yield_of_production,
+    push_field_context, reduces_to_immediate_token, referenced_symbols,
+    seq_bracket_triggers_indent, seq_open_bracket_index, unbounded_negated_class, unwrap_to_string,
+    vertex_id_kind, yield_of_production,
 };
 
 pub(crate) fn collect_roots(schema: &Schema) -> Vec<&panproto_gat::Name> {

@@ -662,8 +662,8 @@ pub(crate) fn is_rest_of_line_pattern(value: &str) -> bool {
                 // The inner members (between `[^` and `]`).
                 let inner = &value[i + 2..j];
                 let quant = j + 1;
-                let unbounded = quant < bytes.len()
-                    && (bytes[quant] == b'*' || bytes[quant] == b'+');
+                let unbounded =
+                    quant < bytes.len() && (bytes[quant] == b'*' || bytes[quant] == b'+');
                 // A genuine "rest of line" class excludes ONLY newline bytes
                 // (`\n`, optionally `\r`). A class that ALSO excludes other
                 // members (`[^"\\\r\n]` — a quote/backslash-bounded string
