@@ -793,6 +793,16 @@ pub fn inject_json_cst(
                         }
                     }
                 }
+                // Non-string scalars (numbers, bools, null) likewise carry a
+                // canonical lexical form in the CST leaf that does NOT survive
+                // a round-trip through the parsed `Value`: `1e10`, `-0`, and
+                // big integers beyond f64 precision all re-serialize to a
+                // different (yet value-equal) token. When the leaf's original
+                // text still decodes to the instance value, the value is
+                // unchanged, so leave the original bytes untouched.
+                if json_scalar_unchanged(&cst, cst_vertex, presence) {
+                    continue;
+                }
                 let new_text = field_presence_to_json_text(presence);
                 update_literal_value(&mut cst, cst_vertex, &new_text);
             }
@@ -800,6 +810,28 @@ pub fn inject_json_cst(
     }
 
     Ok(cst)
+}
+
+/// Whether the JSON scalar leaf at `cst_vertex` still decodes to the same
+/// instance `presence`, in which case its original bytes should be preserved
+/// verbatim rather than re-serialized from the (lossy) parsed `Value`.
+///
+/// This guards numeric tokens whose lexical form is not recoverable from the
+/// `Value` (`1e10`, `-0`, `3.14159E-5`, integers past f64 precision) and the
+/// boolean / `null` keywords. Strings are handled separately (above) because
+/// their text spans multiple CST segments.
+fn json_scalar_unchanged(cst: &Schema, cst_vertex: &str, presence: &FieldPresence) -> bool {
+    let Some(original) = literal_value(cst, cst_vertex) else {
+        return false;
+    };
+    match presence {
+        FieldPresence::Present(v @ (Value::Int(_) | Value::Float(_))) => {
+            &parse_number_value(&original) == v
+        }
+        FieldPresence::Present(Value::Bool(b)) => original == if *b { "true" } else { "false" },
+        FieldPresence::Null | FieldPresence::Present(Value::Null) => original == "null",
+        _ => false,
+    }
 }
 
 /// Convert a `FieldPresence` to the JSON text representation.
@@ -1010,6 +1042,15 @@ fn extract_xml_element(
     if let Some(ref content) = content_vertex {
         let content_children = ordered_content_children(cst, content);
         let has_elements = content_children.iter().any(|(kind, _)| kind == "element");
+        // Content that interleaves CDATA sections, comments, or processing
+        // instructions with text cannot be collapsed into a single
+        // `node.value` (that path overwrites the first `CharData` leaf with
+        // the concatenated text and drops the non-text siblings). When any
+        // such sibling is present, fall through to the structural path and
+        // let `emit` replay the CST verbatim.
+        let has_nontext_nonelement = content_children
+            .iter()
+            .any(|(kind, _)| kind != "CharData" && kind != "element");
         let has_nonempty_text = content_children.iter().any(|(kind, name)| {
             kind == "CharData"
                 && !literal_value(cst, name)
@@ -1019,7 +1060,7 @@ fn extract_xml_element(
         });
         let domain_edges: Vec<Edge> = domain_schema.outgoing_edges(domain_vertex).to_vec();
 
-        if !has_elements {
+        if !has_elements && !has_nontext_nonelement {
             // Pure text content: collapse to node.value (existing
             // semantics; preserves the leaf-element fast path where a
             // round-trip just stores the captured text).
@@ -1325,6 +1366,13 @@ fn inject_xml_attributes(
                     Value::Str(s) => s.clone(),
                     other => format!("{other:?}"),
                 };
+                // When the attribute value is unchanged, leave the original
+                // AttValue token untouched: it carries lexical details the
+                // re-serialization discards (single- vs double-quote style,
+                // and entity-encoded characters such as `&lt;`/`&amp;`).
+                if extract_xml_attr_value(cst, attr_vertex).as_deref() == Some(text.as_str()) {
+                    continue;
+                }
                 // Find and update the AttValue child
                 let attvalue_vertex = cst
                     .outgoing_edges(attr_vertex)
