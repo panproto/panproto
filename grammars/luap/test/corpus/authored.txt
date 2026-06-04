@@ -1,0 +1,76 @@
+==================
+literal characters
+==================
+hello
+----
+(source_file)
+
+==================
+anchored
+==================
+^abc$
+----
+(source_file)
+
+==================
+character class digit
+==================
+%d+
+----
+(source_file)
+
+==================
+word characters
+==================
+%w+
+----
+(source_file)
+
+==================
+set of characters
+==================
+[abc]
+----
+(source_file)
+
+==================
+negated set
+==================
+[^%s]
+----
+(source_file)
+
+==================
+range set
+==================
+[a-z]+
+----
+(source_file)
+
+==================
+capture
+==================
+(%a+)=(%d+)
+----
+(source_file)
+
+==================
+escaped magic char
+==================
+%.%-%+
+----
+(source_file)
+
+==================
+quantifiers
+==================
+%a*%d-x
+----
+(source_file)
+
+==================
+any char and optional
+==================
+a.c%s?
+----
+(source_file)

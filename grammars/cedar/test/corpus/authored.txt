@@ -1,0 +1,95 @@
+==================
+permit any
+==================
+
+permit (principal, action, resource);
+
+----
+
+(source_file)
+
+==================
+forbid with scope
+==================
+
+forbid (
+  principal == User::"alice",
+  action == Action::"delete",
+  resource
+);
+
+----
+
+(source_file)
+
+==================
+permit with in
+==================
+
+permit (
+  principal in Group::"admins",
+  action,
+  resource in Folder::"shared"
+);
+
+----
+
+(source_file)
+
+==================
+when condition
+==================
+
+permit (principal, action, resource)
+when { resource.owner == principal };
+
+----
+
+(source_file)
+
+==================
+unless condition
+==================
+
+permit (principal, action, resource)
+unless { resource.public == false };
+
+----
+
+(source_file)
+
+==================
+annotation
+==================
+
+@id("policy1")
+permit (principal, action, resource);
+
+----
+
+(source_file)
+
+==================
+action set
+==================
+
+permit (
+  principal,
+  action in [Action::"read", Action::"list"],
+  resource
+);
+
+----
+
+(source_file)
+
+==================
+when with and
+==================
+
+permit (principal, action, resource)
+when { principal.age >= 18 && resource.rating == "PG" };
+
+----
+
+(source_file)

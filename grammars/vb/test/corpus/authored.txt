@@ -1,0 +1,114 @@
+==================
+class with fields
+==================
+
+Public Class Person
+    Public Name As String
+    Private age As Integer
+End Class
+
+----
+
+(source_file)
+
+==================
+property
+==================
+
+Public Class Box
+    Public Property Width As Double
+End Class
+
+----
+
+(source_file)
+
+==================
+enum
+==================
+
+Public Enum Color
+    Red
+    Green
+    Blue
+End Enum
+
+----
+
+(source_file)
+
+==================
+namespace
+==================
+
+Namespace MyApp
+    Public Class Widget
+    End Class
+End Namespace
+
+----
+
+(source_file)
+
+==================
+module with sub
+==================
+
+Module Program
+    Sub Main()
+        Console.WriteLine("Hello")
+    End Sub
+End Module
+
+----
+
+(source_file)
+
+==================
+module with function
+==================
+
+Module MathOps
+    Function Add(a As Integer, b As Integer) As Integer
+        Return a + b
+    End Function
+End Module
+
+----
+
+(source_file)
+
+==================
+class with method and if
+==================
+
+Public Class Checker
+    Public Sub Check(x As Integer)
+        If x > 0 Then
+            Console.WriteLine("positive")
+        Else
+            Console.WriteLine("non-positive")
+        End If
+    End Sub
+End Class
+
+----
+
+(source_file)
+
+==================
+class with for loop
+==================
+
+Public Class Looper
+    Public Sub Run()
+        Dim total As Integer = 0
+        For i As Integer = 1 To 10
+            total += i
+        Next
+    End Sub
+End Class
+
+----
+
+(source_file)

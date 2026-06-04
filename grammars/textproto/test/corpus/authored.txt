@@ -1,0 +1,97 @@
+==================
+scalar fields
+==================
+
+name: "Alice"
+age: 30
+active: true
+
+----
+
+(source_file)
+
+==================
+nested message
+==================
+
+person {
+  name: "Bob"
+  id: 42
+}
+
+----
+
+(source_file)
+
+==================
+repeated scalar list
+==================
+
+scores: [1, 2, 3, 4]
+
+----
+
+(source_file)
+
+==================
+repeated message blocks
+==================
+
+friend {
+  name: "Carol"
+}
+friend {
+  name: "Dave"
+}
+
+----
+
+(source_file)
+
+==================
+nested submessage with angle brackets
+==================
+
+location <
+  lat: 1.5
+  lon: -2.25
+>
+
+----
+
+(source_file)
+
+==================
+enum and negative numbers
+==================
+
+status: ACTIVE
+balance: -100
+temperature: -3.14
+
+----
+
+(source_file)
+
+==================
+extension field
+==================
+
+[com.example.ext]: "value"
+
+----
+
+(source_file)
+
+==================
+message list
+==================
+
+items: [
+  { key: "a" },
+  { key: "b" }
+]
+
+----
+
+(source_file)

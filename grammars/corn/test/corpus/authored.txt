@@ -1,0 +1,93 @@
+==================
+simple object
+==================
+
+{
+    name = "app"
+    version = 1
+}
+
+----
+
+(source_file)
+
+==================
+nested object
+==================
+
+{
+    server = {
+        host = "localhost"
+        port = 8080
+    }
+}
+
+----
+
+(source_file)
+
+==================
+dotted path keys
+==================
+
+{
+    db.host = "localhost"
+    db.port = 5432
+}
+
+----
+
+(source_file)
+
+==================
+array values
+==================
+
+{
+    ports = [80 443 8080]
+}
+
+----
+
+(source_file)
+
+==================
+let block with inputs
+==================
+
+let {
+    $base = "production"
+} in {
+    env = $base
+}
+
+----
+
+(source_file)
+
+==================
+booleans and null
+==================
+
+{
+    enabled = true
+    disabled = false
+    missing = null
+}
+
+----
+
+(source_file)
+
+==================
+float and negative
+==================
+
+{
+    ratio = 0.75
+    offset = -10
+}
+
+----
+
+(source_file)

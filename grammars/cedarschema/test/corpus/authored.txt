@@ -1,0 +1,83 @@
+==================
+simple entity
+==================
+
+entity User;
+
+----
+
+(source_file)
+
+==================
+entity with attributes
+==================
+
+entity User {
+  name: String,
+  age: Long,
+};
+
+----
+
+(source_file)
+
+==================
+entity in
+==================
+
+entity User in [Group];
+
+----
+
+(source_file)
+
+==================
+action declaration
+==================
+
+action read appliesTo {
+  principal: [User],
+  resource: [Photo]
+};
+
+----
+
+(source_file)
+
+==================
+namespace
+==================
+
+namespace PhotoApp {
+  entity User;
+  entity Photo;
+}
+
+----
+
+(source_file)
+
+==================
+common type
+==================
+
+type Address = {
+  street: String,
+  city: String,
+};
+
+----
+
+(source_file)
+
+==================
+entity with set attribute
+==================
+
+entity User {
+  roles: Set<String>,
+};
+
+----
+
+(source_file)

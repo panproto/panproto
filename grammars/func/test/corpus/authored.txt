@@ -1,0 +1,93 @@
+==================
+include directive
+==================
+
+#include "stdlib.fc";
+
+----
+
+(source_file)
+
+==================
+simple function
+==================
+
+int add(int a, int b) {
+    return a + b;
+}
+
+----
+
+(source_file)
+
+==================
+function with slice param
+==================
+
+slice get_data(cell c) {
+    return c.begin_parse();
+}
+
+----
+
+(source_file)
+
+==================
+global variable
+==================
+
+global int total;
+
+----
+
+(source_file)
+
+==================
+const declaration
+==================
+
+const int gas_limit = 1000000;
+
+----
+
+(source_file)
+
+==================
+if statement
+==================
+
+() check(int x) {
+    if (x > 0) {
+        return ();
+    }
+}
+
+----
+
+(source_file)
+
+==================
+variable declaration and assignment
+==================
+
+int compute(int n) {
+    int result = n * 2;
+    result += 1;
+    return result;
+}
+
+----
+
+(source_file)
+
+==================
+tuple return type
+==================
+
+(int, int) split(int x) {
+    return (x, x);
+}
+
+----
+
+(source_file)

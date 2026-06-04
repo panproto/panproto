@@ -1,0 +1,103 @@
+==================
+simple class
+==================
+
+class Register {
+  string Name = "";
+  int Number = 0;
+}
+
+----
+
+(source_file)
+
+==================
+def with parent class
+==================
+
+class Instruction;
+
+def ADD : Instruction {
+  string Mnemonic = "add";
+}
+
+----
+
+(source_file)
+
+==================
+class with template args
+==================
+
+class Register<int num, string name> {
+  int Number = num;
+  string Name = name;
+}
+
+----
+
+(source_file)
+
+==================
+multiclass
+==================
+
+multiclass ArithOps<string opc> {
+  def _rr : Instruction;
+  def _ri : Instruction;
+}
+
+----
+
+(source_file)
+
+==================
+let statement
+==================
+
+let Predicates = [HasSSE2] in {
+  def MOVAPD : Instruction;
+}
+
+----
+
+(source_file)
+
+==================
+list and bits
+==================
+
+def Config {
+  list<int> Values = [1, 2, 3];
+  bit Enabled = 1;
+}
+
+----
+
+(source_file)
+
+==================
+include
+==================
+
+include "Common.td"
+
+----
+
+(source_file)
+
+==================
+def with field reference
+==================
+
+class Base {
+  int X = 0;
+}
+
+def Derived : Base {
+  let X = 5;
+}
+
+----
+
+(source_file)

@@ -1,0 +1,118 @@
+==================
+local declaration
+==================
+
+local x = 10;
+local name = "squirrel";
+
+----
+
+(source_file)
+
+==================
+function declaration
+==================
+
+function add(a, b) {
+    return a + b;
+}
+
+----
+
+(source_file)
+
+==================
+if else
+==================
+
+if (x > 0) {
+    print("positive");
+} else {
+    print("non-positive");
+}
+
+----
+
+(source_file)
+
+==================
+while loop
+==================
+
+local i = 0;
+while (i < 10) {
+    i++;
+}
+
+----
+
+(source_file)
+
+==================
+for loop
+==================
+
+for (local i = 0; i < 10; i += 1) {
+    print(i);
+}
+
+----
+
+(source_file)
+
+==================
+foreach
+==================
+
+foreach (key, value in container) {
+    print(key);
+}
+
+----
+
+(source_file)
+
+==================
+class declaration
+==================
+
+class Vector {
+    x = 0;
+    y = 0;
+    function length() {
+        return sqrt(this.x * this.x + this.y * this.y);
+    }
+}
+
+----
+
+(source_file)
+
+==================
+table
+==================
+
+local t = {
+    name = "test",
+    value = 42
+};
+
+----
+
+(source_file)
+
+==================
+switch statement
+==================
+
+switch (x) {
+    case 1:
+        print("one");
+        break;
+    default:
+        print("other");
+}
+
+----
+
+(source_file)

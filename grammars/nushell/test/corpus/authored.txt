@@ -1,0 +1,98 @@
+==================
+let binding
+==================
+
+let x = 10
+
+----
+
+(source_file)
+
+==================
+mutable variable
+==================
+
+mut count = 0
+count = $count + 1
+
+----
+
+(source_file)
+
+==================
+pipeline
+==================
+
+ls | where size > 1kb | sort-by name
+
+----
+
+(source_file)
+
+==================
+def command
+==================
+
+def greet [name: string] {
+    print $"Hello ($name)"
+}
+
+----
+
+(source_file)
+
+==================
+if else
+==================
+
+if $x > 0 {
+    print "positive"
+} else {
+    print "non-positive"
+}
+
+----
+
+(source_file)
+
+==================
+for loop
+==================
+
+for i in 1..10 {
+    print $i
+}
+
+----
+
+(source_file)
+
+==================
+list and each
+==================
+
+[1 2 3] | each { |it| $it * 2 }
+
+----
+
+(source_file)
+
+==================
+record
+==================
+
+let person = {name: "Alice", age: 30}
+
+----
+
+(source_file)
+
+==================
+const declaration
+==================
+
+const PI = 3.14159
+
+----
+
+(source_file)

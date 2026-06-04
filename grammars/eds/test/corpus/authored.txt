@@ -1,0 +1,78 @@
+==================
+file info section
+==================
+
+[FileInfo]
+FileName=sample.eds
+FileVersion=1
+FileRevision=0
+
+----
+
+(source_file)
+
+==================
+device info
+==================
+
+[DeviceInfo]
+VendorName=Acme
+VendorNumber=42
+ProductName=Widget
+
+----
+
+(source_file)
+
+==================
+comment line
+==================
+
+; This is a comment
+[Comments]
+Lines=1
+
+----
+
+(source_file)
+
+==================
+object dictionary entry
+==================
+
+[1000]
+ParameterName=Device Type
+ObjectType=7
+DataType=0007
+AccessType=ro
+
+----
+
+(source_file)
+
+==================
+multiple sections
+==================
+
+[FileInfo]
+FileName=node.eds
+
+[DeviceInfo]
+VendorName=Example
+
+----
+
+(source_file)
+
+==================
+sub index section
+==================
+
+[1018sub0]
+ParameterName=Number of entries
+ObjectType=7
+DataType=0005
+
+----
+
+(source_file)

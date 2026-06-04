@@ -1,0 +1,50 @@
+==================
+simple sine
+==================
+out: sin 440
+----
+(source_file)
+
+==================
+chain with amplitude
+==================
+out: saw 110 >> mul 0.5
+----
+(source_file)
+
+==================
+square through filter
+==================
+out: squ 220 >> lpf 1000.0 1.0
+----
+(source_file)
+
+==================
+triangle attenuated
+==================
+out: tri 330 >> mul 0.2
+----
+(source_file)
+
+==================
+reference chain
+==================
+~lead: saw 110 >> lpf 1000.0 1.0
+out: ~lead >> mul 0.2
+----
+(source_file)
+
+==================
+comment
+==================
+// a basic patch
+out: sin 440 >> mul 0.3
+----
+(source_file)
+
+==================
+noise through filter
+==================
+out: noiz 42 >> hpf 500.0 1.0 >> mul 0.1
+----
+(source_file)

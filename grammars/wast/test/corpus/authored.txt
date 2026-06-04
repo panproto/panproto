@@ -1,0 +1,93 @@
+==================
+module declaration
+==================
+
+(module
+  (func $add (param $a i32) (param $b i32) (result i32)
+    local.get $a
+    local.get $b
+    i32.add))
+
+----
+
+(source_file)
+
+==================
+assert return
+==================
+
+(module
+  (func (export "f") (result i32)
+    i32.const 7))
+(assert_return (invoke "f") (i32.const 7))
+
+----
+
+(source_file)
+
+==================
+assert trap
+==================
+
+(module
+  (func (export "div") (param i32 i32) (result i32)
+    local.get 0
+    local.get 1
+    i32.div_s))
+(assert_trap (invoke "div" (i32.const 1) (i32.const 0)) "integer divide by zero")
+
+----
+
+(source_file)
+
+==================
+assert invalid
+==================
+
+(assert_invalid
+  (module (func (result i32) (i64.const 0)))
+  "type mismatch")
+
+----
+
+(source_file)
+
+==================
+invoke with arguments
+==================
+
+(module
+  (func (export "mul") (param i32 i32) (result i32)
+    local.get 0
+    local.get 1
+    i32.mul))
+(invoke "mul" (i32.const 3) (i32.const 4))
+
+----
+
+(source_file)
+
+==================
+register and named module
+==================
+
+(module $m
+  (func (export "g") (result i32)
+    i32.const 1))
+(register "M" $m)
+
+----
+
+(source_file)
+
+==================
+assert malformed
+==================
+
+(assert_malformed
+  (module quote "(func (param $x))")
+  "unknown operator")
+
+----
+
+(source_file)
