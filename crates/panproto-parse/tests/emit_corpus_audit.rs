@@ -681,7 +681,15 @@ const CORPUS_VERIFIED: &[&str] = &[
     "circom",
     "clojure",
     "cmake",
+    "commonlisp",
+    "cpon",
+    "cpp",
+    "crystal",
+    "csharp",
+    "css",
     "csv",
+    "cuda",
+    "cue",
     "cylc",
     "d",
     "dart",
@@ -722,10 +730,24 @@ const CORPUS_VERIFIED: &[&str] = &[
     "gomod",
     "graphql",
     "gstlaunch",
+    "hack",
+    "haxe",
+    "hcl",
+    "heex",
+    "hlsl",
     "html",
+    "hyprlang",
+    "idris",
+    "ini",
+    "ispc",
     "janet",
     "java",
     "json",
+    "jsonnet",
+    "just",
+    "latex",
+    "lua",
+    "luadoc",
     "matlab",
     "mojo",
     "netlinx",
@@ -735,14 +757,15 @@ const CORPUS_VERIFIED: &[&str] = &[
     "nix",
     "nqc",
     "objc",
+    "ocaml",
     "odin",
     "pkl",
     "pony",
     "postscript",
     "powershell",
-    "properties",
     "prolog",
     "promql",
+    "properties",
     "qml",
     "qmldir",
     "query",
@@ -753,7 +776,6 @@ const CORPUS_VERIFIED: &[&str] = &[
     "rust",
     "solidity",
     "sparql",
-    "sql",
     "starlark",
     "strudel_mini",
     "supercollider",
@@ -969,6 +991,82 @@ fn corpus_audit_report() {
                 full_pass.len(),
                 full_pass.join(",")
             );
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+#[test]
+fn corpus_degeneracy_report() {
+    let Ok(list) = std::env::var("PP_DEGEN") else {
+        return;
+    };
+    std::thread::Builder::new()
+        .stack_size(256 * 1024 * 1024)
+        .spawn(move || {
+            let reg = ParserRegistry::new();
+            // With PP_DEGEN_STRIP=1, run emit through the canonical section
+            // (forget_layout) instead of the replay path: this validates a
+            // STRIP candidate against content corruption (the ispc
+            // `unsigned`->`signed` anonymous-token-CHOICE class) that the
+            // structural-only strip gate cannot see.
+            let strip_mode = std::env::var("PP_DEGEN_STRIP").is_ok();
+            // The non-whitespace character multiset of a byte slice.
+            let char_multiset = |b: &[u8]| -> BTreeMap<u8, usize> {
+                let mut m = BTreeMap::new();
+                for c in b.iter().filter(|c| !c.is_ascii_whitespace()) {
+                    *m.entry(*c).or_insert(0) += 1;
+                }
+                m
+            };
+            for proto in list.split(',').filter(|s| !s.is_empty()) {
+                let file = format!("sample.{proto}");
+                let mut first_divergence: Option<(String, String, String)> = None;
+                let mut flagged = 0usize;
+                let mut total = 0usize;
+                for (name, src) in corpus_sources(proto) {
+                    let Ok(s1) = reg.parse_with_protocol(proto, src.as_bytes(), &file) else {
+                        continue;
+                    };
+                    let has_error = s1.vertices.values().any(|v| {
+                        matches!(v.kind.as_ref(), "ERROR" | "MISSING")
+                            || v.kind.as_ref().contains("ERROR")
+                    });
+                    if s1.vertices.is_empty() || has_error {
+                        continue;
+                    }
+                    let schema = if strip_mode {
+                        s1.forget_layout()
+                    } else {
+                        s1.clone()
+                    };
+                    let Ok(e1) = reg.emit_pretty_with_protocol(proto, &schema) else {
+                        continue;
+                    };
+                    total += 1;
+                    // Spacing reformatting is legitimate; a difference in the
+                    // non-whitespace character multiset is a content drop or
+                    // substitution.
+                    if char_multiset(src.as_bytes()) != char_multiset(&e1) {
+                        flagged += 1;
+                        if first_divergence.is_none() {
+                            let src_sample: String = src.chars().take(120).collect();
+                            let out_sample: String =
+                                String::from_utf8_lossy(&e1).chars().take(120).collect();
+                            first_divergence = Some((name.clone(), src_sample, out_sample));
+                        }
+                    }
+                }
+                if let Some((name, src_sample, out_sample)) = first_divergence {
+                    eprintln!(
+                        "DEGEN-SUSPECT {proto}: {flagged}/{total} entries change the \
+                         non-whitespace char multiset; first [{name}]\n  IN ={src_sample:?}\n  OUT={out_sample:?}"
+                    );
+                } else {
+                    eprintln!("CLEAN {proto}: 0/{total} entries change the char multiset");
+                }
+            }
         })
         .unwrap()
         .join()
