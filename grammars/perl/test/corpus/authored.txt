@@ -1,0 +1,114 @@
+==================
+scalar assignment
+==================
+
+my $name = "Alice";
+
+----
+
+(source_file)
+
+==================
+array and hash
+==================
+
+my @list = (1, 2, 3);
+my %map = (a => 1, b => 2);
+
+----
+
+(source_file)
+
+==================
+print statement
+==================
+
+print "Hello, world\n";
+
+----
+
+(source_file)
+
+==================
+subroutine
+==================
+
+sub greet {
+    my ($who) = @_;
+    return "Hi $who";
+}
+
+----
+
+(source_file)
+
+==================
+if else
+==================
+
+if ($x > 0) {
+    print "positive";
+} else {
+    print "non-positive";
+}
+
+----
+
+(source_file)
+
+==================
+foreach loop
+==================
+
+foreach my $item (@list) {
+    print $item;
+}
+
+----
+
+(source_file)
+
+==================
+while loop
+==================
+
+while ($n > 0) {
+    $n = $n - 1;
+}
+
+----
+
+(source_file)
+
+==================
+use statement
+==================
+
+use strict;
+use warnings;
+
+----
+
+(source_file)
+
+==================
+package
+==================
+
+package My::Module;
+
+----
+
+(source_file)
+
+==================
+regex match
+==================
+
+if ($text =~ /pattern/) {
+    print "matched";
+}
+
+----
+
+(source_file)

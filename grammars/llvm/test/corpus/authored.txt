@@ -1,0 +1,97 @@
+==================
+global constant
+==================
+
+@msg = global i32 42
+
+----
+
+(module)
+
+==================
+target triple
+==================
+
+target triple = "x86_64-unknown-linux-gnu"
+
+----
+
+(module)
+
+==================
+simple function define
+==================
+
+define i32 @main() {
+  ret i32 0
+}
+
+----
+
+(module)
+
+==================
+function with add
+==================
+
+define i32 @add(i32 %a, i32 %b) {
+  %sum = add i32 %a, %b
+  ret i32 %sum
+}
+
+----
+
+(module)
+
+==================
+declare external
+==================
+
+declare i32 @printf(i8*, ...)
+
+----
+
+(module)
+
+==================
+alloca and store
+==================
+
+define void @f() {
+  %p = alloca i32
+  store i32 7, i32* %p
+  ret void
+}
+
+----
+
+(module)
+
+==================
+branch and label
+==================
+
+define i32 @g(i1 %c) {
+  br i1 %c, label %yes, label %no
+yes:
+  ret i32 1
+no:
+  ret i32 0
+}
+
+----
+
+(module)
+
+==================
+call instruction
+==================
+
+define i32 @caller() {
+  %r = call i32 @add(i32 1, i32 2)
+  ret i32 %r
+}
+
+----
+
+(module)

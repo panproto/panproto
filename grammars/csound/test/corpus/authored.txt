@@ -1,0 +1,79 @@
+==================
+simple instrument
+==================
+
+instr 1
+  aout oscil 0.5, 440
+  out aout
+endin
+
+----
+
+(source_file)
+
+==================
+instrument with envelope
+==================
+
+instr 2
+  kenv linen 1, 0.1, p3, 0.2
+  asig oscili kenv, 220
+  out asig
+endin
+
+----
+
+(source_file)
+
+==================
+variable assignment
+==================
+
+instr 3
+  ifreq = 440
+  aout poscil 0.3, ifreq
+  out aout
+endin
+
+----
+
+(source_file)
+
+==================
+global variable
+==================
+
+gkamp init 0.5
+
+----
+
+(source_file)
+
+==================
+multiple instruments
+==================
+
+instr 1
+  out oscil(0.5, 440)
+endin
+
+instr 2
+  out oscil(0.3, 880)
+endin
+
+----
+
+(source_file)
+
+==================
+arithmetic expression
+==================
+
+instr 4
+  ix = 2 + 3 * 4
+  out ix
+endin
+
+----
+
+(source_file)

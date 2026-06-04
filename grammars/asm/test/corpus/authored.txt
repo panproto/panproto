@@ -1,0 +1,92 @@
+==================
+label and instruction
+==================
+
+_start:
+	mov rax, 1
+
+----
+
+(program)
+
+==================
+instruction with registers
+==================
+
+	add rax, rbx
+
+----
+
+(program)
+
+==================
+instruction with immediate
+==================
+
+	mov rdi, 42
+
+----
+
+(program)
+
+==================
+directive
+==================
+
+	.global _start
+
+----
+
+(program)
+
+==================
+section directive
+==================
+
+	.section .text
+
+----
+
+(program)
+
+==================
+label with multiple instructions
+==================
+
+loop:
+	dec rcx
+	jnz loop
+
+----
+
+(program)
+
+==================
+memory operand
+==================
+
+	mov rax, [rbp]
+
+----
+
+(program)
+
+==================
+line comment
+==================
+
+	mov rax, 0 ; clear rax
+
+----
+
+(program)
+
+==================
+ret instruction
+==================
+
+	ret
+
+----
+
+(program)

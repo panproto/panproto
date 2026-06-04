@@ -1,0 +1,119 @@
+==================
+hash lang line and define
+==================
+
+#lang racket
+
+(define x 42)
+
+----
+
+(program)
+
+==================
+function definition
+==================
+
+(define (square n)
+  (* n n))
+
+----
+
+(program)
+
+==================
+let binding
+==================
+
+(let ([a 1]
+      [b 2])
+  (+ a b))
+
+----
+
+(program)
+
+==================
+lambda
+==================
+
+(lambda (x y) (+ x y))
+
+----
+
+(program)
+
+==================
+conditional
+==================
+
+(if (> x 0)
+    "positive"
+    "non-positive")
+
+----
+
+(program)
+
+==================
+list and quote
+==================
+
+(list 1 2 3 'foo "bar" #t)
+
+----
+
+(program)
+
+==================
+cond expression
+==================
+
+(cond
+  [(= n 0) "zero"]
+  [(> n 0) "positive"]
+  [else "negative"])
+
+----
+
+(program)
+
+==================
+vector and hash
+==================
+
+(vector 1 2 3)
+
+----
+
+(program)
+
+==================
+string and character
+==================
+
+(displayln "hello world")
+
+----
+
+(program)
+
+==================
+nested expression
+==================
+
+(map (lambda (x) (* x x)) (list 1 2 3 4))
+
+----
+
+(program)
+
+==================
+keyword argument
+==================
+
+(define (greet #:name n) n)
+
+----
+
+(program)

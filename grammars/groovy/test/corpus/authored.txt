@@ -1,0 +1,107 @@
+==================
+variable definition
+==================
+
+def name = "Alice"
+
+----
+
+(source_file)
+
+==================
+println statement
+==================
+
+println "Hello, world"
+
+----
+
+(source_file)
+
+==================
+method call
+==================
+
+list.each { item -> println item }
+
+----
+
+(source_file)
+
+==================
+class definition
+==================
+
+class Person {
+    String name
+    int age
+}
+
+----
+
+(source_file)
+
+==================
+import statement
+==================
+
+import groovy.json.JsonSlurper
+
+----
+
+(source_file)
+
+==================
+closure
+==================
+
+def square = { x -> x * x }
+
+----
+
+(source_file)
+
+==================
+if statement
+==================
+
+if (x > 0) {
+    println "positive"
+}
+
+----
+
+(source_file)
+
+==================
+for loop
+==================
+
+for (i in 0..10) {
+    println i
+}
+
+----
+
+(source_file)
+
+==================
+list and map literals
+==================
+
+def nums = [1, 2, 3]
+def config = [host: "localhost", port: 8080]
+
+----
+
+(source_file)
+
+==================
+package declaration
+==================
+
+package com.example.app
+
+----
+
+(source_file)

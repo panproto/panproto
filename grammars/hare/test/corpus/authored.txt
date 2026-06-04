@@ -1,0 +1,96 @@
+==================
+use statement
+==================
+
+use fmt;
+
+----
+
+(module)
+
+==================
+global constant
+==================
+
+def PI: f64 = 3.14159;
+
+----
+
+(module)
+
+==================
+let binding
+==================
+
+let x: int = 42;
+
+----
+
+(module)
+
+==================
+function declaration
+==================
+
+fn add(a: int, b: int) int = {
+	return a + b;
+};
+
+----
+
+(module)
+
+==================
+main function
+==================
+
+export fn main() void = {
+	fmt::println("Hello, world!")!;
+};
+
+----
+
+(module)
+
+==================
+type declaration
+==================
+
+type point = struct {
+	x: int,
+	y: int,
+};
+
+----
+
+(module)
+
+==================
+if expression
+==================
+
+fn check(n: int) str = {
+	if (n > 0) {
+		return "positive";
+	} else {
+		return "non-positive";
+	};
+};
+
+----
+
+(module)
+
+==================
+for loop
+==================
+
+fn count() void = {
+	for (let i = 0; i < 10; i += 1) {
+		fmt::println(i)!;
+	};
+};
+
+----
+
+(module)
