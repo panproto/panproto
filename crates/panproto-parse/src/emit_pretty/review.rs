@@ -30,16 +30,16 @@ use super::{
     aliased_source_literals, alt_satisfies_field_token_restrictions,
     alt_satisfies_pre_alias_constraints, children_for, classify_seq_positions, clear_field_context,
     collect_field_names, collect_inner_field_names_expanded, contains_newline_pattern,
-    current_field_context,
-    first_unconsumed_target_fingerprint, has_field_in, has_relevant_constraint, has_repeat_in,
-    is_connector_punctuation, is_immediate_token, is_newline_alt, is_newline_like_pattern,
-    is_no_space_external, is_whitespace_external, is_whitespace_only_pattern, is_word_like,
-    leaf_terminal_role, left_recursive_alts, literal_strings, literal_value, mandatory_field_names,
-    member_has_leading_bracket, pattern_absorbs_leading_space, placeholder_for_pattern, prec_value,
-    pre_alias_symbol, repeat_body_is_whole_vertex_item, repeat_has_bracket_keyed_member,
+    current_field_context, first_unconsumed_target_fingerprint, has_field_in,
+    has_relevant_constraint, has_repeat_in, is_connector_punctuation, is_immediate_token,
+    is_newline_alt, is_newline_like_pattern, is_no_space_external, is_whitespace_external,
+    is_whitespace_only_pattern, is_word_like, leaf_terminal_role, left_recursive_alts,
+    literal_strings, literal_value, mandatory_field_names, member_has_leading_bracket,
+    pattern_absorbs_leading_space, placeholder_for_pattern, pre_alias_symbol, prec_value,
     push_field_context, reconstruct_subtree_bytes, reduces_to_immediate_token, referenced_symbols,
-    seq_bracket_triggers_indent, seq_open_bracket_index, unbounded_negated_class, unwrap_prec,
-    unwrap_to_string, vertex_has_interstitials, vertex_id_kind, yield_of_production,
+    repeat_body_is_whole_vertex_item, repeat_has_bracket_keyed_member, seq_bracket_triggers_indent,
+    seq_open_bracket_index, unbounded_negated_class, unwrap_prec, unwrap_to_string,
+    vertex_has_interstitials, vertex_id_kind, yield_of_production,
 };
 
 pub(crate) fn collect_roots(schema: &Schema) -> Vec<&panproto_gat::Name> {
@@ -1123,8 +1123,8 @@ pub(crate) fn emit_production_inner(
                             &mut seen,
                         );
                         let parent_kind = vertex_id_kind(schema, vertex_id);
-                        let nt_fields = parent_kind
-                            .and_then(|pk| grammar.node_type_field_children.get(pk));
+                        let nt_fields =
+                            parent_kind.and_then(|pk| grammar.node_type_field_children.get(pk));
                         let rebound = inner_fields.iter().any(|f| {
                             if *f == field.as_str() {
                                 return false;
@@ -1599,6 +1599,52 @@ pub(crate) fn emit_production_inner(
                 _ => false,
             };
 
+            // A REPEAT body `SEQ[item.., MANDATORY_STRING_sep]` whose LAST
+            // member is a bare separator STRING (`;`/`,`) iterates items each
+            // FOLLOWED by that separator. The enclosing rule typically pairs it
+            // with a trailing optional item slot (sql `program =
+            // SEQ[REPEAT(SEQ[CHOICE[stmt..], ";"]), CHOICE[statement|BLANK]]`):
+            // a final item with NO trailing separator in source is parsed into
+            // that trailing slot, so the REPEAT must iterate one fewer time
+            // than there are item children. The grammar walk, by contrast,
+            // greedily munches every item child into the REPEAT and emits a
+            // separator after each, fabricating a terminator the source did not
+            // have (`SELECT 1` -> `SELECT 1;`). On the REPLAY path the parent
+            // vertex records exactly how many separators occurred as `ptrace`
+            // anonymous-token entries (`ptrace-k = T;`); cap the number of
+            // emitted separators at that recorded count, suppressing the
+            // trailing separator on the final, separator-less iteration. With
+            // NO recorded ptrace (canonical / by-construction schemas) the
+            // budget is `None` and every iteration emits its separator as
+            // before, preserving the existing canonical behaviour.
+            let trailing_mandatory_sep: Option<&str> = match content.as_ref() {
+                Production::Seq { members }
+                    if members.len() >= 2 && separator_leading_seq.is_none() =>
+                {
+                    members.last().and_then(unwrap_to_string)
+                }
+                _ => None,
+            };
+            // Count the recorded `T<sep>` anonymous-token traces on the parent
+            // vertex. This is the source-faithful number of separators; emit at
+            // most this many. `None` ⇒ no trace ⇒ unbounded (canonical default).
+            let sep_budget: Option<usize> = trailing_mandatory_sep.and_then(|sep| {
+                let cs = schema.constraints.get(vertex_id)?;
+                let has_ptrace = cs.iter().any(|c| c.sort.as_ref().starts_with("ptrace-"));
+                if !has_ptrace {
+                    return None;
+                }
+                let count = cs
+                    .iter()
+                    .filter(|c| {
+                        c.sort.as_ref().starts_with("ptrace-")
+                            && c.value.strip_prefix('T') == Some(sep)
+                    })
+                    .count();
+                Some(count)
+            });
+            let mut seps_emitted = 0usize;
+
             let mut emitted_any = false;
             loop {
                 let cursor_snap = cursor.consumed.clone();
@@ -1676,6 +1722,41 @@ pub(crate) fn emit_production_inner(
                                 rest_result
                             }
                         }
+                    } else if let Some(budget) = sep_budget {
+                        // Trailing-mandatory-separator body on the replay path:
+                        // emit the item members, then the trailing separator
+                        // only while the recorded ptrace budget remains. Once
+                        // exhausted, the final item is emitted with no
+                        // separator (it belongs to the rule's trailing optional
+                        // slot in source). `content` is a SEQ by construction
+                        // (trailing_mandatory_sep only matches a multi-member
+                        // SEQ); emit all but the last member, then the last
+                        // (separator) member conditionally.
+                        let Production::Seq {
+                            members: seq_members,
+                        } = content.as_ref()
+                        else {
+                            unreachable!("trailing_mandatory_sep implies a SEQ body")
+                        };
+                        let (sep_member, lead_members) = seq_members.split_last().expect("len>=2");
+                        let mut body_result = Ok(());
+                        for member in lead_members {
+                            body_result = emit_production(
+                                protocol, schema, grammar, vertex_id, member, cursor, out,
+                            );
+                            if body_result.is_err() {
+                                break;
+                            }
+                        }
+                        if body_result.is_ok() && seps_emitted < budget {
+                            body_result = emit_production(
+                                protocol, schema, grammar, vertex_id, sep_member, cursor, out,
+                            );
+                            if body_result.is_ok() {
+                                seps_emitted += 1;
+                            }
+                        }
+                        body_result
                     } else {
                         emit_production(protocol, schema, grammar, vertex_id, content, cursor, out)
                     };
@@ -2525,6 +2606,46 @@ pub(crate) fn pick_choice_with_cursor<'a>(
             .collect::<Vec<&str>>()
             .join(" ")
     };
+    // ASI (automatic-semicolon) resolution, replay-only. A statement
+    // terminator CHOICE pairs a scanner-inserted terminator with a literal
+    // one: `_semicolon = CHOICE[_automatic_semicolon, ";"]` (php/js/perl). The
+    // scanner alt (`_automatic_semicolon`, classified into `external_newlines`)
+    // fires zero-width where the source ended the statement with a construct
+    // boundary (a `?>` close tag, end-of-line, `}`) rather than a written `;`;
+    // it emits a layout newline, NOT a character. The literal `;` alt
+    // materializes a real `;`. With no recorded trace the dispatch falls
+    // through to `default_choice`, whose pure-literal preference picks `;` and
+    // FABRICATES a terminator the source lacked — corrupting `<?=$url?>` into
+    // `<?=$url;?>`. When the parent vertex carries a complement (a `ptrace`, so
+    // this is the replay path) that records NO occurrence of the literal
+    // terminator (neither as a `T<sep>` trace token nor in the remaining
+    // positional layout), the source used the scanner terminator: prefer the
+    // ASI alt. Gated on ptrace presence so canonical / by-construction schemas
+    // (which carry no evidence either way) keep the prior default.
+    let has_ptrace = schema
+        .constraints
+        .get(vertex_id)
+        .is_some_and(|cs| cs.iter().any(|c| c.sort.as_ref().starts_with("ptrace-")));
+    if has_ptrace {
+        let asi_alt = alternatives.iter().position(|a| {
+            matches!(a, Production::Symbol { name }
+                if grammar.external_newlines.contains(name))
+        });
+        if let Some(asi_idx) = asi_alt {
+            // The literal terminator the ASI alt stands in for (`;`).
+            let literal_term: Option<&str> = alternatives
+                .iter()
+                .filter_map(unwrap_to_string)
+                .find(|s| *s == ";");
+            if let Some(term) = literal_term {
+                let in_trace = trace_tokens.iter().any(|t| t == term);
+                let in_layout = positional_slice.contains(term);
+                if !in_trace && !in_layout {
+                    return Some(&alternatives[asi_idx]);
+                }
+            }
+        }
+    }
     if let Some(idx) = super::select_choice_with_trace(
         grammar,
         alternatives,
