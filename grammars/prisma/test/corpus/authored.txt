@@ -1,0 +1,107 @@
+==================
+Datasource block
+==================
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+---
+
+(source_file)
+
+==================
+Generator block
+==================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+---
+
+(source_file)
+
+==================
+Simple model
+==================
+
+model User {
+  id    Int    @id @default(autoincrement())
+  email String @unique
+  name  String?
+}
+
+---
+
+(source_file)
+
+==================
+Model with relation
+==================
+
+model Post {
+  id       Int    @id @default(autoincrement())
+  title    String
+  author   User   @relation(fields: [authorId], references: [id])
+  authorId Int
+}
+
+---
+
+(source_file)
+
+==================
+Enum declaration
+==================
+
+enum Role {
+  USER
+  ADMIN
+}
+
+---
+
+(source_file)
+
+==================
+Model with block attribute
+==================
+
+model Membership {
+  userId  Int
+  groupId Int
+
+  @@id([userId, groupId])
+}
+
+---
+
+(source_file)
+
+==================
+Field with default now
+==================
+
+model Event {
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now())
+}
+
+---
+
+(source_file)
+
+==================
+Type modifiers
+==================
+
+model Tag {
+  id   Int      @id @default(autoincrement())
+  keys String[]
+}
+
+---
+
+(source_file)

@@ -1,0 +1,104 @@
+==================
+Echo off
+==================
+
+@echo off
+
+---
+
+(program)
+
+==================
+Rem comment
+==================
+
+REM This is a comment
+:: Another comment
+
+---
+
+(program)
+
+==================
+Set string variable
+==================
+
+SET name="value"
+
+---
+
+(program)
+
+==================
+Set number variable
+==================
+
+SET count=42
+
+---
+
+(program)
+
+==================
+Variable reference
+==================
+
+%PATH%
+
+---
+
+(program)
+
+==================
+Echo string
+==================
+
+echo "Hello World"
+
+---
+
+(program)
+
+==================
+Cls keyword
+==================
+
+CLS
+
+---
+
+(program)
+
+==================
+Pause keyword
+==================
+
+PAUSE
+
+---
+
+(program)
+
+==================
+Function label
+==================
+
+:start
+
+---
+
+(program)
+
+==================
+Combined script
+==================
+
+@echo off
+REM startup script
+SET greeting="Hi"
+echo "Hi"
+PAUSE
+
+---
+
+(program)

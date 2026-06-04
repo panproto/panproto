@@ -1,0 +1,106 @@
+==================
+Variable assignment
+==================
+
+$max_clients = 500
+
+---
+
+(source_file)
+
+==================
+Resource declaration
+==================
+
+file { '/etc/motd':
+  ensure  => present,
+  content => "Welcome\n",
+  owner   => 'root',
+}
+
+---
+
+(source_file)
+
+==================
+If statement
+==================
+
+if $facts['os']['family'] == 'Debian' {
+  $package = 'apache2'
+} else {
+  $package = 'httpd'
+}
+
+---
+
+(source_file)
+
+==================
+Class definition
+==================
+
+class webserver {
+  package { 'nginx':
+    ensure => installed,
+  }
+}
+
+---
+
+(source_file)
+
+==================
+Case statement
+==================
+
+case $facts['os']['name'] {
+  'Ubuntu': { $service = 'apache2' }
+  default:  { $service = 'httpd' }
+}
+
+---
+
+(source_file)
+
+==================
+Resource with require
+==================
+
+service { 'nginx':
+  ensure  => running,
+  enable  => true,
+  require => Package['nginx'],
+}
+
+---
+
+(source_file)
+
+==================
+Define type
+==================
+
+define apache::vhost($port) {
+  file { "/etc/apache2/sites/${title}":
+    ensure => present,
+  }
+}
+
+---
+
+(source_file)
+
+==================
+Unless statement
+==================
+
+unless $installed {
+  package { 'git':
+    ensure => present,
+  }
+}
+
+---
+
+(source_file)
