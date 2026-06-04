@@ -341,8 +341,7 @@ pub(crate) fn emit_vertex(
                 // `=0 `; without this the layout adds a space → `=0  {`, which
                 // re-parses with the extra space swallowed back into
                 // `icu_category`, breaking the case boundary).
-                if grammar.leading_space_terminals.contains(vkind)
-                    && literal.ends_with([' ', '\t'])
+                if grammar.leading_space_terminals.contains(vkind) && literal.ends_with([' ', '\t'])
                 {
                     out.no_space();
                 }
@@ -1800,8 +1799,7 @@ pub(crate) fn emit_aliased_child(
                 // Symmetric trailing-space suppression (see `emit_vertex`): a
                 // captured trailing whitespace is the separator, so suppress
                 // the redundant following layout space to keep the fixed point.
-                if grammar.leading_space_terminals.contains(kind)
-                    && literal.ends_with([' ', '\t'])
+                if grammar.leading_space_terminals.contains(kind) && literal.ends_with([' ', '\t'])
                 {
                     out.no_space();
                 }

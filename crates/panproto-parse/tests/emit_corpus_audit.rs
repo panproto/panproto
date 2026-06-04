@@ -243,7 +243,9 @@ fn corpus_source_faithful_report() {
         } else {
             "DEGENERATE/PARTIAL"
         };
-        println!("PP_SF {proto}: {faithful}/{total} source-faithful [{verdict}] first-bad={firstbad:?}");
+        println!(
+            "PP_SF {proto}: {faithful}/{total} source-faithful [{verdict}] first-bad={firstbad:?}"
+        );
     }
 }
 

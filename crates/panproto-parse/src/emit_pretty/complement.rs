@@ -518,15 +518,12 @@ fn byte_anchor(schema: &Schema, vertex_id: &panproto_gat::Name, sort: &str) -> O
 /// trailing gaps), so its presence means the layout fibre carries the verbatim
 /// inter-child spacing the role table only approximates.
 pub(crate) fn vertex_has_interstitials(schema: &Schema, vertex_id: &panproto_gat::Name) -> bool {
-    schema
-        .constraints
-        .get(vertex_id)
-        .is_some_and(|cs| {
-            cs.iter().any(|c| {
-                let s = c.sort.as_ref();
-                s.starts_with("interstitial-") && !s.ends_with("-start-byte")
-            })
+    schema.constraints.get(vertex_id).is_some_and(|cs| {
+        cs.iter().any(|c| {
+            let s = c.sort.as_ref();
+            s.starts_with("interstitial-") && !s.ends_with("-start-byte")
         })
+    })
 }
 
 /// Reconstruct the EXACT source bytes of the subtree rooted at `vertex_id`
@@ -558,7 +555,8 @@ pub(crate) fn reconstruct_subtree_bytes(
     }
 
     // Collect the subtree's vertices (reachable from `vertex_id` via edges).
-    let mut subtree: std::collections::HashSet<panproto_gat::Name> = std::collections::HashSet::new();
+    let mut subtree: std::collections::HashSet<panproto_gat::Name> =
+        std::collections::HashSet::new();
     let mut stack = vec![vertex_id.clone()];
     while let Some(v) = stack.pop() {
         if !subtree.insert(v.clone()) {
@@ -622,9 +620,5 @@ pub(crate) fn reconstruct_subtree_bytes(
         out.push_str(text);
         cursor = pos + text.len();
     }
-    if cursor == root_end {
-        Some(out)
-    } else {
-        None
-    }
+    if cursor == root_end { Some(out) } else { None }
 }
