@@ -749,6 +749,8 @@ const CORPUS_VERIFIED: &[&str] = &[
     "r",
     "rego",
     "requirements",
+    "ruby",
+    "rust",
     "solidity",
     "sparql",
     "sql",

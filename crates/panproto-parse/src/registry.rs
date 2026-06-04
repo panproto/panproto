@@ -557,6 +557,8 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "r",
     "rego",
     "requirements",
+    "ruby",
+    "rust",
     "scheme",
     "solidity",
     "sparql",
