@@ -108,7 +108,19 @@ thread_local! {
     /// unit of the free token monoid). Examples that trigger this:
     /// YAML's `stream` ⊃ `_b_blk_*` mutually-recursive chain, Rust's
     /// `_expression` ⊃ `binary_expression` ⊃ `_expression`.
-    pub(crate) static EMIT_MU_FRAMES: std::cell::RefCell<std::collections::HashSet<(String, String)>> =
+    /// The frame key carries the cursor's CONSUMED-edge count as a third
+    /// component. A hidden rule that recurses to consume successive children
+    /// of the SAME vertex (a right-recursive list tree-sitter flattens onto
+    /// one vertex: http's `_section_content = SEQ[item, CHOICE[
+    /// _section_content | BLANK]]`) re-enters this rule at the same vertex but
+    /// with a strictly larger consumed count, because each level consumed one
+    /// item before recursing. Keying on the count lets that PROGRESS-bearing
+    /// re-entry through (each item is emitted) while a genuine zero-progress
+    /// cycle (`_expression ⊃ binary_expression ⊃ _expression` re-entered with
+    /// no item consumed) keeps the same key and still collapses to ε.
+    /// Recursion stays bounded by the edge count: the consumed count strictly
+    /// increases on every admitted re-entry.
+    pub(crate) static EMIT_MU_FRAMES: std::cell::RefCell<std::collections::HashSet<(String, String, usize)>> =
         std::cell::RefCell::new(std::collections::HashSet::new());
     /// The name of the FIELD whose body the walker is currently inside,
     /// or `None` at top level. Lets a SYMBOL nested arbitrarily deep

@@ -31,8 +31,9 @@ use super::{
     alt_satisfies_pre_alias_constraints, children_for, classify_seq_positions, clear_field_context,
     collect_field_names, collect_inner_field_names_expanded, contains_newline_pattern,
     current_field_context, first_unconsumed_target_fingerprint, has_field_in,
-    has_relevant_constraint, has_repeat_in, is_connector_punctuation, is_immediate_token,
-    is_newline_alt, is_newline_like_pattern, is_no_space_external, is_whitespace_external,
+    has_relevant_constraint, has_repeat_in, is_blank_line_rule, is_connector_punctuation,
+    is_immediate_token, is_newline_alt, is_newline_like_pattern, is_no_space_external,
+    is_whitespace_external,
     is_whitespace_only_pattern, is_word_like, leaf_terminal_role, left_recursive_alts,
     literal_strings, literal_value, mandatory_field_names, member_has_leading_bracket,
     pattern_absorbs_leading_space, placeholder_for_pattern, pre_alias_symbol, prec_value,
@@ -542,13 +543,20 @@ pub(crate) fn walk_in_mu_frame(
     cursor: &mut ChildCursor<'_>,
     out: &mut Output<'_>,
 ) -> Result<(), ParseError> {
-    let key = (vertex_id.to_string(), rule_name.to_owned());
+    // The frame is keyed on (vertex, rule, consumed-edge count). A re-entry at
+    // a STRICTLY LARGER consumed count is a progress-bearing recursion (a
+    // right-recursive list flattened onto one vertex consumed an item between
+    // levels) and is admitted so each item emits; a re-entry at the SAME count
+    // is a zero-progress cycle and collapses to ε (the coinductive
+    // μ-fixed-point reading). Recursion is bounded by the edge count.
+    let consumed = cursor.consumed.iter().filter(|&&c| c).count();
+    let key = (vertex_id.to_string(), rule_name.to_owned(), consumed);
     let inserted = EMIT_MU_FRAMES.with(|frames| frames.borrow_mut().insert(key.clone()));
     if !inserted {
-        // We are already walking this rule at this vertex deeper in
-        // the call stack. The coinductive μ-fixed-point reading
-        // returns the empty sequence here; the surrounding
-        // production resumes after the SYMBOL.
+        // We are already walking this rule at this vertex with this much of the
+        // cursor consumed: a zero-progress cycle. The coinductive μ-fixed-point
+        // reading returns the empty sequence here; the surrounding production
+        // resumes after the SYMBOL.
         return Ok(());
     }
     let result = emit_production(protocol, schema, grammar, vertex_id, rule, cursor, out);
@@ -2851,6 +2859,55 @@ pub(crate) fn pick_choice_with_cursor<'a>(
             if let Production::Pattern { value } = alt {
                 if is_newline_like_pattern(value) {
                     return Some(alt);
+                }
+            }
+        }
+        // Unattested-terminator preference. A trailing two-way CHOICE that
+        // pairs an anonymous single-character `IMMEDIATE_TOKEN` sentinel with a
+        // visible-rule blank-line FIELD alternative (vimdoc `block`'s closing
+        // `CHOICE[IMMEDIATE_TOKEN("<") | _blank]`, where `_blank` is the
+        // line-ending `FIELD(blank, PATTERN("\n"))`) is an OPTIONAL closer: the
+        // source either wrote the literal sentinel or simply ended the
+        // construct with a blank line. With the cursor exhausted, the literal
+        // alternative is the parsed one ONLY when the recorded variant tag
+        // attests it (a `ptrace` `T<lit>`). Absent that attestation the closer
+        // was the blank line, so the pure-literal preference below would
+        // fabricate the sentinel (`>\n  code\n` -> `>\n  code\n<\n`). When no
+        // trace token carries the literal, prefer the blank-line alt. The
+        // replay path is unaffected: a source that wrote the sentinel records
+        // its `T<lit>` and keeps the literal.
+        //
+        // The blank-line alternative is required to resolve to a SYMBOL whose
+        // grammar rule body is a `FIELD`/`PATTERN` matching ONLY a newline (an
+        // in-grammar blank line), NOT an external scanner token. This is the
+        // discriminator that excludes the automatic-semicolon terminator
+        // `_semicolon = CHOICE[_automatic_semicolon, ";"]`: there the newline
+        // alt is the EXTERNAL `_automatic_semicolon`, and defaulting to it on
+        // the canonical path drops the `;` that statements genuinely need (the
+        // §WAVE-5-B js 108->97 regression). The `_blank` field is a real
+        // grammar rule, so it passes; `_automatic_semicolon` is external, so it
+        // does not. The literal alt is restricted to a single-char
+        // `IMMEDIATE_TOKEN` so an ordinary keyword/separator CHOICE is
+        // untouched.
+        if alternatives.len() == 2 {
+            let lit_alt = alternatives.iter().find(|a| {
+                matches!(a, Production::ImmediateToken { .. })
+                    && referenced_symbols(a).is_empty()
+                    && matches!(
+                        literal_strings(a).as_slice(),
+                        [s] if s.chars().count() == 1
+                    )
+            });
+            let blank_alt = alternatives.iter().find(|a| {
+                matches!(a, Production::Symbol { name }
+                    if grammar.rules.get(name).is_some_and(is_blank_line_rule))
+            });
+            if let (Some(lit), Some(blank)) = (lit_alt, blank_alt) {
+                let lit_attested = literal_strings(lit)
+                    .iter()
+                    .any(|s| trace_tokens.iter().any(|t| t == s));
+                if !lit_attested {
+                    return Some(blank);
                 }
             }
         }

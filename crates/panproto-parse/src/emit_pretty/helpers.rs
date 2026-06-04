@@ -1375,6 +1375,30 @@ pub(crate) fn contains_newline_pattern(prod: &Production) -> bool {
     }
 }
 
+/// Whether `prod` is a "blank line" rule body: it reduces, through the
+/// transparent precedence / token / FIELD / ALIAS wrappers, to a single
+/// `PATTERN` that matches ONLY a newline (a `\n` line break). This is stricter
+/// than [`contains_newline_pattern`], which admits a newline anywhere inside a
+/// `SEQ`/`CHOICE`; here the whole body must BE the newline. It is the
+/// signature of an in-grammar line-ending field such as vimdoc's
+/// `_blank = FIELD(blank, PATTERN("\n"))`, distinguishing it from a generic
+/// statement separator or an external scanner token.
+pub(crate) fn is_blank_line_rule(prod: &Production) -> bool {
+    match prod {
+        Production::Pattern { value } => is_newline_like_pattern(value),
+        Production::Field { content, .. }
+        | Production::Alias { content, .. }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Reserved { content, .. } => is_blank_line_rule(content),
+        _ => false,
+    }
+}
+
 pub(crate) fn is_newline_like_pattern(pattern: &str) -> bool {
     if pattern.is_empty() {
         return false;
@@ -1485,8 +1509,10 @@ pub(crate) fn is_whitespace_only_pattern(pattern: &str) -> bool {
     if trimmed.is_empty() {
         return false;
     }
-    // Bare `\s` / ` ` / `\t`.
-    if matches!(trimmed, "\\s" | " " | "\\t") {
+    // Bare `\s` / ` ` / `\t`, or the Unicode space-separator property
+    // `\p{Zs}` (http uses `\p{Zs}+` as the inter-token whitespace between a
+    // request's method, URL, and version).
+    if matches!(trimmed, "\\s" | " " | "\\t" | "\\p{Zs}") {
         return true;
     }
     // Character class containing only whitespace atoms.
@@ -1667,8 +1693,13 @@ pub(crate) fn decode_simple_pattern_literal(pattern: &str) -> Option<String> {
 /// breaking the directive's re-parse. Returns `None` unless exactly one
 /// whitespace-class run brackets each side and the middle is a clean literal.
 pub(crate) fn decode_whitespace_padded_literal(pattern: &str) -> Option<String> {
-    // Strip a leading optional-whitespace-class run `[ \t]*` / `\s*`.
-    let body = strip_leading_ws_run(pattern)?;
+    // Strip a leading optional-whitespace-class run `[ \t]*` / `\s*`. When the
+    // pattern has no leading run, fall through with the whole pattern as the
+    // body so a TRAILING-only padded literal (http's comment prefix `#\s*` /
+    // `//\s*`, where the constant `#` / `//` precedes the optional whitespace)
+    // is still decoded: the trailing-run strip below reduces it to the literal
+    // core and the layout pass re-supplies the optional whitespace.
+    let body = strip_leading_ws_run(pattern).unwrap_or(pattern);
     // Strip a trailing optional-whitespace-class run from the END.
     let body = if let Some(idx) = body.rfind('[') {
         let tail = &body[idx..];

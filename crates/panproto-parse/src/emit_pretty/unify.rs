@@ -392,6 +392,107 @@ fn closure<'g>(
     seen
 }
 
+/// Like [`match_demand`], but a hidden `SYMBOL` whose name equals `blocked`
+/// is treated as a hard non-match (it returns no reachable position rather
+/// than expanding the rule). This measures the demand an alternative can
+/// consume WITHOUT re-entering the dispatch rule it belongs to — distinguishing
+/// a direct single-production reduction from one that only reaches the demand
+/// by looping back through the same CHOICE (http's `_section_content`
+/// `SEQ[<lead>, CHOICE[_section_content | BLANK]]` tail recursion). All other
+/// shapes recurse identically to `match_demand`.
+#[allow(clippy::too_many_arguments)]
+fn consumes_without_reentry<'g>(
+    grammar: &'g Grammar,
+    prod: &'g Production,
+    demand: &[&str],
+    labels: &[&str],
+    pos: usize,
+    field_ctx: Option<&str>,
+    blocked: &str,
+    visited: &mut Vec<(&'g str, usize)>,
+) -> Vec<usize> {
+    let recur = |p: &'g Production, pos: usize, fc: Option<&str>, v: &mut Vec<(&'g str, usize)>| {
+        consumes_without_reentry(grammar, p, demand, labels, pos, fc, blocked, v)
+    };
+    match prod {
+        Production::Symbol { name } => {
+            let is_dispatch = name.starts_with('_') || grammar.supertypes.contains(name);
+            if is_dispatch {
+                // The re-entry we forbid: expanding the dispatch rule itself.
+                if name == blocked {
+                    return vec![];
+                }
+                if visited.contains(&(name.as_str(), pos)) {
+                    return vec![];
+                }
+                if let Some(rule) = grammar.rules.get(name) {
+                    visited.push((name.as_str(), pos));
+                    let out = recur(rule, pos, field_ctx, visited);
+                    visited.pop();
+                    return out;
+                }
+                return vec![pos];
+            }
+            // Concrete / external symbols: identical to `match_demand`.
+            match_demand(grammar, prod, demand, labels, pos, field_ctx, visited)
+        }
+        Production::Field { name, content } => {
+            recur(content, pos, Some(name.as_str()), visited)
+        }
+        Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Reserved { content, .. } => recur(content, pos, field_ctx, visited),
+        Production::Seq { members } => {
+            let mut frontier = vec![pos];
+            for m in members {
+                let mut next: Vec<usize> = Vec::new();
+                for &p in &frontier {
+                    for end in recur(m, p, field_ctx, visited) {
+                        if !next.contains(&end) {
+                            next.push(end);
+                        }
+                    }
+                }
+                if next.is_empty() {
+                    return vec![];
+                }
+                frontier = next;
+            }
+            frontier
+        }
+        Production::Choice { members } => {
+            let mut out: Vec<usize> = Vec::new();
+            for m in members {
+                for end in recur(m, pos, field_ctx, visited) {
+                    if !out.contains(&end) {
+                        out.push(end);
+                    }
+                }
+            }
+            out
+        }
+        Production::Optional { content } => {
+            let mut out = vec![pos];
+            for end in recur(content, pos, field_ctx, visited) {
+                if !out.contains(&end) {
+                    out.push(end);
+                }
+            }
+            out
+        }
+        // REPEAT bodies and leaves cannot introduce the forbidden self-reentry
+        // in a way the simple `match_demand` would not already bound; defer to
+        // it (the `blocked` rule, if reached inside a REPEAT, is a genuine
+        // looping iteration, not the single-production reduction we are
+        // isolating).
+        _ => match_demand(grammar, prod, demand, labels, pos, field_ctx, visited),
+    }
+}
+
 /// The structural candidates of a `CHOICE`.
 struct Candidates {
     /// Maximal demand-consumption length achieved by any viable alternative.
@@ -941,6 +1042,57 @@ pub(crate) fn select_choice_with_trace(
     // structural signal — those fall through to the literal tie-break.
     if cands.len() == 1 && (best_len > 0 || num_viable == 1) {
         return Some(cands[0]);
+    }
+    // Non-reentrant progress preempts a self-recursive tie. When this CHOICE
+    // is the body of the hidden dispatch rule `self_rule`, several alternatives
+    // tie on `best_len` only because each reaches the far demand slots by
+    // RE-ENTERING `self_rule` through its tail: http's `_section_content` is
+    // `CHOICE[ SEQ[_blank_line, CHOICE[_section_content|BLANK]],
+    // SEQ[comment, …], SEQ[variable_declaration, …], …, FIELD(request),
+    // FIELD(response) ]` — every `SEQ[<lead>, CHOICE[_section_content|BLANK]]`
+    // alternative can reach a trailing `request`/`comment` demand by looping
+    // back into `_section_content`, so they all tie. The categorically-correct
+    // reduction is the alternative whose OWN structure (without looping back
+    // through the rule) consumes the HEAD of the remaining demand: it is the
+    // production the parser actually reduced at this position, and its tail
+    // recursion handles the rest on the next dispatch. We therefore score each
+    // tied candidate by how much demand it consumes free of self-reentry and
+    // pick the strict maximum (a candidate that leads with `_blank_line` /
+    // `BLANK` consumes 0 and loses to one that leads with the demanded `comment`
+    // or `request`). Guarded by `self_rule`, so a CHOICE nested in a named SEQ
+    // (a genuine grouped/longer alternative) is never preempted.
+    if let Some(self_rule) = self_rule {
+        let mut best_direct = 0usize;
+        let mut best_direct_alt: Option<usize> = None;
+        let mut direct_tied = false;
+        for &i in &cands {
+            let mut v = Vec::new();
+            let reach = consumes_without_reentry(
+                grammar,
+                &alternatives[i],
+                demand,
+                labels,
+                0,
+                initial_field_ctx,
+                self_rule,
+                &mut v,
+            )
+            .into_iter()
+            .max()
+            .unwrap_or(0);
+            if reach > best_direct {
+                best_direct = reach;
+                best_direct_alt = Some(i);
+                direct_tied = false;
+            } else if reach == best_direct && best_direct_alt.is_some() {
+                direct_tied = true;
+            }
+        }
+        if best_direct > 0 && !direct_tied {
+            if let Some(i) = best_direct_alt {
+                return Some(i);
+            }
+        }
     }
     // Tie among viable candidates. A bare `SYMBOL` whose name is exactly
     // the child's surface kind is the most direct interpretation: the

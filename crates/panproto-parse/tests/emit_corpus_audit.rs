@@ -663,7 +663,6 @@ fn corpus_strip_audit_report() {
 /// committed under `grammars/<name>/test/corpus/` so this test is a permanent,
 /// CI-runnable regression guard (not a one-off audit).
 const CORPUS_VERIFIED: &[&str] = &[
-    
     "actionscript",
     "ada",
     "agda",
@@ -759,6 +758,7 @@ const CORPUS_VERIFIED: &[&str] = &[
     "heex",
     "hlsl",
     "html",
+    "http",
     "hurl",
     "hyprlang",
     "idris",
@@ -871,13 +871,13 @@ const CORPUS_VERIFIED: &[&str] = &[
     "verilog",
     "vhdl",
     "vim",
+    "vimdoc",
     "vue",
     "wit",
     "xcompose",
     "xml",
     "yuck",
     "zsh",
-
 ];
 
 #[test]

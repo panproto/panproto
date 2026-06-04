@@ -607,6 +607,73 @@ mod tests {
     }
 
     #[test]
+    fn is_blank_line_rule_matches_only_a_newline_field() {
+        use super::helpers::is_blank_line_rule;
+        // vimdoc `_blank = FIELD(blank, PATTERN("\n"))`: a blank-line field.
+        let blank: Production = serde_json::from_str(
+            r#"{"type":"FIELD","name":"blank","content":{"type":"PATTERN","value":"\\n"}}"#,
+        )
+        .unwrap();
+        assert!(is_blank_line_rule(&blank));
+        // A bare newline PATTERN, and through transparent wrappers.
+        let bare: Production =
+            serde_json::from_str(r#"{"type":"PATTERN","value":"\\r?\\n"}"#).unwrap();
+        assert!(is_blank_line_rule(&bare));
+        // NOT a blank line: a literal separator, or a SEQ that merely contains
+        // a newline (a statement, not an empty line), or free text.
+        let semi: Production = serde_json::from_str(r#"{"type":"STRING","value":";"}"#).unwrap();
+        assert!(!is_blank_line_rule(&semi));
+        let seq: Production = serde_json::from_str(
+            r#"{"type":"SEQ","members":[{"type":"SYMBOL","name":"x"},{"type":"PATTERN","value":"\\n"}]}"#,
+        )
+        .unwrap();
+        assert!(!is_blank_line_rule(&seq));
+        let text: Production =
+            serde_json::from_str(r#"{"type":"PATTERN","value":".+"}"#).unwrap();
+        assert!(!is_blank_line_rule(&text));
+    }
+
+    #[test]
+    fn is_whitespace_only_pattern_recognizes_unicode_space_separator() {
+        use super::helpers::is_whitespace_only_pattern;
+        // The Unicode space-separator property http uses for inter-token gaps.
+        assert!(is_whitespace_only_pattern("\\p{Zs}+"));
+        assert!(is_whitespace_only_pattern("\\p{Zs}*"));
+        assert!(is_whitespace_only_pattern("\\p{Zs}"));
+        // The pre-existing whitespace forms still hold.
+        assert!(is_whitespace_only_pattern("\\s+"));
+        assert!(is_whitespace_only_pattern("[ \\t]+"));
+        // Not whitespace: a line property, a letter property, free text.
+        assert!(!is_whitespace_only_pattern("\\p{L}+"));
+        assert!(!is_whitespace_only_pattern(".+"));
+    }
+
+    #[test]
+    fn decode_whitespace_padded_literal_handles_trailing_only_padding() {
+        use super::helpers::decode_whitespace_padded_literal;
+        // http comment prefixes: a constant core then a trailing optional
+        // whitespace run (no leading run).
+        assert_eq!(
+            decode_whitespace_padded_literal("#\\s*").as_deref(),
+            Some("#")
+        );
+        assert_eq!(
+            decode_whitespace_padded_literal("//\\s*").as_deref(),
+            Some("//")
+        );
+        // The pre-existing leading+trailing padded case (GLSL `#extension`).
+        assert_eq!(
+            decode_whitespace_padded_literal("[ \\t]*:[ \\t]*").as_deref(),
+            Some(":")
+        );
+        // Not a padded literal: a class core does not decode to a constant.
+        assert_eq!(decode_whitespace_padded_literal("[a-z]+\\s*"), None);
+        // Pure whitespace decodes to nothing (handled as a separator
+        // elsewhere, not as a literal token).
+        assert_eq!(decode_whitespace_padded_literal("\\s*"), None);
+    }
+
+    #[test]
     fn pattern_absorbs_leading_space_detects_space_admitting_terminals() {
         // `.`-led patterns match any char, including a space (INI value).
         assert!(pattern_absorbs_leading_space(".+"));
