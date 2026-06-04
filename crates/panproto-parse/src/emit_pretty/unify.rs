@@ -69,14 +69,52 @@ fn dispatches_to<'g>(
     k: &str,
     visited: &mut std::collections::HashSet<&'g str>,
 ) -> bool {
-    let is_dispatch = name.starts_with('_') || grammar.supertypes.contains(name);
-    if !is_dispatch || !visited.insert(name) {
+    if !visited.insert(name) {
         return false;
     }
     let Some(rule) = grammar.rules.get(name) else {
         return false;
     };
+    // A rule is a DISPATCH (supertype-like) rule when it only SELECTS among
+    // alternatives and never contributes structure of its own: hidden
+    // (`_`-prefixed) rules, node-types-declared supertypes, and concrete
+    // rules whose body is a pure CHOICE of SYMBOL/ALIAS alternatives with no
+    // SEQ / literal / field of their own (a "structural supertype" that
+    // tree-sitter inlines but grammar.json keeps named, e.g. scala
+    // `literal = CHOICE[_non_null_literal, null_literal]`, the inlined hop
+    // between `expression` and `integer_literal`). Traversing such a rule is
+    // sound — it cannot steal a child, exactly the property that makes the
+    // SEQ-member non-traversal safe — so a default value `= 5` whose
+    // `expression` field reaches `integer_literal` only through `literal` is
+    // no longer dropped.
+    let is_dispatch = name.starts_with('_')
+        || grammar.supertypes.contains(name)
+        || is_pure_choice_dispatch(rule);
+    if !is_dispatch {
+        return false;
+    }
     dispatch_prod(grammar, rule, k, visited)
+}
+
+/// Whether a rule body is a pure alternation of SYMBOL/ALIAS alternatives
+/// (unwrapping precedence/token wrappers), with no SEQ, literal, repeat, or
+/// field of its own. Such a rule only dispatches to one of its members.
+fn is_pure_choice_dispatch(prod: &Production) -> bool {
+    match prod {
+        Production::Choice { members } => {
+            !members.is_empty() && members.iter().all(is_pure_choice_dispatch)
+        }
+        Production::Symbol { .. } => true,
+        Production::Alias { named, .. } => *named,
+        Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Reserved { content, .. } => is_pure_choice_dispatch(content),
+        _ => false,
+    }
 }
 
 /// Walk a dispatch rule's body, following only the structure that
