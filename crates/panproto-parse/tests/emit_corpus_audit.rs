@@ -188,13 +188,13 @@ fn audit(protocol: &str) -> Tally {
 /// corpus entry, report whether `emit(parse(src)) == src` (modulo a single
 /// trailing newline). This is a STRICTER bar than the project's `verified`
 /// standard, which is the [`audit`] fixed-point + AST-multiset gate: most
-/// verified protocols legitimately REFORMAT (json pretty-prints arrays, go
-/// normalizes spacing) and so score low here while being correctly verified.
-/// So a low PP_SF score is NOT grounds to reject a promotion. What this probe
-/// IS good for: (a) identifying the byte-EXACT subset (toml/circom/cylc emit
+/// verified protocols legitimately REFORMAT (`json` pretty-prints arrays,
+/// `go` normalizes spacing) and so score low here while being correctly verified.
+/// So a low `PP_SF` score is NOT grounds to reject a promotion. What this probe
+/// IS good for: (a) identifying the byte-EXACT subset (`toml`/`circom`/`cylc` emit
 /// their corpus verbatim), and (b) as one input — alongside the gate's
 /// multiset and an eyeball — to spot genuine content DROP/CORRUPTION (the
-/// todotxt/wolfram degenerate class), distinguished from benign reformatting
+/// `todotxt`/`wolfram` degenerate class), distinguished from benign reformatting
 /// by reading the emitted output.
 #[test]
 fn corpus_source_faithful_report() {
