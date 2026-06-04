@@ -152,35 +152,42 @@ fn rule_admits_count(grammar: &Grammar, rule: &Production, demand: &[&str]) -> u
 /// the vertex actually has, e.g. vhdl `simple_expression`'s REPEAT1 binary
 /// chain forced onto a bare aliased `_expr`, emitting a spurious `+`).
 fn rule_min_required_children(grammar: &Grammar, rule: &Production) -> usize {
-    fn go(
+    // This is a least-fixpoint over the rule graph. A naive DFS that pushes
+    // every hidden symbol on a path-stack and cuts back-edges to 0 (the BLANK
+    // base case) re-explores every distinct path through the shared sub-DAG;
+    // yaml is 201/202 hidden rules forming one dense mutually-recursive SCC, so
+    // that DFS is exponential and never terminates in practice.
+    //
+    // The minimum a rule mandates is path-INDEPENDENT once cycles bottom out at
+    // 0: that is exactly the least fixpoint of `min[r] = eval(body_r)` with all
+    // hidden-symbol references read from `min` (initialized to 0). `eval` is
+    // monotone non-decreasing and the values are bounded by the rule sizes, so
+    // worklist iteration converges. `min[r] = 0` for an unresolved reference
+    // reproduces the DFS's back-edge cut; a fully-resolved rule gets its real
+    // count. Resolving over `min` (not recursion) makes each pass linear.
+    // `eval` takes `grammar` so a visible (non-hidden) SYMBOL contributes one
+    // mandatory child IFF it names a real rule — exactly the original DFS's
+    // `grammar.rules.contains_key(name)`. A bare token/external name (no rule
+    // entry) contributes 0, as before. Hidden references read the `min` map.
+    fn eval(
         grammar: &Grammar,
         p: &Production,
-        seen: &mut std::collections::HashSet<String>,
+        min: &std::collections::HashMap<String, usize>,
     ) -> usize {
         match p {
             Production::Symbol { name } => {
                 if name.starts_with('_') {
-                    if !seen.insert(name.clone()) {
-                        return 0;
-                    }
-                    let r = grammar
-                        .rules
-                        .get(name)
-                        .map_or(0, |rule| go(grammar, rule, seen));
-                    seen.remove(name);
-                    r
+                    *min.get(name).unwrap_or(&0)
                 } else {
                     usize::from(grammar.rules.contains_key(name))
                 }
             }
-            Production::Field { content, .. } => go(grammar, content, seen),
-            Production::Seq { members } => members.iter().map(|m| go(grammar, m, seen)).sum(),
-            Production::Choice { members } => members
-                .iter()
-                .map(|m| go(grammar, m, seen))
-                .min()
-                .unwrap_or(0),
-            Production::Repeat1 { content } => go(grammar, content, seen),
+            Production::Field { content, .. } => eval(grammar, content, min),
+            Production::Seq { members } => members.iter().map(|m| eval(grammar, m, min)).sum(),
+            Production::Choice { members } => {
+                members.iter().map(|m| eval(grammar, m, min)).min().unwrap_or(0)
+            }
+            Production::Repeat1 { content } => eval(grammar, content, min),
             Production::Token { content }
             | Production::ImmediateToken { content }
             | Production::Prec { content, .. }
@@ -188,13 +195,36 @@ fn rule_min_required_children(grammar: &Grammar, rule: &Production) -> usize {
             | Production::PrecRight { content, .. }
             | Production::PrecDynamic { content, .. }
             | Production::Reserved { content, .. }
-            | Production::Alias { content, .. } => go(grammar, content, seen),
+            | Production::Alias { content, .. } => eval(grammar, content, min),
             // Optional / Repeat (zero-or-more) / Blank / literals: no minimum.
             _ => 0,
         }
     }
-    let mut seen = std::collections::HashSet::new();
-    go(grammar, rule, &mut seen)
+    // Resolve the hidden-rule fixpoint over the whole grammar once per call;
+    // the maps are small relative to the (memoized) emit walk.
+    let mut min: std::collections::HashMap<String, usize> = grammar
+        .rules
+        .keys()
+        .filter(|k| k.starts_with('_'))
+        .map(|k| (k.clone(), 0usize))
+        .collect();
+    loop {
+        let mut changed = false;
+        for (name, body) in &grammar.rules {
+            if !name.starts_with('_') {
+                continue;
+            }
+            let v = eval(grammar, body, &min);
+            if min.get(name) != Some(&v) {
+                min.insert(name.clone(), v);
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    eval(grammar, rule, &min)
 }
 
 /// Whether a named-ALIAS `content` can genuinely place the children of a
