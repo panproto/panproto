@@ -36,7 +36,7 @@ use super::{
     is_no_space_external, is_whitespace_external, is_whitespace_only_pattern, is_word_like,
     leaf_terminal_role, left_recursive_alts, literal_strings, literal_value, mandatory_field_names,
     member_has_leading_bracket, pattern_absorbs_leading_space, placeholder_for_pattern, prec_value,
-    repeat_body_is_whole_vertex_item, repeat_has_bracket_keyed_member,
+    pre_alias_symbol, repeat_body_is_whole_vertex_item, repeat_has_bracket_keyed_member,
     push_field_context, reconstruct_subtree_bytes, reduces_to_immediate_token, referenced_symbols,
     seq_bracket_triggers_indent, seq_open_bracket_index, unbounded_negated_class, unwrap_prec,
     unwrap_to_string, vertex_has_interstitials, vertex_id_kind, yield_of_production,
@@ -141,6 +141,61 @@ fn rule_admits_count(grammar: &Grammar, rule: &Production, demand: &[&str]) -> u
         .count()
 }
 
+/// Lower bound on the number of NAMED-symbol child slots a rule's body
+/// mandates: SEQ sums its members, REPEAT1 contributes its body once (it
+/// must iterate at least once), REPEAT/OPTIONAL/CHOICE/BLANK contribute the
+/// minimum over their branches (0 for optionals). A bare named SYMBOL is one
+/// slot; hidden (`_`) SYMBOLs expand inline (cycle-guarded). FIELD-of-literal
+/// and string/pattern terminals contribute 0. Used to detect when a vertex's
+/// OWN rule structurally cannot be the parse (it mandates more children than
+/// the vertex actually has, e.g. vhdl `simple_expression`'s REPEAT1 binary
+/// chain forced onto a bare aliased `_expr`, emitting a spurious `+`).
+fn rule_min_required_children(grammar: &Grammar, rule: &Production) -> usize {
+    fn go(
+        grammar: &Grammar,
+        p: &Production,
+        seen: &mut std::collections::HashSet<String>,
+    ) -> usize {
+        match p {
+            Production::Symbol { name } => {
+                if name.starts_with('_') {
+                    if !seen.insert(name.clone()) {
+                        return 0;
+                    }
+                    let r = grammar
+                        .rules
+                        .get(name)
+                        .map_or(0, |rule| go(grammar, rule, seen));
+                    seen.remove(name);
+                    r
+                } else {
+                    usize::from(grammar.rules.contains_key(name))
+                }
+            }
+            Production::Field { content, .. } => go(grammar, content, seen),
+            Production::Seq { members } => members.iter().map(|m| go(grammar, m, seen)).sum(),
+            Production::Choice { members } => members
+                .iter()
+                .map(|m| go(grammar, m, seen))
+                .min()
+                .unwrap_or(0),
+            Production::Repeat1 { content } => go(grammar, content, seen),
+            Production::Token { content }
+            | Production::ImmediateToken { content }
+            | Production::Prec { content, .. }
+            | Production::PrecLeft { content, .. }
+            | Production::PrecRight { content, .. }
+            | Production::PrecDynamic { content, .. }
+            | Production::Reserved { content, .. }
+            | Production::Alias { content, .. } => go(grammar, content, seen),
+            // Optional / Repeat (zero-or-more) / Blank / literals: no minimum.
+            _ => 0,
+        }
+    }
+    let mut seen = std::collections::HashSet::new();
+    go(grammar, rule, &mut seen)
+}
+
 /// Choose which rule production to walk at a vertex of surface kind
 /// `kind`. Normally the vertex's own rule. But when several rules collapse
 /// to `kind` via `alias($.src, kind)` and the own rule cannot consume one
@@ -154,6 +209,7 @@ fn select_walk_rule<'g>(
     edges: &[&Edge],
     kind: &'g str,
     own_rule: &'g Production,
+    vertex_id: &panproto_gat::Name,
 ) -> (&'g str, &'g Production) {
     let Some(sources) = grammar.named_alias_sources.get(kind) else {
         return (kind, own_rule);
@@ -167,8 +223,41 @@ fn select_walk_rule<'g>(
     }
     let own_admits = rule_admits_count(grammar, own_rule, &demand);
     if own_admits == demand.len() {
-        // The own rule already has a slot for every child; never override.
-        return (kind, own_rule);
+        // The own rule has a slot for every child. Normally that settles it.
+        // BUT a rule can ADMIT the demand yet still MANDATE more children than
+        // the vertex carries: vhdl's `simple_expression = SEQ[_expr,
+        // REPEAT1(SEQ[FIELD(operator,'+'|'-'), _expr])]` is an alias target of
+        // a bare `_expr`; with a single-child demand the own rule admits it
+        // (one `_expr` slot) but its REPEAT1 still iterates once and emits the
+        // forced `+` operator (`0` -> `0 +`). When the own rule's MINIMUM
+        // required child count exceeds the demand, it structurally cannot be
+        // the parse; prefer an alias source whose rule both admits the demand
+        // and does NOT over-mandate. Confirmed by the recorded pre-alias
+        // source when present.
+        let own_min = rule_min_required_children(grammar, own_rule);
+        if own_min <= demand.len() {
+            return (kind, own_rule);
+        }
+        let recorded_src = pre_alias_symbol(schema, vertex_id);
+        let mut fit: Option<(&str, &Production)> = None;
+        for src in sources {
+            if src == kind {
+                continue;
+            }
+            let Some(src_rule) = grammar.rules.get(src) else {
+                continue;
+            };
+            if rule_admits_count(grammar, src_rule, &demand) == demand.len()
+                && rule_min_required_children(grammar, src_rule) <= demand.len()
+            {
+                // Prefer the source the parser actually recorded.
+                if recorded_src == Some(src.as_str()) {
+                    return (src.as_str(), src_rule);
+                }
+                fit.get_or_insert((src.as_str(), src_rule));
+            }
+        }
+        return fit.unwrap_or((kind, own_rule));
     }
     // Find the alias source whose production admits strictly more of the
     // demand than the own rule. Sources are tried in grammar order; the
@@ -388,7 +477,7 @@ pub(crate) fn emit_vertex(
         // only fires when the own rule genuinely under-consumes, so the
         // common case (own rule consumes everything) is untouched.
         let (walk_name, walk_rule): (&str, &Production) =
-            select_walk_rule(schema, grammar, &edges, kind, rule);
+            select_walk_rule(schema, grammar, &edges, kind, rule, vertex_id);
         let old_rule = out.current_rule.take();
         out.current_rule = Some(walk_name.to_owned());
         // An indented-block rule (`block = SEQ[REPEAT(_statement),
@@ -1917,7 +2006,7 @@ pub(crate) fn emit_aliased_child(
             // child's surface kind (the alias `value`).
             let child_kind = vertex_id_kind(schema, child_id).unwrap_or(name);
             let (walk_name, walk_rule) =
-                select_walk_rule(schema, grammar, &edges, child_kind, rule);
+                select_walk_rule(schema, grammar, &edges, child_kind, rule, child_id);
             let mut cursor = ChildCursor::new(&edges);
             let old_rule = out.current_rule.take();
             out.current_rule = Some(walk_name.to_owned());
