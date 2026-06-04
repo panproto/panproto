@@ -266,6 +266,87 @@ mod tests {
     }
 
     #[test]
+    fn trailing_break_markers_detect_hard_line_break_idiom() {
+        // `hard_line_break = SEQ[CHOICE["\\" | _ws], _soft_line_break]` — the
+        // markdown_inline shape. The bare `\` is a break marker; the
+        // whitespace alternative sets the whitespace flag.
+        let bytes = br#"{
+            "name": "tiny",
+            "rules": {
+                "doc": {"type": "SYMBOL", "name": "hard_line_break"},
+                "hard_line_break": {"type": "SEQ", "members": [
+                    {"type": "CHOICE", "members": [
+                        {"type": "STRING", "value": "\\"},
+                        {"type": "SYMBOL", "name": "_ws"}
+                    ]},
+                    {"type": "SYMBOL", "name": "_nl"}
+                ]},
+                "_ws": {"type": "PATTERN", "value": "\\t| [ \\t]+"},
+                "_nl": {"type": "PATTERN", "value": "\\n|\\r\\n?"}
+            }
+        }"#;
+        let g = Grammar::from_bytes("tiny", bytes).expect("valid grammar");
+        assert!(g.trailing_break_markers.iter().any(|m| m == "\\"));
+        assert!(g.trailing_break_on_whitespace);
+        // A keyword-led line construct is NOT a break marker.
+        let bytes2 = br#"{
+            "name": "t2",
+            "rules": {
+                "doc": {"type": "SYMBOL", "name": "directive"},
+                "directive": {"type": "SEQ", "members": [
+                    {"type": "STRING", "value": "go"},
+                    {"type": "PATTERN", "value": "\\n"}
+                ]}
+            }
+        }"#;
+        let g2 = Grammar::from_bytes("t2", bytes2).expect("valid grammar");
+        assert!(g2.trailing_break_markers.is_empty());
+        assert!(!g2.trailing_break_on_whitespace);
+    }
+
+    #[test]
+    fn top_level_text_admits_newline_detects_template_content() {
+        // A `liquid`-style program whose top repeat directly admits a
+        // free-text content node matching a bare newline.
+        let bytes = br#"{
+            "name": "tmpl",
+            "rules": {
+                "program": {"type": "REPEAT", "content":
+                    {"type": "SYMBOL", "name": "_node"}},
+                "_node": {"type": "CHOICE", "members": [
+                    {"type": "SYMBOL", "name": "tag"},
+                    {"type": "SYMBOL", "name": "template_content"}
+                ]},
+                "tag": {"type": "STRING", "value": "{%%}"},
+                "template_content": {"type": "REPEAT1", "content":
+                    {"type": "PATTERN", "value": "[^{]+"}}
+            }
+        }"#;
+        let g = Grammar::from_bytes("tmpl", bytes).expect("valid grammar");
+        assert!(g.start_symbol == "program");
+        assert!(g.top_level_text_admits_newline);
+        // A grammar whose only newline-admitting class is a block comment
+        // (nested under delimiters, not a top-level document node) must NOT
+        // set the flag.
+        let bytes2 = br#"{
+            "name": "prog",
+            "rules": {
+                "source_file": {"type": "REPEAT", "content":
+                    {"type": "SYMBOL", "name": "statement"}},
+                "statement": {"type": "STRING", "value": "x"},
+                "comment": {"type": "SEQ", "members": [
+                    {"type": "STRING", "value": "/*"},
+                    {"type": "PATTERN", "value": "[^*]+"},
+                    {"type": "STRING", "value": "*/"}
+                ]}
+            }
+        }"#;
+        let g2 = Grammar::from_bytes("prog", bytes2).expect("valid grammar");
+        assert!(g2.start_symbol == "source_file");
+        assert!(!g2.top_level_text_admits_newline);
+    }
+
+    #[test]
     fn immediate_token_alias_kinds_classifies_char_body() {
         // `char_literal` = SEQ[quote-open, REPEAT1(ALIAS{IMMEDIATE_TOKEN
         // PATTERN, value:"character"}), quote-close]: a quote-pair-delimited
