@@ -29,7 +29,8 @@ use super::{
     Token, TokenRole, accepts_first_edge, alias_content_is_terminal_pattern,
     aliased_source_literals, alt_satisfies_field_token_restrictions,
     alt_satisfies_pre_alias_constraints, children_for, classify_seq_positions, clear_field_context,
-    collect_field_names, contains_newline_pattern, current_field_context,
+    collect_field_names, collect_inner_field_names_expanded, contains_newline_pattern,
+    current_field_context,
     first_unconsumed_target_fingerprint, has_field_in, has_relevant_constraint, has_repeat_in,
     is_connector_punctuation, is_immediate_token, is_newline_alt, is_newline_like_pattern,
     is_no_space_external, is_whitespace_external, is_whitespace_only_pattern, is_word_like,
@@ -1001,6 +1002,68 @@ pub(crate) fn emit_production_inner(
                         );
                         out.current_rule = old_rule;
                         return result;
+                    }
+                }
+                // Nested-FIELD re-label: a FIELD(outer, _hidden) whose hidden
+                // body re-binds the child to a *different* inner FIELD name
+                // (swift `FIELD(type, _possibly_implicitly_unwrapped_type)`,
+                // whose `_type` body carries `FIELD(name, _unannotated_type)`).
+                // The generated parser flattens the hidden rule and labels the
+                // child with the INNER field name, so the outer `field` matches
+                // no edge while the inner name does. Expand the hidden rule
+                // inline (clearing the outer field context) so the inner FIELD
+                // claims its correctly-labelled edge instead of dropping the
+                // child. Gated on the node-types desync signature (the parser is
+                // authoritative): the inner rebound field must be a real field of
+                // the parent kind in node-types AND its node-types type set must
+                // contain the pending edge's target kind, i.e. the parser truly
+                // binds this child under the inner name. This confines the
+                // expansion to genuine FIELD-name flattening and leaves the
+                // common `FIELD(x, _hidden)` pass-through (and CHOICEs whose
+                // alternatives merely happen to nest a same-named field for a
+                // different child) untouched.
+                if name.starts_with('_') && !cursor.has_field(&field) {
+                    if let Some(rule) = grammar.rules.get(name) {
+                        let mut inner_fields = std::collections::HashSet::new();
+                        let mut seen = std::collections::HashSet::new();
+                        collect_inner_field_names_expanded(
+                            rule,
+                            grammar,
+                            &mut inner_fields,
+                            &mut seen,
+                        );
+                        let parent_kind = vertex_id_kind(schema, vertex_id);
+                        let nt_fields = parent_kind
+                            .and_then(|pk| grammar.node_type_field_children.get(pk));
+                        let rebound = inner_fields.iter().any(|f| {
+                            if *f == field.as_str() {
+                                return false;
+                            }
+                            // The parser bound a child under the inner name.
+                            let Some(child_kind) = cursor
+                                .peek_field(f)
+                                .and_then(|e| schema.vertices.get(&e.tgt))
+                                .map(|v| v.kind.as_ref())
+                            else {
+                                return false;
+                            };
+                            // node-types confirms the inner field genuinely
+                            // carries this child kind: the flattened re-label,
+                            // not a coincidental same-named field nesting.
+                            nt_fields
+                                .and_then(|m| m.get(*f))
+                                .is_some_and(|ks| ks.contains(child_kind))
+                        });
+                        if rebound {
+                            let _clear = clear_field_context();
+                            let old_rule = out.current_rule.take();
+                            out.current_rule = Some(name.to_owned());
+                            let result = walk_in_mu_frame(
+                                protocol, schema, grammar, vertex_id, name, rule, cursor, out,
+                            );
+                            out.current_rule = old_rule;
+                            return result;
+                        }
                     }
                 }
                 if let Some(edge) = cursor.take_field(&field) {

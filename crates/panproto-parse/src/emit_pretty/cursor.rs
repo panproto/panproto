@@ -52,6 +52,25 @@ impl<'a> ChildCursor<'a> {
         None
     }
 
+    /// Whether any unconsumed edge carries the given field name.
+    /// A read-only peek (does not consume): lets the SYMBOL handler
+    /// decide whether to expand a hidden rule inline so a nested FIELD
+    /// can claim a re-labelled edge.
+    pub(crate) fn has_field(&self, field_name: &str) -> bool {
+        self.peek_field(field_name).is_some()
+    }
+
+    /// The next unconsumed edge carrying the given field name, without
+    /// consuming it. Companion to `has_field`: the nested-FIELD re-label
+    /// check inspects the edge's target kind against node-types.
+    pub(crate) fn peek_field(&self, field_name: &str) -> Option<&'a Edge> {
+        self.edges
+            .iter()
+            .enumerate()
+            .find(|(i, edge)| !self.consumed[*i] && edge.kind.as_ref() == field_name)
+            .map(|(_, edge)| *edge)
+    }
+
     /// Whether any unconsumed edge satisfies `predicate`. Used by the
     /// unit tests; the live emit path went through `has_matching` on
     /// each alternative until cursor-driven dispatch was rewritten to

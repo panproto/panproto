@@ -1102,6 +1102,53 @@ pub(crate) fn collect_field_names<'p>(
     }
 }
 
+/// Collect FIELD names that a production re-binds its child to, expanding
+/// hidden (`_`-prefixed) SYMBOL references inline (cycle-guarded). Stops at
+/// visible rules — those are walked as their own vertex and carry their own
+/// field structure. This is how a grammar like swift's
+/// `type_annotation = SEQ[":", FIELD(type, _possibly_implicitly_unwrapped_type)]`
+/// — whose hidden body re-binds the inner type to `FIELD(name, …)` — is
+/// recognized as labelling its child `name`, not `type`: the parser
+/// (authoritative) emits the inner FIELD name, so the outer FIELD's name is a
+/// wrapper that the generated parser flattens away.
+pub(crate) fn collect_inner_field_names_expanded<'p>(
+    production: &'p Production,
+    grammar: &'p crate::emit_pretty::grammar::Grammar,
+    out: &mut std::collections::HashSet<&'p str>,
+    seen: &mut std::collections::HashSet<&'p str>,
+) {
+    match production {
+        Production::Field { name, content } => {
+            out.insert(name.as_str());
+            collect_inner_field_names_expanded(content, grammar, out, seen);
+        }
+        Production::Symbol { name } if name.starts_with('_') && seen.insert(name.as_str()) => {
+            if let Some(rule) = grammar.rules.get(name) {
+                collect_inner_field_names_expanded(rule, grammar, out, seen);
+            }
+        }
+        Production::Seq { members } | Production::Choice { members } => {
+            for m in members {
+                collect_inner_field_names_expanded(m, grammar, out, seen);
+            }
+        }
+        Production::Repeat { content }
+        | Production::Repeat1 { content }
+        | Production::Optional { content }
+        | Production::Alias { content, .. }
+        | Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Reserved { content, .. } => {
+            collect_inner_field_names_expanded(content, grammar, out, seen);
+        }
+        _ => {}
+    }
+}
+
 pub(crate) fn has_field_in(production: &Production, edge_kinds: &[&str]) -> bool {
     match production {
         Production::Field { name, .. } => edge_kinds.contains(&name.as_str()),
