@@ -52,7 +52,7 @@ impl EnrichmentKind {
 /// layout enrichment fibre.
 #[must_use]
 pub fn is_layout_sort(sort: &str) -> bool {
-    matches!(sort, "start-byte" | "end-byte")
+    matches!(sort, "start-byte" | "end-byte" | "doc-prefix")
         || sort.starts_with("chose-alt-")
         || sort.starts_with("interstitial-")
         || sort.starts_with("ptrace-")

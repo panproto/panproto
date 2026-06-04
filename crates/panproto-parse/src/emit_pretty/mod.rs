@@ -130,6 +130,18 @@ pub fn emit_pretty(
         });
     }
 
+    // A leading byte run that tree-sitter excluded from the document root's
+    // span (a UTF-8 BOM, an awk `\<newline>` line-continuation, a leading
+    // comment) is recorded by the walker as `doc-prefix` on the root vertex.
+    // It belongs to no interstitial run, so reproduce it verbatim ahead of the
+    // emitted body to keep the byte-faithful replay lossless.
+    let doc_prefix: Vec<u8> = schema
+        .constraints
+        .get(roots[0])
+        .and_then(|cs| cs.iter().find(|c| c.sort.as_ref() == "doc-prefix"))
+        .map(|c| c.value.as_bytes().to_vec())
+        .unwrap_or_default();
+
     let mut out = Output::new(policy, grammar, cassette);
     for (i, root) in roots.iter().enumerate() {
         if i > 0 {
@@ -137,7 +149,14 @@ pub fn emit_pretty(
         }
         emit_vertex(protocol, schema, grammar, root, &mut out)?;
     }
-    Ok(out.finish())
+    let body = out.finish();
+    if doc_prefix.is_empty() {
+        Ok(body)
+    } else {
+        let mut result = doc_prefix;
+        result.extend_from_slice(&body);
+        Ok(result)
+    }
 }
 
 #[cfg(test)]

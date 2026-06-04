@@ -271,6 +271,22 @@ impl<'a> AstWalker<'a> {
         builder = builder.constraint(&vertex_id, "start-byte", &node.start_byte().to_string());
         builder = builder.constraint(&vertex_id, "end-byte", &node.end_byte().to_string());
 
+        // Capture any leading bytes that precede the document root. Tree-sitter
+        // excludes leading `extra` tokens (a UTF-8 BOM, an awk `\<newline>`
+        // line-continuation, a leading comment) from the root node's span, so
+        // those bytes belong to no vertex's interstitial run and are dropped on
+        // replay. Record them as a `doc-prefix` constraint on the root vertex so
+        // the byte-faithful emit path can reproduce them verbatim. Only the
+        // document root (no parent) with a non-zero start byte carries this;
+        // every other vertex's leading gap is already a sibling interstitial.
+        if parent_vertex_id.is_none() && node.start_byte() > 0 {
+            if let Ok(prefix) = std::str::from_utf8(&self.source[..node.start_byte()]) {
+                if !prefix.is_empty() {
+                    builder = builder.constraint(&vertex_id, "doc-prefix", prefix);
+                }
+            }
+        }
+
         // Record the pre-alias grammar symbol name when it differs from
         // the post-alias kind. Tree-sitter 0.25 exposes `grammar_name`
         // (the SYMBOL name as it appears in the rule body, before
