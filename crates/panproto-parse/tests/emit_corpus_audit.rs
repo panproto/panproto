@@ -805,6 +805,7 @@ const CORPUS_VERIFIED: &[&str] = &[
     "regex",
     "rego",
     "requirements",
+    "rescript",
     "robot",
     "ron",
     "rst",

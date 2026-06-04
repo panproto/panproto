@@ -613,6 +613,7 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "regex",
     "rego",
     "requirements",
+    "rescript",
     "robot",
     "ron",
     "rst",
