@@ -398,6 +398,18 @@ pub(crate) fn layout(
     // The negated-class content of a greedy terminal that just emitted; if
     // the next Lit's first char is admitted by it, force a separator.
     let mut pending_absorber: Option<String> = None;
+    // True iff the most recently emitted content token was an exact-replay
+    // `Verbatim` blob. The byte-faithful replay path reproduces the source's
+    // trailing bytes verbatim (the trailing interstitial is part of the
+    // reconstructed span), so the final line-terminating newline below must not
+    // be appended after a verbatim tail: the source may legitimately have ended
+    // without a trailing newline, and a spurious `\n` can flip a
+    // newline-sensitive scanner's parse (scala `class A\n()\n()\n{}` — the
+    // trailing `\n` inserts an automatic semicolon that re-binds the empty
+    // `class_parameters`/`template_body` as top-level `unit`/`block`). Canonical
+    // (forget_layout) schemas emit no `Verbatim` tokens, so this never relaxes
+    // the conventional terminating newline on the reformatting path.
+    let mut last_content_was_verbatim = false;
     let newline = policy.newline.as_bytes();
     let separator = policy.separator.as_bytes();
 
@@ -464,6 +476,7 @@ pub(crate) fn layout(
                 at_line_start = bytes_str.ends_with(['\n', '\r']);
                 last_role = None;
                 last_text.clear();
+                last_content_was_verbatim = true;
             }
             Token::Lit(value, role) => {
                 // A greedy negated-class terminal just emitted: if it would
@@ -510,6 +523,7 @@ pub(crate) fn layout(
                 force_next_separator = false;
                 bytes.extend_from_slice(value.as_bytes());
                 at_line_start = false;
+                last_content_was_verbatim = false;
                 last_role = Some(*role);
                 last_text.clear();
                 last_text.push_str(value);
@@ -529,7 +543,7 @@ pub(crate) fn layout(
         }
     }
 
-    if !at_line_start {
+    if !at_line_start && !last_content_was_verbatim {
         bytes.extend_from_slice(newline);
     }
     bytes

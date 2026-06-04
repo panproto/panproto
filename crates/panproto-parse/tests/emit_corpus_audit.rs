@@ -810,6 +810,7 @@ const CORPUS_VERIFIED: &[&str] = &[
     "rst",
     "ruby",
     "rust",
+    "scala",
     "scss",
     "solidity",
     "sparql",

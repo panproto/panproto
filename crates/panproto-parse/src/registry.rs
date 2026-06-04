@@ -618,6 +618,7 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "rst",
     "ruby",
     "rust",
+    "scala",
     "scheme",
     "scss",
     "solidity",
