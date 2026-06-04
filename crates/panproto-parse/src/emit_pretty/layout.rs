@@ -507,6 +507,27 @@ pub(crate) fn layout(
                 if at_line_start {
                     bytes.extend(std::iter::repeat_n(b' ', indent * policy.indent_width));
                 } else if let Some(prev_role) = last_role {
+                    // The role-spacer inserts at most ONE separator at a token
+                    // boundary, but a content leaf can carry the boundary
+                    // whitespace inside its own captured text: a marker token
+                    // whose `literal-value` ends in a space (djot
+                    // `block_quote_marker` = `"> "`, the ATX/list markers of
+                    // lightweight-markup grammars) already supplies the gap to
+                    // the following content, and a token whose text begins with
+                    // a space supplies it to the preceding one. Adding a
+                    // role-derived space on top would double it, and the doubled
+                    // space is re-absorbed into the marker's text on re-parse, so
+                    // it accretes one space per emit (`# Heading` -> `#  Heading`
+                    // -> `#   Heading` ...): the canonical fixed point is lost.
+                    // When the boundary already carries whitespace from either
+                    // side, the separator is redundant; suppress it. This is
+                    // derived purely from the emitted token text, not any
+                    // per-language table, and applies uniformly: a genuine
+                    // no-whitespace marker (Org's `* Heading`, whose literal is
+                    // bare `*`) is unaffected, since neither side carries the
+                    // space.
+                    let boundary_has_whitespace =
+                        last_text.ends_with([' ', '\t']) || value.starts_with([' ', '\t']);
                     // An explicit NoSpace (suppress) is authoritative: it
                     // records that the source had no separator at this
                     // boundary (an empty REPEAT separator slot, an
@@ -514,6 +535,7 @@ pub(crate) fn layout(
                     // ForceSpace heuristic — otherwise beamed notes
                     // (`CDEF`) re-space to `C D E F`.
                     let want_space = !suppress_next_separator
+                        && !boundary_has_whitespace
                         && (force_next_separator
                             || needs_space_by_role(prev_role, &last_text, *role, value)
                             || (is_block_open

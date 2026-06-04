@@ -716,6 +716,7 @@ const CORPUS_VERIFIED: &[&str] = &[
     "desktop",
     "devicetree",
     "diff",
+    "djot",
     "dockerfile",
     "dot",
     "doxygen",

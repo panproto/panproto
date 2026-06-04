@@ -520,6 +520,7 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "desktop",
     "devicetree",
     "diff",
+    "djot",
     "dockerfile",
     "dot",
     "doxygen",

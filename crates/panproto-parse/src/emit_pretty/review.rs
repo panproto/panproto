@@ -40,7 +40,7 @@ use super::{
     push_field_context, reconstruct_subtree_bytes, reduces_to_immediate_token, referenced_symbols,
     repeat_body_is_whole_vertex_item, repeat_has_bracket_keyed_member, seq_bracket_triggers_indent,
     seq_open_bracket_index, unbounded_negated_class, unwrap_prec, unwrap_to_string,
-    vertex_has_interstitials, vertex_id_kind, yield_of_production,
+    vertex_has_byte_span, vertex_id_kind, yield_of_production,
 };
 
 pub(crate) fn collect_roots(schema: &Schema) -> Vec<&panproto_gat::Name> {
@@ -396,23 +396,30 @@ pub(crate) fn emit_vertex(
             reason: format!("vertex '{vertex_id}' not found"),
         })?;
 
-    // ── Interstitial replay (the byte-faithful layout fibre) ──────────
-    // When this vertex records `interstitial-N` constraints, the layout
-    // complement carries the EXACT source text between its named children
-    // (and the leading / trailing gaps). If that fibre tiles the vertex's
-    // `[start-byte, end-byte)` span completely (`reconstruct_subtree_bytes`
-    // returns `Some`), replay those bytes verbatim instead of letting the
-    // role table approximate the inter-token spacing — circom
-    // `circom  2.0.0 ;` → `circom 2.0.0;`, cylc `end  = True` → `end = True`.
+    // ── Subtree replay (the byte-faithful layout fibre) ───────────────
+    // When this vertex carries a `[start-byte, end-byte)` span (the replay
+    // path), the layout complement records the EXACT source text of every
+    // leaf in its subtree (`literal-value`) and every gap between named
+    // children (`interstitial-N`). If those fragments tile the vertex's span
+    // completely (`reconstruct_subtree_bytes` returns `Some`), replay them
+    // verbatim instead of letting the role table approximate the inter-token
+    // spacing — circom `circom  2.0.0 ;` -> `circom 2.0.0;`, cylc
+    // `end  = True` -> `end = True`. The gate is the byte span rather than the
+    // vertex's own interstitials, so a pure CONTAINER vertex (djot
+    // `content` / `block_quote` / `document`, which records the span but no
+    // interstitial of its own) is tiled directly from its leaves' fragments —
+    // the structural role-table walk otherwise mis-orders block-quote
+    // continuation markers (`_block_quote_prefix = REPEAT1(block_quote_marker)`
+    // greedily munches every sibling marker into the first iteration).
     //
     // This is canonical-only-OFF by construction: a by-construction /
-    // transpiled schema carries no interstitials (forget_layout strips them),
+    // transpiled schema carries no byte anchors (`forget_layout` strips them),
     // so it never enters this branch and keeps the canonical role-table
     // section. And because the reconstruction is taken ONLY when the fibre is
     // self-consistent (the completeness check), it is byte-faithful exactly
     // where the role table already was — it can only ever FIX a boundary the
     // role table got wrong, never corrupt one it got right.
-    if vertex_has_interstitials(schema, vertex_id) {
+    if vertex_has_byte_span(schema, vertex_id) {
         if let Some(bytes) = reconstruct_subtree_bytes(schema, vertex_id) {
             out.verbatim(&bytes);
             return Ok(());
@@ -2140,20 +2147,20 @@ pub(crate) fn emit_aliased_child(
     content: &Production,
     out: &mut Output<'_>,
 ) -> Result<(), ParseError> {
-    // Interstitial replay (the byte-faithful layout fibre) — mirror of the
+    // Subtree replay (the byte-faithful layout fibre) — mirror of the
     // `emit_vertex` entry guard. An aliased child reached here (a CHOICE alt
     // whose `value` renames a SYMBOL: vhdl's `selected_concurrent_signal_
-    // assignment` is the alias of `selected_waveform_assignment`) records its
-    // own `interstitial-N` complement carrying the EXACT source text between
-    // its anonymous keyword tokens and its named children (vhdl `with … select
-    // … <= …`). Without this branch the aliased subtree falls straight to the
-    // role-table production walk, which approximates the inter-token spacing
-    // and can drop a separator the role table got wrong (`select\n t` →
-    // `selectt`). Like `emit_vertex`, replay is taken ONLY when the fibre tiles
-    // the span completely, so it is canonical-only-OFF (a forget_layout schema
-    // has no interstitials) and can never corrupt a boundary the role table got
-    // right.
-    if vertex_has_interstitials(schema, child_id) {
+    // assignment` is the alias of `selected_waveform_assignment`) records the
+    // EXACT source text of its subtree (`literal-value` leaves + `interstitial-N`
+    // gaps) carrying the spacing between its anonymous keyword tokens and its
+    // named children (vhdl `with … select … <= …`). Without this branch the
+    // aliased subtree falls straight to the role-table production walk, which
+    // approximates the inter-token spacing and can drop a separator the role
+    // table got wrong (`select\n t` -> `selectt`). Like `emit_vertex`, the gate
+    // is the byte span and replay is taken ONLY when the fibre tiles the span
+    // completely, so it is canonical-only-OFF (a `forget_layout` schema has no
+    // byte anchors) and can never corrupt a boundary the role table got right.
+    if vertex_has_byte_span(schema, child_id) {
         if let Some(bytes) = reconstruct_subtree_bytes(schema, child_id) {
             out.verbatim(&bytes);
             return Ok(());

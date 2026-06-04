@@ -512,17 +512,38 @@ fn byte_anchor(schema: &Schema, vertex_id: &panproto_gat::Name, sort: &str) -> O
         .and_then(|c| c.value.parse::<usize>().ok())
 }
 
-/// True iff `vertex_id` records at least one `interstitial-N` constraint.
-/// This is the per-vertex replay witness: an `interstitial-N` is the exact
-/// source text between two of the vertex's named children (and the leading /
-/// trailing gaps), so its presence means the layout fibre carries the verbatim
-/// inter-child spacing the role table only approximates.
-pub(crate) fn vertex_has_interstitials(schema: &Schema, vertex_id: &panproto_gat::Name) -> bool {
+/// True iff `vertex_id` records BOTH a `start-byte` and an `end-byte`
+/// constraint, i.e. it sits on the replay path and has a span the layout
+/// fibre may tile.
+///
+/// A pure CONTAINER vertex on the replay path (djot `content` /
+/// `block_quote` / `document`, whose children carry every interstitial but
+/// which records none of its own) has a byte span without an interstitial of
+/// its own. Its subtree's fragments still tile its `[start-byte, end-byte)`
+/// span exactly, so [`reconstruct_subtree_bytes`] reproduces it byte-faithfully
+/// — but the interstitial-only entry guard skipped it, leaving the structural
+/// role-table walk to approximate the ordering. That walk mis-orders the
+/// continuation markers of a multi-block block-quote (`_block_quote_prefix =
+/// REPEAT1(block_quote_marker)` greedily munches every sibling marker into the
+/// first iteration). Gating the reconstruction attempt on the byte span (not
+/// only the interstitial witness) lets the completeness-checked replay tile the
+/// container directly. It stays canonical-only-OFF: a `forget_layout` schema
+/// carries no byte anchors, so it never enters this branch and keeps the
+/// canonical section. And because the tiling completeness check is unchanged,
+/// it can only ever reproduce the exact source bytes where the fibre is
+/// self-consistent, never corrupt a boundary the role table got right.
+pub(crate) fn vertex_has_byte_span(schema: &Schema, vertex_id: &panproto_gat::Name) -> bool {
     schema.constraints.get(vertex_id).is_some_and(|cs| {
-        cs.iter().any(|c| {
-            let s = c.sort.as_ref();
-            s.starts_with("interstitial-") && !s.ends_with("-start-byte")
-        })
+        let mut has_start = false;
+        let mut has_end = false;
+        for c in cs {
+            match c.sort.as_ref() {
+                "start-byte" => has_start = true,
+                "end-byte" => has_end = true,
+                _ => {}
+            }
+        }
+        has_start && has_end
     })
 }
 

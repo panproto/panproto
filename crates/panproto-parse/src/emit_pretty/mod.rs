@@ -215,6 +215,42 @@ mod tests {
     }
 
     #[test]
+    fn marker_literal_with_trailing_space_is_not_doubled() {
+        // A lightweight-markup marker leaf captures its own trailing space in
+        // its `literal-value` (djot `block_quote_marker` = `"> "`, ATX heading
+        // `"# "`). The role-spacer must not add a SECOND separator after it, or
+        // the doubled space is re-absorbed into the marker on re-parse and the
+        // canonical fixed point is lost (`# Heading` -> `#  Heading` -> ...).
+        // The emitted whitespace at the boundary is supplied by the marker text.
+        let policy = FormatPolicy::default();
+        let g = test_grammar();
+        let mut out = Output::new(&policy, &g, None);
+        out.token_with_role("> ", Some(TokenRole::Terminal));
+        out.token_with_role("quoted", Some(TokenRole::Terminal));
+        let bytes = out.finish();
+        let s = std::str::from_utf8(&bytes).expect("ascii output");
+        assert_eq!(s.trim_end(), "> quoted", "got {s:?}");
+
+        // Symmetric case: a leaf whose text BEGINS with a space supplies the
+        // boundary whitespace to its predecessor; no role space is added.
+        let mut out = Output::new(&policy, &g, None);
+        out.token_with_role("foo", Some(TokenRole::Terminal));
+        out.token_with_role(" bar", Some(TokenRole::Terminal));
+        let bytes = out.finish();
+        let s = std::str::from_utf8(&bytes).expect("ascii output");
+        assert_eq!(s.trim_end(), "foo bar", "got {s:?}");
+
+        // A genuine no-whitespace marker (Org's `* Heading`, bare `*`) is
+        // unaffected: the role-spacer still inserts the single separator.
+        let mut out = Output::new(&policy, &g, None);
+        out.token_with_role("*", Some(TokenRole::Terminal));
+        out.token_with_role("Heading", Some(TokenRole::Terminal));
+        let bytes = out.finish();
+        let s = std::str::from_utf8(&bytes).expect("ascii output");
+        assert_eq!(s.trim_end(), "* Heading", "got {s:?}");
+    }
+
+    #[test]
     fn output_emits_punctuation_without_leading_space() {
         let policy = FormatPolicy::default();
         let g = test_grammar();
