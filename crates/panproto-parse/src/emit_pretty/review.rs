@@ -1645,11 +1645,55 @@ pub(crate) fn emit_production_inner(
             });
             let mut seps_emitted = 0usize;
 
+            // The REPEAT body's LEADING mandatory token. A body
+            // `SEQ[<concrete SYMBOL>, …]` whose first member is a required
+            // reference to a concrete (non-hidden, non-optional) rule can only
+            // start an iteration when an unconsumed edge satisfies that symbol.
+            // Without this guard the SEQ walk proceeds past a non-matching
+            // leading keyword and lets a LATER member greedily consume an edge
+            // that belongs to a FOLLOWING production: sql `case`'s
+            // `REPEAT(SEQ[keyword_when, _expr, keyword_then, _expr])` runs a
+            // phantom iteration whose `keyword_when` does not match but whose
+            // `_expr` steals the trailing `ELSE` clause's expression, dropping
+            // the `keyword_else`. The guard is conservative: it fires only when
+            // the leading member is a bare SYMBOL to a present, concrete rule
+            // (not hidden/`_`-prefixed, not aliased, not an external), so a
+            // supertype/hidden leading member still iterates as before.
+            let repeat_lead_symbol: Option<&str> = match content.as_ref() {
+                Production::Seq { members } if members.len() >= 2 => match &members[0] {
+                    Production::Symbol { name }
+                        if !name.starts_with('_')
+                            && grammar.rules.contains_key(name)
+                            && !grammar.named_alias_map.contains_key(name.as_str()) =>
+                    {
+                        Some(name.as_str())
+                    }
+                    _ => None,
+                },
+                _ => None,
+            };
+
             let mut emitted_any = false;
             loop {
                 let cursor_snap = cursor.consumed.clone();
                 let out_snap = out.snapshot();
                 let consumed_before = cursor.consumed.iter().filter(|&&c| c).count();
+                // Stop iterating when the body's leading mandatory symbol cannot
+                // be satisfied: a further iteration would steal a following
+                // production's child (the sql CASE/ELSE drop above).
+                if let Some(lead) = repeat_lead_symbol {
+                    let lead_available = cursor.edges.iter().enumerate().any(|(i, e)| {
+                        !cursor.consumed[i]
+                            && kind_satisfies_symbol(
+                                grammar,
+                                schema.vertices.get(&e.tgt).map(|v| v.kind.as_ref()),
+                                lead,
+                            )
+                    });
+                    if !lead_available {
+                        break;
+                    }
+                }
                 if item_per_iteration && emitted_any {
                     out.force_space();
                 }
