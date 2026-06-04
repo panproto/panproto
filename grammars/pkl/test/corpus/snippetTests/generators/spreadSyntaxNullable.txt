@@ -1,0 +1,37 @@
+===
+generators/spreadSyntaxNullable.pkl
+===
+
+a = null
+b { ...?a }
+
+c { 1; 2; 3 }
+d { ...?c }
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (nullLiteralExpr))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectSpread
+        (unqualifiedAccessExpr
+          (identifier)))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectElement
+        (intLiteralExpr))
+      (objectElement
+        (intLiteralExpr))
+      (objectElement
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectSpread
+        (unqualifiedAccessExpr
+          (identifier))))))

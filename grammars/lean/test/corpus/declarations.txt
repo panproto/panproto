@@ -1,0 +1,410 @@
+==============
+Simple def
+==============
+
+def foo := 1
+
+---
+
+(module
+  (declaration
+    (def
+      name: (identifier)
+      body: (num_lit))))
+
+==============
+Def with binders
+==============
+
+def add (x y : Nat) : Nat := x + y
+
+---
+
+(module
+  (declaration
+    (def
+      name: (identifier)
+      (binders
+        (explicit_binder
+          name: (identifier)
+          name: (identifier)
+          type: (identifier)))
+      type: (identifier)
+      body: (binary_op
+        lhs: (identifier)
+        rhs: (identifier)))))
+
+==============
+Theorem
+==============
+
+theorem foo (p : Prop) : p → p := fun h => h
+
+---
+
+(module
+  (declaration
+    (theorem
+      name: (identifier)
+      (binders
+        (explicit_binder
+          name: (identifier)
+          type: (prop_const)))
+      type: (binary_op
+        lhs: (identifier)
+        rhs: (identifier))
+      body: (fun
+        (binders
+          (identifier))
+        body: (identifier)))))
+
+==============
+Example
+==============
+
+example : True := trivial
+
+---
+
+(module
+  (declaration
+    (example
+      type: (true_const)
+      body: (identifier))))
+
+==============
+Abbrev
+==============
+
+abbrev N := Nat
+
+---
+
+(module
+  (declaration
+    (abbrev
+      name: (identifier)
+      body: (identifier))))
+
+==============
+Axiom
+==============
+
+axiom em : ∀ p : Prop, p ∨ ¬ p
+
+---
+
+(module
+  (declaration
+    (axiom
+      name: (identifier)
+      type: (forall
+        (binders
+          (identifier))
+        type: (prop_const)
+        body: (binary_op
+          lhs: (identifier)
+          rhs: (unary_op
+            rhs: (identifier)))))))
+
+==============
+Instance with name
+==============
+
+instance foo : Bar Nat := default
+
+---
+
+(module
+  (declaration
+    (instance
+      name: (identifier)
+      type: (app
+        fn: (identifier)
+        arg: (identifier))
+      body: (identifier))))
+
+==============
+Anonymous instance
+==============
+
+instance : Bar Nat := default
+
+---
+
+(module
+  (declaration
+    (instance
+      type: (app
+        fn: (identifier)
+        arg: (identifier))
+      body: (identifier))))
+
+==============
+Modifiers
+==============
+
+private noncomputable def foo := 1
+
+---
+
+(module
+  (declaration
+    (decl_modifiers)
+    (def
+      name: (identifier)
+      body: (num_lit))))
+
+==============
+Attributes
+==============
+
+@[simp] theorem foo : 1 = 1 := rfl
+
+---
+
+(module
+  (declaration
+    (attributes
+      name: (identifier))
+    (theorem
+      name: (identifier)
+      type: (binary_op
+        lhs: (num_lit)
+        rhs: (num_lit))
+      body: (identifier))))
+
+==============
+Multiple attributes
+==============
+
+@[simp, inline] def foo := 1
+
+---
+
+(module
+  (declaration
+    (attributes
+      name: (identifier)
+      name: (identifier))
+    (def
+      name: (identifier)
+      body: (num_lit))))
+
+==============
+Scoped attribute
+==============
+
+@[scoped simp] def foo := 1
+
+---
+
+(module
+  (declaration
+    (attributes
+      name: (identifier))
+    (def
+      name: (identifier)
+      body: (num_lit))))
+
+==============
+Implicit binder
+==============
+
+def id {α : Type} (a : α) : α := a
+
+---
+
+(module
+  (declaration
+    (def
+      name: (identifier)
+      (binders
+        (implicit_binder
+          name: (identifier)
+          type: (type_const))
+        (explicit_binder
+          name: (identifier)
+          type: (identifier)))
+      type: (identifier)
+      body: (identifier))))
+
+==============
+Instance binder
+==============
+
+def foo [Add α] (x : α) : α := x
+
+---
+
+(module
+  (declaration
+    (def
+      name: (identifier)
+      (binders
+        (instance_binder
+          type: (app
+            fn: (identifier)
+            arg: (identifier)))
+        (explicit_binder
+          name: (identifier)
+          type: (identifier)))
+      type: (identifier)
+      body: (identifier))))
+
+==============
+Bare ident binders
+==============
+
+def succ n := n + 1
+
+---
+
+(module
+  (declaration
+    (def
+      name: (identifier)
+      (binders
+        (identifier))
+      body: (binary_op
+        lhs: (identifier)
+        rhs: (num_lit)))))
+
+==============
+Namespace
+==============
+
+namespace Foo
+def x := 1
+end Foo
+
+---
+
+(module
+  (namespace
+    name: (identifier))
+  (declaration
+    (def
+      name: (identifier)
+      body: (num_lit)))
+  (end
+    name: (identifier)))
+
+==============
+Section
+==============
+
+section
+variable (n : Nat)
+def foo := n
+end
+
+---
+
+(module
+  (section)
+  (variable
+    (explicit_binder
+      name: (identifier)
+      type: (identifier)))
+  (declaration
+    (def
+      name: (identifier)
+      body: (identifier)))
+  (end))
+
+==============
+Universe
+==============
+
+universe u v
+
+---
+
+(module
+  (universe
+    name: (identifier)
+    name: (identifier)))
+
+==============
+Open simple
+==============
+
+open Foo.Bar
+
+---
+
+(module
+  (open
+    namespace: (identifier)))
+
+==============
+Open multiple
+==============
+
+open Foo Bar
+
+---
+
+(module
+  (open
+    namespace: (identifier)
+    namespace: (identifier)))
+
+==============
+Open only
+==============
+
+open Foo (bar baz)
+
+---
+
+(module
+  (open
+    namespace: (identifier)
+    only: (identifier)
+    only: (identifier)))
+
+==============
+Open scoped
+==============
+
+open scoped Foo
+
+---
+
+(module
+  (open
+    scoped: (identifier)))
+
+==============
+Export
+==============
+
+export Foo (a b c)
+
+---
+
+(module
+  (export
+    namespace: (identifier)
+    only: (identifier)
+    only: (identifier)
+    only: (identifier)))
+
+==============
+Interactive commands
+==============
+
+#check x
+#eval foo
+#print bar
+#reduce baz
+
+---
+
+(module
+  (check term: (identifier))
+  (eval term: (identifier))
+  (print term: (identifier))
+  (reduce term: (identifier)))

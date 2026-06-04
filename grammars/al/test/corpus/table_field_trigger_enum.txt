@@ -1,0 +1,63 @@
+================================================================================
+Table Field Trigger with Qualified Enum Values
+================================================================================
+
+table 50000 "Test Table"
+{
+    fields
+    {
+        field(66; "Log Archive Path"; Text[250])
+        {
+            trigger OnValidate()
+            begin
+                if ("Log Archive Path" = '') and ("Log Storage Type" = LogStorageType::"File System") then
+                    TestField("Log Storage Type", LogStorageType::FileSystem);
+            end;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (trigger_declaration
+          (trigger_keyword)
+          name: (identifier)
+          (code_block
+            (begin_keyword)
+            (if_statement
+              (if_keyword)
+              condition: (logical_expression
+                left: (parenthesized_expression
+                  (comparison_expression
+                    left: (quoted_identifier)
+                    operator: (comparison_operator)
+                    right: (string_literal)))
+                right: (parenthesized_expression
+                  (comparison_expression
+                    left: (quoted_identifier)
+                    operator: (comparison_operator)
+                    right: (qualified_enum_value
+                      enum_type: (identifier)
+                      value: (quoted_identifier)))))
+              (then_keyword)
+              then_branch: (call_expression
+                function: (identifier)
+                arguments: (argument_list
+                  (quoted_identifier)
+                  (qualified_enum_value
+                    enum_type: (identifier)
+                    value: (identifier)))))
+            (end_keyword)))))))

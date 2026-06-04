@@ -1,0 +1,317 @@
+===
+classes/supercalls.pkl
+===
+
+open class One {
+  prefix = ""
+  function say(msg) = prefix + msg
+  function sameMethod() = 1
+  sameProp = "a"
+}
+
+open class Two extends One {
+  pigeon = super.say("Pigeon")
+  function barnOwl() = super.say("Barn Owl")
+  function say2(msg) = super.say(msg) + super.say(msg)
+  function sameMethod() = 2 + super.sameMethod()
+  sameProp = super.sameProp + "b"
+}
+
+class Three extends Two {
+  pigeonBarnOwl = super.pigeon + super.barnOwl()
+  function barnOwlPigeon() = super.barnOwl() + super.pigeon
+  parrot = super.say("Parrot")
+  function sameMethod() = 3 + super.sameMethod()
+  sameProp = super.sameProp + "c"
+}
+
+local two = new Two {}
+local three = new Three {}
+
+res1 = two.pigeon
+res2 = two.barnOwl()
+res3 = two.say2("Parrot")
+
+res4 = three.pigeonBarnOwl
+res5 = three.barnOwlPigeon()
+res6 = three.parrot
+
+local two2 = new Two { prefix = "Oh " }
+local three2 = new Three { prefix = "Oh " }
+
+res7 = two2.pigeon
+res8 = two2.barnOwl()
+res9 = two2.say2("Parrot")
+
+res10 = three2.pigeonBarnOwl
+res11 = three2.barnOwlPigeon()
+res12 = three2.parrot
+res13 = three2.sameMethod()
+res14 = three2.sameProp
+
+---
+
+(module
+  (clazz
+    (modifier)
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (slStringLiteralExpr))
+      (classMethod
+        (methodHeader
+          (identifier)
+          (parameterList
+            (typedIdentifier
+              (identifier))))
+        (additiveExpr
+          (unqualifiedAccessExpr
+            (identifier))
+          (unqualifiedAccessExpr
+            (identifier))))
+      (classMethod
+        (methodHeader
+          (identifier)
+          (parameterList))
+        (intLiteralExpr))
+      (classProperty
+        (identifier)
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (clazz
+    (modifier)
+    (identifier)      (classExtendsClause
+      (qualifiedIdentifier
+        (identifier)))
+    (classBody
+      (classProperty
+        (identifier)
+        (superAccessExpr
+          (identifier)
+          (argumentList
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))
+      (classMethod
+        (methodHeader
+          (identifier)
+          (parameterList))
+        (superAccessExpr
+          (identifier)
+          (argumentList
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))
+      (classMethod
+        (methodHeader
+          (identifier)
+          (parameterList
+            (typedIdentifier
+              (identifier))))
+        (additiveExpr
+          (superAccessExpr
+            (identifier)
+            (argumentList
+              (unqualifiedAccessExpr
+                (identifier))))
+          (superAccessExpr
+            (identifier)
+            (argumentList
+              (unqualifiedAccessExpr
+                (identifier))))))
+      (classMethod
+        (methodHeader
+          (identifier)
+          (parameterList))
+        (additiveExpr
+          (intLiteralExpr)
+          (superAccessExpr
+            (identifier)
+            (argumentList))))
+      (classProperty
+        (identifier)
+        (additiveExpr
+          (superAccessExpr
+            (identifier))
+          (slStringLiteralExpr
+            (slStringLiteralPart))))))
+  (clazz
+    (identifier)      (classExtendsClause
+      (qualifiedIdentifier
+        (identifier)))
+    (classBody
+      (classProperty
+        (identifier)
+        (additiveExpr
+          (superAccessExpr
+            (identifier))
+          (superAccessExpr
+            (identifier)
+            (argumentList))))
+      (classMethod
+        (methodHeader
+          (identifier)
+          (parameterList))
+        (additiveExpr
+          (superAccessExpr
+            (identifier)
+            (argumentList))
+          (superAccessExpr
+            (identifier))))
+      (classProperty
+        (identifier)
+        (superAccessExpr
+          (identifier)
+          (argumentList
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))
+      (classMethod
+        (methodHeader
+          (identifier)
+          (parameterList))
+        (additiveExpr
+          (intLiteralExpr)
+          (superAccessExpr
+            (identifier)
+            (argumentList))))
+      (classProperty
+        (identifier)
+        (additiveExpr
+          (superAccessExpr
+            (identifier))
+          (slStringLiteralExpr
+            (slStringLiteralPart))))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody)))
+  (classProperty
+    (modifier)
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)))
+  (classProperty
+    (modifier)
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart))))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier))))

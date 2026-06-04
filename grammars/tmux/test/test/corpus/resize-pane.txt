@@ -1,0 +1,130 @@
+========================================
+resize-pane: simple
+========================================
+
+resize-pane
+resizep
+
+---
+
+(file
+  (resize_pane_directive
+    (command))
+  (resize_pane_directive
+    (command)))
+
+========================================
+resize-pane: simple flags
+========================================
+
+resize-pane -D 5
+resize-pane -L 5
+resize-pane -M 5
+resize-pane -R 5
+resize-pane -T 5
+resize-pane -U 5
+
+---
+
+(file
+  (resize_pane_directive
+    (command)
+    (command_line_option)
+    (adjustment))
+  (resize_pane_directive
+    (command)
+    (command_line_option)
+    (adjustment))
+  (resize_pane_directive
+    (command)
+    (command_line_option)
+    (adjustment))
+  (resize_pane_directive
+    (command)
+    (command_line_option)
+    (adjustment))
+  (resize_pane_directive
+    (command)
+    (command_line_option)
+    (adjustment))
+  (resize_pane_directive
+    (command)
+    (command_line_option)
+    (adjustment)))
+
+========================================
+resize-pane: x, y
+========================================
+
+resize-pane -x 1
+resize-pane -y 1
+resize-pane -x 1 -y 1
+
+---
+
+(file
+  (resize_pane_directive
+    (command)
+    (command_line_option)
+    (width))
+  (resize_pane_directive
+    (command)
+    (command_line_option)
+    (height))
+  (resize_pane_directive
+    (command)
+    (command_line_option)
+    (width)
+    (command_line_option)
+    (height)))
+
+========================================
+resize-pane: target pane
+========================================
+resize-pane -t 1 -x 1
+resize-pane -t 1 -y 1
+resize-pane -t 1 -x 1 -y 1
+resize-pane -t 1 -D 5
+
+---
+
+(file
+  (resize_pane_directive
+    (command)
+    (command_line_option)
+    (pane)
+    (command_line_option)
+    (width))
+  (resize_pane_directive
+    (command)
+    (command_line_option)
+    (pane)
+    (command_line_option)
+    (height))
+  (resize_pane_directive
+    (command)
+    (command_line_option)
+    (pane)
+    (command_line_option)
+    (width)
+    (command_line_option)
+    (height))
+  (resize_pane_directive
+    (command)
+    (command_line_option)
+    (pane)
+    (command_line_option)
+    (adjustment)))
+
+========================================
+resize-pane: Z takes no argument
+========================================
+
+resize-pane -Z
+
+---
+
+(file
+  (resize_pane_directive
+    (command)
+    (command_line_option)))

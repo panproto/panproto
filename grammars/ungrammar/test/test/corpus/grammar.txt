@@ -1,0 +1,226 @@
+=====================
+Test the example node
+=====================
+
+Module =
+  Attr* Visibility?
+  'mod' Name
+  (ItemList | ';')
+
+---
+
+(grammar
+  (node
+	(definition)
+	(rule
+	  (alternation
+		(sequence
+		  (repetition
+			(node_rule
+			  (identifier)))
+		  (optional
+			(node_rule
+			  (identifier)))
+		  (token
+			(token_identifier))
+		  (node_rule
+			(identifier))
+		  (rule
+			(alternation
+			  (sequence
+				(node_rule
+				  (identifier)))
+			  (sequence
+				(token
+				  (token_identifier))))))))))
+
+
+
+=====================
+Test imprecise commas
+=====================
+
+FieldList =
+  '{' Field* '}'
+
+Field:
+  Name ':' Type ','?
+
+---
+
+(grammar
+  (node
+	(definition)
+	(rule
+	  (alternation
+		(sequence
+		  (token
+			(token_identifier))
+		  (repetition
+			(node_rule
+			  (identifier)))
+		  (token
+			(token_identifier))
+		  (label
+			(label_name)
+			(node_rule
+			  (identifier)))
+		  (token
+			(token_identifier))
+		  (node_rule
+			(identifier))
+		  (optional
+			(token
+			  (token_identifier))))))))
+
+
+
+============================
+Test self-describing grammar
+============================
+
+Grammar =
+  Node*
+
+Node =
+  name:'ident' '=' Rule
+
+Rule =
+  'ident'                // Alphabetic identifier
+| 'token_ident'          // Single quoted string
+| Rule*                  // Concatenation
+| Rule ('|' Rule)*       // Alternation
+| Rule '?'               // Zero or one repetition
+| Rule '*'               // Kleene star
+| '(' Rule ')'           // Grouping
+| label:'ident' ':' Rule // Labeled rule
+
+---
+
+(grammar
+  (node
+	(definition)
+	(rule
+	  (alternation
+		(sequence
+		  (repetition
+			(node_rule
+			  (identifier)))))))
+  (node
+	(definition)
+	(rule
+	  (alternation
+		(sequence
+		  (label
+			(label_name)
+			(token
+			  (token_identifier)))
+		  (token
+			(token_identifier))
+		  (node_rule
+			(identifier))))))
+  (node
+	(definition)
+	(rule
+	  (alternation
+		(sequence
+		  (token
+			(token_identifier)))
+		(comment)
+		(sequence
+		  (token
+			(token_identifier)))
+		(comment)
+		(sequence
+		  (repetition
+			(node_rule
+			  (identifier))))
+		(comment)
+		(sequence
+		  (node_rule
+			(identifier))
+		  (repetition
+			(rule
+			  (alternation
+				(sequence
+				  (token
+					(token_identifier))
+				  (node_rule
+					(identifier)))))))
+		(comment)
+		(sequence
+		  (node_rule
+			(identifier))
+		  (token
+			(token_identifier)))
+		(comment)
+		(sequence
+		  (node_rule
+			(identifier))
+		  (token
+			(token_identifier)))
+		(comment)
+		(sequence
+		  (token
+			(token_identifier))
+		  (node_rule
+			(identifier))
+		  (token
+			(token_identifier)))
+		(comment)
+		(sequence
+		  (label
+			(label_name)
+			(token
+			  (token_identifier)))
+		  (token
+			(token_identifier))
+		  (node_rule
+			(identifier))))))
+  (comment))
+
+
+
+====================
+Test optional labels
+====================
+
+Expr =
+  literal
+| lhs:Expr op:('+' | '-' | '*' | '/') rhs:Expr
+
+---
+
+(grammar
+  (node
+	(definition)
+	(rule
+	  (alternation
+		(sequence
+		  (node_rule
+			(identifier)))
+		(sequence
+		  (label
+			(label_name)
+			(node_rule
+			  (identifier)))
+		  (label
+			(label_name)
+			(rule
+			  (alternation
+				(sequence
+				  (token
+					(token_identifier)))
+				(sequence
+				  (token
+					(token_identifier)))
+				(sequence
+				  (token
+					(token_identifier)))
+				(sequence
+				  (token
+					(token_identifier))))))
+		  (label
+			(label_name)
+			(node_rule
+			  (identifier))))))))

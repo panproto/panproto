@@ -1,0 +1,77 @@
+===
+classes/functions1.pkl
+===
+
+local const a = 1
+const b = 2
+
+class X {
+  local c = 3
+  d = 4
+  function compute() = a * b * c * d
+}
+
+res1 = new X {}.compute()
+
+res2 = new X { d = 5 }.compute()
+
+---
+
+(module
+  (classProperty
+    (modifier)
+    (modifier)
+    (identifier)
+    (intLiteralExpr))
+  (classProperty
+    (modifier)
+    (identifier)
+    (intLiteralExpr))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (modifier)
+        (identifier)
+        (intLiteralExpr))
+      (classProperty
+        (identifier)
+        (intLiteralExpr))
+      (classMethod
+        (methodHeader
+          (identifier)
+          (parameterList))
+        (multiplicativeExpr
+          (multiplicativeExpr
+            (multiplicativeExpr
+              (unqualifiedAccessExpr
+                (identifier))
+              (unqualifiedAccessExpr
+                (identifier)))
+            (unqualifiedAccessExpr
+              (identifier)))
+          (unqualifiedAccessExpr
+            (identifier))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody))
+      (identifier)
+      (argumentList)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody
+          (objectProperty
+            (identifier)
+            (intLiteralExpr))))
+      (identifier)
+      (argumentList))))

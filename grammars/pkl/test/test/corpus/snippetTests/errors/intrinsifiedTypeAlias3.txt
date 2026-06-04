@@ -1,0 +1,15 @@
+===
+errors/intrinsifiedTypeAlias3.pkl
+===
+
+res1: NonNull = null
+---
+
+(module
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (nullLiteralExpr)))

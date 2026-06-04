@@ -1,0 +1,32 @@
+================================================================================
+ExternalType property simple test
+================================================================================
+
+table 1 "Simple Test"
+{
+    fields
+    {
+        field(1; TestField; GUID)
+        {
+            ExternalType = Uniqueidentifier;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (identifier))))))

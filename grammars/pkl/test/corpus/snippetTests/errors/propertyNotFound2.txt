@@ -1,0 +1,18 @@
+===
+errors/propertyNotFound2.pkl
+===
+
+res0 = Pair(1, 2).foo
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier)
+        (argumentList
+          (intLiteralExpr)
+          (intLiteralExpr)))
+      (identifier))))

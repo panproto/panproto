@@ -1,0 +1,235 @@
+================================================================================
+SubPageLink with preprocessor conditionals
+================================================================================
+
+page 50000 "Test Page"
+{
+    layout
+    {
+        area(content)
+        {
+            part(Control1906609707; "Resource Statistics FactBox")
+            {
+                ApplicationArea = Jobs;
+                SubPageLink = "No." = field("No."),
+                              "Unit of Measure Filter" = field("Unit of Measure Filter"),
+#if not CLEAN25
+                              "Service Zone Filter" = field("Service Zone Filter"),
+#endif
+                              "Chargeable Filter" = field("Chargeable Filter");
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (part_section
+          (part_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (quoted_identifier)
+                value: (quoted_identifier))
+              (link_value
+                field: (quoted_identifier)
+                value: (quoted_identifier))
+              (preproc_conditional_link_values
+                (preproc_if
+                  (preproc_open)
+                  condition: (preproc_not_expression
+                    (identifier)))
+                (link_value
+                  field: (quoted_identifier)
+                  value: (quoted_identifier))
+                (preproc_endif
+                  (preproc_close)))
+              (link_value
+                field: (quoted_identifier)
+                value: (quoted_identifier)))))))))
+
+================================================================================
+SubPageLink with multiple preprocessor blocks
+================================================================================
+
+page 50001 "Test Page"
+{
+    layout
+    {
+        area(content)
+        {
+            part(TestPart; "Test Part")
+            {
+                SubPageLink = "Field1" = field("Field1"),
+#if CLEAN25
+                              "Field2" = field("Field2"),
+#else
+                              "Field3" = field("Field3"),
+#endif
+                              "Field4" = field("Field4");
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (part_section
+          (part_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (quoted_identifier)
+                value: (quoted_identifier))
+              (preproc_conditional_link_values
+                (preproc_if
+                  (preproc_open)
+                  condition: (identifier))
+                (link_value
+                  field: (quoted_identifier)
+                  value: (quoted_identifier))
+                (preproc_else)
+                (link_value
+                  field: (quoted_identifier)
+                  value: (quoted_identifier))
+                (preproc_endif
+                  (preproc_close)))
+              (link_value
+                field: (quoted_identifier)
+                value: (quoted_identifier)))))))))
+
+================================================================================
+SubPageLink with const values and preprocessor
+================================================================================
+
+page 50002 "Test Page"
+{
+    layout
+    {
+        area(content)
+        {
+            part(Control1; "Test Part")
+            {
+                SubPageLink = "Table ID" = const(Database::Resource),
+#if not CLEAN25
+                              "Old Field" = const(156),
+#endif
+                              "No." = field("No.");
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (part_section
+          (part_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (quoted_identifier)
+                value: (database_reference
+                  keyword: (object_type_keyword)
+                  table_name: (identifier)))
+              (preproc_conditional_link_values
+                (preproc_if
+                  (preproc_open)
+                  condition: (preproc_not_expression
+                    (identifier)))
+                (link_value
+                  field: (quoted_identifier)
+                  value: (integer))
+                (preproc_endif
+                  (preproc_close)))
+              (link_value
+                field: (quoted_identifier)
+                value: (quoted_identifier)))))))))
+
+================================================================================
+SubPageLink without preprocessor (existing case)
+================================================================================
+
+page 50003 "Test Page"
+{
+    layout
+    {
+        area(content)
+        {
+            part(SimpleControl; "Simple Part")
+            {
+                SubPageLink = "Field1" = field("Value1"),
+                              "Field2" = const(123),
+                              "Field3" = filter(>10);
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (part_section
+          (part_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (quoted_identifier)
+                value: (quoted_identifier))
+              (link_value
+                field: (quoted_identifier)
+                value: (integer))
+              (link_value
+                field: (quoted_identifier)
+                (filter_keyword)
+                value: (filter_value
+                  (integer))))))))))

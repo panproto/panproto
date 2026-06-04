@@ -1,0 +1,18 @@
+==================
+host command
+==================
+
+foo:
+  HOST foo.example.com 127.0.0.1
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (host_command
+            name: (identifier)
+            ip: (string
+              (unquoted_string))))))
+

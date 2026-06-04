@@ -1,0 +1,577 @@
+==================
+Button
+==================
+
+BUTTON_EVENT[dvTP, BTN_HOME] {
+    PUSH: {}
+    RELEASE: {}
+    hold[100]: {}
+    hold[1, repeat]: {}
+}
+
+button_event[dvDevChan]
+button_event[10001:1:0, 1]
+button_event[DVA_DEVCHAN[1]] {
+    PUSH: {}
+    RELEASE: {}
+    hold[100]: {}
+    hold[1, repeat]: {}
+}
+
+---
+
+(source_file
+  (event_definition
+    (button_event_definition
+      (button_event_declarator
+        (button_event_keyword)
+        devchan: (button_event_devchan_reference
+          (devchan_expression
+            device: (identifier)
+            channel: (identifier))))
+      body: (button_event_block
+        (button_event_handler
+          type: (button_event_type
+            (push_keyword))
+          body: (compound_statement))
+        (button_event_handler
+          type: (button_event_type
+            (release_keyword))
+          body: (compound_statement))
+        (button_event_handler
+          type: (button_event_type
+            (hold_keyword)
+            time: (number_literal))
+          body: (compound_statement))
+        (button_event_handler
+          type: (button_event_type
+            (hold_keyword)
+            time: (number_literal)
+            (button_event_hold_repeat
+              (repeat_keyword)))
+          body: (compound_statement)))))
+  (event_definition
+    (button_event_definition
+      (button_event_declarator
+        (button_event_keyword)
+        devchan: (button_event_devchan_reference
+          (identifier)))
+      (button_event_declarator
+        (button_event_keyword)
+        devchan: (button_event_devchan_reference
+          (devchan_expression
+            device: (device_literal
+              device: (number_literal)
+              port: (number_literal)
+              system: (number_literal))
+            channel: (number_literal))))
+      (button_event_declarator
+        (button_event_keyword)
+        devchan: (button_event_devchan_reference
+          (subscript_expression
+            argument: (identifier)
+            index: (number_literal))))
+      body: (button_event_block
+        (button_event_handler
+          type: (button_event_type
+            (push_keyword))
+          body: (compound_statement))
+        (button_event_handler
+          type: (button_event_type
+            (release_keyword))
+          body: (compound_statement))
+        (button_event_handler
+          type: (button_event_type
+            (hold_keyword)
+            time: (number_literal))
+          body: (compound_statement))
+        (button_event_handler
+          type: (button_event_type
+            (hold_keyword)
+            time: (number_literal)
+            (button_event_hold_repeat
+              (repeat_keyword)))
+          body: (compound_statement))))))
+
+==================
+Channel
+==================
+
+CHANNEL_EVENT[dvIO, 1] {
+    ON: {}
+    OFF: {}
+}
+
+channel_event[dvDevChan] {
+    on: {}
+    off: {}
+}
+
+channel_event[dvDevChan]
+channel_event[5001:21:0, 1]
+channel_event[DVA_DEVCHAN[1]] {
+    on: {}
+    off: {}
+}
+
+---
+
+(source_file
+  (event_definition
+    (channel_event_definition
+      (channel_event_declarator
+        (channel_event_keyword)
+        devchan: (channel_event_devchan_reference
+          (devchan_expression
+            device: (identifier)
+            channel: (number_literal))))
+      body: (channel_event_block
+        (channel_event_handler
+          type: (channel_event_type
+            (on_keyword))
+          body: (compound_statement))
+        (channel_event_handler
+          type: (channel_event_type
+            (off_keyword))
+          body: (compound_statement)))))
+  (event_definition
+    (channel_event_definition
+      (channel_event_declarator
+        (channel_event_keyword)
+        devchan: (channel_event_devchan_reference
+          (identifier)))
+      body: (channel_event_block
+        (channel_event_handler
+          type: (channel_event_type
+            (on_keyword))
+          body: (compound_statement))
+        (channel_event_handler
+          type: (channel_event_type
+            (off_keyword))
+          body: (compound_statement)))))
+  (event_definition
+    (channel_event_definition
+      (channel_event_declarator
+        (channel_event_keyword)
+        devchan: (channel_event_devchan_reference
+          (identifier)))
+      (channel_event_declarator
+        (channel_event_keyword)
+        devchan: (channel_event_devchan_reference
+          (devchan_expression
+            device: (device_literal
+              device: (number_literal)
+              port: (number_literal)
+              system: (number_literal))
+            channel: (number_literal))))
+      (channel_event_declarator
+        (channel_event_keyword)
+        devchan: (channel_event_devchan_reference
+          (subscript_expression
+            argument: (identifier)
+            index: (number_literal))))
+      body: (channel_event_block
+        (channel_event_handler
+          type: (channel_event_type
+            (on_keyword))
+          body: (compound_statement))
+        (channel_event_handler
+          type: (channel_event_type
+            (off_keyword))
+          body: (compound_statement))))))
+
+==================
+Data
+==================
+
+DATA_EVENT[dvDevice] {
+    ONLINE: {}
+    offline: {}
+    STRING: {}
+    command: {}
+    awake: {}
+    standby: {}
+    ONERROR: {}
+}
+
+data_event[vdvObject1]
+data_event[vdvObject2]
+data_event[5001:1:0]
+data_event[DVA_OBJECTS[1]] {
+    ONLINE: {}
+    offline: {}
+    STRING: {}
+    command: {}
+    awake: {}
+    standby: {}
+    ONERROR: {}
+}
+
+---
+
+(source_file
+  (event_definition
+    (data_event_definition
+      (data_event_declarator
+        (data_event_keyword)
+        device: (data_event_device_reference
+          (identifier)))
+      body: (data_event_block
+        (data_event_handler
+          type: (data_event_type
+            (online_keyword))
+          body: (compound_statement))
+        (data_event_handler
+          type: (data_event_type
+            (offline_keyword))
+          body: (compound_statement))
+        (data_event_handler
+          type: (data_event_type
+            (string_keyword))
+          body: (compound_statement))
+        (data_event_handler
+          type: (data_event_type
+            (command_keyword))
+          body: (compound_statement))
+        (data_event_handler
+          type: (data_event_type
+            (awake_keyword))
+          body: (compound_statement))
+        (data_event_handler
+          type: (data_event_type
+            (standby_keyword))
+          body: (compound_statement))
+        (data_event_handler
+          type: (data_event_type
+            (onerror_keyword))
+          body: (compound_statement)))))
+  (event_definition
+    (data_event_definition
+      (data_event_declarator
+        (data_event_keyword)
+        device: (data_event_device_reference
+          (identifier)))
+      (data_event_declarator
+        (data_event_keyword)
+        device: (data_event_device_reference
+          (identifier)))
+      (data_event_declarator
+        (data_event_keyword)
+        device: (data_event_device_reference
+          (device_literal
+            device: (number_literal)
+            port: (number_literal)
+            system: (number_literal))))
+      (data_event_declarator
+        (data_event_keyword)
+        device: (data_event_device_reference
+          (subscript_expression
+            argument: (identifier)
+            index: (number_literal))))
+      body: (data_event_block
+        (data_event_handler
+          type: (data_event_type
+            (online_keyword))
+          body: (compound_statement))
+        (data_event_handler
+          type: (data_event_type
+            (offline_keyword))
+          body: (compound_statement))
+        (data_event_handler
+          type: (data_event_type
+            (string_keyword))
+          body: (compound_statement))
+        (data_event_handler
+          type: (data_event_type
+            (command_keyword))
+          body: (compound_statement))
+        (data_event_handler
+          type: (data_event_type
+            (awake_keyword))
+          body: (compound_statement))
+        (data_event_handler
+          type: (data_event_type
+            (standby_keyword))
+          body: (compound_statement))
+        (data_event_handler
+          type: (data_event_type
+            (onerror_keyword))
+          body: (compound_statement))))))
+
+========================
+Timeline
+========================
+
+timeline_event[TL1] {}
+
+timeline_event[TL1]
+timeline_event[TL2]
+timeline_event[TL3] {}
+
+---
+
+(source_file
+  (event_definition
+    (timeline_event_definition
+      (timeline_event_declarator
+        (timeline_event_keyword)
+        id: (timeline_event_id_reference
+          (identifier)))
+      body: (compound_statement)))
+  (event_definition
+    (timeline_event_definition
+      (timeline_event_declarator
+        (timeline_event_keyword)
+        id: (timeline_event_id_reference
+          (identifier)))
+      (timeline_event_declarator
+        (timeline_event_keyword)
+        id: (timeline_event_id_reference
+          (identifier)))
+      (timeline_event_declarator
+        (timeline_event_keyword)
+        id: (timeline_event_id_reference
+          (identifier)))
+      body: (compound_statement))))
+
+=========================
+Level
+=========================
+
+LEVEL_EVENT[dvTP, VOL_LVL] {}
+
+level_event[dvDevLev]
+level_event[10001:1:0, 1]
+level_event[DVA_DEVLEV[1]] {}
+
+---
+
+(source_file
+  (event_definition
+    (level_event_definition
+      (level_event_declarator
+        (level_event_keyword)
+        devlev: (level_event_devlev_reference
+          (devlev_expression
+            device: (identifier)
+            level: (identifier))))
+      body: (compound_statement)))
+  (event_definition
+    (level_event_definition
+      (level_event_declarator
+        (level_event_keyword)
+        devlev: (level_event_devlev_reference
+          (identifier)))
+      (level_event_declarator
+        (level_event_keyword)
+        devlev: (level_event_devlev_reference
+          (devlev_expression
+            device: (device_literal
+              device: (number_literal)
+              port: (number_literal)
+              system: (number_literal))
+            level: (number_literal))))
+      (level_event_declarator
+        (level_event_keyword)
+        devlev: (level_event_devlev_reference
+          (subscript_expression
+            argument: (identifier)
+            index: (number_literal))))
+      body: (compound_statement))))
+
+=====================
+Custom
+=====================
+
+custom_event[dvTP, 1, 1001] {}
+
+custom_event[dvTP, 1002] {}
+
+custom_event[dvTP, 1, 1001]
+custom_event[dvTP, 1, 1002] {}
+
+custom_event[dvTP, 1001]
+custom_event[dvTP, 1002] {}
+
+custom_event[dvTP, 1, 1001]
+custom_event[dvTP, 1002] {}
+
+---
+
+(source_file
+  (event_definition
+    (custom_event_definition
+      (custom_event_declarator
+        (custom_event_keyword)
+        reference: (custom_event_reference
+          device: (identifier)
+          id: (number_literal)
+          type: (number_literal)))
+      body: (compound_statement)))
+  (event_definition
+    (custom_event_definition
+      (custom_event_declarator
+        (custom_event_keyword)
+        reference: (custom_event_reference
+          devchan: (identifier)
+          eventid: (number_literal)))
+      body: (compound_statement)))
+  (event_definition
+    (custom_event_definition
+      (custom_event_declarator
+        (custom_event_keyword)
+        reference: (custom_event_reference
+          device: (identifier)
+          id: (number_literal)
+          type: (number_literal)))
+      (custom_event_declarator
+        (custom_event_keyword)
+        reference: (custom_event_reference
+          device: (identifier)
+          id: (number_literal)
+          type: (number_literal)))
+      body: (compound_statement)))
+  (event_definition
+    (custom_event_definition
+      (custom_event_declarator
+        (custom_event_keyword)
+        reference: (custom_event_reference
+          devchan: (identifier)
+          eventid: (number_literal)))
+      (custom_event_declarator
+        (custom_event_keyword)
+        reference: (custom_event_reference
+          devchan: (identifier)
+          eventid: (number_literal)))
+      body: (compound_statement)))
+  (event_definition
+    (custom_event_definition
+      (custom_event_declarator
+        (custom_event_keyword)
+        reference: (custom_event_reference
+          device: (identifier)
+          id: (number_literal)
+          type: (number_literal)))
+      (custom_event_declarator
+        (custom_event_keyword)
+        reference: (custom_event_reference
+          devchan: (identifier)
+          eventid: (number_literal)))
+      body: (compound_statement))))
+
+==========================
+Complex References
+==========================
+
+CUSTOM_EVENT[vdvObjects[activeIndex], customEvents[EVENT_TYPE_STATUS], CUSTOM_EVENT_ID]
+{
+    // Event body
+}
+
+---
+
+(source_file
+  (event_definition
+    (custom_event_definition
+      (custom_event_declarator
+        (custom_event_keyword)
+        (custom_event_reference
+          (subscript_expression
+            (identifier)
+            (identifier))
+          (subscript_expression
+            (identifier)
+            (identifier))
+          (identifier)))
+      (compound_statement
+        (comment)))))
+
+================================
+Legacy Push
+================================
+
+push[dvTP, BTN_HOME] {}
+
+push[dvDevChan]
+push[10001:1:0, 1]
+push[DVA_DEVCHAN[1]] {}
+
+---
+
+(source_file
+  (event_definition
+    (push_event_definition
+      (push_event_declarator
+        (push_keyword)
+        (push_event_devchan_reference
+          (devchan_expression
+            (identifier)
+            (identifier))))
+      (compound_statement)))
+  (event_definition
+    (push_event_definition
+      (push_event_declarator
+        (push_keyword)
+        (push_event_devchan_reference
+          (identifier)))
+      (push_event_declarator
+        (push_keyword)
+        (push_event_devchan_reference
+          (devchan_expression
+            (device_literal
+              (number_literal)
+              (number_literal)
+              (number_literal))
+            (number_literal))))
+      (push_event_declarator
+        (push_keyword)
+        (push_event_devchan_reference
+          (subscript_expression
+            (identifier)
+            (number_literal))))
+      (compound_statement))))
+
+================================
+Legacy Release
+================================
+
+RELEASE[dvTP, BTN_HOME] {}
+
+RELEASE[dvDevChan]
+RELEASE[10001:1:0, 1]
+RELEASE[DVA_DEVCHAN[1]] {}
+
+---
+
+(source_file
+  (event_definition
+    (release_event_definition
+      (release_event_declarator
+        (release_keyword)
+        (release_event_devchan_reference
+          (devchan_expression
+            (identifier)
+            (identifier))))
+      (compound_statement)))
+  (event_definition
+    (release_event_definition
+      (release_event_declarator
+        (release_keyword)
+        (release_event_devchan_reference
+          (identifier)))
+      (release_event_declarator
+        (release_keyword)
+        (release_event_devchan_reference
+          (devchan_expression
+            (device_literal
+              (number_literal)
+              (number_literal)
+              (number_literal))
+            (number_literal))))
+      (release_event_declarator
+        (release_keyword)
+        (release_event_devchan_reference
+          (subscript_expression
+            (identifier)
+            (number_literal))))
+      (compound_statement))))

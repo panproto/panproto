@@ -1,0 +1,94 @@
+==================
+if command
+==================
+
+foo:
+    IF true
+        RUN echo "true"
+    END
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (if_command
+            condition: (shell_fragment)
+            body: (block
+              (run_command
+                command: (shell_fragment)))))))
+
+
+==================
+if command with else block
+==================
+
+foo:
+    IF true
+        RUN echo "true"
+    ELSE
+        RUN echo "false"
+    END
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (if_command
+            condition: (shell_fragment)
+            body: (block
+              (run_command
+                command: (shell_fragment)))
+            alternative: (else_block
+              body: (block
+                (run_command
+                  command: (shell_fragment))))))))
+
+
+==================
+if command with else if and else blocks and options
+==================
+
+foo:
+    IF --ssh true
+        RUN echo "true"
+    ELSE IF true
+        RUN echo "true"
+    ELSE IF --no-cache true
+        RUN echo "true"
+    ELSE
+        RUN echo "false"
+    END
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (if_command
+            options: (options
+              (ssh))
+            condition: (shell_fragment)
+            body: (block
+              (run_command
+                command: (shell_fragment)))
+            alternative: (elif_block
+              condition: (shell_fragment)
+              body: (block
+                (run_command
+                  command: (shell_fragment))))
+            alternative: (elif_block
+              options: (options
+                (no_cache))
+              condition: (shell_fragment)
+              body: (block
+                (run_command
+                  command: (shell_fragment))))
+            alternative: (else_block
+              body: (block
+                (run_command
+                  command: (shell_fragment))))))))

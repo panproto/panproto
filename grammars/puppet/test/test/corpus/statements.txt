@@ -1,0 +1,30 @@
+========================
+Unless Statements
+========================
+
+unless $facts['memory']['system']['totalbytes'] > 1073741824 {
+  $maxclient = 500
+}
+
+---
+
+(source_file
+  (unless_statement
+    (binary_expression
+      (resource_reference
+        (resource_reference
+          (resource_reference
+            (variable
+              (identifier))
+            (string
+              (string_content)))
+          (string
+            (string_content)))
+        (string
+          (string_content)))
+      (number))
+    (block
+      (assignment
+        (variable
+          (identifier))
+        (number)))))

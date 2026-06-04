@@ -1,0 +1,36 @@
+===
+classes/unionTypesErrorMultipleAliases.pkl
+===
+
+typealias Alias1 = String
+typealias Alias2 = Int
+res1: Alias1|Alias2 = new Dynamic { }
+
+---
+
+(module
+  (typeAlias
+    (identifier)
+    (declaredType
+      (qualifiedIdentifier
+        (identifier))))
+  (typeAlias
+    (identifier)
+    (declaredType
+      (qualifiedIdentifier
+        (identifier))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (unionType
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))))
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody))))

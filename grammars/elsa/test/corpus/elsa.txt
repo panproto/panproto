@@ -1,0 +1,130 @@
+=================
+Eval Beta Capture
+=================
+
+
+eval beta_capture :
+     (\x y -> (\x -> x) y x) (y (\x -> x))
+ =a> (\x z -> (\a -> a) z x) (y (\b -> b))
+ =b> (\z -> (\a -> a) z (y (\b -> b)))
+ =b> (\z -> z (y (\b -> b)))
+
+
+---
+
+(source_file
+      (reduction
+        (method)
+        (term
+          (application
+            (term
+              (term
+                (abstraction
+                  (parameter)
+                  (parameter)
+                  (term
+                    (application
+                      (term
+                        (application
+                          (term
+                            (term
+                              (abstraction
+                                (parameter)
+                                (term
+                                  (identifier)))))
+                          (term
+                            (identifier))))
+                      (term
+                        (identifier)))))))
+            (term
+              (term
+                (application
+                  (term
+                    (identifier))
+                  (term
+                    (term
+                      (abstraction
+                        (parameter)
+                        (term
+                          (identifier))))))))))
+        (step)
+        (term
+          (application
+            (term
+              (term
+                (abstraction
+                  (parameter)
+                  (parameter)
+                  (term
+                    (application
+                      (term
+                        (application
+                          (term
+                            (term
+                              (abstraction
+                                (parameter)
+                                (term
+                                  (identifier)))))
+                          (term
+                            (identifier))))
+                      (term
+                        (identifier)))))))
+            (term
+              (term
+                (application
+                  (term
+                    (identifier))
+                  (term
+                    (term
+                      (abstraction
+                        (parameter)
+                        (term
+                          (identifier))))))))))
+        (step)
+        (term
+          (term
+            (abstraction
+              (parameter)
+              (term
+                (application
+                  (term
+                    (application
+                      (term
+                        (term
+                          (abstraction
+                            (parameter)
+                            (term
+                              (identifier)))))
+                      (term
+                        (identifier))))
+                  (term
+                    (term
+                      (application
+                        (term
+                          (identifier))
+                        (term
+                          (term
+                            (abstraction
+                              (parameter)
+                              (term
+                                (identifier)))))))))))))
+        (step)
+        (term
+          (term
+            (abstraction
+              (parameter)
+              (term
+                (application
+                  (term
+                    (identifier))
+                  (term
+                    (term
+                      (application
+                        (term
+                          (identifier))
+                        (term
+                          (term
+                            (abstraction
+                              (parameter)
+                              (term
+                                (identifier)))))))))))))))

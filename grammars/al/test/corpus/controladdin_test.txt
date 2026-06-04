@@ -1,0 +1,76 @@
+================================================================================
+Control Add-in Declaration
+================================================================================
+
+controladdin "Test.ControlAddin"
+{
+    RequestedHeight = 300;
+    RequestedWidth = 400;
+    VerticalStretch = true;
+    HorizontalStretch = false;
+
+    Scripts = 
+        'script1.js',
+        'script2.js';
+
+    StyleSheets = 'styles.css';
+
+    event OnReady();
+    event OnValueChanged(value: Text);
+    
+    procedure Initialize();
+    procedure SetValue(newValue: Text);
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (controladdin_declaration
+    (controladdin_keyword)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (integer))
+    (property
+      name: (property_name)
+      value: (integer))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (string_literal))
+        (option_member
+          (string_literal))))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (event_declaration
+      (event_keyword)
+      name: (identifier))
+    (event_declaration
+      (event_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (text_type)))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (text_type))))
+      (interface_procedure_suffix))))

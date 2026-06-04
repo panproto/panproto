@@ -1,0 +1,78 @@
+========================================
+if-shell: single quotes
+========================================
+
+if-shell 'true' 'var=1'
+
+---
+
+(file
+  (if_shell_directive
+    (command)
+    (str_single_quotes)
+    (environment_assignment
+      (name)
+      (value))))
+
+========================================
+if-shell: single quotes else
+========================================
+
+if-shell 'true' 'var=1' 'var=2'
+
+---
+
+(file
+  (if_shell_directive
+    (command)
+    (str_single_quotes)
+    (environment_assignment
+      (name)
+      (value))
+    (environment_assignment
+      (name)
+      (value))))
+
+========================================
+if-shell: block
+========================================
+
+if 'true' {
+  var=1
+}
+
+---
+
+(file
+  (if_shell_directive
+    (command)
+    (str_single_quotes)
+    (block
+      (environment_assignment
+        (name)
+        (value)))))
+
+========================================
+if-shell: block else
+========================================
+
+if 'true' {
+  var=1
+} {
+  var=2
+}
+
+---
+
+(file
+  (if_shell_directive
+    (command)
+    (str_single_quotes)
+    (block
+      (environment_assignment
+        (name)
+        (value)))
+    (block
+      (environment_assignment
+        (name)
+        (value)))))

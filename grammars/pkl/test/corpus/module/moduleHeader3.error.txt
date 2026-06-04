@@ -1,0 +1,23 @@
+================================================================================
+moduleHeader3.error
+================================================================================
+
+@ModuleInfo { minPklVersion = "0.21.1" }
+
+import "foo.pkl"
+
+--------------------------------------------------------------------------------
+
+(module
+  (ERROR
+    (annotation
+      (qualifiedIdentifier
+        (identifier))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart))))))
+  (importClause
+    (stringConstant
+      (slStringLiteralPart))))

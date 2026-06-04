@@ -1,0 +1,42 @@
+==================
+only jinja syntax in top-level quotes is parsed
+==================
+
+'{{ "this will be parsed as jinja" }}'
+
+{{ '{{ this inner jinja is just parsed as a string }}' }}
+
+---
+
+(source_file
+  (lit_string)
+  (lit_string)
+)
+
+==================
+python string escapes work
+==================
+
+{{ "this \"quoted\" string parses" }}
+{{ 'this \'quoted\' string also parses' }}
+
+---
+
+(source_file
+  (lit_string)
+  (lit_string)
+)
+
+==================
+the kind of quotes you use don't matter
+==================
+
+{{ 'a' }}
+{{ "b" }}
+
+---
+
+(source_file
+  (lit_string)
+  (lit_string)
+)

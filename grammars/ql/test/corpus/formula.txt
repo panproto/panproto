@@ -1,0 +1,185 @@
+===========
+comparisons
+===========
+
+from File f
+where (f = f)
+  or f != f
+  and f < f
+  and (f > f or f <= f)
+  and f >= f
+select f
+
+---
+
+(ql (moduleMember
+  (select
+    (varDecl (typeExpr (className)) (varName (simpleId)))
+    (disjunction
+      (par_expr (comp_term (variable (varName (simpleId))) (compop) (variable (varName (simpleId)))))
+      (conjunction
+        (conjunction
+          (conjunction
+            (comp_term (variable (varName (simpleId))) (compop) (variable (varName (simpleId))))
+            (comp_term (variable (varName (simpleId))) (compop) (variable (varName (simpleId)))))
+          (par_expr (disjunction
+            (comp_term (variable (varName (simpleId))) (compop) (variable (varName (simpleId))))
+            (comp_term (variable (varName (simpleId))) (compop) (variable (varName (simpleId)))))))
+        (comp_term (variable (varName (simpleId))) (compop) (variable (varName (simpleId))))))
+    (asExprs (asExpr (variable (varName (simpleId))))))))
+
+==========
+instanceof
+==========
+
+from Foo f
+where f instanceof Foo
+select f
+
+---
+
+(ql (moduleMember
+  (select
+    (varDecl (typeExpr (className)) (varName (simpleId)))
+    (instance_of (variable (varName (simpleId))) (typeExpr (className)))
+    (asExprs (asExpr (variable (varName (simpleId))))))))
+
+=====
+range
+=====
+
+from int i
+where i in [0..10]
+select i
+
+---
+
+(ql (moduleMember
+  (select
+   (varDecl (typeExpr (primitiveType)) (varName (simpleId)))
+   (in_expr (variable (varName (simpleId))) (range (literal (integer)) (literal (integer))))
+   (asExprs (asExpr (variable (varName (simpleId))))))))
+
+=====
+set literals
+=====
+
+from int i
+where i in [1, 2]
+select i
+
+---
+
+(ql (moduleMember
+  (select
+    (varDecl (typeExpr (primitiveType)) (varName (simpleId)))
+    (in_expr (variable (varName (simpleId))) (set_literal (literal (integer)) (literal (integer))))
+    (asExprs (asExpr (variable (varName (simpleId))))))))
+
+=================
+predicateRef call
+=================
+
+from int i
+where bar(i) and module::baz+()
+select i
+
+---
+
+(ql (moduleMember
+  (select
+    (varDecl (typeExpr (primitiveType)) (varName (simpleId)))
+    (conjunction
+      (call_or_unqual_agg_expr (aritylessPredicateExpr (literalId)) (call_body (variable (varName (simpleId)))))
+      (call_or_unqual_agg_expr (aritylessPredicateExpr (moduleExpr (simpleId)) (literalId)) (closure) (call_body)))
+    (asExprs (asExpr (variable (varName (simpleId))))))))
+=================================
+calls with results & method calls
+=================================
+
+from int i
+select i.foo+(), 1.foo(), 1.1.foo()
+
+---
+(ql (moduleMember
+  (select
+    (varDecl (typeExpr (primitiveType)) (varName (simpleId)))
+    (asExprs
+      (asExpr (qualified_expr (variable (varName (simpleId))) (qualifiedRhs (predicateName) (closure))))
+      (asExpr (qualified_expr (literal (integer)) (qualifiedRhs (predicateName))))
+      (asExpr (qualified_expr (literal (float)) (qualifiedRhs (predicateName))))))))
+
+==============
+quantification
+==============
+
+
+from Foo f
+where exists(f.aThing())
+   or exists(Foo f | f.aThing())
+   or exists(Foo f | f.aThing() | f.aThing())
+   or forall(Foo f | f.aThing() | f.aThing())
+   or forex(Foo f | f.aThing() | f.aThing())
+select f
+
+---
+
+(ql (moduleMember
+  (select
+    (varDecl (typeExpr (className)) (varName (simpleId)))
+    (disjunction
+      (disjunction
+        (disjunction
+          (disjunction
+            (quantified (quantifier) (qualified_expr (variable (varName (simpleId))) (qualifiedRhs (predicateName))))
+            (quantified (quantifier) (varDecl (typeExpr (className)) (varName (simpleId)))
+          (qualified_expr (variable (varName (simpleId))) (qualifiedRhs (predicateName)))))
+        (quantified (quantifier) (varDecl (typeExpr (className)) (varName (simpleId)))
+          (qualified_expr (variable (varName (simpleId))) (qualifiedRhs (predicateName)))
+          (qualified_expr (variable (varName (simpleId))) (qualifiedRhs (predicateName)))))
+      (quantified (quantifier) (varDecl (typeExpr (className)) (varName (simpleId)))
+        (qualified_expr (variable (varName (simpleId))) (qualifiedRhs (predicateName)))
+        (qualified_expr (variable (varName (simpleId))) (qualifiedRhs (predicateName)))))
+    (quantified (quantifier) (varDecl (typeExpr (className)) (varName (simpleId)))
+      (qualified_expr (variable (varName (simpleId))) (qualifiedRhs (predicateName)))
+      (qualified_expr (variable (varName (simpleId))) (qualifiedRhs (predicateName)))))
+  (asExprs (asExpr (variable (varName (simpleId))))))))
+
+==================
+unary op ambiguity
+==================
+
+from int x
+where x = -1 and any()
+select x
+
+---
+
+(ql (moduleMember
+  (select 
+    (varDecl (typeExpr (primitiveType)) (varName (simpleId)))
+    (conjunction 
+      (comp_term 
+        (variable (varName (simpleId))) 
+        (compop) 
+        (unary_expr (unop) (literal (integer))))
+      (aggregate (aggId)))
+    (asExprs (asExpr (variable (varName (simpleId))))))))
+
+====================
+unary op ambiguity 2
+====================
+
+where -1 in [-1..1]
+select "yes"
+
+---
+
+(ql (moduleMember
+  (select 
+    (in_expr 
+      (unary_expr (unop) (literal (integer))) 
+      (range 
+        (unary_expr (unop) (literal (integer))) 
+        (literal (integer)))) 
+  (asExprs (asExpr (literal (string)))))))

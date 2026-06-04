@@ -1,0 +1,26 @@
+===
+multilineContinuation.txt
+===
+foo = """
+  hello \
+  world
+  """
+bar = ####"""
+  hello \####
+  world
+  """####
+---
+
+(module
+  (classProperty
+    (identifier)
+    (mlStringLiteralExpr
+      (mlStringLiteralPart)
+      (mlStringContinuation)
+      (mlStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (mlStringLiteralExpr
+      (mlStringLiteralPart)
+      (mlStringContinuation)
+      (mlStringLiteralPart))))

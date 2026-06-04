@@ -1,0 +1,118 @@
+================================================================================
+Interface with obsolete properties
+================================================================================
+
+interface "Legacy Interface"
+{
+    ObsoleteReason = 'Replaced by new interface with better support.';
+    ObsoleteState = Pending;
+    ObsoleteTag = '24.0';
+    
+    procedure GetValue(Name: Text): Text;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (interface_declaration
+    (interface_keyword)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (text_type))))
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (text_type))))))
+
+================================================================================
+Interface with access and inherent permissions
+================================================================================
+
+interface "Secure Interface"
+{
+    Access = Internal;
+    InherentPermissions = X;
+    
+    procedure DoWork();
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (interface_declaration
+    (interface_keyword)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (internal_keyword))))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix))))
+
+================================================================================
+Interface with caption and description
+================================================================================
+
+interface "User Interface"
+{
+    Caption = 'User Management Interface';
+    Description = 'Interface for user management operations';
+    
+    procedure CreateUser(UserName: Text): Boolean;
+    procedure DeleteUser(UserID: Guid): Boolean;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (interface_declaration
+    (interface_keyword)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (text_type))))
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (basic_type))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (basic_type))))))

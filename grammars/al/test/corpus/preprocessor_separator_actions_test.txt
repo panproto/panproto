@@ -1,0 +1,324 @@
+================================================================================
+Preprocessor with separator in actions
+================================================================================
+
+page 50100 "Test Page"
+{
+    actions
+    {
+        area(Processing)
+        {
+#if not CLEAN25
+            action(Action1)
+            {
+                Caption = 'Action 1';
+            }
+            separator(Sep1)
+            {
+                Caption = 'Separator';
+            }
+            action(Action2)
+            {
+                Caption = 'Action 2';
+            }
+#else
+            action(Action3)
+            {
+                Caption = 'Action 3';
+            }
+#endif
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (preproc_conditional_actions
+          (preproc_if
+            (preproc_open)
+            condition: (preproc_not_expression
+              (identifier)))
+          (action_declaration
+            name: (identifier)
+            (property
+              name: (property_name)
+              value: (string_literal)))
+          (separator_action
+            name: (identifier)
+            (property
+              name: (property_name)
+              value: (string_literal)))
+          (action_declaration
+            name: (identifier)
+            (property
+              name: (property_name)
+              value: (string_literal)))
+          (preproc_else)
+          (action_declaration
+            name: (identifier)
+            (property
+              name: (property_name)
+              value: (string_literal)))
+          (preproc_endif
+            (preproc_close)))))))
+
+================================================================================
+Complex preprocessor with multiple separators and actions
+================================================================================
+
+page 50101 "Sales Manager Role Center"
+{
+    PageType = RoleCenter;
+    
+    actions
+    {
+        area(Sections)
+        {
+            group(Tasks)
+            {
+                Caption = 'Tasks';
+                IsHeader = true;
+            }
+#if not CLEAN25
+            action("Sales Price Worksheet")
+            {
+                ApplicationArea = RelationshipMgmt;
+                Caption = 'Sales Price Worksheet';
+                ObsoleteState = Pending;
+                ObsoleteReason = 'Replaced by V16 price calculation.';
+                ObsoleteTag = '19.0';
+            }
+            separator(Action2)
+            {
+                ObsoleteState = Pending;
+                ObsoleteReason = 'Replaced by V16 price calculation.';
+                ObsoleteTag = '19.0';
+            }
+            action("Sales Prices")
+            {
+                ApplicationArea = RelationshipMgmt;
+                Caption = 'Sales Prices';
+                ObsoleteState = Pending;
+                ObsoleteReason = 'Replaced by V16 price calculation.';
+                ObsoleteTag = '19.0';
+            }
+#else
+            action("Sales Price Lists")
+            {
+                ApplicationArea = RelationshipMgmt;
+                Caption = 'Sales Price Lists';
+                RunObject = Page "Sales Price Lists";
+                ToolTip = 'View sales price lists.';
+            }
+#endif
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_group_section
+          (group_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (boolean)))
+        (preproc_conditional_actions
+          (preproc_if
+            (preproc_open)
+            condition: (preproc_not_expression
+              (identifier)))
+          (action_declaration
+            name: (quoted_identifier)
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (string_literal)))
+          (separator_action
+            name: (identifier)
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (string_literal)))
+          (action_declaration
+            name: (quoted_identifier)
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (string_literal)))
+          (preproc_else)
+          (action_declaration
+            name: (quoted_identifier)
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (object_reference_value
+                (page_keyword)
+                (quoted_identifier)))
+            (property
+              name: (property_name)
+              value: (string_literal)))
+          (preproc_endif
+            (preproc_close)))))))
+
+================================================================================
+Separator with various properties
+================================================================================
+
+page 50102 "Test Page"
+{
+    actions
+    {
+        area(Processing)
+        {
+            separator(Section1)
+            {
+                Caption = 'Section Break';
+                IsHeader = true;
+            }
+            separator(MySeparator)
+            {
+                ObsoleteState = Removed;
+                ObsoleteReason = 'No longer needed';
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (separator_action
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (boolean)))
+        (separator_action
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal)))))))
+
+================================================================================
+Separator in else branch of preprocessor
+================================================================================
+
+page 50103 "Test Page"
+{
+    actions
+    {
+        area(Processing)
+        {
+#if CLEAN25
+            action(ModernAction)
+            {
+                Caption = 'Modern Action';
+            }
+#else
+            separator(LegacySeparator)
+            {
+                Caption = 'Legacy Features';
+            }
+#endif
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (preproc_conditional_actions
+          (preproc_if
+            (preproc_open)
+            condition: (identifier))
+          (action_declaration
+            name: (identifier)
+            (property
+              name: (property_name)
+              value: (string_literal)))
+          (preproc_else)
+          (separator_action
+            name: (identifier)
+            (property
+              name: (property_name)
+              value: (string_literal)))
+          (preproc_endif
+            (preproc_close)))))))

@@ -1,0 +1,95 @@
+=========================
+Test a widget
+=========================
+
+(defwidget bar []
+  (centerbox :orientation "h"
+    (workspaces)
+    (music)
+    (sidestuff)))
+
+---
+
+(source_file
+  (list
+    (symbol)
+    (symbol)
+    (array)
+    (list
+      (symbol)
+      (keyword)
+      (string
+        (string_fragment))
+      (list
+        (symbol))
+      (list
+        (symbol))
+      (list
+        (symbol)))))
+
+
+
+=========================
+Test string interpolation
+=========================
+
+(defwidget music []
+  (box :class "music"
+       :orientation "h"
+       :space-evenly false
+       :halign "center"
+    {music != "" ? "🎵${music}" : ""}))
+
+---
+
+(source_file
+  (list
+    (symbol)
+    (symbol)
+    (array)
+    (list
+      (symbol)
+      (keyword)
+      (string
+        (string_fragment))
+      (keyword)
+      (string
+        (string_fragment))
+      (keyword)
+      (boolean)
+      (keyword)
+      (string
+        (string_fragment))
+      (expr
+        (simplexpr
+          (ternary_expression
+            (simplexpr
+              (binary_expression
+                (simplexpr
+                  (ident))
+                (simplexpr
+                  (string))))
+            (simplexpr
+              (string
+                (string_fragment)
+                (string_interpolation
+                  (simplexpr
+                    (ident)))))
+            (simplexpr
+              (string))))))))
+
+
+
+=========================
+Test includes
+=========================
+
+(include "eww.yuck")
+
+---
+
+(source_file
+  (list
+    (symbol)
+    (string
+      (string_fragment))))

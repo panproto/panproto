@@ -1,0 +1,88 @@
+================================================================================
+Decorator inline
+================================================================================
+
+@@deprecated
+@@Uppercase
+@@Upper._2323
+@@_.decorator
+@@_.1decorator
+@@_123
+@@\"escape"
+@@\"de.2precated"
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (decorator
+    (decorator_identifier))
+  (decorator
+    (decorator_identifier))
+  (decorator
+    (decorator_identifier))
+  (decorator
+    (decorator_identifier))
+  (decorator
+    (decorator_identifier))
+  (decorator
+    (decorator_identifier))
+  (decorator
+    (decorator_identifier))
+  (decorator
+    (decorator_identifier)))
+
+================================================================================
+Decorator with arguments
+================================================================================
+
+@@deprecated()
+@@Uppercase()
+@@Upper._2323()
+@@_.decorator()
+@@_.1decorator()
+@@_123()
+@@\"escape"()
+@@\"de.2precated"()
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (decorator
+    (decorator_identifier)
+    (decorator_arguments))
+  (decorator
+    (decorator_identifier)
+    (decorator_arguments))
+  (decorator
+    (decorator_identifier)
+    (decorator_arguments))
+  (decorator
+    (decorator_identifier)
+    (decorator_arguments))
+  (decorator
+    (decorator_identifier)
+    (decorator_arguments))
+  (decorator
+    (decorator_identifier)
+    (decorator_arguments))
+  (decorator
+    (decorator_identifier)
+    (decorator_arguments))
+  (decorator
+    (decorator_identifier)
+    (decorator_arguments)))
+
+================================================================================
+Decorator with type
+================================================================================
+
+@react.component(:sharedProps)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (decorator
+    (decorator_identifier)
+    (decorator_arguments
+      (type_annotation
+        (type_identifier)))))

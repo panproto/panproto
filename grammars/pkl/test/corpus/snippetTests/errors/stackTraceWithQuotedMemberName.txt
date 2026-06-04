@@ -1,0 +1,23 @@
+===
+errors/stackTraceWithQuotedMemberName.pkl
+===
+
+one {
+  `two three` {
+    four = throw("ouch")
+  }
+}
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (objectBody
+          (objectProperty
+            (identifier)
+            (throwExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart)))))))))

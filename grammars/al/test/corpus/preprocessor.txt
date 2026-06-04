@@ -1,0 +1,456 @@
+========================================================================
+Pragma directive (extras)
+========================================================================
+
+codeunit 50100 MyCodeunit
+{
+    #pragma warning disable AL0001
+    procedure Test()
+    #pragma warning restore AL0001
+    begin
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (pragma)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (pragma)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))
+
+========================================================================
+Region directives (extras)
+========================================================================
+
+codeunit 50100 MyCodeunit
+{
+    #region MyRegion
+    procedure Test()
+    begin
+    end;
+    #endregion
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (preproc_region)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (preproc_endregion)))
+
+========================================================================
+Preprocessor conditional in body
+========================================================================
+
+codeunit 50100 MyCodeunit
+{
+    #if CLEAN24
+    procedure NewVersion()
+    begin
+    end;
+    #else
+    procedure OldVersion()
+    begin
+    end;
+    #endif
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (preproc_conditional
+      (preproc_if
+        (preproc_open)
+        condition: (identifier))
+      (procedure
+        (procedure_keyword)
+        name: (identifier)
+        (code_block))
+      (preproc_else)
+      (procedure
+        (procedure_keyword)
+        name: (identifier)
+        (code_block))
+      (preproc_endif
+        (preproc_close)))))
+
+========================================================================
+Preprocessor with not condition
+========================================================================
+
+codeunit 50100 MyCodeunit
+{
+    #if not CLEAN24
+    procedure OldVersion()
+    begin
+    end;
+    #endif
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (preproc_conditional
+      (preproc_if
+        (preproc_open)
+        condition: (preproc_not_expression
+          (identifier)))
+      (procedure
+        (procedure_keyword)
+        name: (identifier)
+        (code_block))
+      (preproc_endif
+        (preproc_close)))))
+
+========================================================================
+Preprocessor with elif
+========================================================================
+
+codeunit 50100 MyCodeunit
+{
+    #if CLEAN26
+    procedure V26()
+    begin
+    end;
+    #elif CLEAN25
+    procedure V25()
+    begin
+    end;
+    #else
+    procedure Old()
+    begin
+    end;
+    #endif
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (preproc_conditional
+      (preproc_if
+        (preproc_open)
+        condition: (identifier))
+      (procedure
+        (procedure_keyword)
+        name: (identifier)
+        (code_block))
+      (preproc_elif
+        condition: (identifier))
+      (procedure
+        (procedure_keyword)
+        name: (identifier)
+        (code_block))
+      (preproc_else)
+      (procedure
+        (procedure_keyword)
+        name: (identifier)
+        (code_block))
+      (preproc_endif
+        (preproc_close)))))
+
+========================================================================
+Fragmented if-else across preprocessor (else begin #endif ... #if end; #endif)
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Test()
+    begin
+#if not CLEAN24
+        if true then begin
+            DoA();
+        end else begin
+#endif
+            DoB();
+#if not CLEAN24
+        end;
+#endif
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (preproc_split_if_else_statement
+          (preproc_if
+            (preproc_open)
+            condition: (preproc_not_expression
+              (identifier)))
+          (if_keyword)
+          condition: (boolean)
+          (then_keyword)
+          then_branch: (code_block
+            (call_expression
+              function: (identifier)
+              arguments: (argument_list)))
+          (else_keyword)
+          (preproc_fragmented_else_tail
+            (preproc_split_begin)
+            (preproc_endif
+              (preproc_close))
+            (call_expression
+              function: (identifier)
+              arguments: (argument_list))
+            (preproc_if
+              (preproc_open)
+              condition: (preproc_not_expression
+                (identifier)))
+            (preproc_endif
+              (preproc_close))))
+        (end_keyword)))))
+
+========================================================================
+Split if-then-begin across preprocessor (#if ... if then begin #endif ... #if end; #endif)
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Test()
+    begin
+#if not CLEAN24
+        if Func() then begin
+#endif
+            DoSomething();
+#if not CLEAN24
+        end;
+#endif
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (preproc_split_if_then_begin
+          (preproc_if
+            (preproc_open)
+            condition: (preproc_not_expression
+              (identifier)))
+          (if_keyword)
+          condition: (call_expression
+            function: (identifier)
+            arguments: (argument_list))
+          (then_keyword)
+          (preproc_split_begin)
+          (preproc_endif
+            (preproc_close))
+          (call_expression
+            function: (identifier)
+            arguments: (argument_list))
+          (preproc_if
+            (preproc_open)
+            condition: (preproc_not_expression
+              (identifier)))
+          (preproc_endif
+            (preproc_close)))
+        (end_keyword)))))
+
+========================================================================
+ControlAddin with preprocessor after interface_procedure
+========================================================================
+
+controladdin Test
+{
+    procedure Foo(X: Boolean);
+#if not CLEAN26
+    procedure Bar(Y: Boolean);
+#endif
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (controladdin_declaration
+    (controladdin_keyword)
+    object_name: (identifier)
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (interface_procedure_suffix))
+    (preproc_conditional_controladdin
+      (preproc_if
+        (preproc_open)
+        condition: (preproc_not_expression
+          (identifier)))
+      (interface_procedure
+        (procedure_keyword)
+        name: (identifier)
+        (parameter_list
+          (parameter
+            name: (identifier)
+            type: (type_specification
+              (basic_type))))
+        (interface_procedure_suffix))
+      (preproc_endif
+        (preproc_close)))))
+
+========================================================================
+Preprocessor conditional in dataset section (around dataitems)
+========================================================================
+
+report 50100 Test
+{
+    dataset
+    {
+        dataitem(Item; Item)
+        {
+        }
+#if not CLEAN24
+        dataitem(ValueEntry; "Value Entry")
+        {
+        }
+#endif
+    }
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier))
+      (preproc_conditional_dataset
+        (preproc_if
+          (preproc_open)
+          condition: (preproc_not_expression
+            (identifier)))
+        (report_dataitem
+          (dataitem_keyword)
+          name: (identifier)
+          table_name: (quoted_identifier))
+        (preproc_endif
+          (preproc_close))))))
+
+========================================================================
+Preprocessor split if-statement with guard statements
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    var
+        NoSeriesLine: Record "No. Series Line";
+        IsHandled: Boolean;
+    begin
+        if true then begin
+#if not CLEAN24
+            DoSomething(NoSeriesLine, IsHandled);
+            if not IsHandled then
+#endif
+            NoSeriesLine.Modify(true);
+        end;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier))))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (if_statement
+          (if_keyword)
+          condition: (boolean)
+          (then_keyword)
+          then_branch: (code_block
+            (begin_keyword)
+            (preproc_guarded_statement
+              (preproc_if
+                (preproc_open)
+                condition: (preproc_not_expression
+                  (identifier)))
+              (call_expression
+                function: (identifier)
+                arguments: (argument_list
+                  (identifier)
+                  (identifier)))
+              (if_keyword)
+              condition: (unary_expression
+                operand: (identifier))
+              (then_keyword)
+              (preproc_endif
+                (preproc_close))
+              then_branch: (call_expression
+                function: (member_expression
+                  object: (identifier)
+                  member: (identifier))
+                arguments: (argument_list
+                  (boolean))))
+            (end_keyword)))
+        (end_keyword)))))

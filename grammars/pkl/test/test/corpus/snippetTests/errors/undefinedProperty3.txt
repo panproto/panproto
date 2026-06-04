@@ -1,0 +1,95 @@
+===
+errors/undefinedProperty3.pkl
+===
+
+class D {
+  dProperty: String
+}
+
+class A {
+  b: Mapping<D, B>
+}
+
+class B {
+  `bar-baz`: C
+}
+
+class C {
+  theNumber : Int
+}
+
+a: A = new {
+  b {
+    [new D { dProperty = "dProperty" }] = new {}
+  }
+}
+
+---
+
+(module
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))
+            (typeArgumentList
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))))))))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (newExpr
+      (objectBody
+        (objectProperty
+          (identifier)
+          (objectBody
+            (objectEntry
+              (newExpr
+                (declaredType
+                  (qualifiedIdentifier
+                    (identifier)))
+                (objectBody
+                  (objectProperty
+                    (identifier)
+                    (slStringLiteralExpr
+                      (slStringLiteralPart)))))
+              (newExpr
+                (objectBody)))))))))

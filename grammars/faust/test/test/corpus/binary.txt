@@ -1,0 +1,79 @@
+=====
+Recursion
+=====
+
+process = _~+(1);
+
+---
+(program
+  (definition (identifier)
+    (recursive
+      (wire)
+      (partial (add) (int)))))
+
+=====
+Sequential
+=====
+
+process = _:_;
+
+---
+(program
+  (definition (identifier)
+    (sequential (wire) (wire))))
+
+=====
+Split two
+=====
+
+process = _<:_,_;
+
+---
+(program
+  (definition (identifier)
+    (split
+      (wire)
+      (parallel (wire) (wire)))))
+
+=====
+Split three
+=====
+
+process = _ <: _,_,_;
+
+---
+(program
+  (definition (identifier)
+    (split
+      (wire)
+      (parallel
+        (wire)
+        (parallel (wire) (wire))))))
+
+=====
+Merge two
+=====
+
+process = _,_ :> _;
+
+---
+(program
+  (definition (identifier)
+    (merge
+      (parallel (wire) (wire))
+      (wire))))
+
+=====
+Merge three
+=====
+
+process = _,_,_ :> _;
+
+---
+(program
+  (definition (identifier)
+    (merge
+      (parallel
+        (wire)
+        (parallel (wire) (wire)))
+      (wire))))

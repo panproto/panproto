@@ -1,0 +1,63 @@
+================================================================================
+Comprehensive field reference expressions test
+================================================================================
+
+table 2632 "Test Table"
+{
+    fields
+    {
+        field(31; "Balance"; Decimal)
+        {
+            CalcFormula = sum("Ledger Entry".Amount where("Account No." = field("No."),
+                                                        "Date" = field("Date Filter"),
+                                                        "Amount" = field(filter("Amount Filter")),
+                                                        "Posting Date" = field(upperlimit("Date Filter")),
+                                                        "Document Date" = field(upperlimit(filter("Date Filter")))));
+            FieldClass = FlowField;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (aggregate_formula
+            function: (aggregate_function)
+            target: (calc_field_reference
+              (quoted_identifier)
+              (identifier))
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (quoted_identifier)
+                  value: (quoted_identifier))
+                (where_condition
+                  field: (quoted_identifier)
+                  value: (quoted_identifier))
+                (where_condition
+                  field: (quoted_identifier)
+                  (filter_keyword)
+                  value: (quoted_identifier))
+                (where_condition
+                  field: (quoted_identifier)
+                  value: (quoted_identifier))
+                (where_condition
+                  field: (quoted_identifier)
+                  (filter_keyword)
+                  value: (quoted_identifier))))))
+        (property
+          name: (property_name)
+          value: (identifier))))))

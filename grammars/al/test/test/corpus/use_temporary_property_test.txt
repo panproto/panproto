@@ -1,0 +1,232 @@
+================================================================================
+UseTemporary property in report dataitem
+================================================================================
+
+report 50100 "Test Report"
+{
+    dataset
+    {
+        dataitem("Warehouse Source Filter"; "Warehouse Source Filter")
+        {
+            DataItemTableView = sorting(Type, Code);
+            UseTemporary = true;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (quoted_identifier)
+        table_name: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (sorting_value
+            (identifier)
+            (identifier)))
+        (property
+          name: (property_name)
+          value: (boolean))))))
+
+================================================================================
+UseTemporary property with false value
+================================================================================
+
+report 50101 "Another Report"
+{
+    dataset
+    {
+        dataitem(Customer; Customer)
+        {
+            UseTemporary = false;
+            RequestFilterFields = "No.", Name;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (property
+          name: (property_name)
+          value: (boolean))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (identifier))))))))
+
+================================================================================
+UseTemporary in XMLPort tableelement
+================================================================================
+
+xmlport 50100 "Test XMLPort"
+{
+    Format = VariableText;
+    
+    schema
+    {
+        tableelement("Gen. Journal Line"; "Gen. Journal Line")
+        {
+            XmlName = 'Document';
+            UseTemporary = true;
+            
+            fieldelement(AccountNo; "Gen. Journal Line"."Account No.")
+            {
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (schema_section
+      (schema_keyword)
+      (xmlport_element
+        name: (quoted_identifier)
+        source: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (boolean))
+        (xmlport_element
+          name: (identifier)
+          source: (member_expression
+            object: (quoted_identifier)
+            member: (quoted_identifier)))))))
+
+================================================================================
+UseTemporary with mixed properties in report dataitem
+================================================================================
+
+report 50102 "Complex Report"
+{
+    dataset
+    {
+        dataitem("Warehouse Source Filter"; "Warehouse Source Filter")
+        {
+            DataItemTableView = sorting(Type, Code);
+            RequestFilterFields = "Item No. Filter", "Variant Code Filter";
+            RequestFilterHeading = 'Document details';
+            UseTemporary = true;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (quoted_identifier)
+        table_name: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (sorting_value
+            (identifier)
+            (identifier)))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (quoted_identifier))))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (boolean))))))
+
+================================================================================
+UseTemporary case variations
+================================================================================
+
+report 50103 "Case Test"
+{
+    dataset
+    {
+        dataitem(Item; Item)
+        {
+            usetemporary = true;
+        }
+        
+        dataitem(Vendor; Vendor)
+        {
+            UseTemporary = TRUE;
+        }
+        
+        dataitem(Customer; Customer)
+        {
+            USETEMPORARY = false;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (property
+          name: (property_name)
+          value: (boolean)))
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (property
+          name: (property_name)
+          value: (boolean)))
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (property
+          name: (property_name)
+          value: (boolean))))))

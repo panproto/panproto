@@ -1,0 +1,53 @@
+===
+basic/indexExpressions.pkl
+===
+
+local mapping1 = new Mapping {
+  ["x"] = "y"
+}
+
+local mapping2 = new Mapping {
+  ["y"] = "z"
+}
+
+result = mapping2[mapping1["x"]]
+
+---
+
+(module
+  (classProperty
+    (modifier)
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectEntry
+          (slStringLiteralExpr
+            (slStringLiteralPart))
+          (slStringLiteralExpr
+            (slStringLiteralPart))))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectEntry
+          (slStringLiteralExpr
+            (slStringLiteralPart))
+          (slStringLiteralExpr
+            (slStringLiteralPart))))))
+  (classProperty
+    (identifier)
+    (subscriptExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (subscriptExpr
+        (unqualifiedAccessExpr
+          (identifier))
+        (slStringLiteralExpr
+          (slStringLiteralPart))))))

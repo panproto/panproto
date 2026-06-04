@@ -1,0 +1,121 @@
+================================================================================
+AllowInCustomizations property case variations
+================================================================================
+
+table 50100 "Test Table"
+{
+    fields
+    {
+        field(1; "Primary Key"; Code[10])
+        {
+            AllowInCustomizations = Never;
+        }
+        field(2; Name; Text[100])
+        {
+            allowincustomizations = false;
+        }
+        field(3; Value; Decimal)
+        {
+            ALLOWINCUSTOMIZATIONS = true;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (code_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (identifier)))
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (boolean)))
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (boolean))))))
+
+================================================================================
+AllowInCustomizations with Never value in various contexts
+================================================================================
+
+table 50101 "Config Setup"
+{
+    fields
+    {
+        field(1; ID; Integer)
+        {
+            AllowInCustomizations = Never;
+        }
+    }
+}
+
+page 50101 "Test Page"
+{
+    layout
+    {
+        area(content)
+        {
+            field(TestField; Rec.ID)
+            {
+                AllowInCustomizations = Never;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (identifier)))))
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (identifier))
+          (property
+            name: (property_name)
+            value: (identifier)))))))

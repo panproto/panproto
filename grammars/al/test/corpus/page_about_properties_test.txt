@@ -1,0 +1,111 @@
+================================================================================
+Page with AboutTitle and AboutText properties
+================================================================================
+
+page 42 "Sales Order"
+{
+    AboutTitle = 'About sales order details';
+    AboutText = 'Choose the order details and fill in order lines with quantities of what you are selling.';
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))))
+
+================================================================================
+Page with AboutTitle, AboutText, and other properties
+================================================================================
+
+page 50100 "Customer Card"
+{
+    PageType = Card;
+    SourceTable = Customer;
+    AboutTitle = 'About customer management';
+    AboutText = 'Use this page to create and manage customer records. You can set up payment terms, discounts, and shipping information.';
+    Caption = 'Customer Card';
+    ApplicationArea = All;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))))
+
+================================================================================
+Page with AboutTitle containing apostrophes
+================================================================================
+
+page 50101 "Sales Statistics"
+{
+    AboutTitle = 'About today''s sales statistics';
+    AboutText = 'View real-time sales data including today''s orders, revenue, and customer activity.';
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))))
+
+================================================================================
+Page with long AboutText
+================================================================================
+
+page 50102 "Inventory Overview"
+{
+    AboutTitle = 'About inventory management';
+    AboutText = 'This page provides a comprehensive view of your inventory. You can track stock levels, monitor reorder points, and analyze inventory turnover rates.';
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))))

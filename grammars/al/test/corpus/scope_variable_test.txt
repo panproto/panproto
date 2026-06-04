@@ -1,0 +1,33 @@
+================================================================================
+Scope as variable name
+================================================================================
+
+codeunit 50100 Test
+{
+    var
+        ExpectedTheSameValueErr: Label 'Expected the values to be the same';
+        Scope: Option System,Tenant;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        (identifier)
+        (basic_type)
+        (string_literal))
+      (variable_declaration
+        (identifier)
+        (type_specification
+          (option_type
+            (option_member_list
+              (option_member
+                (keyword_identifier))
+              (option_member
+                (identifier)))))))))

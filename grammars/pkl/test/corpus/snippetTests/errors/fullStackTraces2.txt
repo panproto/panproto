@@ -1,0 +1,56 @@
+===
+errors/fullStackTraces2.pkl
+===
+
+local const invalid: String = 1
+
+const function f1() = invalid
+
+local const top = f1()
+
+class Foo {
+  foo = top
+}
+
+aFoo = new Foo {}
+
+---
+
+(module
+  (classProperty
+    (modifier)
+    (modifier)
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (intLiteralExpr))
+  (classMethod
+    (methodHeader
+      (modifier)
+      (identifier)
+      (parameterList))
+    (unqualifiedAccessExpr
+      (identifier)))
+  (classProperty
+    (modifier)
+    (modifier)
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList)))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (unqualifiedAccessExpr
+          (identifier)))))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody))))

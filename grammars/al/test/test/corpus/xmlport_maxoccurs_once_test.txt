@@ -1,0 +1,47 @@
+================================================================================
+XMLPort fieldelement with MaxOccurs = Once
+================================================================================
+
+xmlport 1227 "SEPA CT Export"
+{
+    schema
+    {
+        tableelement(PaymentGroup; "Payment Export Data Group")
+        {
+            textelement(CdtrAcct)
+            {
+                fieldelement(IBAN; PaymentExportDataGroup."Sender Bank Account No.")
+                {
+                    MaxOccurs = Once;
+                    MinOccurs = Once;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (schema_section
+      (schema_keyword)
+      (xmlport_element
+        name: (identifier)
+        source: (quoted_identifier)
+        (xmlport_element
+          name: (identifier)
+          (xmlport_element
+            name: (identifier)
+            source: (member_expression
+              object: (identifier)
+              member: (quoted_identifier))
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (identifier))))))))

@@ -1,0 +1,21 @@
+===
+errors/outOfRange3.pkl
+===
+
+res1 = List(1, 2, 3).sublist(2, 1)
+---
+
+(module
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier)
+        (argumentList
+          (intLiteralExpr)
+          (intLiteralExpr)
+          (intLiteralExpr)))
+      (identifier)
+      (argumentList
+        (intLiteralExpr)
+        (intLiteralExpr)))))

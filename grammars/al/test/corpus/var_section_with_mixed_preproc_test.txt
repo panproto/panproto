@@ -1,0 +1,52 @@
+================================================================================
+Var section with preprocessor conditional mixed with regular variables
+================================================================================
+
+page 50100 "Test Page"
+{
+    var
+        IsReturnRefundsVisible: Boolean;
+        ApiVersion: Text;
+        ApiVersionExpiryDate: Date;
+#if not CLEAN24
+        ReplaceOrderAttributeValueDisabled: Boolean;
+#endif
+        ScopeChangeConfirmLbl: Label 'Test';
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    (integer)
+    (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        (identifier)
+        (type_specification
+          (basic_type)))
+      (variable_declaration
+        (identifier)
+        (type_specification
+          (text_type)))
+      (variable_declaration
+        (identifier)
+        (type_specification
+          (basic_type)))
+      (preproc_conditional_var
+        (preproc_if
+          (preproc_open)
+          (preproc_not_expression
+            (identifier)))
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (basic_type)))
+        (preproc_endif
+          (preproc_close)))
+      (variable_declaration
+        (identifier)
+        (basic_type)
+        (string_literal)))))

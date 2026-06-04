@@ -1,0 +1,126 @@
+================================================================================
+AllowInCustomizations property with Never value
+================================================================================
+
+table 50000 "Test Table"
+{
+    fields
+    {
+        field(1; TestField; Text[50])
+        {
+            Caption = 'Test Field';
+            DataClassification = CustomerContent;
+            AllowInCustomizations = Never;
+            Editable = false;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (identifier))
+        (property
+          name: (property_name)
+          value: (identifier))
+        (property
+          name: (property_name)
+          value: (boolean))))))
+
+================================================================================
+AllowInCustomizations property with boolean value
+================================================================================
+
+table 50001 "Test Table 2"
+{
+    fields
+    {
+        field(1; TestField; Text[50])
+        {
+            AllowInCustomizations = true;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (boolean))))))
+
+================================================================================
+AllowInCustomizations property case variations
+================================================================================
+
+table 50002 "Test Table 3"
+{
+    fields
+    {
+        field(1; TestField; Text[50])
+        {
+            AllowInCustomizations = NEVER;
+        }
+        field(2; TestField2; Text[50])
+        {
+            AllowInCustomizations = never;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (identifier)))
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (identifier))))))

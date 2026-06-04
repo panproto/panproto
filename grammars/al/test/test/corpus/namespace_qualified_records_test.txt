@@ -1,0 +1,81 @@
+================================================================================
+Namespace qualified record types in variable declarations
+================================================================================
+
+codeunit 123 "Test Codeunit"
+{
+    local procedure TestNamespaceRecords()
+    var
+        UOM: Record Microsoft.Foundation.UOM."Unit of Measure";
+        Currency: Record Microsoft.Finance.Currency.Currency;
+        Customer: Record Microsoft.Sales.Customer.Customer;
+    begin
+        UOM.SetRange("International Standard Code", 'kg');
+        if UOM.FindFirst() then
+            Currency.Code := UOM.Code;
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      modifier: (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (identifier)
+              reference: (identifier)
+              reference: (identifier)
+              reference: (quoted_identifier))))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (identifier)
+              reference: (identifier)
+              reference: (identifier)
+              reference: (identifier))))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (identifier)
+              reference: (identifier)
+              reference: (identifier)
+              reference: (identifier)))))
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (member_expression
+            object: (identifier)
+            member: (identifier))
+          arguments: (argument_list
+            (quoted_identifier)
+            (string_literal)))
+        (if_statement
+          (if_keyword)
+          condition: (call_expression
+            function: (member_expression
+              object: (identifier)
+              member: (identifier))
+            arguments: (argument_list))
+          (then_keyword)
+          then_branch: (assignment_statement
+            left: (member_expression
+              object: (identifier)
+              member: (identifier))
+            right: (member_expression
+              object: (identifier)
+              member: (identifier))))
+        (end_keyword)))))

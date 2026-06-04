@@ -1,0 +1,43 @@
+===
+classes/wrongType6.pkl
+===
+
+import "pkl:test"
+
+open class Person {
+  names: List<String>(!isEmpty)
+}
+
+pigeon = new Person {}
+
+---
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (clazz
+    (modifier)
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (constrainedType
+            (declaredType
+              (qualifiedIdentifier
+                (identifier))
+              (typeArgumentList
+                (declaredType
+                  (qualifiedIdentifier
+                    (identifier)))))
+            (logicalNotExpr
+              (unqualifiedAccessExpr
+                (identifier))))))))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody))))

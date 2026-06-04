@@ -1,0 +1,45 @@
+===
+errors/cannotAssignFixedProperty1.pkl
+===
+
+class Bird {
+  fixed name: String = "Hawk"
+}
+
+p: Bird = new {
+  local _name = "Penguin"
+  name = _name
+}
+
+---
+
+(module
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (modifier)
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (newExpr
+      (objectBody
+        (objectProperty
+          (modifier)
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart)))
+        (objectProperty
+          (identifier)
+          (unqualifiedAccessExpr
+            (identifier)))))))

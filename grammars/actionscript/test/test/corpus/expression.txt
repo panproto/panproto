@@ -1,0 +1,545 @@
+=========
+subscript
+=========
+
+var a = object[1];
+
+---
+
+
+(program
+    (variable_declaration
+        (identifier)
+        (subscript_expression (identifier) (number))
+    )
+)
+
+===============
+property access
+===============
+
+var a = object.w;
+
+---
+
+(program
+    (variable_declaration
+        (identifier)
+        (member_expression (identifier) (identifier))
+    )
+)
+
+===================
+all property access
+===================
+
+for each(x in describeType(o).*) {
+
+}
+
+---
+
+(program
+    (for_each_in_statement
+        (identifier)
+        (member_expression
+            (call_expression (identifier) (identifier)))
+        (statement_block)
+    )
+)
+
+=============
+parenthesized
+=============
+
+var a = ("hello");
+
+---
+
+(program
+    (variable_declaration
+        (identifier)
+        (parenthesized_expression (string))
+    )
+)
+
+===================
+anonymous functions
+===================
+
+const a = function(param: int, ...rest): void {
+    var b = "hello";
+};
+
+---
+
+(program
+    (constant_declaration
+        (identifier)
+        (anonymous_function
+            (function_parameters
+                (identifier)
+                (type_hint (identifier))
+                (rest
+                    (identifier)))
+            (type_hint (identifier))
+            (statement_block
+                (variable_declaration (identifier) (string))
+            )
+        )
+    )
+)
+
+===========================
+another anonymous with name
+===========================
+
+const f = function filterContactsByNameFunction(person:SocialCharacterWrapper, index:int, vector:Vector.<SocialCharacterWrapper>):Boolean {
+
+};
+
+---
+
+(program
+    (constant_declaration
+        (identifier)
+        (anonymous_function
+            (identifier)
+            (function_parameters
+                (identifier)
+                (type_hint (identifier))
+                (identifier)
+                (type_hint (identifier))
+                (identifier)
+                (type_hint
+                    (generic_data_type (identifier) (identifier))
+                )
+            )
+            (type_hint (identifier))
+            (statement_block)
+        )
+    )
+)
+
+=============
+function call
+=============
+
+const res = f(x, y);
+
+---
+
+(program
+    (constant_declaration
+        (identifier)
+        (call_expression (identifier) (identifier) (identifier))
+    )
+)
+
+======================
+identifier assignement
+======================
+
+a = "hello";
+
+---
+
+(program
+    (expression_statement (assignment_expression (identifier) (string)))
+)
+
+=================
+array assignement
+=================
+
+a.b = 2;
+
+---
+
+(program
+    (expression_statement (assignment_expression
+        (member_expression (identifier) (identifier))
+        (number))
+    )
+)
+
+==================
+object assignement
+==================
+
+a[0] = "hello";
+
+---
+
+
+(program
+    (expression_statement (assignment_expression
+        (subscript_expression (identifier) (number))
+        (string))
+    )
+)
+
+===================
+complex assignement
+===================
+
+a[0].b = f(x, y);
+
+---
+
+(program
+    (expression_statement (assignment_expression
+        (member_expression
+            (subscript_expression (identifier) (number))
+            (identifier)
+        )
+        (call_expression
+            (identifier)
+            (identifier) (identifier))
+        )
+    )
+)
+
+========
+self mul
+========
+
+a *= 2;
+
+---
+
+(program
+    (expression_statement (augmented_assignment_expression
+        (identifier)
+        (number))
+    )
+)
+
+========
+self div
+========
+
+a /= 2;
+
+---
+
+(program
+    (expression_statement (augmented_assignment_expression
+        (identifier)
+        (number))
+    )
+)
+
+========
+self mod
+========
+
+a %= 2;
+
+---
+
+(program
+    (expression_statement (augmented_assignment_expression
+        (identifier)
+        (number))
+    )
+)
+
+========
+self add
+========
+
+a += 2;
+
+---
+
+(program
+    (expression_statement (augmented_assignment_expression
+        (identifier)
+        (number))
+    )
+)
+
+========
+self sub
+========
+
+a -= 2;
+
+---
+
+(program
+    (expression_statement (augmented_assignment_expression
+        (identifier)
+        (number))
+    )
+)
+
+========
+self shl
+========
+
+a <<= 2;
+
+---
+
+(program
+    (expression_statement (augmented_assignment_expression
+        (identifier)
+        (number))
+    )
+)
+
+========
+self shr
+========
+
+a >>= 2;
+
+---
+
+(program
+    (expression_statement (augmented_assignment_expression
+        (identifier)
+        (number))
+    )
+)
+
+=========
+self ushr
+=========
+
+a >>>= 2;
+
+---
+
+(program
+    (expression_statement (augmented_assignment_expression
+        (identifier)
+        (number))
+    )
+)
+
+========
+self and
+========
+
+a &= 2;
+
+---
+
+(program
+    (expression_statement (augmented_assignment_expression
+        (identifier)
+        (number))
+    )
+)
+
+========
+self xor
+========
+
+a ^= 2;
+
+---
+
+(program
+    (expression_statement (augmented_assignment_expression
+        (identifier)
+        (number))
+    )
+)
+
+=======
+self or
+=======
+
+a |= 2;
+
+---
+
+(program
+    (expression_statement (augmented_assignment_expression
+        (identifier)
+        (number))
+    )
+)
+
+===
+new
+===
+
+const a = new Date("2022");
+
+---
+
+(program
+    (constant_declaration
+        (identifier)
+        (call_expression
+            (new_expression (identifier)) (string)
+        )
+    )
+)
+
+================
+descent accessor
+================
+
+const a = b..c;
+
+---
+
+(program
+    (constant_declaration
+        (identifier)
+        (descendant_expression
+            (identifier)
+            (identifier)
+        )
+    )
+)
+
+======================
+complex new expression
+======================
+
+var retFlow:FlowElement = new (getDefinitionByName(getQualifiedClassName(this)) as Class)();
+
+---
+
+(program
+    (variable_declaration
+        (identifier)
+        (type_hint (identifier))
+        (call_expression
+            (new_expression
+                (parenthesized_expression
+                    (cast_expression
+                        (call_expression
+                            (identifier)
+                            (call_expression (identifier) (identifier))
+                        )
+                        (identifier)
+                    )
+                )
+            )
+        )
+    )
+)
+
+===================
+sequence expression
+===================
+
+_loc12_ = _loc14_ != 2 ? (param2 -= _loc14_ + 1, null) : (param1.position = param2 - 2, param1.readUTFBytes(2));
+
+---
+
+(program
+    (expression_statement
+        (assignment_expression
+            (identifier)
+            (ternary_expression
+                (binary_expression (identifier) (number))
+                (parenthesized_expression
+                    (sequence_expression
+                        (augmented_assignment_expression
+                            (identifier)
+                            (binary_expression (identifier) (number))
+                        )
+                        (null)
+                    )
+                )
+                (parenthesized_expression
+                    (sequence_expression
+                        (assignment_expression
+                            (member_expression (identifier) (identifier))
+                            (binary_expression (identifier) (number))
+                        )
+                        (call_expression
+                            (member_expression (identifier) (identifier))
+                            (number)
+                        )
+                    )
+                )
+            )
+        )
+    )
+)
+
+===========================
+named xml member expression
+===========================
+
+if(list.(@name == "Transient").length() <= 0) {
+
+}
+
+---
+
+(program
+    (if_statement
+        (parenthesized_expression
+            (binary_expression
+                (call_expression
+                    (member_expression
+                        (member_expression
+                            (identifier)
+                            (parenthesized_expression
+                                (binary_expression (identifier) (string))
+                            )
+                        )
+                        (identifier)
+                    )
+                )
+                (number)
+            )
+        )
+        (statement_block)
+    )
+)
+
+=============================
+sequence expression in update
+=============================
+
+for(t.subTo(y,y); y.t < ys; )
+{
+   y.(++y.t, !!0);
+}
+
+---
+
+(program
+    (for_statement
+        (expression_statement
+            (call_expression
+                (member_expression (identifier) (identifier))
+                (identifier)
+                (identifier)
+            )
+        )
+        (expression_statement
+            (binary_expression
+                (member_expression (identifier) (identifier))
+                (identifier)
+            )
+        )
+        (statement_block
+            (expression_statement
+                (member_expression
+                    (identifier)
+                    (parenthesized_expression
+                        (sequence_expression
+                            (update_expression
+                                (member_expression (identifier) (identifier))
+                            )
+                            (unary_expression (unary_expression (number)))
+                        )
+                    )
+                )
+            )
+        )
+    )
+)

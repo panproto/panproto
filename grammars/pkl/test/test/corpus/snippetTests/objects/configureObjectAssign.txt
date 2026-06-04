@@ -1,0 +1,78 @@
+===
+objects/configureObjectAssign.pkl
+===
+
+x {
+  foo {
+    bar {
+      num1 = 1
+      num2 = 2
+    }
+    baz {
+      num3 = 3
+    }
+  }
+}
+
+y = (x) {
+  foo {
+    bar {
+      num1 = 11
+      str = "str"
+    }
+    baz2 {
+      num4 = 4
+    }
+  }
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (objectBody
+          (objectProperty
+            (identifier)
+            (objectBody
+              (objectProperty
+                (identifier)
+                (intLiteralExpr))
+              (objectProperty
+                (identifier)
+                (intLiteralExpr))))
+          (objectProperty
+            (identifier)
+            (objectBody
+              (objectProperty
+                (identifier)
+                (intLiteralExpr))))))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (objectBody
+            (objectProperty
+              (identifier)
+              (objectBody
+                (objectProperty
+                  (identifier)
+                  (intLiteralExpr))
+                (objectProperty
+                  (identifier)
+                  (slStringLiteralExpr
+                    (slStringLiteralPart)))))
+            (objectProperty
+              (identifier)
+              (objectBody
+                (objectProperty
+                  (identifier)
+                  (intLiteralExpr))))))))))

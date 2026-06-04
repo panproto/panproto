@@ -1,0 +1,227 @@
+================================================================================
+GridLayout property in report requestpage grid sections
+================================================================================
+
+report 123 "Test Report"
+{
+    requestpage
+    {
+        layout
+        {
+            area(Content)
+            {
+                grid(TestGrid)
+                {
+                    GridLayout = Columns;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (requestpage_section
+      (requestpage_keyword)
+      (layout_section
+        (layout_keyword)
+        (area_section
+          (area_keyword)
+          (grid_section
+            (grid_keyword)
+            name: (identifier)
+            (property
+              name: (property_name)
+              value: (identifier))))))))
+
+================================================================================
+GridLayout property with Rows value
+================================================================================
+
+report 124 "Test Report"
+{
+    requestpage
+    {
+        layout
+        {
+            area(Content)
+            {
+                grid(TestGrid)
+                {
+                    GridLayout = Rows;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (requestpage_section
+      (requestpage_keyword)
+      (layout_section
+        (layout_keyword)
+        (area_section
+          (area_keyword)
+          (grid_section
+            (grid_keyword)
+            name: (identifier)
+            (property
+              name: (property_name)
+              value: (identifier))))))))
+
+================================================================================
+GridLayout property combined with other grid properties
+================================================================================
+
+report 125 "Test Report"
+{
+    requestpage
+    {
+        layout
+        {
+            area(Content)
+            {
+                grid(TestGrid)
+                {
+                    ShowCaption = false;
+                    GridLayout = Columns;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (requestpage_section
+      (requestpage_keyword)
+      (layout_section
+        (layout_keyword)
+        (area_section
+          (area_keyword)
+          (grid_section
+            (grid_keyword)
+            name: (identifier)
+            (property
+              name: (property_name)
+              value: (boolean))
+            (property
+              name: (property_name)
+              value: (identifier))))))))
+
+================================================================================
+GridLayout property in page grid sections
+================================================================================
+
+page 126 "Test Page"
+{
+    layout
+    {
+        area(Content)
+        {
+            grid(TestGrid)
+            {
+                GridLayout = Rows;
+                ShowCaption = true;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (grid_section
+          (grid_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (boolean)))))))
+
+================================================================================
+GridLayout property case variations
+================================================================================
+
+report 127 "Test Report"
+{
+    requestpage
+    {
+        layout
+        {
+            area(Content)
+            {
+                grid(TestGrid1)
+                {
+                    GridLayout = Columns;
+                }
+                grid(TestGrid2)
+                {
+                    gridlayout = Rows;
+                }
+                grid(TestGrid3)
+                {
+                    GRIDLAYOUT = Columns;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (requestpage_section
+      (requestpage_keyword)
+      (layout_section
+        (layout_keyword)
+        (area_section
+          (area_keyword)
+          (grid_section
+            (grid_keyword)
+            name: (identifier)
+            (property
+              name: (property_name)
+              value: (identifier)))
+          (grid_section
+            (grid_keyword)
+            name: (identifier)
+            (property
+              name: (property_name)
+              value: (identifier)))
+          (grid_section
+            (grid_keyword)
+            name: (identifier)
+            (property
+              name: (property_name)
+              value: (identifier))))))))

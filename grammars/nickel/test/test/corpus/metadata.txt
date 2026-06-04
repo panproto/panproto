@@ -1,0 +1,374 @@
+================================================================================
+metadata basics
+================================================================================
+
+{
+  foo | Number
+      | default = 5,
+}
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (uni_record
+              (field_decl
+                (field_def
+                  (field_path
+                    (field_path_elem
+                      (ident)))
+                  (annot
+                    (annot_atom
+                      (types
+                        (infix_expr
+                          (applicative
+                            (record_operand
+                              (atom
+                                (type_atom
+                                  (type_builtin))))))))
+                    (annot_atom))
+                  (term
+                    (uni_term
+                      (infix_expr
+                        (applicative
+                          (record_operand
+                            (atom
+                              (num_literal))))))))))))))))
+
+================================================================================
+metadata doc
+================================================================================
+
+{
+  bar
+    | doc m%"
+        Some documentation about bar.
+    "%,
+  baz
+    | doc "Some other doc" = null,
+}
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (uni_record
+              (field_decl
+                (field_def
+                  (field_path
+                    (field_path_elem
+                      (ident)))
+                  (annot
+                    (annot_atom
+                      (static_string
+                        (multstr_start)
+                        (chunk_literal_multi
+                          (mult_str_literal))
+                        (multstr_end))))))
+              (field_decl
+                (field_def
+                  (field_path
+                    (field_path_elem
+                      (ident)))
+                  (annot
+                    (annot_atom
+                      (static_string
+                        (chunk_literal_single
+                          (str_literal)))))
+                  (term
+                    (uni_term
+                      (infix_expr
+                        (applicative
+                          (record_operand
+                            (atom)))))))))))))))
+
+================================================================================
+metadata prio
+================================================================================
+
+{
+  bar | priority 5,
+  baz | priority -2.3,
+  bin | priority -0b1,
+  hex | priority 0xF,
+  foo | String
+      | optional,
+  foo' | rec default = {bar = 1},
+  foo'' | rec force = {bar = 2},
+  all | force
+      | default
+      | rec force
+      | rec default
+      | priority 0
+      | doc "bar"
+      = "definition",
+}
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (uni_record
+              (field_decl
+                (field_def
+                  (field_path
+                    (field_path_elem
+                      (ident)))
+                  (annot
+                    (annot_atom
+                      (signed_num_literal)))))
+              (field_decl
+                (field_def
+                  (field_path
+                    (field_path_elem
+                      (ident)))
+                  (annot
+                    (annot_atom
+                      (signed_num_literal)))))
+              (field_decl
+                (field_def
+                  (field_path
+                    (field_path_elem
+                      (ident)))
+                  (annot
+                    (annot_atom
+                      (signed_num_literal)))))
+              (field_decl
+                (field_def
+                  (field_path
+                    (field_path_elem
+                      (ident)))
+                  (annot
+                    (annot_atom
+                      (signed_num_literal)))))
+              (field_decl
+                (field_def
+                  (field_path
+                    (field_path_elem
+                      (ident)))
+                  (annot
+                    (annot_atom
+                      (types
+                        (infix_expr
+                          (applicative
+                            (record_operand
+                              (atom
+                                (type_atom
+                                  (type_builtin))))))))
+                    (annot_atom))))
+              (field_decl
+                (field_def
+                  (field_path
+                    (field_path_elem
+                      (ident)))
+                  (annot
+                    (annot_atom))
+                  (term
+                    (uni_term
+                      (infix_expr
+                        (applicative
+                          (record_operand
+                            (atom
+                              (uni_record
+                                (last_field
+                                  (field_decl
+                                    (field_def
+                                      (field_path
+                                        (field_path_elem
+                                          (ident)))
+                                      (term
+                                        (uni_term
+                                          (infix_expr
+                                            (applicative
+                                              (record_operand
+                                                (atom
+                                                  (num_literal)))))))))))))))))))
+              (field_decl
+                (field_def
+                  (field_path
+                    (field_path_elem
+                      (ident)))
+                  (annot
+                    (annot_atom))
+                  (term
+                    (uni_term
+                      (infix_expr
+                        (applicative
+                          (record_operand
+                            (atom
+                              (uni_record
+                                (last_field
+                                  (field_decl
+                                    (field_def
+                                      (field_path
+                                        (field_path_elem
+                                          (ident)))
+                                      (term
+                                        (uni_term
+                                          (infix_expr
+                                            (applicative
+                                              (record_operand
+                                                (atom
+                                                  (num_literal)))))))))))))))))))
+              (field_decl
+                (field_def
+                  (field_path
+                    (field_path_elem
+                      (ident)))
+                  (annot
+                    (annot_atom)
+                    (annot_atom)
+                    (annot_atom)
+                    (annot_atom)
+                    (annot_atom
+                      (signed_num_literal))
+                    (annot_atom
+                      (static_string
+                        (chunk_literal_single
+                          (str_literal)))))
+                  (term
+                    (uni_term
+                      (infix_expr
+                        (applicative
+                          (record_operand
+                            (atom
+                              (str_chunks
+                                (str_chunks_single
+                                  (chunk_literal_single
+                                    (str_literal)))))))))))))))))))
+
+================================================================================
+metadata not_exported
+================================================================================
+
+{
+  "not_exported"
+    | not_exported
+    = 5,
+  exported
+    = 6
+}
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (uni_record
+              (field_decl
+                (field_def
+                  (field_path
+                    (field_path_elem
+                      (str_chunks
+                        (str_chunks_single
+                          (chunk_literal_single
+                            (str_literal))))))
+                  (annot
+                    (annot_atom))
+                  (term
+                    (uni_term
+                      (infix_expr
+                        (applicative
+                          (record_operand
+                            (atom
+                              (num_literal)))))))))
+              (last_field
+                (field_decl
+                  (field_def
+                    (field_path
+                      (field_path_elem
+                        (ident)))
+                    (term
+                      (uni_term
+                        (infix_expr
+                          (applicative
+                            (record_operand
+                              (atom
+                                (num_literal)))))))))))))))))
+
+================================================================================
+dictionary contract
+================================================================================
+
+{
+  dict | { _ | Number },
+  complicated-dict | { _ | {
+    foo,
+    bar,
+  } }
+}
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (uni_record
+              (field_decl
+                (field_def
+                  (field_path
+                    (field_path_elem
+                      (ident)))
+                  (annot
+                    (annot_atom
+                      (types
+                        (infix_expr
+                          (applicative
+                            (record_operand
+                              (atom
+                                (type_atom
+                                  (types
+                                    (infix_expr
+                                      (applicative
+                                        (record_operand
+                                          (atom
+                                            (type_atom
+                                              (type_builtin)))))))))))))))))
+              (last_field
+                (field_decl
+                  (field_def
+                    (field_path
+                      (field_path_elem
+                        (ident)))
+                    (annot
+                      (annot_atom
+                        (types
+                          (infix_expr
+                            (applicative
+                              (record_operand
+                                (atom
+                                  (type_atom
+                                    (types
+                                      (infix_expr
+                                        (applicative
+                                          (record_operand
+                                            (atom
+                                              (uni_record
+                                                (field_decl
+                                                  (field_def
+                                                    (field_path
+                                                      (field_path_elem
+                                                        (ident)))))
+                                                (field_decl
+                                                  (field_def
+                                                    (field_path
+                                                      (field_path_elem
+                                                        (ident)))))))))))))))))))))))))))))

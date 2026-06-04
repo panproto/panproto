@@ -1,0 +1,118 @@
+================================================================================
+Table field with Access property
+================================================================================
+
+table 50100 "Test Table"
+{
+    fields
+    {
+        field(1; "Public Field"; Text[100])
+        {
+            Caption = 'Public Field';
+        }
+        
+        field(2; "Internal Field"; Guid)
+        {
+            Access = Internal;
+            Caption = 'Internal Field';
+        }
+        
+        field(3; "Public Number"; Integer)
+        {
+            Access = Public;
+            Caption = 'Public Number';
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (string_literal)))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (internal_keyword))))
+        (property
+          name: (property_name)
+          value: (string_literal)))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (identifier))
+        (property
+          name: (property_name)
+          value: (string_literal))))))
+
+================================================================================
+Table field with case-insensitive Access property
+================================================================================
+
+table 50101 "Another Test"
+{
+    fields
+    {
+        field(1; "Field1"; Code[20])
+        {
+            access = Internal;
+        }
+        
+        field(2; "Field2"; Boolean)
+        {
+            ACCESS = Public;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (code_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (internal_keyword)))))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (identifier))))))

@@ -1,0 +1,54 @@
+===
+classes/class1.pkl
+===
+
+class Person extends Typed {
+  name = "X"
+  age = 40
+}
+
+pigeon = new Person {
+  name = "Pigeon Who"
+}
+
+pigeonName = pigeon.name
+pigeonAge = pigeon.age
+
+---
+
+(module
+  (clazz
+    (identifier)      (classExtendsClause
+      (qualifiedIdentifier
+        (identifier)))
+    (classBody
+      (classProperty
+        (identifier)
+        (slStringLiteralExpr
+          (slStringLiteralPart)))
+      (classProperty
+        (identifier)
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier))))

@@ -1,0 +1,168 @@
+================================================================================
+InstructionalText property in page group
+================================================================================
+
+page 50000 "Test Page"
+{
+    PageType = Card;
+    
+    layout
+    {
+        area(Content)
+        {
+            group(Setup)
+            {
+                ShowCaption = false;
+                InstructionalText = 'To use the service, you need to set up the connection.';
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (group_section
+          (group_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (string_literal)))))))
+
+================================================================================
+InstructionalTextML property in page group
+================================================================================
+
+page 50001 "ML Test Page"
+{
+    PageType = Card;
+    
+    layout
+    {
+        area(Content)
+        {
+            group(MLSetup)
+            {
+                ShowCaption = false;
+                InstructionalTextML = ENU='Setup instructions', FRA='Instructions de configuration';
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (group_section
+          (group_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (ml_value_list
+              (ml_value_pair
+                language: (identifier)
+                value: (string_literal))
+              (ml_value_pair
+                language: (identifier)
+                value: (string_literal)))))))))
+
+================================================================================
+InstructionalText in wizard page pattern
+================================================================================
+
+page 50002 "Wizard Page"
+{
+    PageType = NavigatePage;
+    
+    layout
+    {
+        area(Content)
+        {
+            group(Step1)
+            {
+                ShowCaption = false;
+                Visible = StartStepVisible;
+                group("Welcome Setup")
+                {
+                    Caption = 'Welcome to Setup';
+                    Visible = StartStepVisible;
+                    group(Instructions)
+                    {
+                        ShowCaption = false;
+                        InstructionalText = 'To start the setup, choose Next.';
+                    }
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (group_section
+          (group_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (group_section
+            (group_keyword)
+            name: (quoted_identifier)
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (identifier))
+            (group_section
+              (group_keyword)
+              name: (identifier)
+              (property
+                name: (property_name)
+                value: (boolean))
+              (property
+                name: (property_name)
+                value: (string_literal)))))))))

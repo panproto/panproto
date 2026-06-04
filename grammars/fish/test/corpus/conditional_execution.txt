@@ -1,0 +1,95 @@
+================================================================================
+Conditional Execution - or
+================================================================================
+
+false || echo 1
+false ;;or echo 1
+
+--------------------------------------------------------------------------------
+
+(program
+  (conditional_execution
+    (command
+      name: (word))
+    (command
+      name: (word)
+      argument: (integer)))
+  (command
+    name: (word))
+  (conditional_execution
+    (command
+      name: (word)
+      argument: (integer))))
+
+================================================================================
+Conditional Execution - and
+================================================================================
+
+true && echo 1
+true; and and --help
+
+--------------------------------------------------------------------------------
+
+(program
+  (conditional_execution
+    (command
+      name: (word))
+    (command
+      name: (word)
+      argument: (integer)))
+  (command
+    name: (word))
+  (conditional_execution
+    (conditional_execution
+      (command
+        name: (word)))))
+
+================================================================================
+Conditional Execution - with redirect
+================================================================================
+
+false || printf > file
+true ;; and printf > file
+
+--------------------------------------------------------------------------------
+
+(program
+  (conditional_execution
+    (command
+      name: (word))
+    (command
+      name: (word)
+      redirect: (file_redirect
+        operator: (direction)
+        destination: (word))))
+  (command
+    name: (word))
+  (conditional_execution
+    (command
+      name: (word)
+      redirect: (file_redirect
+        operator: (direction)
+        destination: (word)))))
+
+================================================================================
+Conditional Execution - and or
+================================================================================
+
+true;;
+
+and echo
+
+or echo hello_world
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (word))
+  (conditional_execution
+    (command
+      name: (word)))
+  (conditional_execution
+    (command
+      name: (word)
+      argument: (word))))

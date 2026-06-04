@@ -1,0 +1,96 @@
+=========
+base option
+=========
+option('screencopy-dmabuf', type: 'feature', value: 'auto',
+	description: 'Enable GPU-side screencopy')
+option('pam', type: 'feature', value: 'auto',
+	description: 'Enable PAM authentication')
+option('man-pages', type: 'feature', value: 'auto',
+	description: 'Generate and install man pages')
+option('systemtap', type: 'boolean', value: false,
+	description: 'Enable tracing using sdt')
+option('neatvncSystem', type : 'boolean', value : false,
+  description: 'Use System neatvnc dependences')
+option('amlSystem', type : 'boolean', value : false,
+  description: 'Use System aml dependences')
+---
+
+(source_file
+  (normal_command
+    (identifier)
+    (variableunit
+      (string))
+    (pair
+      (identifier)
+      (string))
+    (pair
+      (identifier)
+      (string))
+    (pair
+      (identifier)
+      (string)))
+  (normal_command
+    (identifier)
+    (variableunit
+      (string))
+    (pair
+      (identifier)
+      (string))
+    (pair
+      (identifier)
+      (string))
+    (pair
+      (identifier)
+      (string)))
+  (normal_command
+    (identifier)
+    (variableunit
+      (string))
+    (pair
+      (identifier)
+      (string))
+    (pair
+      (identifier)
+      (string))
+    (pair
+      (identifier)
+      (string)))
+  (normal_command
+    (identifier)
+    (variableunit
+      (string))
+    (pair
+      (identifier)
+      (string))
+    (pair
+      (identifier)
+      (bool))
+    (pair
+      (identifier)
+      (string)))
+  (normal_command
+    (identifier)
+    (variableunit
+      (string))
+    (pair
+      (identifier)
+      (string))
+    (pair
+      (identifier)
+      (bool))
+    (pair
+      (identifier)
+      (string)))
+  (normal_command
+    (identifier)
+    (variableunit
+      (string))
+    (pair
+      (identifier)
+      (string))
+    (pair
+      (identifier)
+      (bool))
+    (pair
+      (identifier)
+      (string))))

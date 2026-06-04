@@ -1,0 +1,178 @@
+==================
+Key Properties Test
+==================
+
+table 50000 TestTable
+{
+    fields
+    {
+        field(1; ID; Integer) { }
+        field(2; Name; Text[50]) { }
+        field(3; Amount; Decimal) { }
+        field(4; Quantity; Decimal) { }
+        field(5; Date; Date) { }
+        field(6; Status; Option) { OptionMembers = Open,Closed,Pending; }
+    }
+    
+    keys
+    {
+        key(PK; ID)
+        {
+            Clustered = true;
+        }
+        
+        key(Name; Name)
+        {
+            IncludedFields = Amount, Quantity;
+        }
+        
+        key(Status; Status)
+        {
+            MaintainSiftIndex = true;
+            MaintainSqlIndex = false;
+        }
+        
+        key(Amount; Amount)
+        {
+            SqlIndex = Name, Status;
+        }
+        
+        key(Date; Date)
+        {
+            SumIndexFields = Amount, Quantity;
+        }
+        
+        key(Combined; Amount, Quantity)
+        {
+            MaintainSiftIndex = true;
+            IncludedFields = Name;
+            SumIndexFields = Status;
+            SqlIndex = Date;
+        }
+    }
+}
+
+---
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (basic_type)))
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (text_type
+            (integer))))
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (basic_type)))
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (basic_type)))
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (basic_type)))
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (option_type))
+        (property
+          (property_name)
+          (option_member_list
+            (option_member
+              (identifier))
+            (option_member
+              (identifier))
+            (option_member
+              (identifier))))))
+    (keys_section
+      (keys_keyword)
+      (key_declaration
+        (key_keyword)
+        (identifier)
+        (field_list
+          (identifier))
+        (property
+          (property_name)
+          (boolean)))
+      (key_declaration
+        (key_keyword)
+        (identifier)
+        (field_list
+          (identifier))
+        (property
+          (property_name)
+          (option_member_list
+            (option_member
+              (identifier))
+            (option_member
+              (identifier)))))
+      (key_declaration
+        (key_keyword)
+        (identifier)
+        (field_list
+          (identifier))
+        (property
+          (property_name)
+          (boolean))
+        (property
+          (property_name)
+          (boolean)))
+      (key_declaration
+        (key_keyword)
+        (identifier)
+        (field_list
+          (identifier))
+        (property
+          (property_name)
+          (option_member_list
+            (option_member
+              (identifier))
+            (option_member
+              (identifier)))))
+      (key_declaration
+        (key_keyword)
+        (identifier)
+        (field_list
+          (identifier))
+        (property
+          (property_name)
+          (option_member_list
+            (option_member
+              (identifier))
+            (option_member
+              (identifier)))))
+      (key_declaration
+        (key_keyword)
+        (identifier)
+        (field_list
+          (identifier)
+          (identifier))
+        (property
+          (property_name)
+          (boolean))
+        (property
+          (property_name)
+          (identifier))
+        (property
+          (property_name)
+          (identifier))
+        (property
+          (property_name)
+          (identifier))))))

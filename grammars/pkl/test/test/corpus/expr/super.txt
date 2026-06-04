@@ -1,0 +1,27 @@
+===
+super
+===
+
+exprs {
+  super.foo
+  super.foo()
+  super["foo"]
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectElement
+        (superAccessExpr
+          (identifier)))
+      (objectElement
+        (superAccessExpr
+          (identifier)
+          (argumentList)))
+      (objectElement
+        (superSubscriptExpr
+          (slStringLiteralExpr
+            (slStringLiteralPart)))))))

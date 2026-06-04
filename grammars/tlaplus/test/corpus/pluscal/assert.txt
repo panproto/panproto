@@ -1,0 +1,18 @@
+==================|||
+PlusCal Assert
+==================|||
+
+--algorithm Test begin
+  assert TRUE
+end algorithm
+
+-------------|||
+
+(source_file
+  (pcal_algorithm (pcal_algorithm_start) name: (identifier)
+    (pcal_algorithm_body
+      (pcal_assert (boolean))
+    )
+  )
+)
+

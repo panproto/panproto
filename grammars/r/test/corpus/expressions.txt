@@ -1,0 +1,2454 @@
+================================================================================
+Functions
+================================================================================
+function() 1
+function() {}
+function(arg1, arg2) {
+  arg2
+}
+
+function(arg1, arg2 = 2) {}
+
+function(x,
+         y,
+         z = 3) {
+
+}
+
+function()
+
+
+  1
+
+function
+() 1 + 1
+
+function
+
+() 1 + 1
+
+function
+
+# this important comment
+
+() 1 + 1
+
+function() function() {}
+
+function(x = function() {}) {}
+
+# With no intermediate `{` scope
+function() for(i in 1:5) i
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_definition
+    parameters: (parameters)
+    body: (float))
+  (function_definition
+    parameters: (parameters)
+    body: (braced_expression))
+  (function_definition
+    parameters: (parameters
+      parameter: (parameter
+        name: (identifier))
+      (comma)
+      parameter: (parameter
+        name: (identifier)))
+    body: (braced_expression
+      body: (identifier)))
+  (function_definition
+    parameters: (parameters
+      parameter: (parameter
+        name: (identifier))
+      (comma)
+      parameter: (parameter
+        name: (identifier)
+        default: (float)))
+    body: (braced_expression))
+  (function_definition
+    parameters: (parameters
+      parameter: (parameter
+        name: (identifier))
+      (comma)
+      parameter: (parameter
+        name: (identifier))
+      (comma)
+      parameter: (parameter
+        name: (identifier)
+        default: (float)))
+    body: (braced_expression))
+  (function_definition
+    parameters: (parameters)
+    body: (float))
+  (function_definition
+    parameters: (parameters)
+    body: (binary_operator
+      lhs: (float)
+      rhs: (float)))
+  (function_definition
+    parameters: (parameters)
+    body: (binary_operator
+      lhs: (float)
+      rhs: (float)))
+  (function_definition
+    (comment)
+    parameters: (parameters)
+    body: (binary_operator
+      lhs: (float)
+      rhs: (float)))
+  (function_definition
+    parameters: (parameters)
+    body: (function_definition
+      parameters: (parameters)
+      body: (braced_expression)))
+  (function_definition
+    parameters: (parameters
+      parameter: (parameter
+        name: (identifier)
+        default: (function_definition
+          parameters: (parameters)
+          body: (braced_expression))))
+    body: (braced_expression))
+  (comment)
+  (function_definition
+    parameters: (parameters)
+    body: (for_statement
+      variable: (identifier)
+      sequence: (binary_operator
+        lhs: (float)
+        rhs: (float))
+      body: (identifier))))
+
+================================================================================
+Functions With `return` As Parameter Name
+================================================================================
+
+# `return` is not a reserved word in R (it's not in `?Reserved`), so it is
+# allowed as a parameter name (#189).
+
+function(return) return
+function(return = 1) return
+
+--------------------------------------------------------------------------------
+
+(program
+  (comment)
+  (comment)
+  (function_definition
+    parameters: (parameters
+      parameter: (parameter
+        name: (identifier)))
+    body: (identifier))
+  (function_definition
+    parameters: (parameters
+      parameter: (parameter
+        name: (identifier)
+        default: (float)))
+    body: (identifier)))
+
+================================================================================
+Function Dots And Dot Dot I
+================================================================================
+
+# Dots as parameter without default
+function(...) { list(...) }
+
+# Dots as parameter with default
+function(... = 1) { get("...") }
+
+# `..i` as parameter without default
+function(..1) { get("..1") }
+
+# `..i` as parameter with default
+function(..1 = 1) { get("..1") }
+
+# Miscellaneous
+function(x, ...) f(...)
+function(x, ...) ..1 + ..2
+
+--------------------------------------------------------------------------------
+
+(program
+  (comment)
+  (function_definition
+    parameters: (parameters
+      parameter: (parameter
+        name: (dots)))
+    body: (braced_expression
+      body: (call
+        function: (identifier)
+        arguments: (arguments
+          argument: (argument
+            value: (dots))))))
+  (comment)
+  (function_definition
+    parameters: (parameters
+      parameter: (parameter
+        name: (dots)
+        default: (float)))
+    body: (braced_expression
+      body: (call
+        function: (identifier)
+        arguments: (arguments
+          argument: (argument
+            value: (string
+              content: (string_content)))))))
+  (comment)
+  (function_definition
+    parameters: (parameters
+      parameter: (parameter
+        name: (dot_dot_i)))
+    body: (braced_expression
+      body: (call
+        function: (identifier)
+        arguments: (arguments
+          argument: (argument
+            value: (string
+              content: (string_content)))))))
+  (comment)
+  (function_definition
+    parameters: (parameters
+      parameter: (parameter
+        name: (dot_dot_i)
+        default: (float)))
+    body: (braced_expression
+      body: (call
+        function: (identifier)
+        arguments: (arguments
+          argument: (argument
+            value: (string
+              content: (string_content)))))))
+  (comment)
+  (function_definition
+    parameters: (parameters
+      parameter: (parameter
+        name: (identifier))
+      (comma)
+      parameter: (parameter
+        name: (dots)))
+    body: (call
+      function: (identifier)
+      arguments: (arguments
+        argument: (argument
+          value: (dots)))))
+  (function_definition
+    parameters: (parameters
+      parameter: (parameter
+        name: (identifier))
+      (comma)
+      parameter: (parameter
+        name: (dots)))
+    body: (binary_operator
+      lhs: (dot_dot_i)
+      rhs: (dot_dot_i))))
+
+================================================================================
+Function No Body
+================================================================================
+
+function(x, y)
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_definition
+    parameters: (parameters
+      parameter: (parameter
+        name: (identifier))
+      (comma)
+      parameter: (parameter
+        name: (identifier)))
+    body: (MISSING identifier)))
+
+================================================================================
+Lambda Function
+================================================================================
+
+a <- \(arg) arg
+b <- \(arg1, arg2) paste0(arg1, arg2)
+c <- \(fun, ...) fun(...)
+1:3 |> {\(x, y = 1) x + y}() |> {\(x) sum(x)}()
+{\(a = 1) a + 1}()
+\() 1 + 2
+\()
+
+  1 + 2
+
+# Not currently allowed by the parser, but we think it will be and is just an oversight.
+# `'\\'` would need to be included alongside `FUNCTION` here https://github.com/wch/r-source/blob/802121c877837926a6bc2a930b3da749b537258b/src/main/gram.y#L3898-L3901.
+\
+() 1 + 1
+
+--------------------------------------------------------------------------------
+
+(program
+  (binary_operator
+    (identifier)
+    (function_definition
+      (parameters
+        (parameter
+          (identifier)))
+      (identifier)))
+  (binary_operator
+    (identifier)
+    (function_definition
+      (parameters
+        (parameter
+          (identifier))
+        (comma)
+        (parameter
+          (identifier)))
+      (call
+        (identifier)
+        (arguments
+          (argument
+            (identifier))
+          (comma)
+          (argument
+            (identifier))))))
+  (binary_operator
+    (identifier)
+    (function_definition
+      (parameters
+        (parameter
+          (identifier))
+        (comma)
+        (parameter
+          (dots)))
+      (call
+        (identifier)
+        (arguments
+          (argument
+            (dots))))))
+  (binary_operator
+    (binary_operator
+      (binary_operator
+        (float)
+        (float))
+      (call
+        (braced_expression
+          (function_definition
+            (parameters
+              (parameter
+                (identifier))
+              (comma)
+              (parameter
+                (identifier)
+                (float)))
+            (binary_operator
+              (identifier)
+              (identifier))))
+        (arguments)))
+    (call
+      (braced_expression
+        (function_definition
+          (parameters
+            (parameter
+              (identifier)))
+          (call
+            (identifier)
+            (arguments
+              (argument
+                (identifier))))))
+      (arguments)))
+  (call
+    (braced_expression
+      (function_definition
+        (parameters
+          (parameter
+            (identifier)
+            (float)))
+        (binary_operator
+          (identifier)
+          (float))))
+    (arguments))
+  (function_definition
+    (parameters)
+    (binary_operator
+      (float)
+      (float)))
+  (function_definition
+    (parameters)
+    (binary_operator
+      (float)
+      (float)))
+  (comment)
+  (comment)
+  (function_definition
+    (parameters)
+    (binary_operator
+      (float)
+      (float))))
+
+================================================================================
+Relational
+================================================================================
+
+a == b
+a > b
+a < b
+a >= b
+a <= b
+a != b
+
+a ==
+  b
+
+--------------------------------------------------------------------------------
+
+(program
+  (binary_operator
+    (identifier)
+    (identifier))
+  (binary_operator
+    (identifier)
+    (identifier))
+  (binary_operator
+    (identifier)
+    (identifier))
+  (binary_operator
+    (identifier)
+    (identifier))
+  (binary_operator
+    (identifier)
+    (identifier))
+  (binary_operator
+    (identifier)
+    (identifier))
+  (binary_operator
+    (identifier)
+    (identifier)))
+
+================================================================================
+Arithmetic Operator
+================================================================================
+
+a + b
+a - b
+a * b
+a / b
+a ^ b
+a ** b
+
+a +
+  b
+
+a *
+  b
+
+--------------------------------------------------------------------------------
+
+(program
+  (binary_operator
+    (identifier)
+    (identifier))
+  (binary_operator
+    (identifier)
+    (identifier))
+  (binary_operator
+    (identifier)
+    (identifier))
+  (binary_operator
+    (identifier)
+    (identifier))
+  (binary_operator
+    (identifier)
+    (identifier))
+  (binary_operator
+    (identifier)
+    (identifier))
+  (binary_operator
+    (identifier)
+    (identifier))
+  (binary_operator
+    (identifier)
+    (identifier)))
+
+================================================================================
+Not An Arithmetic Operator
+================================================================================
+
+a
+  + b
+
+--------------------------------------------------------------------------------
+
+(program
+  (identifier)
+  (unary_operator
+    (identifier)))
+
+================================================================================
+Unary Operators
+================================================================================
+
+!a
++a
+-a
+foo(!a, +b)
+foo(-a, bar)
+
+!
+  a
+-  b
+
+--------------------------------------------------------------------------------
+
+(program
+  (unary_operator
+    (identifier))
+  (unary_operator
+    (identifier))
+  (unary_operator
+    (identifier))
+  (call
+    (identifier)
+    (arguments
+      (argument
+        (unary_operator
+          (identifier)))
+      (comma)
+      (argument
+        (unary_operator
+          (identifier)))))
+  (call
+    (identifier)
+    (arguments
+      (argument
+        (unary_operator
+          (identifier)))
+      (comma)
+      (argument
+        (identifier))))
+  (unary_operator
+    (identifier))
+  (unary_operator
+    (identifier)))
+
+================================================================================
+Operator precedence
+================================================================================
+
+2+a*2
+2+a+2
+!a + !b
+a <= 2 && 2 >= d
+a[1] <- foo || bar
+a && b(c) && d
+val <- foo %>% bar(1) %>% baz()
+
+--------------------------------------------------------------------------------
+
+(program
+  (binary_operator
+    (float)
+    (binary_operator
+      (identifier)
+      (float)))
+  (binary_operator
+    (binary_operator
+      (float)
+      (identifier))
+    (float))
+  (unary_operator
+    (binary_operator
+      (identifier)
+      (unary_operator
+        (identifier))))
+  (binary_operator
+    (binary_operator
+      (identifier)
+      (float))
+    (binary_operator
+      (float)
+      (identifier)))
+  (binary_operator
+    (subset
+      (identifier)
+      (arguments
+        (argument
+          (float))))
+    (binary_operator
+      (identifier)
+      (identifier)))
+  (binary_operator
+    (binary_operator
+      (identifier)
+      (call
+        (identifier)
+        (arguments
+          (argument
+            (identifier)))))
+    (identifier))
+  (binary_operator
+    (identifier)
+    (binary_operator
+      (binary_operator
+        (identifier)
+        (call
+          (identifier)
+          (arguments
+            (argument
+              (float)))))
+      (call
+        (identifier)
+        (arguments)))))
+
+================================================================================
+Specials
+================================================================================
+
+x %% y
+x %/% y
+x %+% y
+x %>% y
+x %>% 2 %>% z
+x %some text% y
+x %//% y
+
+# Not specials, but hard to test errors `%\%`, `%%%`
+
+--------------------------------------------------------------------------------
+
+(program
+  (binary_operator
+    (identifier)
+    (identifier))
+  (binary_operator
+    (identifier)
+    (identifier))
+  (binary_operator
+    (identifier)
+    (identifier))
+  (binary_operator
+    (identifier)
+    (identifier))
+  (binary_operator
+    (binary_operator
+      (identifier)
+      (float))
+    (identifier))
+  (binary_operator
+    (identifier)
+    (identifier))
+  (binary_operator
+    (identifier)
+    (identifier))
+  (comment))
+
+================================================================================
+Pipe
+================================================================================
+
+x |> print()
+
+x |> foo() %>% bar() |> baz()
+
+x |> foo() |> bar() + baz()
+
+x |> {function(x) x}()
+
+--------------------------------------------------------------------------------
+
+(program
+  (binary_operator
+    (identifier)
+    (call
+      (identifier)
+      (arguments)))
+  (binary_operator
+    (binary_operator
+      (binary_operator
+        (identifier)
+        (call
+          (identifier)
+          (arguments)))
+      (call
+        (identifier)
+        (arguments)))
+    (call
+      (identifier)
+      (arguments)))
+  (binary_operator
+    (binary_operator
+      (binary_operator
+        (identifier)
+        (call
+          (identifier)
+          (arguments)))
+      (call
+        (identifier)
+        (arguments)))
+    (call
+      (identifier)
+      (arguments)))
+  (binary_operator
+    (identifier)
+    (call
+      (braced_expression
+        (function_definition
+          (parameters
+            (parameter
+              (identifier)))
+          (identifier)))
+      (arguments))))
+
+================================================================================
+Pipe Placeholder
+================================================================================
+
+foo |> bar(x, y = _)
+foo |> bar() |> baz(data = _)
+
+--------------------------------------------------------------------------------
+
+(program
+  (binary_operator
+    (identifier)
+    (call
+      (identifier)
+      (arguments
+        (argument
+          (identifier))
+        (comma)
+        (argument
+          (identifier)
+          (identifier)))))
+  (binary_operator
+    (binary_operator
+      (identifier)
+      (call
+        (identifier)
+        (arguments)))
+    (call
+      (identifier)
+      (arguments
+        (argument
+          (identifier)
+          (identifier))))))
+
+================================================================================
+Subset
+================================================================================
+
+foo[]
+foo[,]
+foo[,,]
+foo[x,]
+foo[x,,]
+foo[,x]
+foo[,,x]
+foo[x,,y]
+foo[,,x,,y,,]
+
+foo[bar]
+foo[1, 2]
+foo[x=1,,y=3,4]
+
+--------------------------------------------------------------------------------
+
+(program
+  (subset
+    (identifier)
+    (arguments))
+  (subset
+    (identifier)
+    (arguments
+      (comma)))
+  (subset
+    (identifier)
+    (arguments
+      (comma)
+      (comma)))
+  (subset
+    (identifier)
+    (arguments
+      (argument
+        (identifier))
+      (comma)))
+  (subset
+    (identifier)
+    (arguments
+      (argument
+        (identifier))
+      (comma)
+      (comma)))
+  (subset
+    (identifier)
+    (arguments
+      (comma)
+      (argument
+        (identifier))))
+  (subset
+    (identifier)
+    (arguments
+      (comma)
+      (comma)
+      (argument
+        (identifier))))
+  (subset
+    (identifier)
+    (arguments
+      (argument
+        (identifier))
+      (comma)
+      (comma)
+      (argument
+        (identifier))))
+  (subset
+    (identifier)
+    (arguments
+      (comma)
+      (comma)
+      (argument
+        (identifier))
+      (comma)
+      (comma)
+      (argument
+        (identifier))
+      (comma)
+      (comma)))
+  (subset
+    (identifier)
+    (arguments
+      (argument
+        (identifier))))
+  (subset
+    (identifier)
+    (arguments
+      (argument
+        (float))
+      (comma)
+      (argument
+        (float))))
+  (subset
+    (identifier)
+    (arguments
+      (argument
+        (identifier)
+        (float))
+      (comma)
+      (comma)
+      (argument
+        (identifier)
+        (float))
+      (comma)
+      (argument
+        (float)))))
+
+================================================================================
+Subset2
+================================================================================
+
+foo[[]]
+foo[[,]]
+foo[[,,]]
+foo[[x,]]
+foo[[x,,]]
+foo[[,x]]
+foo[[,,x]]
+foo[[x,,y]]
+foo[[,,x,,y,,]]
+
+foo[[x]]
+foo[[x, y]]
+foo[[1, 2]]
+foo[[x=1,,y=3,4]]
+
+--------------------------------------------------------------------------------
+
+(program
+  (subset2
+    (identifier)
+    (arguments))
+  (subset2
+    (identifier)
+    (arguments
+      (comma)))
+  (subset2
+    (identifier)
+    (arguments
+      (comma)
+      (comma)))
+  (subset2
+    (identifier)
+    (arguments
+      (argument
+        (identifier))
+      (comma)))
+  (subset2
+    (identifier)
+    (arguments
+      (argument
+        (identifier))
+      (comma)
+      (comma)))
+  (subset2
+    (identifier)
+    (arguments
+      (comma)
+      (argument
+        (identifier))))
+  (subset2
+    (identifier)
+    (arguments
+      (comma)
+      (comma)
+      (argument
+        (identifier))))
+  (subset2
+    (identifier)
+    (arguments
+      (argument
+        (identifier))
+      (comma)
+      (comma)
+      (argument
+        (identifier))))
+  (subset2
+    (identifier)
+    (arguments
+      (comma)
+      (comma)
+      (argument
+        (identifier))
+      (comma)
+      (comma)
+      (argument
+        (identifier))
+      (comma)
+      (comma)))
+  (subset2
+    (identifier)
+    (arguments
+      (argument
+        (identifier))))
+  (subset2
+    (identifier)
+    (arguments
+      (argument
+        (identifier))
+      (comma)
+      (argument
+        (identifier))))
+  (subset2
+    (identifier)
+    (arguments
+      (argument
+        (float))
+      (comma)
+      (argument
+        (float))))
+  (subset2
+    (identifier)
+    (arguments
+      (argument
+        (identifier)
+        (float))
+      (comma)
+      (comma)
+      (argument
+        (identifier)
+        (float))
+      (comma)
+      (argument
+        (float)))))
+
+================================================================================
+Subset and Subset2 Precedence
+================================================================================
+
+a[[b[1]]]
+a[b[[1]]]
+
+--------------------------------------------------------------------------------
+
+(program
+  (subset2
+    (identifier)
+    (arguments
+      (argument
+        (subset
+          (identifier)
+          (arguments
+            (argument
+              (float)))))))
+  (subset
+    (identifier)
+    (arguments
+      (argument
+        (subset2
+          (identifier)
+          (arguments
+            (argument
+              (float))))))))
+
+================================================================================
+If
+================================================================================
+
+if (x)
+  log(y)
+
+if (a.b) {
+  log(c)
+  d
+}
+
+if (
+  x <
+  y
+) {
+  z
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (if_statement
+    condition: (identifier)
+    consequence: (call
+      function: (identifier)
+      arguments: (arguments
+        argument: (argument
+          value: (identifier)))))
+  (if_statement
+    condition: (identifier)
+    consequence: (braced_expression
+      body: (call
+        function: (identifier)
+        arguments: (arguments
+          argument: (argument
+            value: (identifier))))
+      body: (identifier)))
+  (if_statement
+    condition: (binary_operator
+      lhs: (identifier)
+      rhs: (identifier))
+    consequence: (braced_expression
+      body: (identifier))))
+
+================================================================================
+If-else
+================================================================================
+
+if (x)
+  y else if (a)
+  b
+
+if (x)
+  y else if (a)
+  b else d
+
+if (a) {
+  c
+  d
+} else {
+  e
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (if_statement
+    condition: (identifier)
+    consequence: (identifier)
+    alternative: (if_statement
+      condition: (identifier)
+      consequence: (identifier)))
+  (if_statement
+    condition: (identifier)
+    consequence: (identifier)
+    alternative: (if_statement
+      condition: (identifier)
+      consequence: (identifier)
+      alternative: (identifier)))
+  (if_statement
+    condition: (identifier)
+    consequence: (braced_expression
+      body: (identifier)
+      body: (identifier))
+    alternative: (braced_expression
+      body: (identifier))))
+
+================================================================================
+Complex If Expression
+================================================================================
+
+# Invalid at top level due to newline before `else`, so not a real if statement
+if (TRUE) {
+  1
+}
+else {
+  2
+}
+
+# Invalid for same reason as above
+if (TRUE)
+  1
+else
+  2
+
+# Valid inside `{` only due to special `else` handling with newlines
+{
+  if (TRUE) {
+    1
+  }
+  else {
+    2
+  }
+}
+
+# Valid with comments in special newline territory
+{
+  if (TRUE) {
+    1
+  }
+  # hi there
+
+  # another one!
+
+  else {
+    2
+  }
+}
+
+# Valid. This test ensures we handle the newline after `1 + 1` correctly (#125).
+{
+  if (TRUE)
+
+    1 + 1
+}
+
+# Valid. Newlines are allowed between the `else` and the `alternative`, even at top level (#141).
+if (TRUE) {
+  1
+} else
+{
+  2
+}
+
+# Valid. Same as above but in `{ }` so it is valid no matter where the newlines are.
+{
+  if (TRUE) {
+    1
+  } else
+  {
+    2
+  }
+}
+
+# Valid. Newlines and comments are allowed between the `else` and the `alternative`, even at top level.
+if (TRUE) {
+  1
+} else
+
+# do this alternative
+{
+  2
+}
+
+# Valid. Newlines are allowed between the `else` and the `alternative`, even at top level.
+if (TRUE) 1 else
+  2
+
+--------------------------------------------------------------------------------
+
+(program
+  (comment)
+  (if_statement
+    (true)
+    (braced_expression
+      (float)))
+  (identifier)
+  (braced_expression
+    (float))
+  (comment)
+  (if_statement
+    (true)
+    (float))
+  (identifier)
+  (float)
+  (comment)
+  (braced_expression
+    (if_statement
+      (true)
+      (braced_expression
+        (float))
+      (braced_expression
+        (float))))
+  (comment)
+  (braced_expression
+    (if_statement
+      (true)
+      (braced_expression
+        (float))
+      (comment)
+      (comment)
+      (braced_expression
+        (float))))
+  (comment)
+  (braced_expression
+    (if_statement
+      (true)
+      (binary_operator
+        (float)
+        (float))))
+  (comment)
+  (if_statement
+    (true)
+    (braced_expression
+      (float))
+    (braced_expression
+      (float)))
+  (comment)
+  (braced_expression
+    (if_statement
+      (true)
+      (braced_expression
+        (float))
+      (braced_expression
+        (float))))
+  (comment)
+  (if_statement
+    (true)
+    (braced_expression
+      (float))
+    (comment)
+    (braced_expression
+      (float)))
+  (comment)
+  (if_statement
+    (true)
+    (float)
+    (float)))
+
+================================================================================
+For
+================================================================================
+
+for (x in y)
+  f
+
+for (x in 5:6) {
+  for (y in ys) {
+    z
+  }
+}
+
+for (x in y) for (y in z) x + y
+
+for (x in y
+
+) 1 + 1
+
+# `...` as the `variable`
+for (... in 1:2) print(get("..."))
+
+# `..i` as the `variable`
+for (..1 in 1:2) print(get("..1"))
+
+--------------------------------------------------------------------------------
+
+(program
+  (for_statement
+    variable: (identifier)
+    sequence: (identifier)
+    body: (identifier))
+  (for_statement
+    variable: (identifier)
+    sequence: (binary_operator
+      lhs: (float)
+      rhs: (float))
+    body: (braced_expression
+      body: (for_statement
+        variable: (identifier)
+        sequence: (identifier)
+        body: (braced_expression
+          body: (identifier)))))
+  (for_statement
+    variable: (identifier)
+    sequence: (identifier)
+    body: (for_statement
+      variable: (identifier)
+      sequence: (identifier)
+      body: (binary_operator
+        lhs: (identifier)
+        rhs: (identifier))))
+  (for_statement
+    variable: (identifier)
+    sequence: (identifier)
+    body: (binary_operator
+      lhs: (float)
+      rhs: (float)))
+  (comment)
+  (for_statement
+    variable: (dots)
+    sequence: (binary_operator
+      lhs: (float)
+      rhs: (float))
+    body: (call
+      function: (identifier)
+      arguments: (arguments
+        argument: (argument
+          value: (call
+            function: (identifier)
+            arguments: (arguments
+              argument: (argument
+                value: (string
+                  content: (string_content)))))))))
+  (comment)
+  (for_statement
+    variable: (dot_dot_i)
+    sequence: (binary_operator
+      lhs: (float)
+      rhs: (float))
+    body: (call
+      function: (identifier)
+      arguments: (arguments
+        argument: (argument
+          value: (call
+            function: (identifier)
+            arguments: (arguments
+              argument: (argument
+                value: (string
+                  content: (string_content))))))))))
+
+================================================================================
+For No Body
+================================================================================
+
+for (i in 1:5)
+
+--------------------------------------------------------------------------------
+
+(program
+  (for_statement
+    variable: (identifier)
+    sequence: (binary_operator
+      lhs: (float)
+      rhs: (float))
+    body: (MISSING identifier)))
+
+================================================================================
+While
+================================================================================
+while(TRUE)
+  bar
+
+while(x > 0)
+  x <- x - 1
+
+while(TRUE)
+  break
+
+while(TRUE)
+  next
+
+--------------------------------------------------------------------------------
+
+(program
+  (while_statement
+    condition: (true)
+    body: (identifier))
+  (while_statement
+    condition: (binary_operator
+      lhs: (identifier)
+      rhs: (float))
+    body: (binary_operator
+      lhs: (identifier)
+      rhs: (binary_operator
+        lhs: (identifier)
+        rhs: (float))))
+  (while_statement
+    condition: (true)
+    body: (break))
+  (while_statement
+    condition: (true)
+    body: (next)))
+
+================================================================================
+While No Body
+================================================================================
+
+while (a < b)
+
+--------------------------------------------------------------------------------
+
+(program
+  (while_statement
+    condition: (binary_operator
+      lhs: (identifier)
+      rhs: (identifier))
+    body: (MISSING identifier)))
+
+================================================================================
+Repeat
+================================================================================
+
+repeat 1
+
+--------------------------------------------------------------------------------
+
+(program
+  (repeat_statement
+    (float)))
+
+================================================================================
+Repeat No Body
+================================================================================
+
+repeat
+
+--------------------------------------------------------------------------------
+
+(program
+  (repeat_statement
+    body: (MISSING identifier)))
+
+================================================================================
+Switch
+================================================================================
+
+switch(foo,
+  x = 1,
+  "y" = 2,
+  z = ,
+  3
+)
+
+--------------------------------------------------------------------------------
+
+(program
+  (call
+    function: (identifier)
+    arguments: (arguments
+      argument: (argument
+        value: (identifier))
+      (comma)
+      argument: (argument
+        name: (identifier)
+        value: (float))
+      (comma)
+      argument: (argument
+        name: (string
+          content: (string_content))
+        value: (float))
+      (comma)
+      argument: (argument
+        name: (identifier))
+      (comma)
+      argument: (argument
+        value: (float)))))
+
+================================================================================
+Dollar
+================================================================================
+
+foo$bar
+foo$bar$baz
+foo$bar@baz
+foo$bar()
+foo$"bar"
+foo$bar()$baz[[1]]$bam
+foo$...
+foo$..1
+
+--------------------------------------------------------------------------------
+
+(program
+  (extract_operator
+    lhs: (identifier)
+    rhs: (identifier))
+  (extract_operator
+    lhs: (extract_operator
+      lhs: (identifier)
+      rhs: (identifier))
+    rhs: (identifier))
+  (extract_operator
+    lhs: (extract_operator
+      lhs: (identifier)
+      rhs: (identifier))
+    rhs: (identifier))
+  (call
+    function: (extract_operator
+      lhs: (identifier)
+      rhs: (identifier))
+    arguments: (arguments))
+  (extract_operator
+    lhs: (identifier)
+    rhs: (string
+      content: (string_content)))
+  (extract_operator
+    lhs: (subset2
+      function: (extract_operator
+        lhs: (call
+          function: (extract_operator
+            lhs: (identifier)
+            rhs: (identifier))
+          arguments: (arguments))
+        rhs: (identifier))
+      arguments: (arguments
+        argument: (argument
+          value: (float))))
+    rhs: (identifier))
+  (extract_operator
+    lhs: (identifier)
+    rhs: (dots))
+  (extract_operator
+    lhs: (identifier)
+    rhs: (dot_dot_i)))
+
+================================================================================
+Dollar No RHS
+================================================================================
+foo$
+
+--------------------------------------------------------------------------------
+
+(program
+  (extract_operator
+    lhs: (identifier)))
+
+================================================================================
+Slot
+================================================================================
+
+foo@bar
+foo@bar$baz
+foo@bar()
+foo@"bar"
+foo@...
+foo@..1
+
+--------------------------------------------------------------------------------
+
+(program
+  (extract_operator
+    (identifier)
+    (identifier))
+  (extract_operator
+    (extract_operator
+      (identifier)
+      (identifier))
+    (identifier))
+  (call
+    (extract_operator
+      (identifier)
+      (identifier))
+    (arguments))
+  (extract_operator
+    (identifier)
+    (string
+      (string_content)))
+  (extract_operator
+    (identifier)
+    (dots))
+  (extract_operator
+    (identifier)
+    (dot_dot_i)))
+
+================================================================================
+Slot No RHS
+================================================================================
+foo@
+
+--------------------------------------------------------------------------------
+
+(program
+  (extract_operator
+    lhs: (identifier)))
+
+================================================================================
+Namespace get
+================================================================================
+
+foo::
+foo::bar
+foo::bar(1)
+foo::...
+foo::..1
+...::foo
+..1::foo
+...::...
+..1::..1
+
+--------------------------------------------------------------------------------
+
+(program
+  (namespace_operator
+    lhs: (identifier))
+  (namespace_operator
+    lhs: (identifier)
+    rhs: (identifier))
+  (call
+    function: (namespace_operator
+      lhs: (identifier)
+      rhs: (identifier))
+    arguments: (arguments
+      argument: (argument
+        value: (float))))
+  (namespace_operator
+    lhs: (identifier)
+    rhs: (dots))
+  (namespace_operator
+    lhs: (identifier)
+    rhs: (dot_dot_i))
+  (namespace_operator
+    lhs: (dots)
+    rhs: (identifier))
+  (namespace_operator
+    lhs: (dot_dot_i)
+    rhs: (identifier))
+  (namespace_operator
+    lhs: (dots)
+    rhs: (dots))
+  (namespace_operator
+    lhs: (dot_dot_i)
+    rhs: (dot_dot_i)))
+
+================================================================================
+Namespace get internal
+================================================================================
+
+foo:::
+foo:::bar
+foo:::bar(1)
+foo:::...
+foo:::..1
+...:::foo
+..1:::foo
+...:::...
+..1:::..1
+
+--------------------------------------------------------------------------------
+
+(program
+  (namespace_operator
+    lhs: (identifier))
+  (namespace_operator
+    lhs: (identifier)
+    rhs: (identifier))
+  (call
+    function: (namespace_operator
+      lhs: (identifier)
+      rhs: (identifier))
+    arguments: (arguments
+      argument: (argument
+        value: (float))))
+  (namespace_operator
+    lhs: (identifier)
+    rhs: (dots))
+  (namespace_operator
+    lhs: (identifier)
+    rhs: (dot_dot_i))
+  (namespace_operator
+    lhs: (dots)
+    rhs: (identifier))
+  (namespace_operator
+    lhs: (dot_dot_i)
+    rhs: (identifier))
+  (namespace_operator
+    lhs: (dots)
+    rhs: (dots))
+  (namespace_operator
+    lhs: (dot_dot_i)
+    rhs: (dot_dot_i)))
+
+================================================================================
+Namespace With Missing RHS
+================================================================================
+# It's nice that `::` allows an optional RHS and enforces that it can only be a
+# string or identifier, so this gives us a pretty clean tree even though it is
+# invalid R code.
+# https://github.com/r-lib/tree-sitter-r/issues/65
+library(dplyr::)
+
+library()
+
+1
+2
+3
+
+--------------------------------------------------------------------------------
+
+(program
+  (comment)
+  (comment)
+  (comment)
+  (comment)
+  (call
+    function: (identifier)
+    arguments: (arguments
+      argument: (argument
+        value: (namespace_operator
+          lhs: (identifier)))))
+  (call
+    function: (identifier)
+    arguments: (arguments))
+  (float)
+  (float)
+  (float))
+
+================================================================================
+Dollar, At, Namespace, Namespace Internal With Expression RHS
+================================================================================
+# These nodes allows an optional RHS, and the RHS must be a string/identifier,
+# so we nicely get a true node here alongside the braces. Even if that's not
+# parsable R code, it's useful for completions and highlighting.
+foo${bar}
+foo@{bar}
+foo::{bar}
+foo:::{bar}
+
+--------------------------------------------------------------------------------
+
+(program
+  (comment)
+  (comment)
+  (comment)
+  (extract_operator
+    lhs: (identifier))
+  (braced_expression
+    body: (identifier))
+  (extract_operator
+    lhs: (identifier))
+  (braced_expression
+    body: (identifier))
+  (namespace_operator
+    lhs: (identifier))
+  (braced_expression
+    body: (identifier))
+  (namespace_operator
+    lhs: (identifier))
+  (braced_expression
+    body: (identifier)))
+
+================================================================================
+Assignment
+================================================================================
+
+x <- 1
+x = 1
+x := 1
+x <<- 1
+1 ->> x
+1 -> x
+x <- y(1)
+y(1) -> x
+
+--------------------------------------------------------------------------------
+
+(program
+  (binary_operator
+    lhs: (identifier)
+    rhs: (float))
+  (binary_operator
+    lhs: (identifier)
+    rhs: (float))
+  (binary_operator
+    lhs: (identifier)
+    rhs: (float))
+  (binary_operator
+    lhs: (identifier)
+    rhs: (float))
+  (binary_operator
+    lhs: (float)
+    rhs: (identifier))
+  (binary_operator
+    lhs: (float)
+    rhs: (identifier))
+  (binary_operator
+    lhs: (identifier)
+    rhs: (call
+      function: (identifier)
+      arguments: (arguments
+        argument: (argument
+          value: (float)))))
+  (binary_operator
+    lhs: (call
+      function: (identifier)
+      arguments: (arguments
+        argument: (argument
+          value: (float))))
+    rhs: (identifier)))
+
+================================================================================
+Calls
+================================================================================
+
+f()
+f(,)
+f(,,)
+f(x,)
+f(x,,)
+f(,x)
+f(,,x)
+f(x,,y)
+f(,,x,,y,,)
+f(x=,)
+f("x"=,)
+f(,y=)
+
+f(x)
+f(1+1)
+f(1 ~ 1)
+f(x, y)
+f(x, y = 2)
+f(x = 1 + 1)
+f(x, y =)
+f(f2(x, y))
+
+# Dots as unnamed and named argument
+f(...)
+f(, ..., 1)
+f(... = 1)
+f(... = ,)
+f(... = ...)
+
+# `..i` as unnamed and named argument
+f(..1)
+f(, ..1, 1)
+f(..1 = 1)
+f(..1 = ,)
+f(..1 = ..1)
+
+--------------------------------------------------------------------------------
+
+(program
+  (call
+    function: (identifier)
+    arguments: (arguments))
+  (call
+    function: (identifier)
+    arguments: (arguments
+      (comma)))
+  (call
+    function: (identifier)
+    arguments: (arguments
+      (comma)
+      (comma)))
+  (call
+    function: (identifier)
+    arguments: (arguments
+      argument: (argument
+        value: (identifier))
+      (comma)))
+  (call
+    function: (identifier)
+    arguments: (arguments
+      argument: (argument
+        value: (identifier))
+      (comma)
+      (comma)))
+  (call
+    function: (identifier)
+    arguments: (arguments
+      (comma)
+      argument: (argument
+        value: (identifier))))
+  (call
+    function: (identifier)
+    arguments: (arguments
+      (comma)
+      (comma)
+      argument: (argument
+        value: (identifier))))
+  (call
+    function: (identifier)
+    arguments: (arguments
+      argument: (argument
+        value: (identifier))
+      (comma)
+      (comma)
+      argument: (argument
+        value: (identifier))))
+  (call
+    function: (identifier)
+    arguments: (arguments
+      (comma)
+      (comma)
+      argument: (argument
+        value: (identifier))
+      (comma)
+      (comma)
+      argument: (argument
+        value: (identifier))
+      (comma)
+      (comma)))
+  (call
+    function: (identifier)
+    arguments: (arguments
+      argument: (argument
+        name: (identifier))
+      (comma)))
+  (call
+    function: (identifier)
+    arguments: (arguments
+      argument: (argument
+        name: (string
+          content: (string_content)))
+      (comma)))
+  (call
+    function: (identifier)
+    arguments: (arguments
+      (comma)
+      argument: (argument
+        name: (identifier))))
+  (call
+    function: (identifier)
+    arguments: (arguments
+      argument: (argument
+        value: (identifier))))
+  (call
+    function: (identifier)
+    arguments: (arguments
+      argument: (argument
+        value: (binary_operator
+          lhs: (float)
+          rhs: (float)))))
+  (call
+    function: (identifier)
+    arguments: (arguments
+      argument: (argument
+        value: (binary_operator
+          lhs: (float)
+          rhs: (float)))))
+  (call
+    function: (identifier)
+    arguments: (arguments
+      argument: (argument
+        value: (identifier))
+      (comma)
+      argument: (argument
+        value: (identifier))))
+  (call
+    function: (identifier)
+    arguments: (arguments
+      argument: (argument
+        value: (identifier))
+      (comma)
+      argument: (argument
+        name: (identifier)
+        value: (float))))
+  (call
+    function: (identifier)
+    arguments: (arguments
+      argument: (argument
+        name: (identifier)
+        value: (binary_operator
+          lhs: (float)
+          rhs: (float)))))
+  (call
+    function: (identifier)
+    arguments: (arguments
+      argument: (argument
+        value: (identifier))
+      (comma)
+      argument: (argument
+        name: (identifier))))
+  (call
+    function: (identifier)
+    arguments: (arguments
+      argument: (argument
+        value: (call
+          function: (identifier)
+          arguments: (arguments
+            argument: (argument
+              value: (identifier))
+            (comma)
+            argument: (argument
+              value: (identifier)))))))
+  (comment)
+  (call
+    function: (identifier)
+    arguments: (arguments
+      argument: (argument
+        value: (dots))))
+  (call
+    function: (identifier)
+    arguments: (arguments
+      (comma)
+      argument: (argument
+        value: (dots))
+      (comma)
+      argument: (argument
+        value: (float))))
+  (call
+    function: (identifier)
+    arguments: (arguments
+      argument: (argument
+        name: (dots)
+        value: (float))))
+  (call
+    function: (identifier)
+    arguments: (arguments
+      argument: (argument
+        name: (dots))
+      (comma)))
+  (call
+    function: (identifier)
+    arguments: (arguments
+      argument: (argument
+        name: (dots)
+        value: (dots))))
+  (comment)
+  (call
+    function: (identifier)
+    arguments: (arguments
+      argument: (argument
+        value: (dot_dot_i))))
+  (call
+    function: (identifier)
+    arguments: (arguments
+      (comma)
+      argument: (argument
+        value: (dot_dot_i))
+      (comma)
+      argument: (argument
+        value: (float))))
+  (call
+    function: (identifier)
+    arguments: (arguments
+      argument: (argument
+        name: (dot_dot_i)
+        value: (float))))
+  (call
+    function: (identifier)
+    arguments: (arguments
+      argument: (argument
+        name: (dot_dot_i))
+      (comma)))
+  (call
+    function: (identifier)
+    arguments: (arguments
+      argument: (argument
+        name: (dot_dot_i)
+        value: (dot_dot_i)))))
+
+================================================================================
+Calls With NULL As Argument Name
+================================================================================
+
+fn(NULL =)
+fn(NULL =,)
+fn(NULL = 1)
+
+# This was likely added to R to support this case for `switch()`
+switch(typeof(x), NULL = this, integer = that)
+
+--------------------------------------------------------------------------------
+
+(program
+  (call
+    function: (identifier)
+    arguments: (arguments
+      argument: (argument
+        name: (null))))
+  (call
+    function: (identifier)
+    arguments: (arguments
+      argument: (argument
+        name: (null))
+      (comma)))
+  (call
+    function: (identifier)
+    arguments: (arguments
+      argument: (argument
+        name: (null)
+        value: (float))))
+  (comment)
+  (call
+    function: (identifier)
+    arguments: (arguments
+      argument: (argument
+        value: (call
+          function: (identifier)
+          arguments: (arguments
+            argument: (argument
+              value: (identifier)))))
+      (comma)
+      argument: (argument
+        name: (null)
+        value: (identifier))
+      (comma)
+      argument: (argument
+        name: (identifier)
+        value: (identifier)))))
+
+================================================================================
+Calls With `return` As Argument Name
+================================================================================
+
+# `return` is not a reserved word in R (it's not in `?Reserved`), so it is
+# allowed as an argument name (#189).
+
+fn(return = TRUE)
+fn(return = )
+
+# One specific example from #189
+switch(
+  x, 
+  return = ,
+)
+
+--------------------------------------------------------------------------------
+
+(program
+  (comment)
+  (comment)
+  (call
+    function: (identifier)
+    arguments: (arguments
+      argument: (argument
+        name: (identifier)
+        value: (true))))
+  (call
+    function: (identifier)
+    arguments: (arguments
+      argument: (argument
+        name: (identifier))))
+  (comment)
+  (call
+    function: (identifier)
+    arguments: (arguments
+      argument: (argument
+        value: (identifier))
+      (comma)
+      argument: (argument
+        name: (identifier))
+      (comma))))
+
+================================================================================
+`return` Is Just An Identifier
+================================================================================
+
+# `return` is a regular symbol in R, not a keyword (#189). A `return()`
+# call is parsed the same as any other call, with `return` as the
+# identifier. A bare `return` is also parsed as an identifier.
+
+function(x) return(x)
+return(x)
+return
+
+--------------------------------------------------------------------------------
+
+(program
+  (comment)
+  (comment)
+  (comment)
+  (function_definition
+    parameters: (parameters
+      parameter: (parameter
+        name: (identifier)))
+    body: (call
+      function: (identifier)
+      arguments: (arguments
+        argument: (argument
+          value: (identifier)))))
+  (call
+    function: (identifier)
+    arguments: (arguments
+      argument: (argument
+        value: (identifier))))
+  (identifier))
+
+================================================================================
+Braced Expression
+================================================================================
+
+{}
+
+{1}
+
+{1; 2}
+
+{1;
+2}
+
+{1
+2
+}
+
+{
+1
+2
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (braced_expression)
+  (braced_expression
+    body: (float))
+  (braced_expression
+    body: (float)
+    body: (float))
+  (braced_expression
+    body: (float)
+    body: (float))
+  (braced_expression
+    body: (float)
+    body: (float))
+  (braced_expression
+    body: (float)
+    body: (float)))
+
+================================================================================
+Parenthesized Expression
+================================================================================
+
+(1)
+((1))
+(1 + 1)
+(fn(a, b))
+fn((a), (b))
+(function() {
+  body
+})
+
+--------------------------------------------------------------------------------
+
+(program
+  (parenthesized_expression
+    (float))
+  (parenthesized_expression
+    (parenthesized_expression
+      (float)))
+  (parenthesized_expression
+    (binary_operator
+      (float)
+      (float)))
+  (parenthesized_expression
+    (call
+      (identifier)
+      (arguments
+        (argument
+          (identifier))
+        (comma)
+        (argument
+          (identifier)))))
+  (call
+    (identifier)
+    (arguments
+      (argument
+        (parenthesized_expression
+          (identifier)))
+      (comma)
+      (argument
+        (parenthesized_expression
+          (identifier)))))
+  (parenthesized_expression
+    (function_definition
+      (parameters)
+      (braced_expression
+        (identifier)))))
+
+================================================================================
+Colon
+================================================================================
+
+1:2
+(1 + 1):-5
+
+--------------------------------------------------------------------------------
+
+(program
+  (binary_operator
+    lhs: (float)
+    rhs: (float))
+  (binary_operator
+    lhs: (parenthesized_expression
+      body: (binary_operator
+        lhs: (float)
+        rhs: (float)))
+    rhs: (unary_operator
+      rhs: (float))))
+
+================================================================================
+Formulas
+================================================================================
+
+~x
+y~x
+
+--------------------------------------------------------------------------------
+
+(program
+  (unary_operator
+    rhs: (identifier))
+  (binary_operator
+    lhs: (identifier)
+    rhs: (identifier)))
+
+================================================================================
+Help Operator
+================================================================================
+a ? b
+a ? b <- 1
+?a
+
+--------------------------------------------------------------------------------
+
+(program
+  (binary_operator
+    lhs: (identifier)
+    rhs: (identifier))
+  (binary_operator
+    lhs: (identifier)
+    rhs: (binary_operator
+      lhs: (identifier)
+      rhs: (float)))
+  (unary_operator
+    rhs: (identifier)))
+
+================================================================================
+Complex Expressions
+================================================================================
+repeat if (1) TRUE else repeat 42
+if (TRUE) if (FALSE) 2 else NULL
+a::b$c[[d]] <- e
+TRUE ~ FALSE ~ NULL ? NA ? NaN
+if (TRUE) FALSE
+else NA
+(if (TRUE) FALSE
+else NA)
+a = TRUE ? FALSE
+TRUE <- FALSE = NA
+TRUE <- FALSE ? NA
+TRUE = FALSE ? NA
+TRUE ? FALSE = NA
+
+--------------------------------------------------------------------------------
+
+(program
+  (repeat_statement
+    body: (if_statement
+      condition: (float)
+      consequence: (true)
+      alternative: (repeat_statement
+        body: (float))))
+  (if_statement
+    condition: (true)
+    consequence: (if_statement
+      condition: (false)
+      consequence: (float)
+      alternative: (null)))
+  (binary_operator
+    lhs: (subset2
+      function: (extract_operator
+        lhs: (namespace_operator
+          lhs: (identifier)
+          rhs: (identifier))
+        rhs: (identifier))
+      arguments: (arguments
+        argument: (argument
+          value: (identifier))))
+    rhs: (identifier))
+  (binary_operator
+    lhs: (binary_operator
+      lhs: (binary_operator
+        lhs: (binary_operator
+          lhs: (true)
+          rhs: (false))
+        rhs: (null))
+      rhs: (na))
+    rhs: (nan))
+  (if_statement
+    condition: (true)
+    consequence: (false))
+  (identifier)
+  (na)
+  (parenthesized_expression
+    body: (if_statement
+      condition: (true)
+      consequence: (false)
+      alternative: (na)))
+  (binary_operator
+    lhs: (binary_operator
+      lhs: (identifier)
+      rhs: (true))
+    rhs: (false))
+  (binary_operator
+    lhs: (true)
+    rhs: (binary_operator
+      lhs: (false)
+      rhs: (na)))
+  (binary_operator
+    lhs: (binary_operator
+      lhs: (true)
+      rhs: (false))
+    rhs: (na))
+  (binary_operator
+    lhs: (binary_operator
+      lhs: (true)
+      rhs: (false))
+    rhs: (na))
+  (binary_operator
+    lhs: (true)
+    rhs: (binary_operator
+      lhs: (false)
+      rhs: (na))))
+
+================================================================================
+Precedence Tests
+================================================================================
+A$"B"^NA
+a::b$c
+a$b?c
+
+--------------------------------------------------------------------------------
+
+(program
+  (binary_operator
+    lhs: (extract_operator
+      lhs: (identifier)
+      rhs: (string
+        content: (string_content)))
+    rhs: (na))
+  (extract_operator
+    lhs: (namespace_operator
+      lhs: (identifier)
+      rhs: (identifier))
+    rhs: (identifier))
+  (binary_operator
+    lhs: (extract_operator
+      lhs: (identifier)
+      rhs: (identifier))
+    rhs: (identifier)))
+
+================================================================================
+Newlines
+================================================================================
+
+apple
+(banana)
+
+{
+  apple
+  (banana)
+}
+
+(
+  apple
+  (banana)
+)
+
+--------------------------------------------------------------------------------
+
+(program
+  (identifier)
+  (parenthesized_expression
+    body: (identifier))
+  (braced_expression
+    body: (identifier)
+    body: (parenthesized_expression
+      body: (identifier)))
+  (parenthesized_expression
+    body: (call
+      function: (identifier)
+      arguments: (arguments
+        argument: (argument
+          value: (identifier))))))

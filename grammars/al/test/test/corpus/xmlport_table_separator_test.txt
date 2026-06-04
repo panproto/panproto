@@ -1,0 +1,87 @@
+================================================================================
+XMLPort with TableSeparator and TextEncoding properties
+================================================================================
+
+xmlport 5080 "Export Contact"
+{
+    Caption = 'Export Contact';
+    Direction = Export;
+    Format = VariableText;
+    TableSeparator = '<NewLine>';
+    TextEncoding = UTF8;
+    UseRequestPage = false;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (boolean))))
+
+================================================================================
+XMLPort with TableSeparator special values
+================================================================================
+
+xmlport 50000 "Test XMLPort"
+{
+    TableSeparator = NewLine;
+    TextEncoding = WINDOWS;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))))
+
+================================================================================
+XMLPort with TableSeparator string values
+================================================================================
+
+xmlport 50001 "Test XMLPort 2"
+{
+    TableSeparator = 'CR/LF';
+    TextEncoding = UTF16;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))))

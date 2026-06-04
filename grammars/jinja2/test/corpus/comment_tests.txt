@@ -1,0 +1,63 @@
+==================
+comments around jinja
+==================
+
+{# jinja comment #}
+{{ True }}
+{# jinja comment #}
+
+---
+
+(source_file
+  (bool)
+)
+
+==================
+empty comment
+==================
+
+{##}
+{{ True }}
+
+
+---
+
+(source_file
+  (bool)
+)
+
+==================
+wild comment formatting
+==================
+
+{{ True }}
+{############
+# {comment} #
+#############}
+{{ False }}
+
+---
+
+(source_file
+  (bool)
+  (bool)
+)
+
+==================
+wild comment formatting
+==================
+
+{# {{ ref('valid jinja') }} #}
+
+---
+
+(source_file)
+
+==================
+text ending in a bracket fails
+==================
+I'd like this to work, but it doesn't rn and this test
+makes a note of that {
+---
+
+(source_file (ERROR))

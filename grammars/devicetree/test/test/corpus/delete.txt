@@ -1,0 +1,112 @@
+
+========================================================================
+Delete nodes
+========================================================================
+
+/ {
+    foo: bar {};
+    /delete-node/ bar;
+    /delete-node/ &foo;
+    /delete-node/ baz@12345;
+};
+
+/delete-node/ foo;
+
+---
+
+(document
+    (node
+        name: (identifier)
+        (node
+            label: (identifier)
+            name: (identifier)
+        )
+        (delete_node
+            name: (identifier))
+        (delete_node
+            name: (reference label: (identifier)))
+        (delete_node
+            name: (identifier)
+            address: (unit_address))
+    )
+    (delete_node
+        name: (identifier))
+)
+
+========================================================================
+Delete nodes (no spaces)
+========================================================================
+
+/ {
+    foo: bar {};
+    /delete-node/bar;
+    /delete-node/&foo;
+    /delete-node/baz@12345;
+};
+
+/delete-node/foo;
+
+---
+
+(document
+    (node
+        name: (identifier)
+        (node
+            label: (identifier)
+            name: (identifier)
+        )
+        (delete_node
+            name: (identifier))
+        (delete_node
+            name: (reference label: (identifier)))
+        (delete_node
+            name: (identifier)
+            address: (unit_address))
+    )
+    (delete_node
+        name: (identifier))
+)
+
+========================================================================
+Delete properties
+========================================================================
+
+/ {
+    baz = "baz";
+    /delete-property/ baz;
+};
+
+---
+
+(document
+    (node
+        name: (identifier)
+        (property
+            name: (identifier)
+            value: (string_literal))
+        (delete_property
+            name: (identifier))
+    )
+)
+
+========================================================================
+Delete properties (no spaces)
+========================================================================
+
+/ {
+    baz = "baz";
+    /delete-property/baz;
+};
+
+---
+
+(document
+    (node
+        name: (identifier)
+        (property
+            name: (identifier)
+            value: (string_literal))
+        (delete_property
+            name: (identifier))
+    )
+)

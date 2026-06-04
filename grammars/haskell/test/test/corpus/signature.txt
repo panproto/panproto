@@ -1,0 +1,107 @@
+================================================================================
+signature: forall
+================================================================================
+
+a :: forall a (a :: * -> Type) . (∀ a . a -> a) -> A a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (signature
+      (variable)
+      (forall
+        (quantified_variables
+          (variable)
+          (parens
+            (annotated
+              (variable)
+              (function
+                (star)
+                (name)))))
+        (function
+          (parens
+            (forall
+              (quantified_variables
+                (variable))
+              (function
+                (variable)
+                (variable))))
+          (apply
+            (name)
+            (variable)))))))
+
+================================================================================
+signature: alternating forall/context/arrow/infix
+================================================================================
+
+a :: A a => ∀ a. a ++ a => a -> ∀ a. a -> A => A => A a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (signature
+      (variable)
+      (context
+        (apply
+          (name)
+          (variable))
+        (forall
+          (quantified_variables
+            (variable))
+          (context
+            (infix
+              (variable)
+              (operator)
+              (variable))
+            (function
+              (variable)
+              (forall
+                (quantified_variables
+                  (variable))
+                (function
+                  (variable)
+                  (context
+                    (name)
+                    (context
+                      (name)
+                      (apply
+                        (name)
+                        (variable)))))))))))))
+
+================================================================================
+signature: partial
+================================================================================
+
+a :: A -> _ -> (_, a) -> _a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (signature
+      (variable)
+      (function
+        (name)
+        (function
+          (wildcard)
+          (function
+            (tuple
+              (wildcard)
+              (variable))
+            (variable)))))))
+
+================================================================================
+signature: unicode herald
+================================================================================
+
+a ∷ a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (signature
+      (variable)
+      (variable))))

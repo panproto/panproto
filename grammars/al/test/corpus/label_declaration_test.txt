@@ -1,0 +1,84 @@
+==================
+Report with label declarations
+==================
+
+report 50000 "Test Report"
+{
+    labels
+    {
+        SimpleLabel = 'Simple Label Value';
+        LabelWithComment = 'Label Value', Comment = 'This is a comment';
+        LabelWithLocked = 'Locked Value', Locked = true;
+        LabelWithMaxLength = 'Max Length', MaxLength = 50;
+        LabelWithAll = 'All Properties', Comment = 'Full example', Locked = false, MaxLength = 100;
+    }
+}
+
+---
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (labels_section
+      (labels_keyword)
+      (label_declaration
+        name: (identifier)
+        value: (string_literal))
+      (label_declaration
+        name: (identifier)
+        value: (string_literal)
+        comment: (string_literal))
+      (label_declaration
+        name: (identifier)
+        value: (string_literal)
+        locked: (boolean))
+      (label_declaration
+        name: (identifier)
+        value: (string_literal)
+        maxlength: (integer))
+      (label_declaration
+        name: (identifier)
+        value: (string_literal)
+        comment: (string_literal)
+        locked: (boolean)
+        maxlength: (integer)))))
+
+==================
+Labels with mixed case properties
+==================
+
+report 50001 "Mixed Case Report"
+{
+    labels
+    {
+        Label1 = 'Value1', COMMENT = 'Upper case comment';
+        Label2 = 'Value2', locked = true, comment = 'Mixed order';
+        Label3 = 'Value3', MaxLength = 30, LOCKED = false;
+    }
+}
+
+---
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (labels_section
+      (labels_keyword)
+      (label_declaration
+        name: (identifier)
+        value: (string_literal)
+        comment: (string_literal))
+      (label_declaration
+        name: (identifier)
+        value: (string_literal)
+        locked: (boolean)
+        comment: (string_literal))
+      (label_declaration
+        name: (identifier)
+        value: (string_literal)
+        maxlength: (integer)
+        locked: (boolean)))))

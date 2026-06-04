@@ -1,0 +1,35 @@
+===
+errors/wrongForGeneratorType1.pkl
+===
+
+res1 = new Listing {
+  for (n: Int in List(1, "other", 2)) { n }
+}
+---
+
+(module
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (forGenerator
+          (typedIdentifier
+            (identifier)
+            (typeAnnotation
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))))
+          (unqualifiedAccessExpr
+            (identifier)
+            (argumentList
+              (intLiteralExpr)
+              (slStringLiteralExpr
+                (slStringLiteralPart))
+              (intLiteralExpr)))
+          (objectBody
+            (objectElement
+              (unqualifiedAccessExpr
+                (identifier)))))))))

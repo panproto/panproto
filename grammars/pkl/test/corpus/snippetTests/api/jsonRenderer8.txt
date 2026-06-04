@@ -1,0 +1,30 @@
+===
+api/jsonRenderer8.pkl
+===
+
+m = new Mixin {}
+
+output {
+  renderer = new JsonRenderer {}
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody)))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (objectBody))))))

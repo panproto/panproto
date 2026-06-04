@@ -1,0 +1,155 @@
+========================================
+if statement
+========================================
+
+%if "#{==:#{host},myhost}"
+set -g status-style bg=red
+%endif
+
+---
+
+(file
+  (if_statement
+    (if_keyword)
+    (condition
+      (expr_double_quotes
+        (operator)
+        (expr_double_quotes
+          (name))))
+    (set_option_directive
+      (command)
+      (command_line_option)
+      (option)
+      (value))
+    (endif_keyword)))
+
+========================================
+if else statement
+========================================
+
+%if "#{==:#{host},myhost}"
+set -g status-style bg=red
+%else
+set -g status-style bg=blue
+%endif
+
+---
+
+(file
+  (if_statement
+    (if_keyword)
+    (condition
+      (expr_double_quotes
+        (operator)
+        (expr_double_quotes
+          (name))))
+    (set_option_directive
+      (command)
+      (command_line_option)
+      (option)
+      (value))
+    (else_keyword)
+    (set_option_directive
+      (command)
+      (command_line_option)
+      (option)
+      (value))
+    (endif_keyword)))
+
+========================================
+if elif else statement
+========================================
+
+%if "#{==:#{host},myhost}"
+set -g status-style bg=red
+%elif "#{==:#{host},myotherhost}"
+set -g status-style bg=green
+%else
+set -g status-style bg=blue
+%endif
+
+---
+
+(file
+  (if_statement
+    (if_keyword)
+    (condition
+      (expr_double_quotes
+        (operator)
+        (expr_double_quotes
+          (name))))
+    (set_option_directive
+      (command)
+      (command_line_option)
+      (option)
+      (value))
+    (elif_keyword)
+    (condition
+      (expr_double_quotes
+        (operator)
+        (expr_double_quotes
+          (name))))
+    (set_option_directive
+      (command)
+      (command_line_option)
+      (option)
+      (value))
+    (else_keyword)
+    (set_option_directive
+      (command)
+      (command_line_option)
+      (option)
+      (value))
+    (endif_keyword)))
+
+========================================
+if elif else statement multiple commands
+========================================
+
+%if "#{==:#{host},myhost}"
+foo=1
+bar=2
+%elif "#{==:#{host},myotherhost}"
+foo=3
+bar=4
+%else
+foo=5
+bar=6
+%endif
+
+---
+
+(file
+  (if_statement
+    (if_keyword)
+    (condition
+      (expr_double_quotes
+        (operator)
+        (expr_double_quotes
+          (name))))
+    (environment_assignment
+      (name)
+      (value))
+    (environment_assignment
+      (name)
+      (value))
+    (elif_keyword)
+    (condition
+      (expr_double_quotes
+        (operator)
+        (expr_double_quotes
+          (name))))
+    (environment_assignment
+      (name)
+      (value))
+    (environment_assignment
+      (name)
+      (value))
+    (else_keyword)
+    (environment_assignment
+      (name)
+      (value))
+    (environment_assignment
+      (name)
+      (value))
+    (endif_keyword)))

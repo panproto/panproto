@@ -1,0 +1,14 @@
+===
+packages/badImport10.error.pkl
+===
+
+res = import("package://localhost:0/birds@0.5.0::invalidalgo:abc123#/catalog/Bird.pkl")
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (importExpr
+      (stringConstant
+        (slStringLiteralPart)))))

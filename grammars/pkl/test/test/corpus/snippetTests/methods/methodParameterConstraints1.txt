@@ -1,0 +1,220 @@
+===
+methods/methodParameterConstraints1.pkl
+===
+
+class X {
+  function int(int: Int(isPositive)): Int(isPositive) = int
+  function l(l: List<String(!isEmpty)>): List<String(!isEmpty)> = l
+  function map(map: Map<String(!isEmpty), Int(isPositive)>(!isEmpty)): Map<String(!isEmpty), Int(isPositive)>(!isEmpty) = map
+  function nullable(nullable: String(!isEmpty)?): String(!isEmpty)? = nullable
+}
+
+local x = new X {}
+
+res0 = x.int(3)
+res1 = x.l(List("1", "2"))
+res2 = x.map(Map("1", 1, "2", 2))
+res3 = x.nullable("1")
+res4 = x.nullable(null)
+
+---
+
+(module
+  (clazz
+    (identifier)
+    (classBody
+      (classMethod
+        (methodHeader
+          (identifier)
+          (parameterList
+            (typedIdentifier
+              (identifier)
+              (typeAnnotation
+                (constrainedType
+                  (declaredType
+                    (qualifiedIdentifier
+                      (identifier)))
+                  (unqualifiedAccessExpr
+                    (identifier))))))
+          (typeAnnotation
+            (constrainedType
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))
+              (unqualifiedAccessExpr
+                (identifier)))))
+        (unqualifiedAccessExpr
+          (identifier)))
+      (classMethod
+        (methodHeader
+          (identifier)
+          (parameterList
+            (typedIdentifier
+              (identifier)
+              (typeAnnotation
+                (declaredType
+                  (qualifiedIdentifier
+                    (identifier))
+                  (typeArgumentList
+                    (constrainedType
+                      (declaredType
+                        (qualifiedIdentifier
+                          (identifier)))
+                      (logicalNotExpr
+                        (unqualifiedAccessExpr
+                          (identifier)))))))))
+          (typeAnnotation
+            (declaredType
+              (qualifiedIdentifier
+                (identifier))
+              (typeArgumentList
+                (constrainedType
+                  (declaredType
+                    (qualifiedIdentifier
+                      (identifier)))
+                  (logicalNotExpr
+                    (unqualifiedAccessExpr
+                      (identifier))))))))
+        (unqualifiedAccessExpr
+          (identifier)))
+      (classMethod
+        (methodHeader
+          (identifier)
+          (parameterList
+            (typedIdentifier
+              (identifier)
+              (typeAnnotation
+                (constrainedType
+                  (declaredType
+                    (qualifiedIdentifier
+                      (identifier))
+                    (typeArgumentList
+                      (constrainedType
+                        (declaredType
+                          (qualifiedIdentifier
+                            (identifier)))
+                        (logicalNotExpr
+                          (unqualifiedAccessExpr
+                            (identifier))))
+                      (constrainedType
+                        (declaredType
+                          (qualifiedIdentifier
+                            (identifier)))
+                        (unqualifiedAccessExpr
+                          (identifier)))))
+                  (logicalNotExpr
+                    (unqualifiedAccessExpr
+                      (identifier)))))))
+          (typeAnnotation
+            (constrainedType
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier))
+                (typeArgumentList
+                  (constrainedType
+                    (declaredType
+                      (qualifiedIdentifier
+                        (identifier)))
+                    (logicalNotExpr
+                      (unqualifiedAccessExpr
+                        (identifier))))
+                  (constrainedType
+                    (declaredType
+                      (qualifiedIdentifier
+                        (identifier)))
+                    (unqualifiedAccessExpr
+                      (identifier)))))
+              (logicalNotExpr
+                (unqualifiedAccessExpr
+                  (identifier))))))
+        (unqualifiedAccessExpr
+          (identifier)))
+      (classMethod
+        (methodHeader
+          (identifier)
+          (parameterList
+            (typedIdentifier
+              (identifier)
+              (typeAnnotation
+                (nullableType
+                  (constrainedType
+                    (declaredType
+                      (qualifiedIdentifier
+                        (identifier)))
+                    (logicalNotExpr
+                      (unqualifiedAccessExpr
+                        (identifier))))))))
+          (typeAnnotation
+            (nullableType
+              (constrainedType
+                (declaredType
+                  (qualifiedIdentifier
+                    (identifier)))
+                (logicalNotExpr
+                  (unqualifiedAccessExpr
+                    (identifier)))))))
+        (unqualifiedAccessExpr
+          (identifier)))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList
+            (slStringLiteralExpr
+              (slStringLiteralPart))
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList
+            (slStringLiteralExpr
+              (slStringLiteralPart))
+            (intLiteralExpr)
+            (slStringLiteralExpr
+              (slStringLiteralPart))
+            (intLiteralExpr))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (nullLiteralExpr)))))

@@ -1,0 +1,109 @@
+===================
+Omitted semicolon var declaration literal
+===================
+
+var a = 10
+
+---
+(module
+  (variable_declaration
+    (identifier)
+    (operator)
+    (integer)
+    (MISSING _lookback_semicolon)
+  )
+)
+
+===================
+Omitted semicolon var declaration blocks
+===================
+
+var a = {}
+
+---
+(module
+  (variable_declaration
+    (identifier)
+    (operator)
+    (object)
+  )
+)
+
+===================
+Omitted semicolon var declaration block space
+===================
+
+var a = { }
+
+---
+(module
+  (variable_declaration
+    (identifier)
+    (operator)
+    (object)
+  )
+)
+
+===================
+Omitted semicolon var declaration block newline
+===================
+
+var a = {
+}
+
+---
+(module
+  (variable_declaration
+    (identifier)
+    (operator)
+    (object)
+  )
+)
+
+===================
+Omitted semicolon var declaration object
+===================
+
+var a = {
+  a: "hello"
+}
+
+---
+(module
+  (variable_declaration
+    (identifier)
+    (operator)
+    (object (pair (identifier) (string)))
+  )
+)
+
+===================
+Omitted semicolon var declaration binary expression
+===================
+
+var a = 10 + {}
+
+---
+(module
+  (variable_declaration
+    (identifier)
+    (operator)
+    (integer)
+    (operator)
+    (object)
+  )
+)
+
+===================
+Omitted semicolon line after block
+===================
+
+{}test
+
+---
+(module
+  (object)
+  (identifier)
+  (MISSING _lookback_semicolon)
+)
+

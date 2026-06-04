@@ -1,0 +1,338 @@
+================================================================================
+Page with preprocessor block containing trigger and var section
+================================================================================
+
+page 50000 "Test Page"
+{
+    PageType = List;
+    
+#if not CLEAN24
+    trigger OnAfterGetRecord()
+    begin
+        Message('Test');
+    end;
+    
+    var
+        TestVar: Boolean;
+#endif
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (preproc_conditional
+      (preproc_if
+        (preproc_open)
+        condition: (preproc_not_expression
+          (identifier)))
+      (trigger_declaration
+        (trigger_keyword)
+        name: (identifier)
+        (code_block
+          (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (string_literal)))))
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (preproc_endif
+        (preproc_close)))))
+
+================================================================================
+Page with preprocessor containing trigger with var section and variable
+================================================================================
+
+page 30114 "Shpfy Order Attributes"
+{
+    Caption = 'Shopify Order Attributes';
+    PageType = ListPart;
+    SourceTable = "Shpfy Order Attribute";
+
+    layout
+    {
+        area(content)
+        {
+            repeater(General)
+            {
+                field("Key"; Rec."Key")
+                {
+                    ApplicationArea = All;
+                    ToolTip = 'Specifies the key.';
+                }
+#if not CLEAN24
+                field(Value; Rec.Value)
+                {
+                    ApplicationArea = All;
+                    ToolTip = 'Specifies the value.';
+                }
+#endif
+            }
+        }
+    }
+
+#if not CLEAN24
+    trigger OnAfterGetRecord()
+    var
+        Shop: Record "Shpfy Shop";
+        OrderHeader: Record "Shpfy Order Header";
+    begin
+        if OrderHeader.Get(Rec."Order Id") then
+            if Shop.Get(OrderHeader."Shop Code") then
+                ReplaceOrderAtributeValueEnabled := Shop."Replace Order Attribute Value";
+    end;
+
+    var
+        ReplaceOrderAtributeValueEnabled: Boolean;
+#endif
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (quoted_identifier))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (repeater_section
+          (repeater_keyword)
+          name: (identifier)
+          (page_field
+            name: (quoted_identifier)
+            source: (member_expression
+              object: (identifier)
+              member: (quoted_identifier))
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (string_literal)))
+          (preproc_conditional_layout
+            (preproc_if
+              (preproc_open)
+              condition: (preproc_not_expression
+                (identifier)))
+            (page_field
+              name: (identifier)
+              source: (member_expression
+                object: (identifier)
+                member: (identifier))
+              (property
+                name: (property_name)
+                value: (identifier))
+              (property
+                name: (property_name)
+                value: (string_literal)))
+            (preproc_endif
+              (preproc_close))))))
+    (preproc_conditional
+      (preproc_if
+        (preproc_open)
+        condition: (preproc_not_expression
+          (identifier)))
+      (trigger_declaration
+        (trigger_keyword)
+        name: (identifier)
+        (var_section
+          (var_keyword)
+          (variable_declaration
+            name: (identifier)
+            type: (type_specification
+              (record_type
+                reference: (quoted_identifier))))
+          (variable_declaration
+            name: (identifier)
+            type: (type_specification
+              (record_type
+                reference: (quoted_identifier)))))
+        (code_block
+          (if_statement
+            (if_keyword)
+            condition: (call_expression
+              function: (member_expression
+                object: (identifier)
+                member: (identifier))
+              arguments: (argument_list
+                (member_expression
+                  object: (identifier)
+                  member: (quoted_identifier))))
+            (then_keyword)
+            then_branch: (if_statement
+              (if_keyword)
+              condition: (call_expression
+                function: (member_expression
+                  object: (identifier)
+                  member: (identifier))
+                arguments: (argument_list
+                  (member_expression
+                    object: (identifier)
+                    member: (quoted_identifier))))
+              (then_keyword)
+              then_branch: (assignment_statement
+                left: (identifier)
+                right: (member_expression
+                  object: (identifier)
+                  member: (quoted_identifier)))))))
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (preproc_endif
+        (preproc_close)))))
+
+================================================================================
+Page with multiple preprocessor blocks and mixed content
+================================================================================
+
+page 50001 "Complex Page"
+{
+    PageType = Card;
+    
+#if CLEAN24
+    Caption = 'New Caption';
+#else
+    Caption = 'Old Caption';
+#endif
+
+    layout
+    {
+        area(content)
+        {
+            field(TestField; TestField)
+            {
+                ApplicationArea = All;
+            }
+        }
+    }
+
+#if not CLEAN24
+    trigger OnOpenPage()
+    var
+        TempVar: Integer;
+    begin
+        TempVar := 10;
+        Message('%1', TempVar);
+    end;
+    
+    trigger OnClosePage()
+    begin
+        // Cleanup code
+    end;
+    
+    var
+        GlobalVar1: Text;
+        GlobalVar2: Decimal;
+#endif
+
+    procedure TestProcedure()
+    begin
+        // Some code
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (preproc_conditional
+      (preproc_if
+        (preproc_open)
+        condition: (identifier))
+      (property
+        name: (property_name)
+        value: (string_literal))
+      (preproc_else)
+      (property
+        name: (property_name)
+        value: (string_literal))
+      (preproc_endif
+        (preproc_close)))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))))
+    (preproc_conditional
+      (preproc_if
+        (preproc_open)
+        condition: (preproc_not_expression
+          (identifier)))
+      (trigger_declaration
+        (trigger_keyword)
+        name: (identifier)
+        (var_section
+          (var_keyword)
+          (variable_declaration
+            name: (identifier)
+            type: (type_specification
+              (basic_type))))
+        (code_block
+          (assignment_statement
+            left: (identifier)
+            right: (integer))
+          (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (string_literal)
+              (identifier)))))
+      (trigger_declaration
+        (trigger_keyword)
+        name: (identifier)
+        (code_block
+          (comment)))
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (text_type)))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (preproc_endif
+        (preproc_close)))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (comment)
+        (end_keyword)))))

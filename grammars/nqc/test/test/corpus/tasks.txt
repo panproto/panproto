@@ -1,0 +1,247 @@
+====================
+Task
+====================
+
+task name()
+{
+ // the task's code is placed here
+} 
+
+---
+
+(translation_unit
+  (task_definition
+    (identifier)
+    (parameter_list)
+    (compound_statement
+      (comment))))
+
+====================
+Task 2
+====================
+
+task main()
+{
+    int y = 1; // y is now equal to 1
+    foo(y); // y is still equal to 1!
+}
+
+---
+
+(translation_unit
+  (task_definition
+    (identifier)
+    (parameter_list)
+    (compound_statement
+      (declaration
+        (primitive_type)
+        (init_declarator
+          (identifier)
+          (number_literal)))
+      (comment)
+      (expression_statement
+        (call_expression
+          (identifier)
+          (argument_list
+            (identifier))))
+      (comment))))
+
+====================
+Task with calls
+====================
+
+task main()
+{
+    foo(2); // ok
+    foo(4*5); // ok - expression is still constant
+    foo(x); // error - x is not a constant
+}
+
+---
+
+(translation_unit
+  (task_definition
+    (identifier)
+    (parameter_list)
+    (compound_statement
+      (expression_statement
+        (call_expression
+          (identifier)
+          (argument_list
+            (number_literal))))
+      (comment)
+      (expression_statement
+        (call_expression
+          (identifier)
+          (argument_list
+            (binary_expression
+              (number_literal)
+              (number_literal)))))
+      (comment)
+      (expression_statement
+        (call_expression
+          (identifier)
+          (argument_list
+            (identifier))))
+      (comment))))
+
+====================
+Deref
+====================
+
+task main() {
+    int x = 2;
+    int* y = &x; // y contains the address of x
+    foo(y); // x = 4
+} 
+
+---
+
+(translation_unit
+  (task_definition
+    (identifier)
+    (parameter_list)
+    (compound_statement
+      (declaration
+        (primitive_type)
+        (init_declarator
+          (identifier)
+          (number_literal)))
+      (declaration
+        (primitive_type)
+        (init_declarator
+          (pointer_declarator
+            (identifier))
+          (pointer_expression
+            (identifier))))
+      (comment)
+      (expression_statement
+        (call_expression
+          (identifier)
+          (argument_list
+            (identifier))))
+      (comment))))
+
+====================
+Task with call args
+====================
+
+task main()
+{
+    int x; // declare variable x
+    foo(1, 2); // ok
+    foo(x, 2); // ok
+    foo(2, x); // error - 2nd argument not constant!
+    foo(2); // error - wrong number of arguments!
+}
+
+---
+
+(translation_unit
+  (task_definition
+    (identifier)
+    (parameter_list)
+    (compound_statement
+      (declaration
+        (primitive_type)
+        (identifier))
+      (comment)
+      (expression_statement
+        (call_expression
+          (identifier)
+          (argument_list
+            (number_literal)
+            (number_literal))))
+      (comment)
+      (expression_statement
+        (call_expression
+          (identifier)
+          (argument_list
+            (identifier)
+            (number_literal))))
+      (comment)
+      (expression_statement
+        (call_expression
+          (identifier)
+          (argument_list
+            (number_literal)
+            (identifier))))
+      (comment)
+      (expression_statement
+        (call_expression
+          (identifier)
+          (argument_list
+            (number_literal))))
+      (comment))))
+
+====================
+Compound Statement
+====================
+
+int x; // x is global
+
+task main() {
+    int y; // y is local to task main
+    x = y; // ok
+    { // begin compound statement
+    int z; // local z declared
+    y = z; // ok
+    }
+    y = z; // error - z no longer in scope
+}
+
+task foo() {
+    x = 1; // ok
+    y = 2; // error - y is not global
+}
+
+---
+
+(translation_unit
+  (declaration
+    (primitive_type)
+    (identifier))
+  (comment)
+  (task_definition
+    (identifier)
+    (parameter_list)
+    (compound_statement
+      (declaration
+        (primitive_type)
+        (identifier))
+      (comment)
+      (expression_statement
+        (assignment_expression
+          (identifier)
+          (identifier)))
+      (comment)
+      (compound_statement
+        (comment)
+        (declaration
+          (primitive_type)
+          (identifier))
+        (comment)
+        (expression_statement
+          (assignment_expression
+            (identifier)
+            (identifier)))
+        (comment))
+      (expression_statement
+        (assignment_expression
+          (identifier)
+          (identifier)))
+      (comment)))
+  (task_definition
+    (identifier)
+    (parameter_list)
+    (compound_statement
+      (expression_statement
+        (assignment_expression
+          (identifier)
+          (number_literal)))
+      (comment)
+      (expression_statement
+        (assignment_expression
+          (identifier)
+          (number_literal)))
+      (comment))))

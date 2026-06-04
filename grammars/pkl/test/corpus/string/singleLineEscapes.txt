@@ -1,0 +1,64 @@
+===
+singleLineEscapes
+===
+
+res1 = "bar \\t \t baz"
+
+res2 = #"bar \t \#t baz"#
+
+res3 = ##"bar \#t \##t baz"##
+
+res4 = ###"bar \##t \###t baz"###
+
+res5 = ####"bar \###t \####t baz"####
+
+res6 = #####"bar \####t \#####t baz"#####
+
+res7 = ######"bar \#####t \######t baz"######
+---
+
+(module
+  (classProperty
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart)
+      (escapeSequence)
+      (slStringLiteralPart)
+      (escapeSequence)
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart)
+      (escapeSequence)
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart)
+      (escapeSequence)
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart)
+      (escapeSequence)
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart)
+      (escapeSequence)
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart)
+      (escapeSequence)
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart)
+      (escapeSequence)
+      (slStringLiteralPart))))

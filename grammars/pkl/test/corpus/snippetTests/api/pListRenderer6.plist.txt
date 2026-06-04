@@ -1,0 +1,163 @@
+===
+api/pListRenderer6.plist.pkl
+===
+
+name = "pigeon"
+age = 42
+friends = new Listing {
+  "barn owl"
+  "parrot"
+}
+hobbies {
+  ["surfing"] {
+    skill = "low"
+  }
+  ["firemaking"] {
+    skill = "high"
+  }
+}
+address {
+  street = "Norton St."
+  zip = 12345
+}
+
+output {
+  renderer = new PListRenderer {
+    converters {
+      ["name"] = (it) -> it.reverse()
+      ["friends[*]"] = (it) -> it + "x"
+      ["hobbies[*]"] = (it) -> it.skill
+      ["address.street"] = (it) -> "Other St."
+      ["address.*"] = (it) -> "changed"
+      ["unmatched"] = (it) -> "unmatched"
+    }
+  }
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (intLiteralExpr))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectElement
+          (slStringLiteralExpr
+            (slStringLiteralPart)))
+        (objectElement
+          (slStringLiteralExpr
+            (slStringLiteralPart))))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectProperty
+            (identifier)
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectProperty
+            (identifier)
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (slStringLiteralExpr
+          (slStringLiteralPart)))
+      (objectProperty
+        (identifier)
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (objectBody
+            (objectProperty
+              (identifier)
+              (objectBody
+                (objectEntry
+                  (slStringLiteralExpr
+                    (slStringLiteralPart))
+                  (functionLiteralExpr
+                    (parameterList
+                      (typedIdentifier
+                        (identifier)))
+                    (qualifiedAccessExpr
+                      (unqualifiedAccessExpr
+                        (identifier))
+                      (identifier)
+                      (argumentList))))
+                (objectEntry
+                  (slStringLiteralExpr
+                    (slStringLiteralPart))
+                  (functionLiteralExpr
+                    (parameterList
+                      (typedIdentifier
+                        (identifier)))
+                    (additiveExpr
+                      (unqualifiedAccessExpr
+                        (identifier))
+                      (slStringLiteralExpr
+                        (slStringLiteralPart)))))
+                (objectEntry
+                  (slStringLiteralExpr
+                    (slStringLiteralPart))
+                  (functionLiteralExpr
+                    (parameterList
+                      (typedIdentifier
+                        (identifier)))
+                    (qualifiedAccessExpr
+                      (unqualifiedAccessExpr
+                        (identifier))
+                      (identifier))))
+                (objectEntry
+                  (slStringLiteralExpr
+                    (slStringLiteralPart))
+                  (functionLiteralExpr
+                    (parameterList
+                      (typedIdentifier
+                        (identifier)))
+                    (slStringLiteralExpr
+                      (slStringLiteralPart))))
+                (objectEntry
+                  (slStringLiteralExpr
+                    (slStringLiteralPart))
+                  (functionLiteralExpr
+                    (parameterList
+                      (typedIdentifier
+                        (identifier)))
+                    (slStringLiteralExpr
+                      (slStringLiteralPart))))
+                (objectEntry
+                  (slStringLiteralExpr
+                    (slStringLiteralPart))
+                  (functionLiteralExpr
+                    (parameterList
+                      (typedIdentifier
+                        (identifier)))
+                    (slStringLiteralExpr
+                      (slStringLiteralPart))))))))))))

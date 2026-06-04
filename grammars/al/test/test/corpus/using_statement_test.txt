@@ -1,0 +1,81 @@
+================================================================================
+Using statement for namespace imports
+================================================================================
+
+namespace MyNamespace.SubNamespace;
+
+using System.Text;
+using Microsoft.Dynamics.Nav;
+using MyOther.Namespace.Component;
+
+codeunit 50000 "Test Codeunit"
+{
+    procedure DoSomething()
+    begin
+        // Code here
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (namespace_declaration
+    (namespace_keyword)
+    name: (namespace_name
+      (identifier)
+      (identifier)))
+  (using_statement
+    (using_keyword)
+    namespace: (namespace_name
+      (identifier)
+      (identifier)))
+  (using_statement
+    (using_keyword)
+    namespace: (namespace_name
+      (identifier)
+      (identifier)
+      (identifier)))
+  (using_statement
+    (using_keyword)
+    namespace: (namespace_name
+      (identifier)
+      (identifier)
+      (identifier)))
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (comment)
+        (end_keyword)))))
+
+================================================================================
+Using statement without namespace declaration
+================================================================================
+
+using System.Collections;
+
+page 50000 "Test Page"
+{
+    PageType = List;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (using_statement
+    (using_keyword)
+    namespace: (namespace_name
+      (identifier)
+      (identifier)))
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))))

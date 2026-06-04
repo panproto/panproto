@@ -1,0 +1,164 @@
+================================================================================
+Local declaration
+================================================================================
+
+local x: number
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    type_annotation: (type_annotation
+      (simple_type
+        name: (identifier)))))
+
+================================================================================
+Local declaration with initialization
+================================================================================
+
+local x: number = 5
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    type_annotation: (type_annotation
+      (simple_type
+        name: (identifier)))
+    initializers: (expressions
+      (number))))
+
+================================================================================
+Local declaration of multiple variables
+================================================================================
+
+local x, y: number, string
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier))
+      (var
+        name: (identifier)))
+    type_annotation: (type_annotation
+      (simple_type
+        name: (identifier))
+      (simple_type
+        name: (identifier)))))
+
+================================================================================
+Local declaration of multiple variables with initialization
+================================================================================
+
+local x, y: number, string = 23, "hi"
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier))
+      (var
+        name: (identifier)))
+    type_annotation: (type_annotation
+      (simple_type
+        name: (identifier))
+      (simple_type
+        name: (identifier)))
+    initializers: (expressions
+      (number)
+      (string
+        content: (string_content)))))
+
+================================================================================
+Union
+================================================================================
+
+local x: string | number
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    type_annotation: (type_annotation
+      (type_union
+        (simple_type
+          name: (identifier))
+        (simple_type
+          name: (identifier))))))
+
+================================================================================
+Union of simple type and non-array type
+================================================================================
+
+local x: thread | {string:number} = {}
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    type_annotation: (type_annotation
+      (type_union
+        (simple_type
+          name: (identifier))
+        (table_type
+          key_type: (simple_type
+            name: (identifier))
+          value_type: (simple_type
+            name: (identifier)))))
+    initializers: (expressions
+      (table_constructor))))
+
+================================================================================
+Type indexing
+================================================================================
+
+local x: foo.bar
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    type_annotation: (type_annotation
+      (type_index
+        (identifier)
+        (identifier)))))
+
+================================================================================
+Multiple type indexing
+================================================================================
+
+local x: foo.bar.baz
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    type_annotation: (type_annotation
+      (type_index
+        (type_index
+          (identifier)
+          (identifier))
+        (identifier)))))

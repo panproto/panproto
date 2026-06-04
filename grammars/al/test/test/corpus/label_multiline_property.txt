@@ -1,0 +1,59 @@
+================================================================================
+Label MultiLine property support
+================================================================================
+
+page 50000 "Label MultiLine Test"
+{
+    layout
+    {
+        area(content)
+        {
+            label(Description)
+            {
+                ApplicationArea = All;
+                Caption = 'Multi-line text';
+                MultiLine = true;
+            }
+            label(ShortText)
+            {
+                ApplicationArea = All;
+                Caption = 'Single line';
+                MultiLine = false;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (label_section
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (boolean)))
+        (label_section
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (boolean)))))))

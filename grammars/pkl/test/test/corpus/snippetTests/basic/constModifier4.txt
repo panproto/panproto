@@ -1,0 +1,64 @@
+===
+basic/constModifier4.pkl
+===
+
+const baz = 15
+
+foo {
+  const local bar = baz
+
+  const local bar2 = biz()
+
+  const local function biz() = baz
+
+  qux = bar
+
+  corge = biz()
+
+  corge2 = bar2
+}
+
+---
+
+(module
+  (classProperty
+    (modifier)
+    (identifier)
+    (intLiteralExpr))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (modifier)
+        (modifier)
+        (identifier)
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectProperty
+        (modifier)
+        (modifier)
+        (identifier)
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList)))
+      (objectMethod
+        (methodHeader
+          (modifier)
+          (modifier)
+          (identifier)
+          (parameterList))
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectProperty
+        (identifier)
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectProperty
+        (identifier)
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList)))
+      (objectProperty
+        (identifier)
+        (unqualifiedAccessExpr
+          (identifier))))))

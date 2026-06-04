@@ -1,0 +1,370 @@
+====
+Infix op
+====
+
+process = 1 + 1 * 2 << 4 | 6 >= _ @ 7 ^ 2;
+
+---
+(program
+  (definition
+    variable: (identifier)
+    value: (infix
+      left: (infix
+        left: (infix
+          left: (int)
+          operator: (add)
+          right: (infix
+            left: (infix left: (int) operator: (mult) right: (int))
+            operator: (lshift)
+            right: (int)))
+        operator: (or)
+        right: (int))
+      operator: (ge)
+      right: (infix
+        left: (infix left: (wire) operator: (delay) right: (int))
+        operator: (pow)
+        right: (int)))))
+
+====
+Prefix op
+====
+
+process = |(*(2,3), @(_', 2)) : mem;
+
+---
+(program
+  (definition
+    variable: (identifier)
+    value: (sequential
+      left: (prefix
+        operator: (or)
+        left: (prefix operator: (mult) left: (int) right: (int))
+        right: (prefix
+          operator: (delay)
+          left: (modifier operand: (wire) operator: (one_sample_delay))
+          right: (int)))
+      right: (mem))))
+
+====
+Partial op
+====
+
+process = |(*(2), @(_')) : mem;
+
+---
+(program
+  (definition
+    variable: (identifier)
+    value: (sequential
+      left: (prefix
+        operator: (or)
+        left: (partial operator: (mult) operand: (int))
+        right: (partial
+          operator: (delay)
+          operand: (modifier operand: (wire) operator: (one_sample_delay))))
+      right: (mem))))
+
+====
+Lambda
+====
+
+linear2db = \(x).(20*log10(x));
+
+---
+(program
+  (definition
+    variable: (identifier)
+    value: (lambda
+      (parameters (identifier))
+      value: (infix
+        left: (int)
+        operator: (mult)
+        right: (prim1 argument: (identifier))))))
+
+====
+Pattern
+====
+
+process = case {
+  (x:y) => y:x;
+  (x) => x;
+}(reverb : harmonizer);
+ 
+---
+(program
+  (definition
+    variable: (identifier)
+    value: (function_call
+      callee: (pattern
+        (rules
+          (rule
+            (arguments (sequential left: (identifier) right: (identifier)))
+            expression: (sequential left: (identifier) right: (identifier)))
+          (rule
+            (arguments (identifier))
+            expression: (identifier))))
+      (arguments
+        (sequential left: (identifier) right: (identifier))))))
+
+====
+Modulation
+====
+
+foo = lfo(10, 0.5), _, _ : ["Wet" -> freeverb];
+foo_equivalent = ["Wet": *(lfo(10, 0.5)) -> freeverb];
+extra_modulators = ["Wet", "Damp", "RoomSize" -> freeverb];
+ 
+---
+(program
+  (definition
+    variable: (identifier)
+    value: (sequential
+      left: (parallel
+        left: (function_call callee: (identifier) (arguments (int) (real)))
+        right: (parallel left: (wire) right: (wire)))
+      right: (modulation
+        (modulators (modulator name: (string)))
+        expression: (identifier))))
+  (definition
+    variable: (identifier)
+    value: (modulation
+      (modulators
+        (modulator
+          name: (string)
+          value: (partial
+            operator: (mult)
+            operand: (function_call callee: (identifier) (arguments (int) (real))))))
+      expression: (identifier)))
+  (definition
+    variable: (identifier)
+    value: (modulation
+      (modulators
+        (modulator name: (string))
+        (modulator name: (string))
+        (modulator name: (string)))
+      expression: (identifier))))
+
+
+====
+Math primitives
+====
+
+unary_a = exp(log(log10(sqrt(abs(floor(ceil(rint(round(float(int(1.0)))))))))));
+unary_b = acos(asin(atan(cos(sin(tan(3.14))))));
+binary = pow(min(max(fmod(remainder(atan2(1.0, 2.0), 3.0), 4.0), 5.0), 6.0), _);
+
+---
+(program
+  (definition (identifier)
+    (prim1
+      (prim1
+        (prim1
+          (prim1
+            (prim1
+              (prim1
+                (prim1
+                  (prim1
+                    (prim1
+                      (prim1
+                        (prim1 (real)))))))))))))
+  (definition (identifier)
+    (prim1
+      (prim1
+        (prim1
+          (prim1
+            (prim1
+              (prim1 (real))))))))
+  (definition (identifier)
+    (prim2
+      (arguments
+        (prim2
+          (arguments
+            (prim2
+              (arguments
+                (prim2
+                  (arguments
+                    (prim2
+                      (arguments
+                        (prim2
+                          (arguments (real) (real)))
+                        (real)))
+                    (real)))
+                (real)))
+            (real)))
+        (wire)))))
+  
+====
+Special binary primitives
+====
+
+process = prefix(attach(enable(control(_, _), _), _), _);
+
+---
+(program
+  (definition (identifier)
+    (prim2
+      (arguments
+        (prim2
+          (arguments
+            (prim2
+              (arguments
+                (prim2
+                  (arguments (wire) (wire)))
+                (wire)))
+            (wire)))
+        (wire)))))
+
+====
+Tables
+====
+
+foo = rdtable(n,s,r) : _;
+bar = _ : rwtable(n,s,w,_,r) : _;
+
+---
+(program
+  (definition (identifier)
+    (sequential
+      (prim3 (arguments (identifier) (identifier) (identifier)))
+      (wire)))
+  (definition (identifier)
+    (sequential
+      (wire)
+      (sequential
+        (prim5 (arguments (identifier) (identifier) (identifier) (wire) (identifier)))
+        (wire)))))
+
+====
+Selectors
+====
+
+foo = _,_ : select2(s) : _;
+bar = _,_,_ : select3(s) : _;
+
+---
+(program
+  (definition (identifier)
+    (sequential
+      (parallel (wire) (wire))
+      (sequential
+        (prim3 (arguments (identifier)))
+        (wire))))
+  (definition (identifier)
+    (sequential
+      (parallel (wire) (parallel (wire) (wire)))
+      (sequential
+        (prim4 (arguments (identifier)))
+        (wire)))))
+
+===
+Component
+===
+
+process = component("karplus32.dsp") : component("freeverb.dsp");
+
+---
+(program
+  (definition
+    variable: (identifier)
+    value: (sequential
+      left: (component filename: (string))
+      right: (component filename: (string)))))
+
+===
+Library
+===
+
+fl = library("filters.lib");
+process = fl.lowpass;
+
+---
+(program
+  (definition
+    variable: (identifier)
+    value: (library filename: (string)))
+  (definition
+    variable: (identifier)
+    value: (access environment: (identifier) definition: (identifier))))
+
+===
+Waveform
+===
+
+triangleWave = waveform{0,0.5,1,0.5,0,-0.5,-1,-.5};
+
+---
+(program
+  (definition (identifier)
+    (waveform
+      (values
+        (int)
+        (real)
+        (int)
+        (real)
+        (int)
+        (real)
+        (int)
+        (real)))))
+
+===
+Route
+===
+
+fake_route = route(2,2);
+full_route = route(2,2,1,2,2,1);
+
+---
+(program
+  (definition
+    variable: (identifier)
+    value: (route num_inputs: (int) num_outputs: (int)))
+  (definition
+    variable: (identifier)
+    value: (route
+      num_inputs: (int)
+      num_outputs: (int)
+      expression: (parallel
+        left: (int)
+        right: (parallel
+          left: (int)
+          right: (parallel left: (int) right: (int)))))))
+
+===
+Soundfile
+===
+
+reader = _~+(1);
+process = 0,reader:soundfile("son[url:{'foo.wav'}]",2);
+
+---
+(program
+  (definition
+    variable: (identifier)
+    value: (recursive
+      left: (wire)
+      right: (partial operator: (add) operand: (int))))
+  (definition
+    variable: (identifier)
+    value: (sequential
+      left: (parallel left: (int) right: (identifier))
+      right: (soundfile filename: (string) num_channels: (int)))))
+
+===
+Inputs and outputs
+===
+
+expr = _,_;
+num_outs = outputs(expr);
+num_ints = inputs(expr);
+
+---
+(program
+  (definition
+    variable: (identifier)
+    value: (parallel left: (wire) right: (wire)))
+  (definition
+    variable: (identifier)
+    value: (outputs expression: (identifier)))
+  (definition
+    variable: (identifier)
+    value: (inputs expression: (identifier))))

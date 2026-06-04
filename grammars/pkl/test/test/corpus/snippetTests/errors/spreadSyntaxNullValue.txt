@@ -1,0 +1,20 @@
+===
+errors/spreadSyntaxNullValue.pkl
+===
+
+source = null
+
+res { ...source }
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (nullLiteralExpr))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectSpread
+        (unqualifiedAccessExpr
+          (identifier))))))

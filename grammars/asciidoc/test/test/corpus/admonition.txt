@@ -1,0 +1,39 @@
+===========
+admonition
+===========
+
+
+NOTE: aaaa
+TIP: aaaa
+IMPORTANT: aaaa
+CAUTION: aaaa
+WARNING: aaaa
+
+-----
+
+(document
+  (block_element
+    (section_block
+      (admonition
+        (admonition_note)
+        (line))))
+  (block_element
+    (section_block
+      (admonition
+        (admonition_tip)
+        (line))))
+  (block_element
+    (section_block
+      (admonition
+        (admonition_important)
+        (line))))
+  (block_element
+    (section_block
+      (admonition
+        (admonition_caution)
+        (line))))
+  (block_element
+    (section_block
+      (admonition
+        (admonition_warning)
+        (line)))))

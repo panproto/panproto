@@ -1,0 +1,161 @@
+==================================================
+Regex/character class: - Empty
+==================================================
+/*!re2c
+  empty     = [];
+  empty_n   = [^];
+  */
+---
+
+(re2c
+  (global_block
+    (body
+      (named_definition
+         name: (name)
+        value: (regex (character_class)))
+      (named_definition
+         name: (name)
+        value: (regex (character_class))))))
+
+==================================================
+Regex/character class/literal: closing bracket
+==================================================
+/*!re2c
+  bracket   = []];
+  bracket_n = [^]];
+  */
+---
+
+(re2c
+  (global_block
+    (body
+      (named_definition
+         name: (name)
+        value: (regex
+          (character_class (literal))))
+      (named_definition
+         name: (name)
+        value: (regex
+          (character_class (literal)))))))
+
+==================================================
+Regex/character class/literal: opening bracket
+==================================================
+/*!re2c
+  bracket   = [[];
+  bracket_n = [^[];
+  */
+---
+
+(re2c
+  (global_block
+    (body
+      (named_definition
+         name: (name)
+        value: (regex
+          (character_class (literal))))
+      (named_definition
+         name: (name)
+        value: (regex
+          (character_class (literal)))))))
+
+==================================================
+Regex/character class/literal: hyphen-minus
+==================================================
+/*!re2c
+  minus = [-];
+  */
+---
+
+(re2c
+  (global_block
+    (body
+      (named_definition
+        name: (name)
+        value: (regex
+          (character_class (literal)))))))
+
+==================================================
+Regex/character class/literal: hyphen minus (conflict)
+==================================================
+/*!re2c
+  sign1 = [+-];
+  sign2 = [-+];
+  */
+---
+
+(re2c
+  (global_block
+    (body
+      (named_definition
+         name: (name)
+        value: (regex
+          (character_class
+            (literal)
+            (literal))))
+      (named_definition
+         name: (name)
+        value: (regex
+          (character_class
+            (literal)
+            (literal)))))))
+
+
+==================================================
+Regex/character class/literal: circunflex
+==================================================
+/*!re2c
+  circ = [^^];
+  */
+---
+
+(re2c
+  (global_block
+    (body
+      (named_definition
+         name: (name)
+        value: (regex
+          (character_class (literal)))))))
+
+==================================================
+Regex/character class: Unexpected "]" (ERROR)
+==================================================
+/*!re2c
+  brackets   = [[]];
+  brackets_n = [^[]];
+  */
+---
+
+(re2c
+  (global_block
+    (body
+      (named_definition
+        name: (name)
+        value: (regex
+          (character_class
+            (literal)))
+        (ERROR))
+      (named_definition
+        name: (name)
+        value: (regex
+          (character_class
+            (literal)))
+        (ERROR)))))
+
+==================================================
+Regex/literal/strings
+==================================================
+/*!re2c
+  x = 'a'"b";
+  */
+---
+
+(re2c
+  (global_block
+    (body
+      (named_definition
+        name: (name)
+        value: (regex
+          (concat
+            (sstring)
+            (dstring)))))))

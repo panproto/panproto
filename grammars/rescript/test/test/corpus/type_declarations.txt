@@ -1,0 +1,874 @@
+================================================================================
+Opaque
+================================================================================
+
+type t
+type t'
+type \"type"
+type t and b
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (type_declaration
+    (type_binding
+      (type_identifier)))
+  (type_declaration
+    (type_binding
+      (type_identifier)))
+  (type_declaration
+    (type_binding
+      (type_identifier)))
+  (type_declaration
+    (type_binding
+      (type_identifier))
+    (type_binding
+      (type_identifier))))
+
+================================================================================
+Export
+================================================================================
+
+export type t
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (type_declaration
+    (type_binding
+      (type_identifier))))
+
+================================================================================
+Alias
+================================================================================
+
+type t = Foo.Bar.qux
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (type_identifier_path
+        (module_identifier_path
+          (module_identifier)
+          (module_identifier))
+        (type_identifier)))))
+
+================================================================================
+Private
+================================================================================
+
+type t = private string
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (type_identifier))))
+
+================================================================================
+Tuple type
+================================================================================
+
+type t = (int, string, float)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (tuple_type
+        (type_identifier)
+        (type_identifier)
+        (type_identifier)))))
+
+================================================================================
+Record type
+================================================================================
+
+type t = {
+  a: int,
+  b: myType,
+
+  type_: string,
+
+  mutable x: int,
+
+  opt?: string,
+
+  env: {..} as 'env
+}
+
+type t = Mod.t = {a: int}
+
+type t = {}
+
+type t = {
+  ...a,
+  ...b<t>,
+  ...Mod.t<t>,
+  ...Mod.t,
+  other: int,
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (record_type
+        (record_type_field
+          (property_identifier)
+          (type_annotation
+            (type_identifier)))
+        (record_type_field
+          (property_identifier)
+          (type_annotation
+            (type_identifier)))
+        (record_type_field
+          (property_identifier)
+          (type_annotation
+            (type_identifier)))
+        (record_type_field
+          (property_identifier)
+          (type_annotation
+            (type_identifier)))
+        (record_type_field
+          (property_identifier)
+          (type_annotation
+          (type_identifier)))
+            (record_type_field
+              (property_identifier)
+                (type_annotation
+                  (as_aliasing_type
+                      (object_type)
+                      (type_identifier)))))))
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (type_identifier_path
+        (module_identifier)
+        (type_identifier))
+      (record_type
+        (record_type_field
+          (property_identifier)
+          (type_annotation
+            (type_identifier))))))
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (record_type)))
+  (type_declaration
+      (type_binding
+        (type_identifier)
+        (record_type
+          (type_spread
+            (type_identifier))
+          (type_spread
+            (generic_type
+              (type_identifier)
+              (type_arguments
+                (type_identifier))))
+          (type_spread
+            (generic_type
+              (type_identifier_path
+                (module_identifier)
+                (type_identifier))
+              (type_arguments
+                (type_identifier))))
+          (type_spread
+            (type_identifier_path
+              (module_identifier)
+              (type_identifier)))
+          (record_type_field
+            (property_identifier)
+            (type_annotation
+              (type_identifier)))))))
+
+================================================================================
+Extensible Variant
+================================================================================
+
+type t = ..
+
+type t += Other
+
+type M.t +=
+  | Point
+  | Line
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (extensible_type)))
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (variant_type
+        (variant_declaration
+          (variant_identifier)))))
+  (type_declaration
+    (type_binding
+      (type_identifier_path
+        (module_identifier)
+        (type_identifier))
+      (variant_type
+        (variant_declaration
+          (variant_identifier))
+        (variant_declaration
+          (variant_identifier))))))
+
+================================================================================
+Variant Spread
+================================================================================
+
+type base = Start | Stop | Pause
+type extended = | ...base | Resume
+type t =
+  | ...Foo.t
+  | ...Bar.t
+  | Baz
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (variant_type
+        (variant_declaration
+          (variant_identifier))
+        (variant_declaration
+          (variant_identifier))
+        (variant_declaration
+          (variant_identifier)))))
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (variant_type
+        (variant_type_spread
+          (type_identifier))
+        (variant_declaration
+          (variant_identifier)))))
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (variant_type
+        (variant_type_spread
+          (type_identifier_path
+            (module_identifier)
+            (type_identifier)))
+        (variant_type_spread
+          (type_identifier_path
+            (module_identifier)
+            (type_identifier)))
+        (variant_declaration
+          (variant_identifier))))))
+
+================================================================================
+Variant
+================================================================================
+
+type t =
+  | A
+  | A'
+  | D
+  | B(anotherType)
+  | C({foo: int, bar: string})
+  | D(module(Foo))
+  | D(module(Bar.t))
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (variant_type
+        (variant_declaration
+          (variant_identifier))
+        (variant_declaration
+          (variant_identifier))
+        (variant_declaration
+          (variant_identifier))
+        (variant_declaration
+          (variant_identifier)
+          (variant_parameters
+            (type_identifier)))
+        (variant_declaration
+          (variant_identifier)
+          (variant_parameters
+            (record_type
+              (record_type_field
+                (property_identifier)
+                (type_annotation
+                  (type_identifier)))
+              (record_type_field
+                (property_identifier)
+                (type_annotation
+                  (type_identifier))))))
+        (variant_declaration
+          (variant_identifier)
+          (variant_parameters
+            (module_pack
+              (module_identifier))))
+        (variant_declaration
+          (variant_identifier)
+          (variant_parameters
+            (module_pack
+              (type_identifier_path
+                (module_identifier)
+                (type_identifier)))))))))
+
+================================================================================
+Annotated variant
+================================================================================
+
+type rec t = Any('a): t
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (variant_type
+        (variant_declaration
+          (variant_identifier)
+          (variant_parameters
+            (type_identifier))
+          (type_annotation
+            (type_identifier)))))))
+
+================================================================================
+Polyvar
+================================================================================
+
+type t = [>
+  | #AAA
+  | #AAA'
+  | #bbb(anotherType)
+  | #"cc-cc"
+  | #\"cc-cc"
+  | #42
+  | #FortyTwo
+  | anotherType
+  ]
+
+
+type foo<'a> = [> #Blue | #DeepBlue | #LightBlue ] as 'a
+type t<'w> = [M.t<'w>]
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (polyvar_type
+        (polyvar_declaration
+          (polyvar_identifier))
+        (polyvar_declaration
+          (polyvar_identifier))
+        (polyvar_declaration
+          (polyvar_identifier)
+          (polyvar_parameters
+            (type_identifier)))
+        (polyvar_declaration
+          (polyvar_identifier
+            (polyvar_string
+              (string_fragment))))
+        (polyvar_declaration
+          (polyvar_identifier
+            (polyvar_string
+              (string_fragment))))
+        (polyvar_declaration
+          (polyvar_identifier))
+        (polyvar_declaration
+          (polyvar_identifier))
+        (polyvar_declaration
+          (type_identifier)))))
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (type_parameters
+        (type_identifier))
+      (as_aliasing_type
+        (polyvar_type
+          (polyvar_declaration
+            (polyvar_identifier))
+          (polyvar_declaration
+            (polyvar_identifier))
+          (polyvar_declaration
+            (polyvar_identifier)))
+        (type_identifier))))
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (type_parameters
+        (type_identifier))
+      (polyvar_type
+        (polyvar_declaration
+          (generic_type
+            (type_identifier_path
+              (module_identifier)
+              (type_identifier))
+            (type_arguments
+              (type_identifier))))))))
+
+================================================================================
+Function
+================================================================================
+
+type fooA = t => float
+type fooB = (t) => float
+type fooC = (t1, t2) => float
+type fooD = (~arg1: t1, ~arg2: t2=?, unit) => float
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (function_type
+        (function_type_parameters
+          (type_identifier))
+        (type_identifier))))
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (function_type
+        (function_type_parameters
+          (parameter
+            (type_identifier)))
+        (type_identifier))))
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (function_type
+        (function_type_parameters
+          (parameter
+            (type_identifier))
+          (parameter
+            (type_identifier)))
+        (type_identifier))))
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (function_type
+        (function_type_parameters
+          (parameter
+            (labeled_parameter
+              (value_identifier)
+              (type_annotation
+                (type_identifier))))
+          (parameter
+            (labeled_parameter
+              (value_identifier)
+              (type_annotation
+                (type_identifier))))
+          (parameter
+            (unit_type)))
+        (type_identifier)))))
+
+================================================================================
+Object
+================================================================================
+
+type t = {..}
+type t = {.}
+type t = {.. "my-field": int }
+type t = {
+  "my-field": int,
+  "my-field-two": string,
+  ...rest
+}
+type t<'a> = {.."name": string} as 'a
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (object_type)))
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (object_type)))
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (object_type
+        (field
+          (property_identifier
+            (string_fragment))
+          (type_identifier)))))
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (object_type
+        (field
+          (property_identifier
+            (string_fragment))
+          (type_identifier))
+        (field
+          (property_identifier
+            (string_fragment))
+          (type_identifier))
+        (type_spread
+          (type_identifier)))))
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (type_parameters
+        (type_identifier))
+      (as_aliasing_type
+        (object_type
+          (field
+            (property_identifier
+              (string_fragment))
+            (type_identifier)))
+        (type_identifier)))))
+
+================================================================================
+Generic
+================================================================================
+
+type t<'a, 'b> = (array<'a>, array<'b>)
+type t = result<(), string>
+type t<'a> = generic<'a> as 's
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (type_parameters
+        (type_identifier)
+        (type_identifier))
+      (tuple_type
+        (generic_type
+          (type_identifier)
+          (type_arguments
+            (type_identifier)))
+        (generic_type
+          (type_identifier)
+          (type_arguments
+            (type_identifier))))))
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (generic_type
+        (type_identifier)
+        (type_arguments
+          (unit)
+          (type_identifier)))))
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (type_parameters
+        (type_identifier))
+      (as_aliasing_type
+        (generic_type
+          (type_identifier)
+          (type_arguments
+            (type_identifier)))
+        (type_identifier)))))
+
+================================================================================
+Recursive
+================================================================================
+
+type rec t = t
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (type_identifier))))
+
+================================================================================
+Mutually Recursive
+================================================================================
+
+type rec student = {
+  teacher: teacher
+}
+and teacher = {
+  students: array<student>
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (record_type
+        (record_type_field
+          (property_identifier)
+          (type_annotation
+            (type_identifier)))))
+    (type_binding
+      (type_identifier)
+      (record_type
+        (record_type_field
+          (property_identifier)
+          (type_annotation
+            (generic_type
+              (type_identifier)
+              (type_arguments
+                (type_identifier)))))))))
+
+================================================================================
+Labled function with uncurried
+================================================================================
+
+type test = (. ~attr: string) => unit
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (function_type
+        (function_type_parameters
+          (parameter
+            (uncurry)
+            (labeled_parameter
+              (value_identifier)
+              (type_annotation
+                (type_identifier)))))
+        (unit_type)))))
+
+================================================================================
+Polymorphic type
+================================================================================
+
+let id: 'a. 'a => 'a = x => x
+
+let add: type a. (number<a>, number<a>) => a
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (let_declaration
+    (let_binding
+      (value_identifier)
+      (type_annotation
+        (polymorphic_type
+          (type_identifier)
+          (function_type
+            (function_type_parameters
+              (type_identifier))
+            (type_identifier))))
+      (function
+        (value_identifier)
+        (value_identifier))))
+  (let_declaration
+    (let_binding
+      (value_identifier)
+      (type_annotation
+        (polymorphic_type
+          (abstract_type
+            (type_identifier))
+          (function_type
+            (function_type_parameters
+              (parameter
+                (generic_type
+                  (type_identifier)
+                  (type_arguments
+                    (type_identifier))))
+              (parameter
+                (generic_type
+                  (type_identifier)
+                  (type_arguments
+                    (type_identifier)))))
+            (type_identifier)))))))
+
+================================================================================
+Variance annotations
+================================================================================
+
+type t<+'a>
+type t<-'a>
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (type_parameters
+        (type_identifier))))
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (type_parameters
+        (type_identifier)))))
+
+================================================================================
+Type constraint
+================================================================================
+
+type t<'a> = 'a constraint 'a = int
+type decorator<'a, 'b> = 'a => 'b constraint 'a = int constraint 'b = _ => _
+type t<'a> constraint 'a = t
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (type_parameters
+        (type_identifier))
+      (type_identifier)
+      (type_constraint
+        (type_identifier)
+        (type_identifier))))
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (type_parameters
+        (type_identifier)
+        (type_identifier))
+      (function_type
+        (function_type_parameters
+          (type_identifier))
+        (type_identifier))
+      (type_constraint
+        (type_identifier)
+        (type_identifier))
+      (type_constraint
+        (type_identifier)
+        (function_type
+          (function_type_parameters
+            (type_identifier))
+          (type_identifier)))))
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (type_parameters
+        (type_identifier))
+      (type_constraint
+        (type_identifier)
+        (type_identifier)))))
+
+================================================================================
+Nested record type
+================================================================================
+
+type profile = {
+  name: string,
+  extra?: {
+    location: {city: string, country: string},
+    mutable note: option<string>,
+  },
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (record_type
+        (record_type_field
+          (property_identifier)
+          (type_annotation
+            (type_identifier)))
+        (record_type_field
+          (property_identifier)
+          (type_annotation
+            (record_type
+              (record_type_field
+                (property_identifier)
+                (type_annotation
+                  (record_type
+                    (record_type_field
+                      (property_identifier)
+                      (type_annotation
+                        (type_identifier)))
+                    (record_type_field
+                      (property_identifier)
+                      (type_annotation
+                        (type_identifier))))))
+              (record_type_field
+                (property_identifier)
+                (type_annotation
+                  (generic_type
+                    (type_identifier)
+                    (type_arguments
+                      (type_identifier))))))))))))
+
+================================================================================
+Nested record in generic type argument
+================================================================================
+
+type response = {
+  items: array<{id: int, name: string}>,
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (record_type
+        (record_type_field
+          (property_identifier)
+          (type_annotation
+            (generic_type
+              (type_identifier)
+              (type_arguments
+                (record_type
+                  (record_type_field
+                    (property_identifier)
+                    (type_annotation
+                      (type_identifier)))
+                  (record_type_field
+                    (property_identifier)
+                    (type_annotation
+                      (type_identifier))))))))))))
+
+================================================================================
+Nested record in function type
+================================================================================
+
+type handler = {config: string} => {result: bool}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (type_declaration
+    (type_binding
+      (type_identifier)
+      (function_type
+        (function_type_parameters
+          (record_type
+            (record_type_field
+              (property_identifier)
+              (type_annotation
+                (type_identifier)))))
+        (record_type
+          (record_type_field
+            (property_identifier)
+            (type_annotation
+              (type_identifier))))))))

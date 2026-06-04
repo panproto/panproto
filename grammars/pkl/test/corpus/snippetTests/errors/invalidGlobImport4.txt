@@ -1,0 +1,19 @@
+===
+errors/invalidGlobImport4.pkl
+===
+
+import* ".../input-helper/**.pkl" as invalidGlob
+
+result = invalidGlob
+
+---
+
+(module
+  (importGlobClause
+    (stringConstant
+      (slStringLiteralPart))
+    (identifier))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier))))

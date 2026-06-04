@@ -1,0 +1,88 @@
+================================================================================
+Usercontrol with preprocessor directives
+================================================================================
+
+page 50100 "Test Page"
+{
+    layout
+    {
+        area(content)
+        {
+            usercontrol(ResizeHandle; "CDC Factbox Page Handle AddIn")
+            {
+#if BC26
+                Visible = false;
+#endif
+                ApplicationArea = All;
+                trigger AddInReady()
+                var
+                    UserPersonalisationMgt: Codeunit "CDC User Personalisation Mgt.";
+                begin
+                    if UserPersonalisationMgt.Get('Test', PageName) then
+                        UserPersonalisationMgt.SetCaptureUIPercentageWidth(50.0, Page::"Test Page");
+                end;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (usercontrol_section
+          (usercontrol_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (preproc_conditional
+            (preproc_if
+              (preproc_open)
+              condition: (identifier))
+            (property
+              name: (property_name)
+              value: (boolean))
+            (preproc_endif
+              (preproc_close)))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (trigger_declaration
+            (trigger_keyword)
+            name: (identifier)
+            (var_section
+              (var_keyword)
+              (variable_declaration
+                name: (identifier)
+                type: (type_specification
+                  (object_reference_type
+                    object_type: (codeunit_keyword)
+                    reference: (quoted_identifier)))))
+            (code_block
+              (begin_keyword)
+              (if_statement
+                (if_keyword)
+                condition: (call_expression
+                  function: (member_expression
+                    object: (identifier)
+                    member: (identifier))
+                  arguments: (argument_list
+                    (string_literal)
+                    (identifier)))
+                (then_keyword)
+                then_branch: (call_expression
+                  function: (member_expression
+                    object: (identifier)
+                    member: (identifier))
+                  arguments: (argument_list
+                    (decimal)
+                    (database_reference
+                      keyword: (object_type_keyword)
+                      table_name: (quoted_identifier)))))
+              (end_keyword))))))))

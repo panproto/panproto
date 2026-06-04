@@ -1,0 +1,82 @@
+================================================================================
+ToolTip with Comment parameter
+================================================================================
+
+page 123 "Test Page"
+{
+    actions
+    {
+        area(processing)
+        {
+            action("Test Action")
+            {
+                ApplicationArea = All;
+                Caption = 'Test Action';
+                ToolTip = 'Simple tooltip text';
+                
+                trigger OnAction()
+                begin
+                end;
+            }
+            action("Complex Tooltip")
+            {
+                ApplicationArea = All;
+                Caption = 'Complex Action';
+                ToolTip = 'Main tooltip text', Comment = 'Translation note: Test comment';
+                
+                trigger OnAction()
+                begin
+                end;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_declaration
+          name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (trigger_declaration
+            (trigger_keyword)
+            name: (identifier)
+            (code_block
+              (begin_keyword)
+              (end_keyword))))
+        (action_declaration
+          name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (caption_value
+              (string_literal)
+              (property_name)
+              (string_literal)))
+          (trigger_declaration
+            (trigger_keyword)
+            name: (identifier)
+            (code_block
+              (begin_keyword)
+              (end_keyword))))))))

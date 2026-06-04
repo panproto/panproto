@@ -1,0 +1,69 @@
+================================================================================
+Preprocessor directives in dataitem column declarations
+================================================================================
+
+report 50000 "Test Report"
+{
+    dataset
+    {
+        dataitem(Header; "Sales Header")
+        {
+            column(CustomerNo; "Customer No.")
+            {
+            }
+#if not CLEAN25
+            column(GlobalLocationNumber; '')
+            {
+                ObsoleteState = Pending;
+                ObsoleteReason = 'Not in use anymore.';
+                ObsoleteTag = '25.0';
+            }
+#endif
+            column(DocumentDate; "Document Date")
+            {
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    (integer)
+    (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        (identifier)
+        (quoted_identifier)
+        (report_column
+          (column_keyword)
+          (identifier)
+          (quoted_identifier))
+        (preproc_conditional_report
+          (preproc_if
+            (preproc_open)
+            (preproc_not_expression
+              (identifier)))
+          (report_column
+            (column_keyword)
+            (identifier)
+            (string_literal)
+            (property
+              (property_name)
+              (identifier))
+            (property
+              (property_name)
+              (string_literal))
+            (property
+              (property_name)
+              (string_literal)))
+          (preproc_endif
+            (preproc_close)))
+        (report_column
+          (column_keyword)
+          (identifier)
+          (quoted_identifier))))))

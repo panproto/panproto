@@ -1,0 +1,227 @@
+================================================================================
+Basic case statement
+================================================================================
+
+case variable
+  when 4
+  when 2
+    p tag content
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (case
+    (keyword)
+    (javascript)
+    (when
+      (keyword)
+      (javascript))
+    (when
+      (keyword)
+      (javascript)
+      (children
+        (tag
+          (tag_name)
+          (content))))))
+
+================================================================================
+Basic case statement with block expansion
+================================================================================
+
+case variable
+  when 4: tag content
+  when 2: p tag content
+  default: other content
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (case
+    (keyword)
+    (javascript)
+    (when
+      (keyword)
+      (javascript)
+      (children
+        (tag
+          (tag_name)
+          (content))))
+    (when
+      (keyword)
+      (javascript)
+      (children
+        (tag
+          (tag_name)
+          (content))))
+    (when
+      (keyword)
+      (children
+        (tag
+          (tag_name)
+          (content))))))
+
+================================================================================
+Basic case statement with default
+================================================================================
+
+case variable
+  when 4
+  when 2
+    p tag content
+  default
+    tag other content
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (case
+    (keyword)
+    (javascript)
+    (when
+      (keyword)
+      (javascript))
+    (when
+      (keyword)
+      (javascript)
+      (children
+        (tag
+          (tag_name)
+          (content))))
+    (when
+      (keyword)
+      (children
+        (tag
+          (tag_name)
+          (content))))))
+
+================================================================================
+Basic case statement with default and break
+================================================================================
+
+case variable
+  when 4
+    - break
+  when 2
+    p tag content
+  default
+    tag other content
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (case
+    (keyword)
+    (javascript)
+    (when
+      (keyword)
+      (javascript)
+      (children
+        (unbuffered_code
+          (javascript))))
+    (when
+      (keyword)
+      (javascript)
+      (children
+        (tag
+          (tag_name)
+          (content))))
+    (when
+      (keyword)
+      (children
+        (tag
+          (tag_name)
+          (content))))))
+
+================================================================================
+Case statement with javascript
+================================================================================
+
+case variable + another
+  when 1 + 4
+  when 'string'
+    p tag content
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (case
+    (keyword)
+    (javascript)
+    (when
+      (keyword)
+      (javascript))
+    (when
+      (keyword)
+      (javascript)
+      (children
+        (tag
+          (tag_name)
+          (content))))))
+
+================================================================================
+Case statement followed by tag
+================================================================================
+
+case variable
+  when 4
+  when 2
+    p tag content
+
+tag
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (case
+    (keyword)
+    (javascript)
+    (when
+      (keyword)
+      (javascript))
+    (when
+      (keyword)
+      (javascript)
+      (children
+        (tag
+          (tag_name)
+          (content)))))
+  (tag
+    (tag_name)))
+
+================================================================================
+Complex case statement followed by tag
+================================================================================
+
+case variable
+  when 4
+  when 2
+    p tag content
+  default
+    p another tag
+
+tag
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (case
+    (keyword)
+    (javascript)
+    (when
+      (keyword)
+      (javascript))
+    (when
+      (keyword)
+      (javascript)
+      (children
+        (tag
+          (tag_name)
+          (content))))
+    (when
+      (keyword)
+      (children
+        (tag
+          (tag_name)
+          (content)))))
+  (tag
+    (tag_name)))

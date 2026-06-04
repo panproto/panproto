@@ -1,0 +1,173 @@
+================
+import statement
+================
+
+import a.b.c;
+
+---
+
+(program
+    (import_statement
+        (scoped_data_type
+            (identifier)
+            (scoped_data_type (identifier) (identifier))
+        )
+    )
+)
+
+===============
+empty statement
+===============
+
+;
+
+---
+
+(program
+    (empty_statement)
+)
+
+===============
+break statement
+===============
+
+for (;;) {
+    break;
+}
+
+---
+
+(program
+    (for_statement
+        (empty_statement)
+        (empty_statement)
+        (statement_block (break_statement))
+    )
+)
+
+==================
+continue statement
+==================
+
+for (var i = 0; i < 20; i++) {
+    if (i == 10) {
+        continue;
+    }
+}
+
+---
+
+(program
+    (for_statement
+        (identifier)
+        (number)
+        (expression_statement
+            (binary_expression (identifier) (number))
+        )
+        (update_expression (identifier))
+        (statement_block
+            (if_statement
+                (parenthesized_expression
+                    (binary_expression (identifier) (number))
+                )
+                (statement_block (continue_statement))
+            )
+        )
+    )
+)
+
+================
+return statement
+================
+
+function f(x) {
+    return x*2;
+}
+
+---
+
+(program
+    (function_declaration
+        (identifier)
+        (function_parameters (identifier))
+        (statement_block
+            (return_statement
+                (binary_expression (identifier) (number))
+            )
+        )
+    )
+)
+
+===============
+throw statement
+===============
+
+function f(x) {
+    throw new Error();
+}
+
+---
+
+(program
+    (function_declaration
+        (identifier)
+        (function_parameters (identifier))
+        (statement_block
+            (throw_statement
+                (call_expression
+                    (new_expression (identifier))
+                )
+            )
+        )
+    )
+)
+
+=========
+as vector
+=========
+
+this._contributions = params as Vector.<Contribution>;
+
+---
+
+(program
+    (expression_statement
+        (assignment_expression
+            (member_expression (identifier) (identifier))
+            (cast_expression
+                (identifier)
+                (generic_data_type
+                    (identifier)
+                    (identifier)
+                )
+            )
+        )
+    )
+)
+
+==========
+complex as
+==========
+
+const v: a.b.c = null as a.b.c;
+
+---
+
+(program
+    (constant_declaration
+        (identifier)
+        (type_hint
+            (scoped_data_type
+                (identifier)
+                (scoped_data_type (identifier) (identifier))
+            )
+        )
+        (cast_expression
+            (null)
+            (scoped_data_type
+                (identifier)
+                (scoped_data_type (identifier) (identifier))
+            )
+        )
+    )
+)

@@ -1,0 +1,550 @@
+================================================================================
+Class Definition: Minimal
+================================================================================
+
+classdef ClassName
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_definition
+    (identifier)))
+
+================================================================================
+Class Definition: With Attributes
+================================================================================
+
+classdef (Attr1 = 1, Attr2 = '2') a_class
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_definition
+    (attributes
+      (attribute
+        (identifier)
+        (number))
+      (attribute
+        (identifier)
+        (string
+          (string_content))))
+    (identifier)))
+
+================================================================================
+Class Definition: With Super Classes
+================================================================================
+
+classdef a_class < Class1 & Class2
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_definition
+    (identifier)
+    (superclasses
+      (property_name
+        (identifier))
+      (property_name
+        (identifier)))))
+
+================================================================================
+Class Definition: Properties
+================================================================================
+
+classdef DifferentValidation
+   properties
+      MyPublicData (1,:) double {mustBePositive} = [1 1 1]
+      RestrictedByClass uint32
+      RestrictedByFunction {mustBeInteger,mustBePositive} = 0
+   end;
+end
+
+classdef Class
+  properties
+
+    foo1
+
+    foo2
+
+    foo3
+
+  end
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_definition
+    (identifier)
+    (properties
+      (property
+        (identifier)
+        (dimensions
+          (number)
+          (spread_operator))
+        (identifier)
+        (validation_functions
+          (identifier))
+        (default_value
+          (matrix
+            (row
+              (number)
+              (number)
+              (number)))))
+      (property
+        (identifier)
+        (identifier))
+      (property
+        (identifier)
+        (validation_functions
+          (identifier)
+          (identifier))
+        (default_value
+          (number)))))
+  (class_definition
+    (identifier)
+    (properties
+      (property
+        (identifier))
+      (property
+        (identifier))
+      (property
+        (identifier)))))
+
+================================================================================
+Class Definition: Methods
+================================================================================
+
+classdef Class
+   methods (Access = protected)
+      function out = method1(obj,inputArg)
+         ...
+      end
+   end
+   methods (Access = private)
+      function out = method2(obj,inputArg)
+          ...
+
+      end
+      out1 = f2(obj, in1);
+   end
+end
+
+classdef Super
+    methods(Abstract)
+        a = f(obj);
+        b = g(obj);
+    end
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_definition
+    (identifier)
+    (methods
+      (attributes
+        (attribute
+          (identifier)
+          (identifier)))
+      (function_definition
+        (function_output
+          (identifier))
+        (identifier)
+        (function_arguments
+          (identifier)
+          (identifier))
+        (line_continuation)))
+    (methods
+      (attributes
+        (attribute
+          (identifier)
+          (identifier)))
+      (function_definition
+        (function_output
+          (identifier))
+        (identifier)
+        (function_arguments
+          (identifier)
+          (identifier))
+        (line_continuation))
+      (function_signature
+        (function_output
+          (identifier))
+        (identifier)
+        (function_arguments
+          (identifier)
+          (identifier)))))
+  (class_definition
+    (identifier)
+    (methods
+      (attributes
+        (attribute
+          (identifier)))
+      (function_signature
+        (function_output
+          (identifier))
+        (identifier)
+        (function_arguments
+          (identifier)))
+      (function_signature
+        (function_output
+          (identifier))
+        (identifier)
+        (function_arguments
+          (identifier))))))
+
+================================================================================
+Class Definition: Arguments
+================================================================================
+
+classdef Class
+    methods (Access = public)
+        function out = a(in)
+            arguments (Input)
+                R     (1,1)   Rectangle
+                x.a   (1,1)   {mustBeNonnegative}
+            end
+            1
+        end
+    end
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_definition
+    (identifier)
+    (methods
+      (attributes
+        (attribute
+          (identifier)
+          (identifier)))
+      (function_definition
+        (function_output
+          (identifier))
+        (identifier)
+        (function_arguments
+          (identifier))
+        (arguments_statement
+          (attributes
+            (identifier))
+          (property
+            (identifier)
+            (dimensions
+              (number)
+              (number))
+            (identifier))
+          (property
+            (property_name
+              (identifier)
+              (identifier))
+            (dimensions
+              (number)
+              (number))
+            (validation_functions
+              (identifier))))
+        (block
+          (number))))))
+
+================================================================================
+Class Definition: Simple Enumerations
+================================================================================
+
+classdef WeekDays
+   enumeration
+      Monday, Tuesday, Wednesday, Thursday, Friday
+   end;
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_definition
+    (identifier)
+    (enumeration
+      (enum
+        (identifier))
+      (enum
+        (identifier))
+      (enum
+        (identifier))
+      (enum
+        (identifier))
+      (enum
+        (identifier)))))
+
+================================================================================
+Class Definition: Enumerations With Values
+================================================================================
+
+classdef Bool < logical
+   enumeration
+      No  (0)
+      Yes (1)
+   end
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_definition
+    (identifier)
+    (superclasses
+      (property_name
+        (identifier)))
+    (enumeration
+      (enum
+        (identifier)
+        (number))
+      (enum
+        (identifier)
+        (number)))))
+
+================================================================================
+Class Definition: Enumerations With Multiple Values
+================================================================================
+
+classdef SyntaxColors
+   enumeration
+      Error   (1, 0, 0)
+      Comment (0, 1, 0)
+      Keyword (0, 0, 1)
+      String  (1, 0, 1)
+   end
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_definition
+    (identifier)
+    (enumeration
+      (enum
+        (identifier)
+        (number)
+        (number)
+        (number))
+      (enum
+        (identifier)
+        (number)
+        (number)
+        (number))
+      (enum
+        (identifier)
+        (number)
+        (number)
+        (number))
+      (enum
+        (identifier)
+        (number)
+        (number)
+        (number)))))
+
+================================================================================
+Class Definition: Events
+================================================================================
+
+classdef ToggleButton < handle
+   events
+      ToggledState
+      Quitting
+   end;
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_definition
+    (identifier)
+    (superclasses
+      (property_name
+        (identifier)))
+    (events
+      (identifier)
+      (identifier))))
+
+================================================================================
+Class Definition: External Methods
+================================================================================
+
+classdef Class
+    methods
+        output = func(a)
+        func2
+    end
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_definition
+    (identifier)
+    (methods
+      (function_signature
+        (function_output
+          (identifier))
+        (identifier)
+        (function_arguments
+          (identifier)))
+      (function_signature
+        (identifier)))))
+
+================================================================================
+Class Definition: Old-style property
+================================================================================
+
+classdef PropTypeOld
+    properties
+        link_name@char = 'none';
+        pos@double vector = zeros(3,1);
+        rotm@double matrix = zeros(3,3);
+        idx@uint8 scalar = 0;
+    end
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_definition
+    (identifier)
+    (properties
+      (property
+        (identifier)
+        (identifier)
+        (default_value
+          (string
+            (string_content))))
+      (property
+        (identifier)
+        (identifier)
+        (identifier)
+        (default_value
+          (function_call
+            (identifier)
+            (arguments
+              (number)
+              (number)))))
+      (property
+        (identifier)
+        (identifier)
+        (identifier)
+        (default_value
+          (function_call
+            (identifier)
+            (arguments
+              (number)
+              (number)))))
+      (property
+        (identifier)
+        (identifier)
+        (identifier)
+        (default_value
+          (number))))))
+
+================================================================================
+Class: Metaclass operator
+================================================================================
+
+?double
+?com.example.AClass
+?"invalid"
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (metaclass_operator
+    (identifier))
+  (metaclass_operator
+    (identifier)
+    (identifier)
+    (identifier))
+  (ERROR)
+  (string
+    (string_content)))
+
+================================================================================
+Class: Enumeration with expressions
+================================================================================
+
+classdef FlowRate < int32
+   enumeration
+      Low    (10)
+      Medium (FlowRate.Low*5)
+      High   (FlowRate.Low*10)
+   end
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_definition
+    (identifier)
+    (superclasses
+      (property_name
+        (identifier)))
+    (enumeration
+      (enum
+        (identifier)
+        (number))
+      (enum
+        (identifier)
+        (binary_operator
+          (field_expression
+            (identifier)
+            (identifier))
+          (number)))
+      (enum
+        (identifier)
+        (binary_operator
+          (field_expression
+            (identifier)
+            (identifier))
+          (number))))))
+
+================================================================================
+Class: properties with comments and empty lines
+================================================================================
+
+classdef class_prop_comment
+    properties
+        Interlacing (1,1) logical = false;
+
+        % comment1
+
+        InterlaceIndex {mustBeVector, mustBeNumeric, mustBeInteger, mustBeNonnegative, mustBeLessThan(InterlaceIndex, 10)} = 0;
+    end
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_definition
+    (identifier)
+    (properties
+      (property
+        (identifier)
+        (dimensions
+          (number)
+          (number))
+        (identifier)
+        (default_value
+          (identifier)))
+      (comment)
+      (property
+        (identifier)
+        (validation_functions
+          (identifier)
+          (identifier)
+          (identifier)
+          (identifier)
+          (function_call
+            (identifier)
+            (arguments
+              (identifier)
+              (number))))
+        (default_value
+          (number))))))

@@ -1,0 +1,32 @@
+================================================================================
+Parenthesized Expression
+================================================================================
+
+print((1))
+
+--------------------------------------------------------------------------------
+
+(program
+ (function_call
+  called_object: (identifier)
+  arguments: (arguments
+    (parenthesized_expression
+     (number)))))
+
+================================================================================
+Very Parenthesized Expression
+================================================================================
+
+print(((((1)))))
+
+--------------------------------------------------------------------------------
+
+(program
+ (function_call
+  called_object: (identifier)
+  arguments: (arguments
+    (parenthesized_expression
+     (parenthesized_expression
+      (parenthesized_expression
+       (parenthesized_expression
+        (number))))))))

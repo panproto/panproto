@@ -1,0 +1,13 @@
+===
+modules/invalidExtend3.pkl
+===
+
+extends "amendModule1.pkl"
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart)))))

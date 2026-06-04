@@ -1,0 +1,41 @@
+===
+errors/mappingTypeCheckError5.pkl
+===
+
+res: Mapping<String, String> = new {
+  when (false) {
+    ["foo"] = "foo"
+  }
+  [1] = "foo"
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))))
+    (newExpr
+      (objectBody
+        (whenGenerator
+          (falseLiteralExpr)
+          (objectBody
+            (objectEntry
+              (slStringLiteralExpr
+                (slStringLiteralPart))
+              (slStringLiteralExpr
+                (slStringLiteralPart)))))
+        (objectEntry
+          (intLiteralExpr)
+          (slStringLiteralExpr
+            (slStringLiteralPart)))))))

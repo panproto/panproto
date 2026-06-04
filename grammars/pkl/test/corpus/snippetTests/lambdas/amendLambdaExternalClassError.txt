@@ -1,0 +1,45 @@
+===
+lambdas/amendLambdaExternalClassError.pkl
+===
+
+hidden ab = (a, b) -> List(42)
+hidden amendAb = (ab) { amended = "amended" }
+res1 = amendAb.apply(1, 2)
+
+---
+
+(module
+  (classProperty
+    (modifier)
+    (identifier)
+    (functionLiteralExpr
+      (parameterList
+        (typedIdentifier
+          (identifier))
+        (typedIdentifier
+          (identifier)))
+      (unqualifiedAccessExpr
+        (identifier)
+        (argumentList
+          (intLiteralExpr)))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (intLiteralExpr)
+        (intLiteralExpr)))))

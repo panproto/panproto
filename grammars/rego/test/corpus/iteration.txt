@@ -1,0 +1,133 @@
+================================================================================
+for all
+================================================================================
+
+package test.block
+
+result := count({x | set[x]; f(x)}) == 0
+
+
+--------------------------------------------------------------------------------
+(source_file
+  (module
+    (package)
+    (ref
+      (var)
+      (ref_arg
+        (ref_arg_dot
+          (var))))
+    (policy
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (assignment)
+          (term
+            (ref
+              (var))))
+        (rule_body
+          (literal
+            (expr
+              (expr_infix
+                (expr
+                  (expr_parens
+                    (open_paren)
+                    (expr
+                      (term
+                        (ref
+                          (set_compr
+                            (open_curly)
+                            (term
+                              (ref
+                                (var)))
+                            (query
+                              (literal
+                                (expr
+                                  (term
+                                    (ref
+                                      (var)
+                                      (ref_arg
+                                        (ref_arg_brack
+                                          (open_bracket)
+                                          (var)
+                                          (close_bracket)))))))
+                              (literal
+                                (expr
+                                  (term
+                                    (ref
+                                      (expr_call
+                                        (fn_name
+                                          (var))
+                                        (open_paren)
+                                        (fn_args
+                                          (expr
+                                            (term
+                                              (ref
+                                                (var)))))
+                                        (close_paren)))))))
+                            (close_curly)))))
+                    (close_paren)))
+                (infix_operator
+                  (bool_operator))
+                (expr
+                  (term
+                    (scalar
+                      (number))))))))))))
+
+
+================================================================================
+any match
+================================================================================
+
+package test.block
+
+any_match if {
+    some x in set
+    f(x)
+}
+
+
+--------------------------------------------------------------------------------
+(source_file
+  (module
+    (package)
+    (ref
+      (var)
+      (ref_arg
+        (ref_arg_dot
+          (var))))
+    (policy
+      (rule
+        (rule_head
+          (var)
+          (if))
+        (rule_body
+          (open_curly)
+          (query
+            (literal
+              (some_decl
+                (some)
+                (term
+                  (ref
+                    (var)))
+                (in)
+                (expr
+                  (term
+                    (ref
+                      (var))))))
+            (literal
+              (expr
+                (term
+                  (ref
+                    (expr_call
+                      (fn_name
+                        (var))
+                      (open_paren)
+                      (fn_args
+                        (expr
+                          (term
+                            (ref
+                              (var)))))
+                      (close_paren)))))))
+          (close_curly))))))
+

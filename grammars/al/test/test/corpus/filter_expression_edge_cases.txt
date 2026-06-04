@@ -1,0 +1,182 @@
+================================================================================
+Filter with enum member access
+================================================================================
+
+table 50100 "IC Setup"
+{
+    fields
+    {
+        field(1; "Partner Code"; Code[20])
+        {
+            TableRelation = "IC Partner".Code where("Inbox Type" = filter("IC Partner Inbox Type"::Database));
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        (integer)
+        (quoted_identifier)
+        (type_specification
+          (code_type
+            (integer)))
+        (property
+          (property_name)
+          (table_relation_value
+            (table_relation_expression
+              (simple_table_relation
+                (quoted_identifier)
+                (identifier)
+                (where_clause
+                  (where_conditions
+                    (where_condition
+                      (quoted_identifier)
+                      (filter_keyword)
+                      (filter_value
+                        (qualified_enum_value
+                          (quoted_identifier)
+                          (identifier))))))))))))))
+
+================================================================================
+Filter with keyword identifier
+================================================================================
+
+table 50101 "Workflow Rule"
+{
+    fields
+    {
+        field(1; "Table ID"; Integer)
+        {
+            TableRelation = AllObjWithCaption."Object ID" where("Object Type" = filter(Table));
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        (integer)
+        (quoted_identifier)
+        (type_specification
+          (basic_type))
+        (property
+          (property_name)
+          (table_relation_value
+            (table_relation_expression
+              (simple_table_relation
+                (identifier)
+                (quoted_identifier)
+                (where_clause
+                  (where_conditions
+                    (where_condition
+                      (quoted_identifier)
+                      (filter_keyword)
+                      (filter_value
+                        (identifier)))))))))))))
+
+================================================================================
+Filter with const identifier
+================================================================================
+
+table 50102 "Test Filter"
+{
+    fields
+    {
+        field(1; "Type"; Option)
+        {
+            TableRelation = "Some Table".Code where(Type = const(Customer));
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        (integer)
+        (quoted_identifier)
+        (type_specification
+          (option_type))
+        (property
+          (property_name)
+          (table_relation_value
+            (table_relation_expression
+              (simple_table_relation
+                (quoted_identifier)
+                (identifier)
+                (where_clause
+                  (where_conditions
+                    (where_condition
+                      (identifier)
+                      (identifier))))))))))))
+
+================================================================================
+Filter with enum member using double colon
+================================================================================
+
+table 50103 "Integration Setup"
+{
+    fields
+    {
+        field(1; "Status"; Enum "Integration Status")
+        {
+            TableRelation = "Integration Entry" where(Status = filter("Integration Status"::Active | "Integration Status"::Pending));
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        (integer)
+        (quoted_identifier)
+        (type_specification
+          (object_reference_type
+            (enum_keyword)
+            (quoted_identifier)))
+        (property
+          (property_name)
+          (table_relation_value
+            (table_relation_expression
+              (simple_table_relation
+                (quoted_identifier)
+                (where_clause
+                  (where_conditions
+                    (where_condition
+                      (identifier)
+                      (filter_keyword)
+                      (filter_value
+                        (qualified_enum_value
+                          (quoted_identifier)
+                          (identifier))
+                        (qualified_enum_value
+                          (quoted_identifier)
+                          (identifier))))))))))))))

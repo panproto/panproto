@@ -1,0 +1,18 @@
+===
+errors/supercalls.pkl
+===
+
+foo {
+  bar = super.bar()
+}
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (superAccessExpr
+          (identifier)
+          (argumentList))))))

@@ -1,0 +1,32 @@
+===
+errors/spreadSyntaxDuplicateProperty1.pkl
+===
+
+local source {
+  foo = 1
+}
+
+res {
+  ...source
+  foo = 2
+}
+
+---
+
+(module
+  (classProperty
+    (modifier)
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectSpread
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectProperty
+        (identifier)
+        (intLiteralExpr)))))

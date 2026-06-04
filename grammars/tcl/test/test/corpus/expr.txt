@@ -1,0 +1,46 @@
+================================================================================
+Expr 'in'
+================================================================================
+
+if {$foo in {"basic"}} {}
+
+if {{foo} in {basic}} {}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (if
+    (expr
+      (binop_expr
+        (variable_substitution
+          (id))
+        (braced_word_simple
+          (quoted_word))))
+        (braced_word))
+      (if
+        (expr
+          (binop_expr
+            (braced_word_simple
+              (simple_word))
+            (braced_word_simple
+              (simple_word))))
+    (braced_word)))
+
+================================================================================
+Expr eq and &&
+================================================================================
+
+expr {$var eq "sec" && $bar}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expr_cmd
+    (expr
+      (binop_expr
+        (binop_expr
+          (variable_substitution
+            (id))
+          (quoted_word))
+        (variable_substitution
+          (id))))))

@@ -1,0 +1,43 @@
+========================================================================
+DotNet with assembly and type declarations
+========================================================================
+
+dotnet
+{
+    assembly("System.Text")
+    {
+        type("System.Text.StringBuilder"; "StringBuilder")
+        {
+        }
+    }
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (dotnet_declaration
+    (dotnet_keyword)
+    (assembly_declaration
+      name: (quoted_identifier)
+      (type_declaration
+        dotnet_type: (quoted_identifier)
+        al_name: (quoted_identifier)))))
+
+========================================================================
+DotNet assembly with dotnet name
+========================================================================
+
+dotnet
+{
+    assembly(System.Web)
+    {
+    }
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (dotnet_declaration
+    (dotnet_keyword)
+    (assembly_declaration
+      name: (dotnet_assembly_name))))

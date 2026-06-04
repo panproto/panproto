@@ -1,0 +1,166 @@
+================================================================================
+Option type with inline members in variable declarations
+================================================================================
+
+page 123 "Test Page"
+{
+    var
+        FindDocumentsUsing: Option " ","Source Record PK","Document Reference",Navigate;
+        ImportanceLevel: Option Low,Normal,High;
+        Status: Option "Not Started","In Progress",Completed,"On Hold";
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (option_type
+            (option_member_list
+              (option_member
+                (quoted_identifier))
+              (option_member
+                (quoted_identifier))
+              (option_member
+                (quoted_identifier))
+              (option_member
+                (identifier))))))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (option_type
+            (option_member_list
+              (option_member
+                (identifier))
+              (option_member
+                (identifier))
+              (option_member
+                (identifier))))))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (option_type
+            (option_member_list
+              (option_member
+                (quoted_identifier))
+              (option_member
+                (quoted_identifier))
+              (option_member
+                (identifier))
+              (option_member
+                (quoted_identifier)))))))))
+
+================================================================================
+Option type with inline members in procedure parameters
+================================================================================
+
+codeunit 456 "Test Codeunit"
+{
+    procedure LoadDocuments(NewFindDocumentsUsing: Option " ","Source Record PK","Document Reference",Navigate; RecID: RecordID)
+    begin
+        // Process the option parameter
+    end;
+
+    procedure SetImportance(ImportanceLevel: Option Low,Normal,High)
+    begin
+        // Set importance level
+    end;
+
+    procedure UpdateStatus(CurrentStatus: Option "Not Started","In Progress",Completed,"On Hold"; NewStatus: Option "Not Started","In Progress",Completed,"On Hold")
+    begin
+        // Update from current to new status
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (option_type
+              (option_member_list
+                (option_member
+                  (quoted_identifier))
+                (option_member
+                  (quoted_identifier))
+                (option_member
+                  (quoted_identifier))
+                (option_member
+                  (identifier))))))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (comment)
+        (end_keyword)))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (option_type
+              (option_member_list
+                (option_member
+                  (identifier))
+                (option_member
+                  (identifier))
+                (option_member
+                  (identifier)))))))
+      (code_block
+        (begin_keyword)
+        (comment)
+        (end_keyword)))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (option_type
+              (option_member_list
+                (option_member
+                  (quoted_identifier))
+                (option_member
+                  (quoted_identifier))
+                (option_member
+                  (identifier))
+                (option_member
+                  (quoted_identifier))))))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (option_type
+              (option_member_list
+                (option_member
+                  (quoted_identifier))
+                (option_member
+                  (quoted_identifier))
+                (option_member
+                  (identifier))
+                (option_member
+                  (quoted_identifier)))))))
+      (code_block
+        (begin_keyword)
+        (comment)
+        (end_keyword)))))

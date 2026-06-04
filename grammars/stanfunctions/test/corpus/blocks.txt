@@ -1,0 +1,256 @@
+================================================================================
+Functions test
+================================================================================
+
+functions {
+  void foo(data array[,,] int x) {
+    print(x);
+    // test
+    real boom = 1.0;
+    return;
+  }
+
+  array[,] matrix bar(complex_vector z) {
+    for (i in 1:10){
+      return z; // would fail to typecheck
+    }
+  }
+
+  real foo(real x, real y) {
+    return x + y;
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (functions
+    (function_definition
+      (return_type)
+      (function_declarator
+        (identifier)
+        (parameter_list
+          (parameter_declaration
+            (unsized_type
+              (unsized_dims)
+              (basic_type))
+            (identifier))))
+      (block_statement
+        (print_statement
+          (variable_expression
+            (identifier)))
+        (comment)
+        (var_decl
+          (sized_basic_type)
+          (identifier)
+          (real_literal
+            (integer_literal)
+            (integer_literal)))
+        (return_statement)))
+    (function_definition
+      (return_type
+        (unsized_type
+          (unsized_dims)
+          (basic_type)))
+      (function_declarator
+        (identifier)
+        (parameter_list
+          (parameter_declaration
+            (unsized_type
+              (basic_type))
+            (identifier))))
+      (block_statement
+        (for_statement
+          (identifier)
+          (integer_literal)
+          (integer_literal)
+          (block_statement
+            (return_statement
+              (variable_expression
+                (identifier)))
+            (comment)))))
+    (function_definition
+      (return_type
+        (unsized_type
+          (basic_type)))
+      (function_declarator
+        (identifier)
+        (parameter_list
+          (parameter_declaration
+            (unsized_type
+              (basic_type))
+            (identifier))
+          (parameter_declaration
+            (unsized_type
+              (basic_type))
+            (identifier))))
+      (block_statement
+        (return_statement
+          (infix_op_expression
+            (variable_expression
+              (identifier))
+            (variable_expression
+              (identifier))))))))
+
+================================================================================
+data block
+================================================================================
+
+data {
+  real x;
+  ;
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (data
+    (top_var_decl_no_assign
+      (top_var_type
+        (real_type))
+      (identifier))
+    (top_var_decl_no_assign
+      (empty_statement))))
+
+================================================================================
+transformed data block
+================================================================================
+
+transformed data {
+  real x = 2., y;
+  y = 1.;
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (transformed_data
+    (top_var_decl
+      (top_var_type
+        (real_type))
+      (identifier)
+      (real_literal
+        (integer_literal))
+      (identifier))
+    (assignment_statement
+      (lhs
+        (variable_expression
+          (identifier)))
+      (assignment_op)
+      (real_literal
+        (integer_literal)))))
+
+================================================================================
+parameters block
+================================================================================
+
+parameters {
+  real x,y;
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (parameters
+    (top_var_decl_no_assign
+      (top_var_type
+        (real_type))
+      (identifier)
+      (identifier))))
+
+================================================================================
+transformed parameters block
+================================================================================
+
+transformed parameters {
+  real x;
+  x = 1.;
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (transformed_parameters
+    (top_var_decl
+      (top_var_type
+        (real_type))
+      (identifier))
+    (assignment_statement
+      (lhs
+        (variable_expression
+          (identifier)))
+      (assignment_op)
+      (real_literal
+        (integer_literal)))))
+
+================================================================================
+model block
+================================================================================
+
+model {
+  real x;
+  x = 1.;
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (model
+    (var_decl
+      (sized_basic_type)
+      (identifier))
+    (assignment_statement
+      (lhs
+        (variable_expression
+          (identifier)))
+      (assignment_op)
+      (real_literal
+        (integer_literal)))))
+
+================================================================================
+generated quantities block
+================================================================================
+
+generated quantities {
+  real x;
+  x = 1.;
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (generated_quantities
+    (top_var_decl
+      (top_var_type
+        (real_type))
+      (identifier))
+    (assignment_statement
+      (lhs
+        (variable_expression
+          (identifier)))
+      (assignment_op)
+      (real_literal
+        (integer_literal)))))
+
+================================================================================
+all blocks
+================================================================================
+
+functions {}
+data {}
+transformed data {}
+parameters {}
+transformed parameters {}
+model {}
+generated quantities{}
+
+--------------------------------------------------------------------------------
+
+(program
+  (functions)
+  (data)
+  (transformed_data)
+  (parameters)
+  (transformed_parameters)
+  (model)
+  (generated_quantities))

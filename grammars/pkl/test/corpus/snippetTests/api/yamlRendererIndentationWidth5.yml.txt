@@ -1,0 +1,32 @@
+===
+api/yamlRendererIndentationWidth5.yml.pkl
+===
+
+amends "yamlRendererIndentationWidth2.yml.pkl"
+
+output {
+  renderer = new YamlRenderer {
+    indentWidth = 5
+  }
+}
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (objectBody
+            (objectProperty
+              (identifier)
+              (intLiteralExpr))))))))

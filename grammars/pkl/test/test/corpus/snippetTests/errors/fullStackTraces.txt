@@ -1,0 +1,64 @@
+===
+errors/fullStackTraces.pkl
+===
+
+const local wrong = throw("fail")
+
+const hidden v1 = wrong
+
+const function f1() = v1
+
+const local function f2() = f1()
+
+class Foo {
+  foo = f2()
+}
+
+aFoo: Foo
+
+---
+
+(module
+  (classProperty
+    (modifier)
+    (modifier)
+    (identifier)
+    (throwExpr
+      (slStringLiteralExpr
+        (slStringLiteralPart))))
+  (classProperty
+    (modifier)
+    (modifier)
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)))
+  (classMethod
+    (methodHeader
+      (modifier)
+      (identifier)
+      (parameterList))
+    (unqualifiedAccessExpr
+      (identifier)))
+  (classMethod
+    (methodHeader
+      (modifier)
+      (modifier)
+      (identifier)
+      (parameterList))
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList)))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList)))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))))

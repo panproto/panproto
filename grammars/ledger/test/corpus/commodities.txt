@@ -1,0 +1,219 @@
+================================================================================
+with amount
+================================================================================
+2020-12-02
+    Expenses:Food:Groceries  2 EUR
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (posting
+          (account)
+          (amount
+            (quantity)
+            (commodity)))))))
+
+================================================================================
+with amount that has commodity first
+================================================================================
+2020-12-02
+    Expenses:Food:Groceries  EUR 2
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (posting
+          (account)
+          (amount
+            (commodity)
+            (quantity)))))))
+
+================================================================================
+with amount that has non letter commodity
+================================================================================
+2020-12-02
+    Expenses:Food:Groceries  2 $
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (posting
+          (account)
+          (amount
+            (quantity)
+            (commodity)))))))
+
+================================================================================
+with amount that has non letter commodity first
+================================================================================
+2020-12-02
+    Expenses:Food:Groceries  £2
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (posting
+          (account)
+          (amount
+            (commodity)
+            (quantity)))))))
+
+================================================================================
+multiword commodity
+================================================================================
+
+D 1.000 "Foo's Bar"
+C "Foo" = 1.20 "Foo Bar"
+
+2020-12-02
+    Expenses:Food:Groceries  2 "Hey there"
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (directive
+      (char_directive
+        (amount
+          (quantity)
+          (commodity)))))
+  (journal_item
+    (directive
+      (char_directive
+        (commodity)
+        (amount
+          (quantity)
+          (commodity)))))
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (posting
+          (account)
+          (amount
+            (quantity)
+            (commodity)))))))
+
+================================================================================
+UTF-8 commodity names
+================================================================================
+
+2020-12-02
+    Expenses:Food:Groceries  2 "Hoi Zäme"
+    Expenses:Food:Groceries  2 Zäme
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (posting
+          (account)
+          (amount
+            (quantity)
+            (commodity)))
+        (posting
+          (account)
+          (amount
+            (quantity)
+            (commodity)))))))
+
+================================================================================
+amount without commodity
+================================================================================
+2020-12-02
+    Expenses:Food:Groceries  2
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (posting
+          (account)
+          (amount
+            (quantity)))))))
+
+================================================================================
+amount without commodity followed by price
+================================================================================
+2020-12-02
+    Expenses:Food:Groceries  2 @ $1
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (posting
+          (account)
+          (amount
+            (quantity))
+          (price
+            (amount
+              (commodity)
+              (quantity))))))))
+
+================================================================================
+amount without commodity followed by price, with mutliple spaces before price
+================================================================================
+2020-12-02
+    Expenses:Food:Groceries  2  @ $1
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (posting
+          (account)
+          (amount
+            (quantity))
+          (price
+            (amount
+              (commodity)
+              (quantity))))))))
+
+================================================================================
+amount without commodity followed by comment, with space after comment char
+================================================================================
+2020-12-02
+    Expenses:Food:Groceries  2 ; foo
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (posting
+          (account)
+          (amount
+            (quantity))
+          (note))))))
+

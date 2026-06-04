@@ -1,0 +1,1246 @@
+============================================================================
+Sequence of Scalars (ball players)
+============================================================================
+- Mark McGwire
+- Sammy Sosa
+- Ken Griffey
+
+----------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_sequence
+        (block_sequence_item
+          (flow_node
+            (plain_scalar
+              (string_scalar))))
+        (block_sequence_item
+          (flow_node
+            (plain_scalar
+              (string_scalar))))
+        (block_sequence_item
+          (flow_node
+            (plain_scalar
+              (string_scalar))))))))
+
+============================================================================
+Mapping Scalars to Scalars (player statistics)
+============================================================================
+hr:  65    # Home runs
+avg: 0.278 # Batting average
+rbi: 147   # Runs Batted In
+
+----------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_mapping
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (plain_scalar
+              (integer_scalar))))
+        (comment)
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (plain_scalar
+              (float_scalar))))
+        (comment)
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (plain_scalar
+              (integer_scalar))))
+        (comment)))))
+
+============================================================================
+Mapping Scalars to Sequences (ball clubs in each league)
+============================================================================
+american:
+  - Boston Red Sox
+  - Detroit Tigers
+  - New York Yankees
+national:
+  - New York Mets
+  - Chicago Cubs
+  - Atlanta Braves
+
+----------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_mapping
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (block_node
+            (block_sequence
+              (block_sequence_item
+                (flow_node
+                  (plain_scalar
+                    (string_scalar))))
+              (block_sequence_item
+                (flow_node
+                  (plain_scalar
+                    (string_scalar))))
+              (block_sequence_item
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))))))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (block_node
+            (block_sequence
+              (block_sequence_item
+                (flow_node
+                  (plain_scalar
+                    (string_scalar))))
+              (block_sequence_item
+                (flow_node
+                  (plain_scalar
+                    (string_scalar))))
+              (block_sequence_item
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))))))))))
+
+============================================================================
+Sequence of Mappings (players’ statistics)
+============================================================================
+-
+  name: Mark McGwire
+  hr:   65
+  avg:  0.278
+-
+  name: Sammy Sosa
+  hr:   63
+  avg:  0.288
+
+----------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_sequence
+        (block_sequence_item
+          (block_node
+            (block_mapping
+              (block_mapping_pair
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))
+                (flow_node
+                  (plain_scalar
+                    (string_scalar))))
+              (block_mapping_pair
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))
+                (flow_node
+                  (plain_scalar
+                    (integer_scalar))))
+              (block_mapping_pair
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))
+                (flow_node
+                  (plain_scalar
+                    (float_scalar)))))))
+        (block_sequence_item
+          (block_node
+            (block_mapping
+              (block_mapping_pair
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))
+                (flow_node
+                  (plain_scalar
+                    (string_scalar))))
+              (block_mapping_pair
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))
+                (flow_node
+                  (plain_scalar
+                    (integer_scalar))))
+              (block_mapping_pair
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))
+                (flow_node
+                  (plain_scalar
+                    (float_scalar)))))))))))
+
+============================================================================
+Sequence of Sequences
+============================================================================
+- [name        , hr, avg  ]
+- [Mark McGwire, 65, 0.278]
+- [Sammy Sosa  , 63, 0.288]
+
+
+
+----------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_sequence
+        (block_sequence_item
+          (flow_node
+            (flow_sequence
+              (flow_node
+                (plain_scalar
+                  (string_scalar)))
+              (flow_node
+                (plain_scalar
+                  (string_scalar)))
+              (flow_node
+                (plain_scalar
+                  (string_scalar))))))
+        (block_sequence_item
+          (flow_node
+            (flow_sequence
+              (flow_node
+                (plain_scalar
+                  (string_scalar)))
+              (flow_node
+                (plain_scalar
+                  (integer_scalar)))
+              (flow_node
+                (plain_scalar
+                  (float_scalar))))))
+        (block_sequence_item
+          (flow_node
+            (flow_sequence
+              (flow_node
+                (plain_scalar
+                  (string_scalar)))
+              (flow_node
+                (plain_scalar
+                  (integer_scalar)))
+              (flow_node
+                (plain_scalar
+                  (float_scalar))))))))))
+
+============================================================================
+Mapping of Mappings
+============================================================================
+Mark McGwire: {hr: 65, avg: 0.278}
+Sammy Sosa: {
+    hr: 63,
+    avg: 0.288
+  }
+
+----------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_mapping
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (flow_mapping
+              (flow_pair
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))
+                (flow_node
+                  (plain_scalar
+                    (integer_scalar))))
+              (flow_pair
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))
+                (flow_node
+                  (plain_scalar
+                    (float_scalar)))))))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (flow_mapping
+              (flow_pair
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))
+                (flow_node
+                  (plain_scalar
+                    (integer_scalar))))
+              (flow_pair
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))
+                (flow_node
+                  (plain_scalar
+                    (float_scalar)))))))))))
+
+============================================================================
+Two Documents in a Stream (each with a leading comment)
+============================================================================
+# Ranking of 1998 home runs
+---
+- Mark McGwire
+- Sammy Sosa
+- Ken Griffey
+
+# Team ranking
+---
+- Chicago Cubs
+- St Louis Cardinals
+
+----------------------------------------------------------------------------
+
+(stream
+  (comment)
+  (document
+    (block_node
+      (block_sequence
+        (block_sequence_item
+          (flow_node
+            (plain_scalar
+              (string_scalar))))
+        (block_sequence_item
+          (flow_node
+            (plain_scalar
+              (string_scalar))))
+        (block_sequence_item
+          (flow_node
+            (plain_scalar
+              (string_scalar))))
+        (comment))))
+  (document
+    (block_node
+      (block_sequence
+        (block_sequence_item
+          (flow_node
+            (plain_scalar
+              (string_scalar))))
+        (block_sequence_item
+          (flow_node
+            (plain_scalar
+              (string_scalar))))))))
+
+============================================================================
+Play by Play Feed from a Game
+============================================================================
+---
+time: 20:03:20
+player: Sammy Sosa
+action: strike (miss)
+...
+---
+time: 20:03:47
+player: Sammy Sosa
+action: grand slam
+...
+
+----------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_mapping
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (plain_scalar
+              (string_scalar))))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (plain_scalar
+              (string_scalar))))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (plain_scalar
+              (string_scalar)))))))
+  (document
+    (block_node
+      (block_mapping
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (plain_scalar
+              (string_scalar))))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (plain_scalar
+              (string_scalar))))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (plain_scalar
+              (string_scalar))))))))
+
+============================================================================
+Single Document with Two Comments
+============================================================================
+---
+hr: # 1998 hr ranking
+  - Mark McGwire
+  - Sammy Sosa
+rbi:
+  # 1998 rbi ranking
+  - Sammy Sosa
+  - Ken Griffey
+
+----------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_mapping
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (comment)
+          (block_node
+            (block_sequence
+              (block_sequence_item
+                (flow_node
+                  (plain_scalar
+                    (string_scalar))))
+              (block_sequence_item
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))))))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (comment)
+          (block_node
+            (block_sequence
+              (block_sequence_item
+                (flow_node
+                  (plain_scalar
+                    (string_scalar))))
+              (block_sequence_item
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))))))))))
+
+============================================================================
+Node for “Sammy Sosa” appears twice in this document
+============================================================================
+---
+hr:
+  - Mark McGwire
+  # Following node labeled SS
+  - &SS Sammy Sosa
+rbi:
+  - *SS # Subsequent occurrence
+  - Ken Griffey
+
+----------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_mapping
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (block_node
+            (block_sequence
+              (block_sequence_item
+                (flow_node
+                  (plain_scalar
+                    (string_scalar))))
+              (comment)
+              (block_sequence_item
+                (flow_node
+                  (anchor
+                    (anchor_name))
+                  (plain_scalar
+                    (string_scalar)))))))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (block_node
+            (block_sequence
+              (block_sequence_item
+                (flow_node
+                  (alias
+                    (alias_name))))
+              (comment)
+              (block_sequence_item
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))))))))))
+
+============================================================================
+Mapping between Sequences
+============================================================================
+? - Detroit Tigers
+  - Chicago cubs
+:
+  - 2001-07-23
+
+? [ New York Yankees,
+    Atlanta Braves ]
+: [ 2001-07-02, 2001-08-12,
+    2001-08-14 ]
+
+----------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_mapping
+        (block_mapping_pair
+          (block_node
+            (block_sequence
+              (block_sequence_item
+                (flow_node
+                  (plain_scalar
+                    (string_scalar))))
+              (block_sequence_item
+                (flow_node
+                  (plain_scalar
+                    (string_scalar))))))
+          (block_node
+            (block_sequence
+              (block_sequence_item
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))))))
+        (block_mapping_pair
+          (flow_node
+            (flow_sequence
+              (flow_node
+                (plain_scalar
+                  (string_scalar)))
+              (flow_node
+                (plain_scalar
+                  (string_scalar)))))
+          (flow_node
+            (flow_sequence
+              (flow_node
+                (plain_scalar
+                  (string_scalar)))
+              (flow_node
+                (plain_scalar
+                  (string_scalar)))
+              (flow_node
+                (plain_scalar
+                  (string_scalar))))))))))
+
+============================================================================
+Compact Nested Mapping
+============================================================================
+---
+# Products purchased
+- item    : Super Hoop
+  quantity: 1
+- item    : Basketball
+  quantity: 4
+- item    : Big Shoes
+  quantity: 1
+
+
+----------------------------------------------------------------------------
+
+(stream
+  (document
+    (comment)
+    (block_node
+      (block_sequence
+        (block_sequence_item
+          (block_node
+            (block_mapping
+              (block_mapping_pair
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))
+                (flow_node
+                  (plain_scalar
+                    (string_scalar))))
+              (block_mapping_pair
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))
+                (flow_node
+                  (plain_scalar
+                    (integer_scalar)))))))
+        (block_sequence_item
+          (block_node
+            (block_mapping
+              (block_mapping_pair
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))
+                (flow_node
+                  (plain_scalar
+                    (string_scalar))))
+              (block_mapping_pair
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))
+                (flow_node
+                  (plain_scalar
+                    (integer_scalar)))))))
+        (block_sequence_item
+          (block_node
+            (block_mapping
+              (block_mapping_pair
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))
+                (flow_node
+                  (plain_scalar
+                    (string_scalar))))
+              (block_mapping_pair
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))
+                (flow_node
+                  (plain_scalar
+                    (integer_scalar)))))))))))
+
+============================================================================
+In literals, newlines are preserved
+============================================================================
+# ASCII Art
+--- |
+  \//||\/||
+  // ||  ||__
+
+----------------------------------------------------------------------------
+
+(stream
+  (comment)
+  (document
+    (block_node
+      (block_scalar))))
+
+============================================================================
+In the folded scalars, newlines become spaces
+============================================================================
+--- >
+  Mark McGwire's
+  year was crippled
+  by a knee injury.
+
+----------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_scalar))))
+
+============================================================================
+Folded newlines are preserved for "more indented" and blank lines
+============================================================================
+>
+ Sammy Sosa completed another
+ fine season with great stats.
+
+   63 Home Runs
+   0.288 Batting Average
+
+ What a year!
+
+----------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_scalar))))
+
+============================================================================
+Indentation determines scope
+============================================================================
+name: Mark McGwire
+accomplishment: >
+  Mark set a major league
+  home run record in 1998.
+stats: |
+  65 Home Runs
+  0.278 Batting Average
+
+
+----------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_mapping
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (plain_scalar
+              (string_scalar))))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (block_node
+            (block_scalar)))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (block_node
+            (block_scalar)))))))
+
+============================================================================
+Quoted Scalars
+============================================================================
+unicode: "Sosa did fine.\u263A"
+control: "\b1998\t1999\t2000\n"
+hex esc: "\x0d\x0a is \r\n"
+
+single: '"Howdy!" he cried.'
+quoted: ' # Not a ''comment''.'
+tie-fighter: '|\-*-/|'
+
+----------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_mapping
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (double_quote_scalar
+              (escape_sequence))))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (double_quote_scalar
+              (escape_sequence)
+              (escape_sequence)
+              (escape_sequence)
+              (escape_sequence))))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (double_quote_scalar
+              (escape_sequence)
+              (escape_sequence)
+              (escape_sequence)
+              (escape_sequence))))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (single_quote_scalar)))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (single_quote_scalar
+              (escape_sequence)
+              (escape_sequence))))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (single_quote_scalar)))))))
+
+============================================================================
+Multi-line Flow Scalars
+============================================================================
+plain:
+  This unquoted scalar
+  spans many lines.
+
+quoted: "So does this
+  quoted scalar.\n"
+
+
+----------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_mapping
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (plain_scalar
+              (string_scalar))))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (double_quote_scalar
+              (escape_sequence))))))))
+
+============================================================================
+Integers
+============================================================================
+canonical: 12345
+decimal: +12345
+octal: 0o14
+hexadecimal: 0xC
+
+
+----------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_mapping
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (plain_scalar
+              (integer_scalar))))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (plain_scalar
+              (integer_scalar))))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (plain_scalar
+              (integer_scalar))))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (plain_scalar
+              (integer_scalar))))))))
+
+============================================================================
+Floating Point
+============================================================================
+canonical: 1.23015e+3
+exponential: 12.3015e+02
+fixed: 1230.15
+negative infinity: -.inf
+not a number: .NaN
+
+----------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_mapping
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (plain_scalar
+              (float_scalar))))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (plain_scalar
+              (float_scalar))))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (plain_scalar
+              (float_scalar))))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (plain_scalar
+              (float_scalar))))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (plain_scalar
+              (float_scalar))))))))
+
+============================================================================
+Miscellaneous
+============================================================================
+null:
+booleans: [ true, false ]
+string: '012345'
+
+----------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_mapping
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (null_scalar))))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (flow_sequence
+              (flow_node
+                (plain_scalar
+                  (boolean_scalar)))
+              (flow_node
+                (plain_scalar
+                  (boolean_scalar))))))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (single_quote_scalar)))))))
+
+============================================================================
+Timestamps
+============================================================================
+canonical: 2001-12-15T02:59:43.1Z
+iso8601: 2001-12-14t21:59:43.10-05:00
+spaced: 2001-12-14 21:59:43.10 -5
+date: 2002-12-14
+
+----------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_mapping
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (plain_scalar
+              (string_scalar))))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (plain_scalar
+              (string_scalar))))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (plain_scalar
+              (string_scalar))))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (plain_scalar
+              (string_scalar))))))))
+
+============================================================================
+Various Explicit Tags
+============================================================================
+---
+not-date: !!str 2002-04-28
+
+picture: !!binary |
+ R0lGODlhDAAMAIQAAP//9/X
+ 17unp5WZmZgAAAOfn515eXv
+ Pz7Y6OjuDg4J+fn5OTk6enp
+ 56enmleECcgggoBADs=
+
+application specific tag: !something |
+ The semantics of the tag
+ above may be different for
+ different documents.
+
+
+----------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_mapping
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (tag)
+            (plain_scalar
+              (string_scalar))))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (block_node
+            (tag)
+            (block_scalar)))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (block_node
+            (tag)
+            (block_scalar)))))))
+
+============================================================================
+Global Tags
+============================================================================
+%TAG ! tag:clarkevans.com,2002:
+--- !shape
+  # Use the ! handle for presenting
+  # tag:clarkevans.com,2002:circle
+- !circle
+  center: &ORIGIN {x: 73, y: 129}
+  radius: 7
+- !line
+  start: *ORIGIN
+  finish: { x: 89, y: 102 }
+- !label
+  start: *ORIGIN
+  color: 0xFFEEBB
+  text: Pretty vector drawing.
+
+----------------------------------------------------------------------------
+
+(stream
+  (document
+    (tag_directive
+      (tag_handle)
+      (tag_prefix))
+    (block_node
+      (tag)
+      (comment)
+      (comment)
+      (block_sequence
+        (block_sequence_item
+          (block_node
+            (tag)
+            (block_mapping
+              (block_mapping_pair
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))
+                (flow_node
+                  (anchor
+                    (anchor_name))
+                  (flow_mapping
+                    (flow_pair
+                      (flow_node
+                        (plain_scalar
+                          (string_scalar)))
+                      (flow_node
+                        (plain_scalar
+                          (integer_scalar))))
+                    (flow_pair
+                      (flow_node
+                        (plain_scalar
+                          (string_scalar)))
+                      (flow_node
+                        (plain_scalar
+                          (integer_scalar)))))))
+              (block_mapping_pair
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))
+                (flow_node
+                  (plain_scalar
+                    (integer_scalar)))))))
+        (block_sequence_item
+          (block_node
+            (tag)
+            (block_mapping
+              (block_mapping_pair
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))
+                (flow_node
+                  (alias
+                    (alias_name))))
+              (block_mapping_pair
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))
+                (flow_node
+                  (flow_mapping
+                    (flow_pair
+                      (flow_node
+                        (plain_scalar
+                          (string_scalar)))
+                      (flow_node
+                        (plain_scalar
+                          (integer_scalar))))
+                    (flow_pair
+                      (flow_node
+                        (plain_scalar
+                          (string_scalar)))
+                      (flow_node
+                        (plain_scalar
+                          (integer_scalar))))))))))
+        (block_sequence_item
+          (block_node
+            (tag)
+            (block_mapping
+              (block_mapping_pair
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))
+                (flow_node
+                  (alias
+                    (alias_name))))
+              (block_mapping_pair
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))
+                (flow_node
+                  (plain_scalar
+                    (integer_scalar))))
+              (block_mapping_pair
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))))))))))
+
+============================================================================
+Unordered Sets
+============================================================================
+# Sets are represented as a
+# Mapping where each key is
+# associated with a null value
+--- !!set
+? Mark McGwire
+? Sammy Sosa
+? Ken Griff
+
+----------------------------------------------------------------------------
+
+(stream
+  (comment)
+  (comment)
+  (comment)
+  (document
+    (block_node
+      (tag)
+      (block_mapping
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar))))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar))))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar))))))))
+
+============================================================================
+Ordered Mappings
+============================================================================
+# Ordered maps are represented as
+# A sequence of mappings, with
+# each mapping having one key
+--- !!omap
+- Mark McGwire: 65
+- Sammy Sosa: 63
+- Ken Griffy: 58
+
+----------------------------------------------------------------------------
+
+(stream
+  (comment)
+  (comment)
+  (comment)
+  (document
+    (block_node
+      (tag)
+      (block_sequence
+        (block_sequence_item
+          (block_node
+            (block_mapping
+              (block_mapping_pair
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))
+                (flow_node
+                  (plain_scalar
+                    (integer_scalar)))))))
+        (block_sequence_item
+          (block_node
+            (block_mapping
+              (block_mapping_pair
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))
+                (flow_node
+                  (plain_scalar
+                    (integer_scalar)))))))
+        (block_sequence_item
+          (block_node
+            (block_mapping
+              (block_mapping_pair
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))
+                (flow_node
+                  (plain_scalar
+                    (integer_scalar)))))))))))

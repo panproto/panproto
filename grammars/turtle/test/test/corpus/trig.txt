@@ -1,0 +1,179 @@
+===============
+Single Graph As Variable
+===============
+@prefix ex: <http://www.example.org/vocabulary#> .
+
+:G1 {
+  :Monica a ex:Person
+}
+---
+
+(document
+  (directive
+    (prefix_id
+      (namespace
+        (pn_prefix))
+      (iri_reference)))
+  (graph
+    (prefixed_name
+      (namespace)
+      (pn_local))
+    (subject
+      (prefixed_name
+        (namespace)
+        (pn_local)))
+    (property_list
+      (property
+        (predicate)
+        (object_list
+          (prefixed_name
+            (namespace
+              (pn_prefix))
+            (pn_local)))))))
+
+================
+Default Graph
+================
+@prefix dc: <http://purl.org/dc/terms/> .
+
+<http://example.org/bob> dc:publisher "Bob" .
+<http://example.org/alice> dc:publisher "Alice" .
+---
+
+(document
+  (directive
+    (prefix_id
+      (namespace
+        (pn_prefix))
+      (iri_reference)))
+  (triple
+    (subject
+      (iri_reference))
+    (property_list
+      (property
+        (predicate
+          (prefixed_name
+            (namespace
+              (pn_prefix))
+            (pn_local)))
+        (object_list
+          (rdf_literal
+            (string))))))
+  (triple
+    (subject
+      (iri_reference))
+    (property_list
+      (property
+        (predicate
+          (prefixed_name
+            (namespace
+              (pn_prefix))
+            (pn_local)))
+        (object_list
+          (rdf_literal
+            (string)))))))
+
+=============
+Named Graphs With Keyword
+=============
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+
+<http://example.org/alice> dc:publisher "Alice" .
+GRAPH <http://example.org/alice>
+{
+  _:a foaf:name "Alice" ;
+    foaf:knows _:b .
+}
+
+<http://example.org/bob> dc:publisher "Bob" .
+GRAPH <http://example.org/bob>
+{
+  _:b foaf:name "Bob" ;
+    foaf:knows _:a .
+}
+---
+
+(document
+  (directive
+    (prefix_id
+      (namespace
+        (pn_prefix))
+      (iri_reference)))
+  (directive
+    (prefix_id
+      (namespace
+        (pn_prefix))
+      (iri_reference)))
+  (triple
+    (subject
+      (iri_reference))
+    (property_list
+      (property
+        (predicate
+          (prefixed_name
+            (namespace
+              (pn_prefix))
+            (pn_local)))
+        (object_list
+          (rdf_literal
+            (string))))))
+  (graph
+    (iri_reference)
+    (triple
+      (subject
+        (blank_node_label))
+      (property_list
+        (property
+          (predicate
+            (prefixed_name
+              (namespace
+                (pn_prefix))
+              (pn_local)))
+          (object_list
+            (rdf_literal
+              (string))))
+        (property
+          (predicate
+            (prefixed_name
+              (namespace
+                (pn_prefix))
+              (pn_local)))
+          (object_list
+            (blank_node_label))))))
+  (triple
+    (subject
+      (iri_reference))
+    (property_list
+      (property
+        (predicate
+          (prefixed_name
+            (namespace
+              (pn_prefix))
+            (pn_local)))
+        (object_list
+          (rdf_literal
+            (string))))))
+  (graph
+    (iri_reference)
+    (triple
+      (subject
+        (blank_node_label))
+      (property_list
+        (property
+          (predicate
+            (prefixed_name
+              (namespace
+                (pn_prefix))
+              (pn_local)))
+          (object_list
+            (rdf_literal
+              (string))))
+        (property
+          (predicate
+            (prefixed_name
+              (namespace
+                (pn_prefix))
+              (pn_local)))
+          (object_list
+            (blank_node_label)))))))

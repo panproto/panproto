@@ -1,0 +1,151 @@
+================================================================================
+Pragma warning disable/restore in var section
+================================================================================
+
+codeunit 50100 "Test Pragma"
+{
+    var
+#pragma warning disable AA0470
+        Text000: Label 'Too many levels. Must be below %1.';
+#pragma warning restore AA0470
+        Text001: Label 'Some other text';
+
+    procedure Test()
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (pragma)
+      (variable_declaration
+        (identifier)
+        (basic_type)
+        (string_literal))
+      (pragma)
+      (variable_declaration
+        (identifier)
+        (basic_type)
+        (string_literal)))
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))
+
+================================================================================
+Pragma warning nested disable/restore in var section
+================================================================================
+
+codeunit 50101 "Test Nested Pragma"
+{
+    var
+#pragma warning disable AA0074
+#pragma warning disable AA0470
+        CalcMfgPrompt: Label 'One or more subassemblies on the assembly list for item %1 use replenishment system.';
+#pragma warning restore AA0470
+        TargetText: Label 'Standard Cost,Unit Price';
+#pragma warning disable AA0470
+        RecursionInstruction: Label 'Calculate the %3 of item %1 %2.', Comment = '%1 = Item No.';
+        NonAssemblyItemError: Label 'Item %1 %2 does not use Assembly.', Comment = '%1 = Item No.';
+#pragma warning restore AA0470
+#pragma warning restore AA0074
+
+    procedure Test()
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (pragma)
+      (pragma)
+      (variable_declaration
+        (identifier)
+        (basic_type)
+        (string_literal))
+      (pragma)
+      (variable_declaration
+        (identifier)
+        (basic_type)
+        (string_literal))
+      (pragma)
+      (variable_declaration
+        (identifier)
+        (basic_type)
+        (string_literal)
+        (label_attribute
+          (identifier)
+          (string_literal)))
+      (variable_declaration
+        (identifier)
+        (basic_type)
+        (string_literal)
+        (label_attribute
+          (identifier)
+          (string_literal))))
+    (pragma)
+    (pragma)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))
+
+================================================================================
+Pragma warning in local var section
+================================================================================
+
+codeunit 50102 "Test Local Pragma"
+{
+    procedure Test()
+    var
+#pragma warning disable AA0470
+        ErrorMsg: Label 'Error occurred at %1';
+#pragma warning restore AA0470
+        Counter: Integer;
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (var_section
+        (var_keyword)
+        (pragma)
+        (variable_declaration
+          (identifier)
+          (basic_type)
+          (string_literal))
+        (pragma)
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))

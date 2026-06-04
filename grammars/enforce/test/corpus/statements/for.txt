@@ -1,0 +1,132 @@
+================================================================================
+for true do statement
+================================================================================
+void foo() {
+	for (;true;) a;
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method return_type: (type_void) name: (identifier) body: (block
+	(for
+		init: (empty_statement)
+		condition: (literal_bool)
+		body: (statement_expression
+			(identifier))))))
+
+================================================================================
+for true do block
+================================================================================
+void foo() {
+	for (;true;) {}
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method return_type: (type_void) name: (identifier) body: (block
+	(for
+		init: (empty_statement)
+		condition: (literal_bool)
+		body: (block)))))
+
+================================================================================
+for i
+================================================================================
+void foo() {
+	for (int i = 0; i < 69; i++) {}
+	for (i = 0; i < 69; i++) {}
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method return_type: (type_void) name: (identifier) body: (block
+	(for
+		init: (decl_variable
+			type: (type_int)
+			name: (identifier)
+			init: (literal_int))
+		condition: (expression_binary
+			lhs: (identifier)
+			rhs: (literal_int))
+		update: (expression_suffix (identifier))
+		body: (block))
+	(for
+		init: (assignment
+			lhs: (identifier)
+			rhs: (literal_int))
+		condition: (expression_binary
+			lhs: (identifier)
+			rhs: (literal_int))
+		update: (expression_suffix (identifier))
+		body: (block)))))
+
+================================================================================
+for with update statement
+================================================================================
+void foo() {
+	for (; true; i++) {}
+	for (; true; i++;) {}
+	for (; true; i += 1) {}
+	for (; true; i += 1;) {}
+	for (; true; foo()) {}
+	for (; true; foo();) {}
+	for (; true; break;) {}
+	for (; true; continue;) {}
+	for (; true; {}) {}
+	for (; true; return i;) {}
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method (type_void) (identifier) (block
+	(for
+		(empty_statement)
+		(literal_bool)
+		(expression_suffix (identifier))
+		(block))
+	(for
+		(empty_statement)
+		(literal_bool)
+		(statement_expression (expression_suffix (identifier)))
+		(block))
+	(for
+		(empty_statement)
+		(literal_bool)
+		(assignment
+			(identifier)
+			(literal_int))
+		(block))
+	(for
+		(empty_statement)
+		(literal_bool)
+		(assignment
+			(identifier)
+			(literal_int))
+		(block))
+	(for
+		(empty_statement)
+		(literal_bool)
+		(invokation
+			(identifier)
+			(actual_parameters))
+		(block))
+	(for
+		(empty_statement)
+		(literal_bool)
+		(statement_expression
+			(invokation
+				(identifier)
+				(actual_parameters)))
+		(block))
+	(for
+		(empty_statement)
+		(literal_bool)
+		(break)
+		(block))
+	(for
+		(empty_statement)
+		(literal_bool)
+		(continue)
+		(block))
+	(for
+		(empty_statement)
+		(literal_bool)
+		(block)
+		(block))
+	(for
+		(empty_statement)
+		(literal_bool)
+		(return (identifier))
+		(block)))))

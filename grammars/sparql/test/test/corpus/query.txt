@@ -1,0 +1,183 @@
+=========
+Prolouge
+=========
+
+BASE <https://www.example.com>
+PREFIX ex:<https://www.example.com>
+
+SELECT * {}
+
+---
+
+(unit
+  (prologue
+    (base_declaration
+      (iri_reference))
+    (prefix_declaration
+      (namespace (pn_prefix))
+      (iri_reference))) 
+  (select_query
+    (select_clause)
+    (where_clause
+      (group_graph_pattern))))
+
+==============
+Select query
+==============
+
+SELECT *
+
+WHERE {
+
+}
+
+---
+
+(unit
+  (select_query 
+    (select_clause)
+    (where_clause
+      (group_graph_pattern))))
+
+================
+Subselect query
+================
+
+SELECT * { 
+  SELECT * {}
+}
+
+---
+
+(unit
+  (select_query 
+    (select_clause)
+    (where_clause
+      (group_graph_pattern
+        (sub_select
+          (select_clause)
+          (where_clause 
+            (group_graph_pattern)))))))
+
+=========================
+Construct template query
+=========================
+
+CONSTRUCT {
+  ?s ?p ?o .
+  ?s ?p ?o
+}
+
+WHERE {
+  ?s ?p ?o
+}
+
+---
+
+(unit
+  (construct_query
+   (construct_template 
+    (construct_triples 
+      (triples_same_subject
+        (var)
+        (property_list (property
+          (var)
+          (object_list (var)))))
+      (triples_same_subject
+        (var)
+        (property_list (property
+          (var)
+          (object_list (var)))))))
+    (where_clause
+      (group_graph_pattern
+        (triples_block
+         (triples_same_subject
+              subject: (var)
+              (property_list (property
+                (var)
+                (object_list (var))))))))))
+
+=======================
+Construct triple query
+=======================
+
+CONSTRUCT WHERE {
+  ?s ?p ?o
+}
+
+---
+
+(unit
+  (construct_query
+    (triples_template
+      (triples_same_subject
+        (var)
+        (property_list (property
+          (var)
+          (object_list (var))))))))
+
+===============
+Describe query
+===============
+
+DESCRIBE
+
+*
+
+---
+
+(unit
+  (describe_query))
+
+==========
+Ask query
+==========
+
+ASK
+
+WHERE {}
+
+---
+
+(unit
+  (ask_query
+    (where_clause
+      (group_graph_pattern))))
+
+========
+Comment
+========
+
+# Comment
+
+SELECT * {}
+
+# Comment
+
+---
+
+(unit
+  (comment)
+  (select_query
+    (select_clause)
+    (where_clause
+      (group_graph_pattern)))
+  (comment))
+
+===================
+Case insensitivity
+===================
+
+select DISTINCT * Where {
+ ?a A ?b
+}
+
+---
+
+(unit (select_query
+  (select_clause)
+  (where_clause (group_graph_pattern (triples_block (triples_same_subject
+    (var)
+    (property_list (property
+      (path_element (prefixed_name (namespace (pn_prefix) (MISSING ":"))))
+      (object_list (var))))))))))

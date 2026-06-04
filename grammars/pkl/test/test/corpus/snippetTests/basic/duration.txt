@@ -1,0 +1,618 @@
+===
+basic/duration.pkl
+===
+
+amends "../snippetTest.pkl"
+
+examples {
+  ["construct"] {
+    1.ns
+    2.us
+    3.ms
+    4.s
+    5.min
+    6.h
+    7.d
+
+    1.1.ns
+    2.2.us
+     3.3.ms
+     4.4.s
+     5.5.min
+     6.6.h
+     7.7.d
+  }
+
+  ["addition"] {
+    2.s + 4.s
+    2.2.s + 3.3.s
+    2.s + 3.min
+    10.ns + 7.d
+
+    4.s + 2.s
+    3.3.s + 2.2.s
+    3.min + 2.s
+    7.d + 10.ns
+  }
+
+  ["subtraction"] {
+    2.s - 4.s
+    2.2.s - 3.3.s
+    2.s - 3.min
+    10.ns - 7.d
+
+    4.s - 2.s
+    3.3.s - 2.2.s
+    3.min - 2.s
+    7.d - 10.ns
+  }
+
+  ["multiplication"] {
+    2.s * 3
+    2.s * 3.3
+    2.2.s * 3
+    2.2.s * 3.3
+
+    3 * 2.s
+    3.3 * 2.s
+    3 * 2.2.s
+    3.3 * 2.2.s
+  }
+
+  ["division"] {
+    2.s / 3
+    2.s / 3.3
+    2.2.s / 3
+    2.2.s / 3.3
+
+    module.catch(() -> 3 / 2.s)
+    module.catch(() -> 3.3 / 2.s)
+    module.catch(() -> 3 / 2.2.s)
+    module.catch(() -> 3.3 / 2.3.s)
+  }
+
+  ["division by duration"] {
+    2.s / 3.s
+    2.s / 3.3.s
+    2.2.s / 3.min
+    2.2.h / 3.3.s
+  }
+
+  ["negation"] {
+    local d = -4.s
+    d
+    -d
+    --d
+
+    local d2 = -4.4.s
+    d2
+    -d2
+    --d2
+  }
+
+  ["truncating division"] {
+    5.s ~/ 3
+    7.s ~/ 3.3
+    6.2.s ~/ 3
+    6.2.s ~/ 3.3
+  }
+
+  ["truncating division by duration"] {
+    5.s ~/ 3.s
+    7.s ~/ 3.3.s
+    6.2.s ~/ 3.min
+    6.2.h ~/ 3.3.s
+  }
+
+  ["power"] {
+    2.s ** 3
+    2.s ** 3.3
+    2.2.s ** 3
+    2.2.s ** 3.3
+  }
+}
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (qualifiedAccessExpr
+              (intLiteralExpr)
+              (identifier)))
+          (objectElement
+            (qualifiedAccessExpr
+              (intLiteralExpr)
+              (identifier)))
+          (objectElement
+            (qualifiedAccessExpr
+              (intLiteralExpr)
+              (identifier)))
+          (objectElement
+            (qualifiedAccessExpr
+              (intLiteralExpr)
+              (identifier)))
+          (objectElement
+            (qualifiedAccessExpr
+              (intLiteralExpr)
+              (identifier)))
+          (objectElement
+            (qualifiedAccessExpr
+              (intLiteralExpr)
+              (identifier)))
+          (objectElement
+            (qualifiedAccessExpr
+              (intLiteralExpr)
+              (identifier)))
+          (objectElement
+            (qualifiedAccessExpr
+              (floatLiteralExpr)
+              (identifier)))
+          (objectElement
+            (qualifiedAccessExpr
+              (floatLiteralExpr)
+              (identifier)))
+          (objectElement
+            (qualifiedAccessExpr
+              (floatLiteralExpr)
+              (identifier)))
+          (objectElement
+            (qualifiedAccessExpr
+              (floatLiteralExpr)
+              (identifier)))
+          (objectElement
+            (qualifiedAccessExpr
+              (floatLiteralExpr)
+              (identifier)))
+          (objectElement
+            (qualifiedAccessExpr
+              (floatLiteralExpr)
+              (identifier)))
+          (objectElement
+            (qualifiedAccessExpr
+              (floatLiteralExpr)
+              (identifier)))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (additiveExpr
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))))
+          (objectElement
+            (additiveExpr
+              (qualifiedAccessExpr
+                (floatLiteralExpr)
+                (identifier))
+              (qualifiedAccessExpr
+                (floatLiteralExpr)
+                (identifier))))
+          (objectElement
+            (additiveExpr
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))))
+          (objectElement
+            (additiveExpr
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))))
+          (objectElement
+            (additiveExpr
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))))
+          (objectElement
+            (additiveExpr
+              (qualifiedAccessExpr
+                (floatLiteralExpr)
+                (identifier))
+              (qualifiedAccessExpr
+                (floatLiteralExpr)
+                (identifier))))
+          (objectElement
+            (additiveExpr
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))))
+          (objectElement
+            (additiveExpr
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (additiveExpr
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))))
+          (objectElement
+            (additiveExpr
+              (qualifiedAccessExpr
+                (floatLiteralExpr)
+                (identifier))
+              (qualifiedAccessExpr
+                (floatLiteralExpr)
+                (identifier))))
+          (objectElement
+            (additiveExpr
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))))
+          (objectElement
+            (additiveExpr
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))))
+          (objectElement
+            (additiveExpr
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))))
+          (objectElement
+            (additiveExpr
+              (qualifiedAccessExpr
+                (floatLiteralExpr)
+                (identifier))
+              (qualifiedAccessExpr
+                (floatLiteralExpr)
+                (identifier))))
+          (objectElement
+            (additiveExpr
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))))
+          (objectElement
+            (additiveExpr
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (multiplicativeExpr
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))
+              (intLiteralExpr)))
+          (objectElement
+            (multiplicativeExpr
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))
+              (floatLiteralExpr)))
+          (objectElement
+            (multiplicativeExpr
+              (qualifiedAccessExpr
+                (floatLiteralExpr)
+                (identifier))
+              (intLiteralExpr)))
+          (objectElement
+            (multiplicativeExpr
+              (qualifiedAccessExpr
+                (floatLiteralExpr)
+                (identifier))
+              (floatLiteralExpr)))
+          (objectElement
+            (multiplicativeExpr
+              (intLiteralExpr)
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))))
+          (objectElement
+            (multiplicativeExpr
+              (floatLiteralExpr)
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))))
+          (objectElement
+            (multiplicativeExpr
+              (intLiteralExpr)
+              (qualifiedAccessExpr
+                (floatLiteralExpr)
+                (identifier))))
+          (objectElement
+            (multiplicativeExpr
+              (floatLiteralExpr)
+              (qualifiedAccessExpr
+                (floatLiteralExpr)
+                (identifier))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (multiplicativeExpr
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))
+              (intLiteralExpr)))
+          (objectElement
+            (multiplicativeExpr
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))
+              (floatLiteralExpr)))
+          (objectElement
+            (multiplicativeExpr
+              (qualifiedAccessExpr
+                (floatLiteralExpr)
+                (identifier))
+              (intLiteralExpr)))
+          (objectElement
+            (multiplicativeExpr
+              (qualifiedAccessExpr
+                (floatLiteralExpr)
+                (identifier))
+              (floatLiteralExpr)))
+          (objectElement
+            (qualifiedAccessExpr
+              (moduleExpr)
+              (identifier)
+              (argumentList
+                (functionLiteralExpr
+                  (parameterList)
+                  (multiplicativeExpr
+                    (intLiteralExpr)
+                    (qualifiedAccessExpr
+                      (intLiteralExpr)
+                      (identifier)))))))
+          (objectElement
+            (qualifiedAccessExpr
+              (moduleExpr)
+              (identifier)
+              (argumentList
+                (functionLiteralExpr
+                  (parameterList)
+                  (multiplicativeExpr
+                    (floatLiteralExpr)
+                    (qualifiedAccessExpr
+                      (intLiteralExpr)
+                      (identifier)))))))
+          (objectElement
+            (qualifiedAccessExpr
+              (moduleExpr)
+              (identifier)
+              (argumentList
+                (functionLiteralExpr
+                  (parameterList)
+                  (multiplicativeExpr
+                    (intLiteralExpr)
+                    (qualifiedAccessExpr
+                      (floatLiteralExpr)
+                      (identifier)))))))
+          (objectElement
+            (qualifiedAccessExpr
+              (moduleExpr)
+              (identifier)
+              (argumentList
+                (functionLiteralExpr
+                  (parameterList)
+                  (multiplicativeExpr
+                    (floatLiteralExpr)
+                    (qualifiedAccessExpr
+                      (floatLiteralExpr)
+                      (identifier)))))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (multiplicativeExpr
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))))
+          (objectElement
+            (multiplicativeExpr
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))
+              (qualifiedAccessExpr
+                (floatLiteralExpr)
+                (identifier))))
+          (objectElement
+            (multiplicativeExpr
+              (qualifiedAccessExpr
+                (floatLiteralExpr)
+                (identifier))
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))))
+          (objectElement
+            (multiplicativeExpr
+              (qualifiedAccessExpr
+                (floatLiteralExpr)
+                (identifier))
+              (qualifiedAccessExpr
+                (floatLiteralExpr)
+                (identifier))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectProperty
+            (modifier)
+            (identifier)
+            (unaryMinusExpr
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))))
+          (objectElement
+            (unqualifiedAccessExpr
+              (identifier)))
+          (objectElement
+            (unaryMinusExpr
+              (unqualifiedAccessExpr
+                (identifier))))
+          (objectElement
+            (unaryMinusExpr
+              (unaryMinusExpr
+                (unqualifiedAccessExpr
+                  (identifier)))))
+          (objectProperty
+            (modifier)
+            (identifier)
+            (unaryMinusExpr
+              (qualifiedAccessExpr
+                (floatLiteralExpr)
+                (identifier))))
+          (objectElement
+            (unqualifiedAccessExpr
+              (identifier)))
+          (objectElement
+            (unaryMinusExpr
+              (unqualifiedAccessExpr
+                (identifier))))
+          (objectElement
+            (unaryMinusExpr
+              (unaryMinusExpr
+                (unqualifiedAccessExpr
+                  (identifier)))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (multiplicativeExpr
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))
+              (intLiteralExpr)))
+          (objectElement
+            (multiplicativeExpr
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))
+              (floatLiteralExpr)))
+          (objectElement
+            (multiplicativeExpr
+              (qualifiedAccessExpr
+                (floatLiteralExpr)
+                (identifier))
+              (intLiteralExpr)))
+          (objectElement
+            (multiplicativeExpr
+              (qualifiedAccessExpr
+                (floatLiteralExpr)
+                (identifier))
+              (floatLiteralExpr)))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (multiplicativeExpr
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))))
+          (objectElement
+            (multiplicativeExpr
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))
+              (qualifiedAccessExpr
+                (floatLiteralExpr)
+                (identifier))))
+          (objectElement
+            (multiplicativeExpr
+              (qualifiedAccessExpr
+                (floatLiteralExpr)
+                (identifier))
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))))
+          (objectElement
+            (multiplicativeExpr
+              (qualifiedAccessExpr
+                (floatLiteralExpr)
+                (identifier))
+              (qualifiedAccessExpr
+                (floatLiteralExpr)
+                (identifier))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (exponentiationExpr
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))
+              (intLiteralExpr)))
+          (objectElement
+            (exponentiationExpr
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))
+              (floatLiteralExpr)))
+          (objectElement
+            (exponentiationExpr
+              (qualifiedAccessExpr
+                (floatLiteralExpr)
+                (identifier))
+              (intLiteralExpr)))
+          (objectElement
+            (exponentiationExpr
+              (qualifiedAccessExpr
+                (floatLiteralExpr)
+                (identifier))
+              (floatLiteralExpr))))))))

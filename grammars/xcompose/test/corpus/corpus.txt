@@ -1,0 +1,82 @@
+======
+manual
+======
+
+include "%L"
+
+<dead_grave> <A> : "\300" Agrave
+
+<dead_grave> <A> : Agrave
+
+---
+
+(compose
+  (include)
+  (sequence
+    (event
+      (keysym))
+    (event
+      (keysym))
+    (result
+      (string
+        (octal))
+      (keysym)))
+  (sequence
+    (event
+      (keysym))
+    (event
+      (keysym))
+    (result
+      (keysym))))
+
+===========
+en_US.UTF-8
+===========
+
+<dead_tilde> <space>			: "~"	asciitilde # TILDE
+
+<dead_grave> <ENG>			: "Ŋ̀" # LATIN CAPITAL LETTER ENG plus COMBINING GRAVE
+
+----
+
+(compose
+  (sequence
+    (event
+      (keysym))
+    (event
+      (keysym))
+    (result
+      (string
+        (text))
+      (keysym))
+    (comment))
+  (sequence
+    (event
+      (keysym))
+    (event
+      (keysym))
+    (result
+      (string
+        (text)))
+    (comment)))
+
+======
+custom
+======
+
+<Multi_key> <S> <s> : "¯\\_(ツ)_/¯" # SHRUG
+
+----
+
+(compose
+  (sequence
+    (event
+      (keysym))
+    (event
+      (keysym))
+    (event
+      (keysym))
+    (result
+      (string
+        (text)))
+    (comment)))

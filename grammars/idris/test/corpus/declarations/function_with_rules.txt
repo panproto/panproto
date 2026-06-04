@@ -1,0 +1,568 @@
+================================================================================
+with rule 1
+================================================================================
+
+filter p (x :: xs) with (filter p xs)
+  filter p (x :: xs) | ( _ ** xs' ) = _
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname))
+          (pat_parens
+            (pat_name
+              (loname))
+            (pat_op)
+            (pat_name
+              (loname))))))
+    (with
+      (with_arg
+        (exp_name
+          (loname))
+        (exp_name
+          (loname))
+        (exp_name
+          (loname)))
+      (function
+        (lhs
+          (funvar
+            (loname)
+            (patterns
+              (pat_name
+                (loname))
+              (pat_parens
+                (pat_name
+                  (loname))
+                (pat_op)
+                (pat_name
+                  (loname))))))
+        (with_pat
+          (pat_parens
+            (wildcard)
+            (tuple_operator)
+            (pat_name
+              (loname))))
+        (rhs
+          (wildcard))))))
+
+================================================================================
+with rule 2
+================================================================================
+
+filter p (x :: xs) with (filter p xs)
+  _ | ( _ ** xs' ) = _
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname))
+          (pat_parens
+            (pat_name
+              (loname))
+            (pat_op)
+            (pat_name
+              (loname))))))
+    (with
+      (with_arg
+        (exp_name
+          (loname))
+        (exp_name
+          (loname))
+        (exp_name
+          (loname)))
+      (function
+        (lhs
+          (wildcard))
+        (with_pat
+          (pat_parens
+            (wildcard)
+            (tuple_operator)
+            (pat_name
+              (loname))))
+        (rhs
+          (wildcard))))))
+
+================================================================================
+with rule 3
+================================================================================
+
+foo n m with (n + 1)
+  foo _ m | 2 with (m + 1)
+    foo _ _ | 2 | 3 = True
+    foo _ _ | 2 | _ = False
+  foo _ _ | _ = False
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname))
+          (pat_name
+            (loname)))))
+    (with
+      (with_arg
+        (exp_name
+          (loname))
+        (operator)
+        (literal
+          (integer)))
+      (function
+        (lhs
+          (funvar
+            (loname)
+            (patterns
+              (wildcard)
+              (pat_name
+                (loname)))))
+        (with_pat
+          (pat_literal
+            (integer)))
+        (with
+          (with_arg
+            (exp_name
+              (loname))
+            (operator)
+            (literal
+              (integer)))
+          (function
+            (lhs
+              (funvar
+                (loname)
+                (patterns
+                  (wildcard)
+                  (wildcard))))
+            (with_pat
+              (pat_literal
+                (integer)))
+            (with_pat
+              (pat_literal
+                (integer)))
+            (rhs
+              (exp_name
+                (caname))))
+          (function
+            (lhs
+              (funvar
+                (loname)
+                (patterns
+                  (wildcard)
+                  (wildcard))))
+            (with_pat
+              (pat_literal
+                (integer)))
+            (with_pat
+              (wildcard))
+            (rhs
+              (exp_name
+                (caname))))))
+      (function
+        (lhs
+          (funvar
+            (loname)
+            (patterns
+              (wildcard)
+              (wildcard))))
+        (with_pat
+          (wildcard))
+        (rhs
+          (exp_name
+            (caname)))))))
+
+================================================================================
+with rule 4
+================================================================================
+
+foo n m with (n + 1) | (m + 1)
+  _ | 2 | 3 = True
+  _ | _ | _ = False
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname))
+          (pat_name
+            (loname)))))
+    (with
+      (with_arg
+        (exp_name
+          (loname))
+        (operator)
+        (literal
+          (integer)))
+      (with_arg
+        (exp_name
+          (loname))
+        (operator)
+        (literal
+          (integer)))
+      (function
+        (lhs
+          (wildcard))
+        (with_pat
+          (pat_literal
+            (integer)))
+        (with_pat
+          (pat_literal
+            (integer)))
+        (rhs
+          (exp_name
+            (caname))))
+      (function
+        (lhs
+          (wildcard))
+        (with_pat
+          (wildcard))
+        (with_pat
+          (wildcard))
+        (rhs
+          (exp_name
+            (caname)))))))
+
+================================================================================
+with rule 5
+================================================================================
+
+pushOutInInverse (Element x p :: xs) | subprf | Element ss ps = 
+  rewrite subprf in Refl
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_parens
+            (pat_name
+              (caname))
+            (pat_name
+              (loname))
+            (pat_name
+              (loname))
+            (pat_op)
+            (pat_name
+              (loname))))))
+    (with_pat
+      (pat_name
+        (loname)))
+    (with_pat
+      (pat_name
+        (caname))
+      (pat_name
+        (loname))
+      (pat_name
+        (loname)))
+    (rhs
+      (exp_rewrite_in
+        (rewrite_exp
+          (exp_name
+            (loname)))
+        (in
+          (exp_name
+            (caname)))))))
+
+================================================================================
+with rule and tuple
+================================================================================
+
+span_aux_ext p (x::xs) acc with (@@(p x), @@(List.span p xs))
+ _ | ((True ** px_tru), ((pre, rest)**dl_pf)) = _
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname))
+          (pat_parens
+            (pat_name
+              (loname))
+            (pat_op)
+            (pat_name
+              (loname)))
+          (pat_name
+            (loname)))))
+    (with
+      (with_arg
+        (operator)
+        (exp_parens
+          (exp_name
+            (loname))
+          (exp_name
+            (loname)))
+        (tuple_operator)
+        (operator)
+        (exp_parens
+          (exp_name
+            (qualified_loname
+              (caname)
+              (loname)))
+          (exp_name
+            (loname))
+          (exp_name
+            (loname))))
+      (function
+        (lhs
+          (wildcard))
+        (with_pat
+          (pat_parens
+            (pat_parens
+              (pat_name
+                (caname))
+              (tuple_operator)
+              (pat_name
+                (loname)))
+            (tuple_operator)
+            (pat_parens
+              (pat_parens
+                (pat_name
+                  (loname))
+                (tuple_operator)
+                (pat_name
+                  (loname)))
+              (tuple_operator)
+              (pat_name
+                (loname)))))
+        (rhs
+          (wildcard))))))
+
+================================================================================
+with rule and rewrite
+================================================================================
+
+mapMaybeAppend f (x::xs) ys with (f x)
+  _ | Nothing  = rewrite mapMaybeAppend f xs ys in Refl
+  _ | (Just y) = rewrite mapMaybeAppend f xs ys in Refl
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname))
+          (pat_parens
+            (pat_name
+              (loname))
+            (pat_op)
+            (pat_name
+              (loname)))
+          (pat_name
+            (loname)))))
+    (with
+      (with_arg
+        (exp_name
+          (loname))
+        (exp_name
+          (loname)))
+      (function
+        (lhs
+          (wildcard))
+        (with_pat
+          (pat_name
+            (caname)))
+        (rhs
+          (exp_rewrite_in
+            (rewrite_exp
+              (exp_name
+                (loname))
+              (exp_name
+                (loname))
+              (exp_name
+                (loname))
+              (exp_name
+                (loname)))
+            (in
+              (exp_name
+                (caname))))))
+      (function
+        (lhs
+          (wildcard))
+        (with_pat
+          (pat_parens
+            (pat_name
+              (caname))
+            (pat_name
+              (loname))))
+        (rhs
+          (exp_rewrite_in
+            (rewrite_exp
+              (exp_name
+                (loname))
+              (exp_name
+                (loname))
+              (exp_name
+                (loname))
+              (exp_name
+                (loname)))
+            (in
+              (exp_name
+                (caname)))))))))
+
+================================================================================
+with rule and proof
+================================================================================
+
+fromListAppend (x::xs) ys with (fromList ys) proof prf
+  fromListAppend (x::xs) []      | Nothing         =
+    rewrite appendNilRightNeutral xs in Refl
+  fromListAppend (x::xs) (y::ys) | (Just $ l:::ls) =
+    let (Refl, Refl) = biinjective $ injective prf in Refl
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_parens
+            (pat_name
+              (loname))
+            (pat_op)
+            (pat_name
+              (loname)))
+          (pat_name
+            (loname)))))
+    (with
+      (with_arg
+        (exp_name
+          (loname))
+        (exp_name
+          (loname))
+        (proof
+          (exp_name
+            (loname))))
+      (function
+        (lhs
+          (funvar
+            (loname)
+            (patterns
+              (pat_parens
+                (pat_name
+                  (loname))
+                (pat_op)
+                (pat_name
+                  (loname)))
+              (pat_list))))
+        (with_pat
+          (pat_name
+            (caname)))
+        (rhs
+          (exp_rewrite_in
+            (rewrite_exp
+              (exp_name
+                (loname))
+              (exp_name
+                (loname)))
+            (in
+              (exp_name
+                (caname))))))
+      (function
+        (lhs
+          (funvar
+            (loname)
+            (patterns
+              (pat_parens
+                (pat_name
+                  (loname))
+                (pat_op)
+                (pat_name
+                  (loname)))
+              (pat_parens
+                (pat_name
+                  (loname))
+                (pat_op)
+                (pat_name
+                  (loname))))))
+        (with_pat
+          (pat_parens
+            (pat_name
+              (caname))
+            (pat_op)
+            (pat_name
+              (loname))
+            (pat_op)
+            (pat_name
+              (loname))))
+        (rhs
+          (exp_let_in
+            (declarations
+              (lhs
+                (pat_parens
+                  (pat_name
+                    (caname))
+                  (tuple_operator)
+                  (pat_name
+                    (caname))))
+              (rhs
+                (exp_name
+                  (loname))
+                (operator)
+                (exp_name
+                  (loname))
+                (exp_name
+                  (loname))))
+            (in
+              (exp_name
+                (caname)))))))))
+
+================================================================================
+with rule and quantity
+================================================================================
+
+f with 0 (x)
+  _ | X = _
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)))
+    (with
+      (quantity)
+      (with_arg
+        (exp_name
+          (loname)))
+      (function
+        (lhs
+          (wildcard))
+        (with_pat
+          (pat_name
+            (caname)))
+        (rhs
+          (wildcard))))))

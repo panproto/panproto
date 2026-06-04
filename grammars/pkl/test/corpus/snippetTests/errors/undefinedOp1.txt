@@ -1,0 +1,12 @@
+===
+errors/undefinedOp1.pkl
+===
+
+res1 = !1
+---
+
+(module
+  (classProperty
+    (identifier)
+    (logicalNotExpr
+      (intLiteralExpr))))

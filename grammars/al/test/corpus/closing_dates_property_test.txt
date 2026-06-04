@@ -1,0 +1,158 @@
+================================================================================
+ClosingDates property in table field
+================================================================================
+
+table 15 "G/L Entry Posting Preview"
+{
+    fields
+    {
+        field(4; "Posting Date"; Date)
+        {
+            Caption = 'Posting Date';
+            ClosingDates = true;
+        }
+        field(5; "Document Date"; Date)
+        {
+            Caption = 'Document Date';
+            ClosingDates = false;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (boolean)))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (boolean))))))
+
+================================================================================
+ClosingDates property case variations
+================================================================================
+
+page 50100 "Date Test Page"
+{
+    PageType = Card;
+    
+    layout
+    {
+        area(content)
+        {
+            field("Start Date"; StartDate)
+            {
+                closingdates = true;
+            }
+            field("End Date"; EndDate)
+            {
+                CLOSINGDATES = false;
+            }
+            field("Transaction Date"; TransDate)
+            {
+                ClosingDates = true;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (quoted_identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (boolean)))
+        (page_field
+          name: (quoted_identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (boolean)))
+        (page_field
+          name: (quoted_identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (boolean)))))))
+
+================================================================================
+ClosingDates with other date field properties
+================================================================================
+
+table 50200 "Custom Entry"
+{
+    fields
+    {
+        field(1; "Entry Date"; Date)
+        {
+            Caption = 'Entry Date';
+            ClosingDates = true;
+            NotBlank = true;
+            DateFormula = '-1D';
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (boolean))
+        (property
+          name: (property_name)
+          value: (boolean))
+        (property
+          name: (property_name)
+          value: (string_literal))))))

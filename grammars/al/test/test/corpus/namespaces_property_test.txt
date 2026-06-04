@@ -1,0 +1,80 @@
+==================
+XMLPort with namespaces property
+==================
+
+xmlport 50000 "Test XMLPort"
+{
+    Direction = Export;
+    Encoding = UTF8;
+    Namespaces = "" = 'urn:oasis:names:specification:ubl:schema:xsd:Invoice-2', cac = 'urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2', cbc = 'urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2';
+    
+    schema
+    {
+        textelement(root)
+        {
+        }
+    }
+}
+
+---
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (ml_value_list
+        (ml_value_pair
+          language: (quoted_identifier)
+          value: (string_literal))
+        (ml_value_pair
+          language: (identifier)
+          value: (string_literal))
+        (ml_value_pair
+          language: (identifier)
+          value: (string_literal))))
+    (schema_section
+      (schema_keyword)
+      (xmlport_element
+        name: (identifier)))))
+
+==================
+XMLPort with single namespace mapping
+==================
+
+xmlport 50001 "Simple XMLPort"
+{
+    Namespaces = xmlns = 'http://example.com/schema';
+    
+    schema
+    {
+        textelement(data) { }
+    }
+}
+
+---
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (property_expression
+        (comparison_expression
+          left: (identifier)
+          operator: (comparison_operator)
+          right: (string_literal))))
+    (schema_section
+      (schema_keyword)
+      (xmlport_element
+        name: (identifier)))))

@@ -1,0 +1,70 @@
+==================
+Comments
+==================
+
+// WIT grammar for tree-sitter
+//// WIT grammar for tree-sitter
+package tree-sitter:wit@1.0.0;
+/* WIT grammar for tree-sitter
+*/
+package tree-sitter:wit@1.0.0;
+/* nested comments
+/** WIT grammar for /*tree-sitter*/ */
+*/
+package tree-sitter:wit@1.0.0;
+
+---
+
+(source_file
+  (line_comment)
+  (line_comment)
+  (package_decl
+    (id)
+    (id)
+    (version))
+  (block_comment)
+  (package_decl
+    (id)
+    (id)
+    (version))
+  (block_comment)
+  (package_decl
+    (id)
+    (id)
+    (version)))
+
+==================
+Doc comments
+==================
+
+/// WIT grammar for tree-sitter
+package tree-sitter:wit@1.0.0;
+/** WIT grammar for tree-sitter
+*/
+package tree-sitter:wit@1.0.0;
+/*** nested comments
+/** WIT grammar for /*tree-sitter*/ */
+*/
+package tree-sitter:wit@1.0.0;
+
+---
+
+(source_file
+  (line_comment
+    (doc_comment))
+  (package_decl
+    (id)
+    (id)
+    (version))
+  (block_comment
+    (doc_comment))
+  (package_decl
+    (id)
+    (id)
+    (version))
+  (block_comment
+    (doc_comment))
+  (package_decl
+    (id)
+    (id)
+    (version)))

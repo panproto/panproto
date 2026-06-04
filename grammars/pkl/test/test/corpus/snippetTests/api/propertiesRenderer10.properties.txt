@@ -1,0 +1,24 @@
+===
+api/propertiesRenderer10.properties.pkl
+===
+
+foo = new PropertiesRenderer {}.renderValue(List("bar"))
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody))
+      (identifier)
+      (argumentList
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList
+            (slStringLiteralExpr
+              (slStringLiteralPart))))))))

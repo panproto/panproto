@@ -1,0 +1,14 @@
+===
+packages/badRead4.error.pkl
+===
+
+res = read("package://localhost:0/birds@0.5.0#catalog/Swallow.pkl")
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (readExpr
+      (slStringLiteralExpr
+        (slStringLiteralPart)))))

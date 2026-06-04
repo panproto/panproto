@@ -1,0 +1,14 @@
+===
+errors/invalidMethodModifier.pkl
+===
+
+open function foo() = 42
+---
+
+(module
+  (classMethod
+    (methodHeader
+      (modifier)
+      (identifier)
+      (parameterList))
+    (intLiteralExpr)))

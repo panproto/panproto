@@ -1,0 +1,90 @@
+======================
+comment after command
+====================
+
+project( # it is project 
+	'wayvnc',# project name
+	'c',
+	version: '0.5.0',
+	license: 'ISC',
+	default_options: [
+		'c_std=gnu11', # option
+	],
+	name: '''it is 
+	sdfd
+	''',
+)
+---
+
+(source_file
+  (normal_command
+    (identifier)
+    (comment)
+    (variableunit
+      (string))
+    (comment)
+    (variableunit
+      (string))
+    (pair
+      (identifier)
+      (string))
+    (pair
+      (identifier)
+      (string))
+    (pair
+      (identifier)
+      (list
+        (string)
+        (comment)))
+    (pair
+      (identifier)
+      (string))))
+
+====================
+comment in for loop
+====================
+progs = [['prog1', ['prog1.c', 'foo.c']],
+         ['prog2', ['prog2.c', 'bar.c']]]
+
+foreach p : progs # item 
+  exe = executable(p[0], p[1]) #first
+  test(p[0], exe) #second
+endforeach
+---
+(source_file
+  (operatorunit
+    (identifier)
+    (list
+      (list
+        (string)
+        (list
+          (string)
+          (string)))
+      (list
+        (string)
+        (list
+          (string)
+          (string)))))
+  (foreach_command
+    (identifier)
+    (identifier)
+    (comment)
+    (operatorunit
+      (identifier)
+      (normal_command
+        (identifier)
+        (listitem
+          (identifier)
+          (number))
+        (listitem
+          (identifier)
+          (number))))
+    (comment)
+    (normal_command
+      (identifier)
+      (listitem
+        (identifier)
+        (number))
+      (variableunit
+        (identifier)))
+    (comment)))

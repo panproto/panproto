@@ -1,0 +1,267 @@
+================================================================================
+API page with APIVersion property
+================================================================================
+
+page 30047 "APIV2 - Purchase Invoice Lines"
+{
+    PageType = API;
+    APIVersion = 'v2.0';
+    EntityCaption = 'Purchase Invoice Line';
+    EntitySetCaption = 'Purchase Invoice Lines';
+    EntityName = 'purchaseInvoiceLine';
+    EntitySetName = 'purchaseInvoiceLines';
+    SourceTable = "Purch. Inv. Line";
+    ODataKeyFields = SystemId;
+    DelayedInsert = true;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (quoted_identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (boolean))))
+
+================================================================================
+API page with beta APIVersion
+================================================================================
+
+page 50000 "API Page"
+{
+    PageType = API;
+    APIVersion = 'beta';
+    EntityName = 'customer';
+    EntitySetName = 'customers';
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))))
+
+================================================================================
+Part with Multiplicity property
+================================================================================
+
+page 50001 "Test Page"
+{
+    PageType = Document;
+    
+    layout
+    {
+        area(factboxes)
+        {
+            part(LocationPart; "Location Factbox")
+            {
+                Caption = 'Location';
+                EntityName = 'location';
+                EntitySetName = 'locations';
+                Multiplicity = ZeroOrOne;
+                SubPageLink = SystemId = field("Location Id");
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (part_section
+          (part_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (property_expression
+              (comparison_expression
+                left: (identifier)
+                operator: (comparison_operator)
+                right: (call_expression
+                  function: (identifier)
+                  arguments: (argument_list
+                    (quoted_identifier)))))))))))
+
+================================================================================
+Multiplicity property case variations
+================================================================================
+
+page 50002 "Test Page"
+{
+    layout
+    {
+        area(content)
+        {
+            part(Part1; "My Page")
+            {
+                Multiplicity = zeroorone;
+            }
+            part(Part2; "My Page")
+            {
+                MULTIPLICITY = MANY;
+            }
+            part(Part3; "My Page")
+            {
+                multiplicity = One;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (part_section
+          (part_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))
+        (part_section
+          (part_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))
+        (part_section
+          (part_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))))))
+
+================================================================================
+Complete API page with all properties
+================================================================================
+
+page 30100 "APIV2 - Items"
+{
+    APIVersion = 'v2.0';
+    EntityCaption = 'Item';
+    EntitySetCaption = 'Items';
+    ChangeTrackingAllowed = true;
+    DelayedInsert = true;
+    EntityName = 'item';
+    EntitySetName = 'items';
+    ODataKeyFields = SystemId;
+    PageType = API;
+    SourceTable = Item;
+    Extensible = false;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (boolean))))

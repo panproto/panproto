@@ -1,0 +1,20 @@
+===
+errors/cannotFindStdLibModule.pkl
+===
+
+import "pkl:nonExisting"
+
+res1 = nonExisting.bar
+
+---
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier))))

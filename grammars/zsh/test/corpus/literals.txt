@@ -1,0 +1,1794 @@
+
+
+echo {o[k]}
+echo }}}
+echo ]]] ===
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (concatenation -
+      (word -)
+      (word -)
+      (word -)
+      (word -)
+      (word -)
+      (word -)))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (concatenation -
+      (word -)
+      (word -)
+      (word -)))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (concatenation -
+      (word -)
+      (word -)
+      (word -))
+    argument: (word -)))
+
+
+==================================================
+
+==================================================
+
+echo $abc
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (simple_expansion -
+      (variable_name -))))
+
+
+==================================================
+
+==================================================
+
+echo $# $* $@ $!
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (simple_expansion -
+      (special_variable_name -))
+    argument: (simple_expansion -
+      (special_variable_name -))
+    argument: (simple_expansion -
+      (special_variable_name -))
+    argument: (simple_expansion -
+      (special_variable_name -))))
+
+
+==================================================
+
+==================================================
+
+echo ${}
+echo ${#}
+echo ${var1#*#}
+echo ${!abc}
+echo ${abc}
+echo ${abc:-def}
+echo ${abc:+ghi}
+echo ${abc:- }
+echo ${abc:
+}
+echo ${abc,?}
+echo ${abc^^b}
+echo ${abc@U}
+echo ${abc:- -quiet}
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (expansion -))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (expansion -))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (expansion -
+      (variable_name -)
+      (word -)))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (expansion -
+      (variable_name -)))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (expansion -
+      (variable_name -)))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (expansion -
+      (variable_name -)
+      (word -)))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (expansion -
+      (variable_name -)
+      (word -)))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (expansion -
+      (variable_name -)
+      (word -)))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (expansion -
+      (variable_name -)))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (expansion -
+      (variable_name -)
+      (word -)))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (expansion -
+      (variable_name -)
+      (word -)))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (expansion -
+      (variable_name -)))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (expansion -
+      (variable_name -)
+      (word -))))
+
+
+==================================================
+
+==================================================
+
+A="${B[0]# }"
+C="${D/#* -E /}"
+F="${G%% *}"
+H="${I#*;}"
+J="${K##*;}"
+L="${M%;*}"
+N="${O%%;*}"
+P="${Q%|*}"
+R="${S%()}"
+T="${U%(}"
+V="${W%)}"
+X="${Y%<}"
+Z="${A#*<B>}"
+C="${D%</E>*}"
+F="${#!}"
+G=${H,,[I]}
+J=${K^^[L]}
+L="${M/'N'*/O}"
+
+----------
+
+(program -
+  (variable_assignment -
+    name: (variable_name -)
+    value: (string -
+      (expansion -
+        (subscript -
+          name: (variable_name -)
+          index: (number -))
+        (word -))))
+  (variable_assignment -
+    name: (variable_name -)
+    value: (string -
+      (expansion -
+        (variable_name -)
+        (word -))))
+  (variable_assignment -
+    name: (variable_name -)
+    value: (string -
+      (expansion -
+        (variable_name -)
+        (word -))))
+  (variable_assignment -
+    name: (variable_name -)
+    value: (string -
+      (expansion -
+        (variable_name -)
+        (word -))))
+  (variable_assignment -
+    name: (variable_name -)
+    value: (string -
+      (expansion -
+        (variable_name -)
+        (word -))))
+  (variable_assignment -
+    name: (variable_name -)
+    value: (string -
+      (expansion -
+        (variable_name -)
+        (word -))))
+  (variable_assignment -
+    name: (variable_name -)
+    value: (string -
+      (expansion -
+        (variable_name -)
+        (word -))))
+  (variable_assignment -
+    name: (variable_name -)
+    value: (string -
+      (expansion -
+        (variable_name -)
+        (word -))))
+  (variable_assignment -
+    name: (variable_name -)
+    value: (string -
+      (expansion -
+        (variable_name -)
+        (word -))))
+  (variable_assignment -
+    name: (variable_name -)
+    value: (string -
+      (expansion -
+        (variable_name -)
+        (word -))))
+  (variable_assignment -
+    name: (variable_name -)
+    value: (string -
+      (expansion -
+        (variable_name -)
+        (word -))))
+  (variable_assignment -
+    name: (variable_name -)
+    value: (string -
+      (expansion -
+        (variable_name -)
+        (word -))))
+  (variable_assignment -
+    name: (variable_name -)
+    value: (string -
+      (expansion -
+        (variable_name -)
+        (word -))))
+  (variable_assignment -
+    name: (variable_name -)
+    value: (string -
+      (expansion -
+        (variable_name -)
+        (word -))))
+  (variable_assignment -
+    name: (variable_name -)
+    value: (string -
+      (expansion -)))
+  (variable_assignment -
+    name: (variable_name -)
+    value: (expansion -
+      (variable_name -)
+      (word -)))
+  (variable_assignment -
+    name: (variable_name -)
+    value: (expansion -
+      (variable_name -)
+      (word -)))
+  (variable_assignment -
+    name: (variable_name -)
+    value: (string -
+      (expansion -
+        (variable_name -)
+        (word -)
+        (word -)))))
+
+
+==================================================
+
+==================================================
+
+${parameter-default}
+${parameter:-default}
+${parameter=default}
+${parameter:=default}
+${parameter+alt_value}
+${parameter:+alt_value}
+${parameter?err_msg}
+${parameter:?err_msg}
+${var%Pattern}
+${var%%Pattern}
+${var:pos}
+${var:pos:len}
+${MATRIX:$(($RANDOM%${#MATRIX})):1}
+${PKG_CONFIG_LIBDIR:-${ESYSROOT}/usr/$(get_libdir)/pkgconfig}
+${ver_str::${#ver_str}-${#not_match}}
+${value#\{sd.cicd.}
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (word -))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (word -))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (word -))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (word -))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (word -))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (word -))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (word -))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (word -))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (word -))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (word -))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (variable_name -))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (variable_name -)
+        (variable_name -))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (arithmetic_expansion -
+          (binary_expression -
+            left: (simple_expansion -
+              (variable_name -))
+            right: (expansion -
+              (variable_name -))))
+        (number -))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (concatenation -
+          (expansion -
+            (variable_name -))
+          (word -)
+          (command_substitution -
+            (command -
+              name: (command_name -
+                (word -))))
+          (word -)))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (binary_expression -
+          (expansion -
+            (variable_name -))
+          (expansion -
+            (variable_name -))))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (word -)))))
+
+
+==================================================
+
+==================================================
+
+A="${A:-$B/c}"
+A="${b=$c/$d}"
+MY_PV="${PV/_pre/$'\x7e'pre}"
+
+----------
+
+(program -
+  (variable_assignment -
+    name: (variable_name -)
+    value: (string -
+      (expansion -
+        (variable_name -)
+        (concatenation -
+          (simple_expansion -
+            (variable_name -))
+          (word -)))))
+  (variable_assignment -
+    name: (variable_name -)
+    value: (string -
+      (expansion -
+        (variable_name -)
+        (concatenation -
+          (simple_expansion -
+            (variable_name -))
+          (word -)
+          (simple_expansion -
+            (variable_name -))))))
+  (variable_assignment -
+    name: (variable_name -)
+    value: (string -
+      (expansion -
+        (variable_name -)
+        (word -)
+        (concatenation -
+          (ansi_c_string -)
+          (word -))))))
+
+
+==================================================
+
+==================================================
+
+A=${B//:;;/$'\n'}
+
+# escaped space
+C=${D/;\ *;|}
+MOFILES=${LINGUAS// /.po }.po
+MY_P="${PN/aspell/aspell"${ASPELL_VERSION}"}"
+pyc=${pyc//*\/}
+${pv/\.}
+${new_test_cp//"${old_ver_cp}"/}
+${tests_to_run//"${classes}"\/}
+${allarchives// /\\|}
+
+----------
+
+(program -
+  (variable_assignment -
+    name: (variable_name -)
+    value: (expansion -
+      (variable_name -)
+      (word -)
+      (ansi_c_string -)))
+  (comment -)
+  (variable_assignment -
+    name: (variable_name -)
+    value: (expansion -
+      (variable_name -)
+      (word -)))
+  (variable_assignment -
+    name: (variable_name -)
+    value: (concatenation -
+      (expansion -
+        (variable_name -)
+        (word -)
+        (word -))
+      (word -)))
+  (variable_assignment -
+    name: (variable_name -)
+    value: (string -
+      (expansion -
+        (variable_name -)
+        (word -)
+        (concatenation -
+          (word -)
+          (string -
+            (expansion -
+              (variable_name -)))))))
+  (variable_assignment -
+    name: (variable_name -)
+    value: (expansion -
+      (variable_name -)
+      (word -)))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (word -))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (string -
+          (expansion -
+            (variable_name -))))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (string -
+          (expansion -
+            (variable_name -)))
+        (word -))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (word -)
+        (word -)))))
+
+
+==================================================
+
+==================================================
+
+cat ${BAR} ${ABC=def} ${GHI:?jkl}
+[ "$a" != "${a#[Bc]}" ]
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (expansion -
+      (variable_name -))
+    argument: (expansion -
+      (variable_name -)
+      (word -))
+    argument: (expansion -
+      (variable_name -)
+      (word -)))
+  (test_command -
+    (binary_expression -
+      left: (string -
+        (simple_expansion -
+          (variable_name -)))
+      right: (string -
+        (expansion -
+          (variable_name -)
+          (word -))))))
+
+
+==================================================
+
+==================================================
+
+${parameter:-1}
+
+${parameter: -1}
+
+${parameter:(-1)}
+
+${matrix:$(($random%${#matrix})):1}
+
+"${_component_to_single:${len}:2}"
+
+"${PN::-1}"
+
+${trarr:$(ver_cut 2):1}
+
+${comp[@]:start:end*2-start}
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (word -))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (number -))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (parenthesized_expression -
+          (unary_expression -
+            (number -))))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (arithmetic_expansion -
+          (binary_expression -
+            left: (simple_expansion -
+              (variable_name -))
+            right: (expansion -
+              (variable_name -))))
+        (number -))))
+  (command -
+    name: (command_name -
+      (string -
+        (expansion -
+          (variable_name -)
+          (expansion -
+            (variable_name -))
+          (number -)))))
+  (command -
+    name: (command_name -
+      (string -
+        (expansion -
+          (variable_name -)
+          (number -)))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (command_substitution -
+          (command -
+            name: (command_name -
+              (word -))
+            argument: (number -)))
+        (number -))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (subscript -
+          name: (variable_name -)
+          index: (word -))
+        (variable_name -)
+        (binary_expression -
+          (binary_expression -
+            (variable_name -)
+            (number -))
+          (variable_name -))))))
+
+
+==================================================
+
+==================================================
+
+${parameter-default}
+${parameter- default}
+${!varprefix*}
+${!varprefix@}
+${parameter@U}
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (word -))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (word -))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)))))
+
+
+==================================================
+
+==================================================
+
+${!#}
+${!# }
+${!##}
+${!## }
+${!##/}
+# here be dragons
+echo "${kw}? ( ${cond:+${cond}? (} ${baseuri}-${ver}-${kw}.${suff} ${cond:+) })"
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (expansion -)))
+  (command -
+    name: (command_name -
+      (expansion -)))
+  (command -
+    name: (command_name -
+      (expansion -)))
+  (command -
+    name: (command_name -
+      (expansion -)))
+  (command -
+    name: (command_name -
+      (expansion -
+        (special_variable_name -)
+        (word -))))
+  (comment -)
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (string -
+      (expansion -
+        (variable_name -))
+      (string_content -)
+      (expansion -
+        (variable_name -)
+        (concatenation -
+          (expansion -
+            (variable_name -))
+          (word -)))
+      (expansion -
+        (variable_name -))
+      (string_content -)
+      (expansion -
+        (variable_name -))
+      (string_content -)
+      (expansion -
+        (variable_name -))
+      (string_content -)
+      (expansion -
+        (variable_name -))
+      (expansion -
+        (variable_name -)
+        (word -))
+      (string_content -))))
+
+
+==================================================
+
+==================================================
+
+${completions[*]}
+${=1}
+${2?}
+${p_key#*=}
+${abc:- }
+${B[0]# }
+${to_enables[0]##*/}
+exec "${0#-}" --rcfile "${BASH_IT_BASHRC:-${HOME?}/.bashrc}"
+recho "TDEFAULTS = ${selvecs:+-DSELECT_VECS=\"$selvecs\"}"
+local msg="${2:-command '$1' does not exist}"
+${cdir:+#}
+${dict_langs:+;}
+${UTIL_LINUX_LIBC[@]/%/? ( sys-apps/util-linux )}
+${id}${2+ ${2}}
+${BRANDING_GCC_PKGVERSION/(/(Gentoo ${PVR}${extvers}, } # look at that parenthesis!
+some-command ${foo:+--arg <(printf '%s\n' "$foo")}
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (expansion -
+        (subscript -
+          name: (variable_name -)
+          index: (word -)))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (word -))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (word -))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (subscript -
+          name: (variable_name -)
+          index: (number -))
+        (word -))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (subscript -
+          name: (variable_name -)
+          index: (number -))
+        (word -))))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (string -
+      (expansion -
+        (special_variable_name -)
+        (word -)))
+    argument: (word -)
+    argument: (string -
+      (expansion -
+        (variable_name -)
+        (concatenation -
+          (expansion -
+            (variable_name -))
+          (word -)))))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (string -
+      (string_content -)
+      (expansion -
+        (variable_name -)
+        (concatenation -
+          (word -)
+          (simple_expansion -
+            (variable_name -))
+          (word -)))))
+  (declaration_command -
+    (variable_assignment -
+      name: (variable_name -)
+      value: (string -
+        (expansion -
+          (variable_name -)
+          (concatenation -
+            (word -)
+            (raw_string -)
+            (word -))))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (word -))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (word -))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (subscript -
+          name: (variable_name -)
+          index: (word -))
+        (word -))))
+  (command -
+    name: (command_name -
+      (concatenation -
+        (expansion -
+          (variable_name -))
+        (expansion -
+          (variable_name -)
+          (expansion -
+            (variable_name -))))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (word -)
+        (concatenation -
+          (word -)
+          (expansion -
+            (variable_name -))
+          (expansion -
+            (variable_name -))
+          (word -)))))
+  (comment -)
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (expansion -
+      (variable_name -)
+      (concatenation -
+        (word -)
+        (process_substitution -
+          (command -
+            name: (command_name -
+              (word -))
+            argument: (raw_string -)
+            argument: (string -
+              (simple_expansion -
+                (variable_name -)))))))))
+
+
+==================================================
+
+==================================================
+
+A=${B//:;;/$'\n'}
+C="${D/#* -E /}"
+BASH_IT_GIT_URL="${BASH_IT_GIT_URL/git@/https://}"
+10#${command_start##*.}
+echo ${LIB_DEPEND//\[static-libs(+)]}
+${ALL_LLVM_TARGETS[@]/%/(-)?}
+filterdiff -p1 ${paths[@]/#/-i }
+${cflags//-O? /$(get-flag O) }
+curf="${f%'-roff2html'*}.html"
+reff="${f/'-roff2html'*/'-ref'}.html"
+
+----------
+
+(program -
+  (variable_assignment -
+    name: (variable_name -)
+    value: (expansion -
+      (variable_name -)
+      (word -)
+      (ansi_c_string -)))
+  (variable_assignment -
+    name: (variable_name -)
+    value: (string -
+      (expansion -
+        (variable_name -)
+        (word -))))
+  (variable_assignment -
+    name: (variable_name -)
+    value: (string -
+      (expansion -
+        (variable_name -)
+        (word -)
+        (word -))))
+  (command -
+    name: (command_name -
+      (number -
+        (expansion -
+          (variable_name -)
+          (word -)))))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (expansion -
+      (variable_name -)
+      (word -)))
+  (command -
+    name: (command_name -
+      (expansion -
+        (subscript -
+          name: (variable_name -)
+          index: (word -))
+        (word -))))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (word -)
+    argument: (expansion -
+      (subscript -
+        name: (variable_name -)
+        index: (word -))
+      (word -)))
+  (command -
+    name: (command_name -
+      (expansion -
+        (variable_name -)
+        (word -)
+        (command_substitution -
+          (command -
+            name: (command_name -
+              (word -))
+            argument: (word -)))
+        (word -))))
+  (variable_assignment -
+    name: (variable_name -)
+    value: (string -
+      (expansion -
+        (variable_name -)
+        (raw_string -)
+        (word -))
+      (string_content -)))
+  (variable_assignment -
+    name: (variable_name -)
+    value: (string -
+      (expansion -
+        (variable_name -)
+        (word -)
+        (raw_string -))
+      (string_content -))))
+
+
+==================================================
+
+==================================================
+
+grep ^${var}$
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (concatenation -
+      (word -)
+      (expansion -
+        (variable_name -)))))
+
+
+==================================================
+
+==================================================
+
+echo `echo hi`
+echo `echo hi; echo there`
+echo $(echo $(echo hi))
+echo $(< some-file)
+
+# both of these are concatenations!
+echo `echo otherword`word
+echo word`echo otherword`
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (command_substitution -
+      (command -
+        name: (command_name -
+          (word -))
+        argument: (word -))))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (command_substitution -
+      (command -
+        name: (command_name -
+          (word -))
+        argument: (word -))
+      (command -
+        name: (command_name -
+          (word -))
+        argument: (word -))))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (command_substitution -
+      (command -
+        name: (command_name -
+          (word -))
+        argument: (command_substitution -
+          (command -
+            name: (command_name -
+              (word -))
+            argument: (word -))))))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (command_substitution -
+      redirect: (file_redirect -
+        destination: (word -))))
+  (comment -)
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (concatenation -
+      (command_substitution -
+        (command -
+          name: (command_name -
+            (word -))
+          argument: (word -)))
+      (word -)))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (concatenation -
+      (word -)
+      (command_substitution -
+        (command -
+          name: (command_name -
+            (word -))
+          argument: (word -))))))
+
+
+==================================================
+
+==================================================
+
+wc -c <(echo abc && echo def)
+wc -c <(echo abc; echo def)
+echo abc > >(wc -c)
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (word -)
+    argument: (process_substitution -
+      (list -
+        (command -
+          name: (command_name -
+            (word -))
+          argument: (word -))
+        (command -
+          name: (command_name -
+            (word -))
+          argument: (word -)))))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (word -)
+    argument: (process_substitution -
+      (command -
+        name: (command_name -
+          (word -))
+        argument: (word -))
+      (command -
+        name: (command_name -
+          (word -))
+        argument: (word -))))
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -))
+      argument: (word -))
+    redirect: (file_redirect -
+      destination: (process_substitution -
+        (command -
+          name: (command_name -
+            (word -))
+          argument: (word -))))))
+
+
+==================================================
+
+==================================================
+
+echo 'a b' 'c d'
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (raw_string -)
+    argument: (raw_string -)))
+
+
+==================================================
+
+==================================================
+
+echo "a" "b"
+echo "a ${b} c" "d $e"
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (string -
+      (string_content -))
+    argument: (string -
+      (string_content -)))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (string -
+      (string_content -)
+      (expansion -
+        (variable_name -))
+      (string_content -))
+    argument: (string -
+      (string_content -)
+      (simple_expansion -
+        (variable_name -)))))
+
+
+==================================================
+
+==================================================
+
+find "`dirname $file`" -name "$base"'*'
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (string -
+      (command_substitution -
+        (command -
+          name: (command_name -
+            (word -))
+          argument: (simple_expansion -
+            (variable_name -)))))
+    argument: (word -)
+    argument: (concatenation -
+      (string -
+        (simple_expansion -
+          (variable_name -)))
+      (raw_string -))))
+
+
+==================================================
+
+==================================================
+
+echo "\"The great escape\`\${var}"
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (string -
+      (string_content -))))
+
+
+==================================================
+
+==================================================
+
+echo "s/$/'/"
+echo "#"
+echo "s$"
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (string -
+      (string_content -)
+      (string_content -)))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (string -
+      (string_content -)))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (string -
+      (string_content -))))
+
+
+==================================================
+
+==================================================
+
+echo $'Here\'s Johnny!\r\n'
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (ansi_c_string -)))
+
+
+==================================================
+
+==================================================
+
+a=()
+b=(1 2 3)
+
+echo ${a[@]}
+echo ${#b[@]}
+
+a[$i]=50
+a+=(foo "bar" $(baz))
+
+printf "  %-9s" "${seq0:-(default)}"
+
+----------
+
+(program -
+  (variable_assignment -
+    name: (variable_name -)
+    value: (array -))
+  (variable_assignment -
+    name: (variable_name -)
+    value: (array -
+      (number -)
+      (number -)
+      (number -)))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (expansion -
+      (subscript -
+        name: (variable_name -)
+        index: (word -))))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (expansion -
+      (subscript -
+        name: (variable_name -)
+        index: (word -))))
+  (variable_assignment -
+    name: (subscript -
+      name: (variable_name -)
+      index: (simple_expansion -
+        (variable_name -)))
+    value: (number -))
+  (variable_assignment -
+    name: (variable_name -)
+    value: (array -
+      (word -)
+      (string -
+        (string_content -))
+      (command_substitution -
+        (command -
+          name: (command_name -
+            (word -))))))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (string -
+      (string_content -))
+    argument: (string -
+      (expansion -
+        (variable_name -)
+        (array -
+          (word -))))))
+
+
+==================================================
+
+==================================================
+
+echo -ne "\033k$1\033\\" > /dev/stderr
+
+----------
+
+(program -
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -))
+      argument: (word -)
+      argument: (string -
+        (string_content -)
+        (simple_expansion -
+          (variable_name -))
+        (string_content -)))
+    redirect: (file_redirect -
+      destination: (word -))))
+
+
+==================================================
+
+==================================================
+
+curl -# localhost #comment without space
+nix build nixpkgs#hello -v # comment with space
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (word -)
+    argument: (word -))
+  (comment -)
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (word -)
+    argument: (word -)
+    argument: (word -))
+  (comment -))
+
+
+==================================================
+
+==================================================
+
+echo 'word'#not-comment # a legit comment
+echo $(uname -a)#not-comment # a legit comment
+echo `uname -a`#not-comment # a legit comment
+echo $hey#not-comment # a legit comment
+var=#not-comment # a legit comment
+echo "'$var'" # -> '#not-comment'
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (concatenation -
+      (raw_string -)
+      (word -)))
+  (comment -)
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (concatenation -
+      (command_substitution -
+        (command -
+          name: (command_name -
+            (word -))
+          argument: (word -)))
+      (word -)))
+  (comment -)
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (concatenation -
+      (command_substitution -
+        (command -
+          name: (command_name -
+            (word -))
+          argument: (word -)))
+      (word -)))
+  (comment -)
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (concatenation -
+      (simple_expansion -
+        (variable_name -))
+      (word -)))
+  (comment -)
+  (variable_assignment -
+    name: (variable_name -)
+    value: (word -))
+  (comment -)
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (string -
+      (string_content -)
+      (simple_expansion -
+        (variable_name -))
+      (string_content -)))
+  (comment -))
+
+
+==================================================
+
+==================================================
+
+loop=; variables=& here=;;
+
+----------
+
+(program -
+  (variable_assignment -
+    name: (variable_name -))
+  (variable_assignment -
+    name: (variable_name -))
+  (variable_assignment -
+    name: (variable_name -)))
+
+
+==================================================
+
+==================================================
+
+component_type="${1}" item_name="${2?}"
+
+----------
+
+(program -
+  (variable_assignments -
+    (variable_assignment -
+      name: (variable_name -)
+      value: (string -
+        (expansion -
+          (variable_name -))))
+    (variable_assignment -
+      name: (variable_name -)
+      value: (string -
+        (expansion -
+          (variable_name -))))))
+
+
+==================================================
+
+==================================================
+
+echo $((1 + 2 - 3 * 4 / 5))
+a=$((6 % 7 ** 8 << 9 >> 10 & 11 | 12 ^ 13))
+$(((${1:-${SECONDS}} % 12) + 144))
+((foo=0))
+echo $((bar=1))
+echo $((-1, 1))
+echo $((! -a || ~ +b || ++c || --d))
+echo $((foo-- || bar++))
+(("${MULTIBUILD_VARIANTS}" > 1))
+$(("$(stat --printf '%05a' "${save_file}")" & 07177))
+soft_errors_count=$[soft_errors_count + 1]
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (arithmetic_expansion -
+      (binary_expression -
+        left: (binary_expression -
+          left: (number -)
+          right: (number -))
+        right: (binary_expression -
+          left: (binary_expression -
+            left: (number -)
+            right: (number -))
+          right: (number -)))))
+  (variable_assignment -
+    name: (variable_name -)
+    value: (arithmetic_expansion -
+      (binary_expression -
+        left: (binary_expression -
+          left: (binary_expression -
+            left: (binary_expression -
+              left: (binary_expression -
+                left: (number -)
+                right: (binary_expression -
+                  left: (number -)
+                  right: (number -)))
+              right: (number -))
+            right: (number -))
+          right: (number -))
+        right: (binary_expression -
+          left: (number -)
+          right: (number -)))))
+  (command -
+    name: (command_name -
+      (arithmetic_expansion -
+        (binary_expression -
+          left: (parenthesized_expression -
+            (binary_expression -
+              left: (expansion -
+                (variable_name -)
+                (expansion -
+                  (variable_name -)))
+              right: (number -)))
+          right: (number -)))))
+  (command -
+    name: (command_name -
+      (arithmetic_expansion -
+        (binary_expression -
+          left: (variable_name -)
+          right: (number -)))))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (arithmetic_expansion -
+      (binary_expression -
+        left: (variable_name -)
+        right: (number -))))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (arithmetic_expansion -
+      (unary_expression -
+        (number -))
+      (number -)))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (arithmetic_expansion -
+      (binary_expression -
+        left: (binary_expression -
+          left: (binary_expression -
+            left: (unary_expression -
+              (unary_expression -
+                (variable_name -)))
+            right: (unary_expression -
+              (unary_expression -
+                (variable_name -))))
+          right: (unary_expression -
+            (variable_name -)))
+        right: (unary_expression -
+          (variable_name -)))))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (arithmetic_expansion -
+      (binary_expression -
+        left: (postfix_expression -
+          (variable_name -))
+        right: (postfix_expression -
+          (variable_name -)))))
+  (command -
+    name: (command_name -
+      (arithmetic_expansion -
+        (binary_expression -
+          left: (string -
+            (expansion -
+              (variable_name -)))
+          right: (number -)))))
+  (command -
+    name: (command_name -
+      (arithmetic_expansion -
+        (binary_expression -
+          left: (string -
+            (command_substitution -
+              (command -
+                name: (command_name -
+                  (word -))
+                argument: (word -)
+                argument: (raw_string -)
+                argument: (string -
+                  (expansion -
+                    (variable_name -))))))
+          right: (number -)))))
+  (variable_assignment -
+    name: (variable_name -)
+    value: (arithmetic_expansion -
+      (binary_expression -
+        left: (variable_name -)
+        right: (number -)))))
+
+
+==================================================
+
+==================================================
+
+main() {
+    local foo="asd"`
+        `"fgh"
+}
+
+----------
+
+(program -
+  (function_definition -
+    name: (word -)
+    body: (compound_statement -
+      (declaration_command -
+        (variable_assignment -
+          name: (variable_name -)
+          value: (concatenation -
+            (string -
+              (string_content -))
+            (string -
+              (string_content -))))))))
+
+
+==================================================
+
+==================================================
+
+echo {1..2}
+echo {0..5}
+echo {0..2 # not a brace expression
+echo }{0..2}
+echo {0..n} # not a brace expression
+echo {0..n..2} # not a brace expression
+echo {0..2}{1..2}
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (brace_expression -
+      (number -)
+      (number -)))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (brace_expression -
+      (number -)
+      (number -)))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (concatenation -
+      (word -)
+      (word -)))
+  (comment -)
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (concatenation -
+      (word -)
+      (brace_expression -
+        (number -)
+        (number -))))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (concatenation -
+      (word -)
+      (word -)
+      (word -)))
+  (comment -)
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (concatenation -
+      (word -)
+      (word -)
+      (word -)))
+  (comment -)
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (concatenation -
+      (brace_expression -
+        (number -)
+        (number -))
+      (brace_expression -
+        (number -)
+        (number -)))))
+
+==================================================
+Double-quoted string with nested single quotes and dollar (issue #20)
+==================================================
+
+echo "use this command: 's/$/aa/' "
+
+----------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (string
+      (string_content)
+      (string_content))))
+
+
+==================================================
+Double-hash and hash-with-glob-char comments
+==================================================
+
+##? this is a zsh doc comment
+## double hash comment
+echo ok
+
+----------
+
+(program
+  (comment)
+  (comment)
+  (command
+    name: (command_name
+      (word))
+    argument: (word)))
+
+

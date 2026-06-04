@@ -1,0 +1,225 @@
+================================================================================
+Simple test cases
+================================================================================
+
+*** Test cases ***
+
+Test That Something Works
+    Do Something
+    Then Do Something Else
+
+    Expect Result To Be     foo
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (test_cases_section
+      (section_header)
+      (test_case_definition
+        (name)
+        (body
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk))))
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk))))
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk))
+              (arguments
+                (argument
+                  (text_chunk))))))))))
+
+================================================================================
+Data driven style test cases
+================================================================================
+
+*** Test Cases ***                USERNAME         PASSWORD
+Invalid User Name                 invalid          ${VALID PASSWORD}
+Invalid Password                  ${VALID USER}    invalid
+Invalid User Name and Password    invalid          invalid
+Empty User Name                   ${EMPTY}         ${VALID PASSWORD}
+Empty Password                    ${VALID USER}    ${EMPTY}
+Empty User Name and Password      ${EMPTY}         ${EMPTY}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (test_cases_section
+      (section_header)
+      (extra_text)
+      (test_case_definition
+        (name)
+        (arguments
+          (argument
+            (text_chunk))
+          (argument
+            (scalar_variable
+              (variable_name)))))
+      (test_case_definition
+        (name)
+        (arguments
+          (argument
+            (scalar_variable
+              (variable_name)))
+          (argument
+            (text_chunk))))
+      (test_case_definition
+        (name)
+        (arguments
+          (argument
+            (text_chunk))
+          (argument
+            (text_chunk))))
+      (test_case_definition
+        (name)
+        (arguments
+          (argument
+            (scalar_variable
+              (variable_name)))
+          (argument
+            (scalar_variable
+              (variable_name)))))
+      (test_case_definition
+        (name)
+        (arguments
+          (argument
+            (scalar_variable
+              (variable_name)))
+          (argument
+            (scalar_variable
+              (variable_name)))))
+      (test_case_definition
+        (name)
+        (arguments
+          (argument
+            (scalar_variable
+              (variable_name)))
+          (argument
+            (scalar_variable
+              (variable_name))))))))
+
+================================================================================
+Test case options
+================================================================================
+
+*** Test cases ***
+
+Test That Something Works
+    [Documentation]   I am keyword documentation
+    ...
+    ...               I often span multiple lines
+    [Tags]            foo   bar
+    [Setup]           I Am A Setup Keyword    with=arguments
+    [Teardown]        I Am A Teardown Keyword     With    Arguments
+    [Template]        I Am A Template Keyword
+    [Timeout]         1 minute
+
+    Expect Result To Be     foo
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (test_cases_section
+      (section_header)
+      (test_case_definition
+        (name)
+        (body
+          (test_case_setting
+            (test_case_setting_name)
+            (arguments
+              (argument
+                (text_chunk))
+              (continuation
+                (ellipses))
+              (continuation
+                (ellipses)
+                (argument
+                  (text_chunk)))))
+          (test_case_setting
+            (test_case_setting_name)
+            (arguments
+              (argument
+                (text_chunk))
+              (argument
+                (text_chunk))))
+          (test_case_setting
+            (test_case_setting_name)
+            (arguments
+              (argument
+                (text_chunk))
+              (argument
+                (text_chunk))))
+          (test_case_setting
+            (test_case_setting_name)
+            (arguments
+              (argument
+                (text_chunk))
+              (argument
+                (text_chunk))
+              (argument
+                (text_chunk))))
+          (test_case_setting
+            (test_case_setting_name)
+            (arguments
+              (argument
+                (text_chunk))))
+          (test_case_setting
+            (test_case_setting_name)
+            (arguments
+              (argument
+                (text_chunk))))
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk))
+              (arguments
+                (argument
+                  (text_chunk))))))))))
+
+================================================================================
+Test cases with curly braces in arguments
+================================================================================
+
+*** Test Cases ***
+
+Test With JSON Arguments
+    [Documentation]   {"type": "integration", "level": "smoke"}
+    [Tags]            {tag1}    {tag2}
+    Log Message    {"event": "test", "status": "pass"}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (test_cases_section
+      (section_header)
+      (test_case_definition
+        (name)
+        (body
+          (test_case_setting
+            (test_case_setting_name)
+            (arguments
+              (argument
+                (text_chunk))))
+          (test_case_setting
+            (test_case_setting_name)
+            (arguments
+              (argument
+                (text_chunk))
+              (argument
+                (text_chunk))))
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk))
+              (arguments
+                (argument
+                  (text_chunk))))))))))

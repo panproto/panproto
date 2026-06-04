@@ -1,0 +1,154 @@
+================================================================================
+Arithmetic expansion with variables
+================================================================================
+
+echo $((start))
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (arithmetic_expansion
+      (word))))
+
+================================================================================
+Arithmetic expansion with binary operations
+================================================================================
+
+echo $((start + offset))
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (arithmetic_expansion
+      (binary_expression
+        left: (word)
+        right: (word)))))
+
+================================================================================
+Arithmetic expansion with complex expressions
+================================================================================
+
+echo $((index * 2 + offset))
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (arithmetic_expansion
+      (binary_expression
+        left: (binary_expression
+          left: (word)
+          right: (number))
+        right: (word)))))
+
+================================================================================
+Arithmetic expansion in parameter context - offset
+================================================================================
+
+echo ${text:$((pos + offset))}
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (expansion
+      (expansion_substring
+        name: (simple_variable_name)
+        offset: (arithmetic_expansion
+          (binary_expression
+            left: (word)
+            right: (word)))))))
+
+================================================================================
+Arithmetic expansion in parameter context - both offset and length
+================================================================================
+
+echo ${text:$((pos + offset)):$((maxlen - pos))}
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (expansion
+      (expansion_substring
+        name: (simple_variable_name)
+        offset: (arithmetic_expansion
+          (binary_expression
+            left: (word)
+            right: (word)))
+        length: (arithmetic_expansion
+          (binary_expression
+            left: (word)
+            right: (word)))))))
+
+================================================================================
+Arithmetic expansion with mixed variable references
+================================================================================
+
+echo $(($var + offset))
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+     argument: (arithmetic_expansion
+      (binary_expression
+        left: (variable_ref
+          (simple_variable_name))
+        right: (word)))))
+
+================================================================================
+Arithmetic expansion with math function calls
+================================================================================
+
+printf "%.3f" $(( sqrt(sumsq / n) ))
+echo $(( sin(a) + cos(b) ))
+echo $(( abs(-5) ))
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (string
+      (string_content))
+    argument: (arithmetic_expansion
+      (arithmetic_call
+        name: (word)
+        argument: (binary_expression
+          left: (word)
+          right: (word)))))
+  (command
+    name: (command_name
+      (word))
+    argument: (arithmetic_expansion
+      (binary_expression
+        left: (arithmetic_call
+          name: (word)
+          argument: (word))
+        right: (arithmetic_call
+          name: (word)
+          argument: (word)))))
+  (command
+    name: (command_name
+      (word))
+    argument: (arithmetic_expansion
+      (arithmetic_call
+        name: (word)
+        argument: (unary_expression
+          (number))))))

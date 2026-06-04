@@ -1,0 +1,341 @@
+==================
+High Priority Properties
+==================
+
+table 50000 "Test Table"
+{
+    DataCaptionFields = "No.", Name;
+    Extensible = true;
+    DataPerCompany = true;
+    ReplicateData = false;
+    ColumnStoreIndex = PrimaryKey;
+    CompressionType = Page;
+    InherentPermissions = X;
+    InherentEntitlements = RI;
+
+    fields
+    {
+        field(1; "No."; Code[20])
+        {
+            Caption = 'No.';
+            NotBlank = true;
+        }
+        
+        field(2; Name; Text[100])
+        {
+            Caption = 'Name';
+        }
+    }
+    
+    keys
+    {
+        key(PrimaryKey; "No.")
+        {
+            Clustered = true;
+        }
+    }
+}
+
+---
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (quoted_identifier)
+    (property
+      (property_name)
+      (option_member_list
+        (option_member
+          (quoted_identifier))
+        (option_member
+          (identifier))))
+    (property
+      (property_name)
+      (boolean))
+    (property
+      (property_name)
+      (boolean))
+    (property
+      (property_name)
+      (boolean))
+    (property
+      (property_name)
+      (identifier))
+    (property
+      (property_name)
+      (keyword_identifier
+        (page_keyword)))
+    (property
+      (property_name)
+      (identifier))
+    (property
+      (property_name)
+      (identifier))
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        (integer)
+        (quoted_identifier)
+        (type_specification
+          (code_type
+            (integer)))
+        (property
+          (property_name)
+          (string_literal))
+        (property
+          (property_name)
+          (boolean)))
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (text_type
+            (integer)))
+        (property
+          (property_name)
+          (string_literal))))
+    (keys_section
+      (keys_keyword)
+      (key_declaration
+        (key_keyword)
+        (identifier)
+        (field_list
+          (quoted_identifier))
+        (property
+          (property_name)
+          (boolean))))))
+
+==================
+Medium/Low Priority Properties
+==================
+
+table 50001 "Test Table Low Priority"
+{
+    Description = 'Test table with low priority properties';
+    ExternalSchema = 'dbo';
+    PasteIsValid = true;
+    ObsoleteState = Pending;
+    ObsoleteReason = 'Testing obsolete properties';
+    ObsoleteTag = '1.0';
+      CaptionML = ENU = 'Test Table EN', DAN = 'Test Tabel DK';
+    ExternalName = 'ExternalTable';
+    MovedFrom = 'Old location';
+    MovedTo = 'New location';
+    LinkedInTransaction = true;
+    LinkedObject = 'Related object';
+
+    fields
+    {
+        field(1; "Key"; Code[10])
+        {
+            CaptionML = ENU='Key', DAN='Nøgle';
+        }
+    }
+}
+
+---
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (quoted_identifier)
+    (property
+      (property_name)
+      (string_literal))
+    (property
+      (property_name)
+      (string_literal))
+    (property
+      (property_name)
+      (boolean))
+    (property
+      (property_name)
+      (identifier))
+    (property
+      (property_name)
+      (string_literal))
+    (property
+      (property_name)
+      (string_literal))
+    (property
+      (property_name)
+      (ml_value_list
+        (ml_value_pair
+          (identifier)
+          (string_literal))
+        (ml_value_pair
+          (identifier)
+          (string_literal))))
+    (property
+      (property_name)
+      (string_literal))
+    (property
+      (property_name)
+      (string_literal))
+    (property
+      (property_name)
+      (string_literal))
+    (property
+      (property_name)
+      (boolean))
+    (property
+      (property_name)
+      (string_literal))
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        (integer)
+        (quoted_identifier)
+        (type_specification
+          (code_type
+            (integer)))
+        (property
+          (property_name)
+          (ml_value_list
+            (ml_value_pair
+              (identifier)
+              (string_literal))
+            (ml_value_pair
+              (identifier)
+              (string_literal))))))))
+
+==================
+Field Properties
+==================
+
+table 50002 "Test Field Properties"
+{
+    fields
+    {
+        field(1; "No."; Code[20])
+        {
+            Caption = 'No.';
+            ToolTip = 'Specifies the number.';
+            ToolTipML = ENU='Specifies the number.', DAN='Angiver nummeret.';
+            CaptionML = ENU='No.', DAN='Nummer';
+            BlankZero = true;
+            NotBlank = true;
+            AutoIncrement = false;
+            AccessByPermission = tabledata Customer=R;
+            AllowInCustomizations = true;
+            AutoFormatExpression = '<precision, 2:2><standard format,0>';
+            AutoFormatType = 10;
+            BlankNumbers = BlankZero;
+            ClosingDates = true;
+            DataClassification = CustomerContent;
+            TableRelation = Customer."No.";
+            CharAllowed = 'AZ';
+            DateFormula = true;
+            ExtendedDatatype = URL;
+            Compressed = true;
+            OptionCaption = 'A,B,C';
+            OptionCaptionML = ENU='A,B,C', DAN='A,B,C';
+        }
+    }
+}
+
+---
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (code_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (ml_value_list
+            (ml_value_pair
+              language: (identifier)
+              value: (string_literal))
+            (ml_value_pair
+              language: (identifier)
+              value: (string_literal))))
+        (property
+          name: (property_name)
+          value: (ml_value_list
+            (ml_value_pair
+              language: (identifier)
+              value: (string_literal))
+            (ml_value_pair
+              language: (identifier)
+              value: (string_literal))))
+        (property
+          name: (property_name)
+          value: (boolean))
+        (property
+          name: (property_name)
+          value: (boolean))
+        (property
+          name: (property_name)
+          value: (boolean))
+        (property
+          name: (property_name)
+          value: (tabledata_permission_list
+            (tabledata_permission
+              table_name: (identifier)
+              permission: (permission_type))))
+        (property
+          name: (property_name)
+          value: (boolean))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (integer))
+        (property
+          name: (property_name)
+          value: (identifier))
+        (property
+          name: (property_name)
+          value: (boolean))
+        (property
+          name: (property_name)
+          value: (identifier))
+        (property
+          name: (property_name)
+          value: (table_relation_value
+            (table_relation_expression
+              (simple_table_relation
+                table: (identifier)
+                table: (quoted_identifier)))))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (boolean))
+        (property
+          name: (property_name)
+          value: (identifier))
+        (property
+          name: (property_name)
+          value: (boolean))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (ml_value_list
+            (ml_value_pair
+              language: (identifier)
+              value: (string_literal))
+            (ml_value_pair
+              language: (identifier)
+              value: (string_literal))))))))

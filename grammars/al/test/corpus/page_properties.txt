@@ -1,0 +1,113 @@
+==================
+Page Properties
+==================
+
+page 50000 "Test Page"
+{
+    PageType = Card;
+    SourceTable = Customer;
+    DataCaptionFields = "No.", Name;
+    Extensible = true;
+    InherentPermissions = X;
+    InherentEntitlements = X;
+    CaptionML = ENU = 'Test Page', DAN = 'Test Side';
+    Description = 'Test page description';
+    UsageCategory = Administration;
+    ApplicationArea = All;
+
+    layout
+    {
+        area(content)
+        {
+            group(General)
+            {
+                Caption = 'General';
+
+                field("No."; Rec."No.")
+                {
+                    Caption = 'No.';
+                    ApplicationArea = All;
+                    ToolTipML = ENU = 'Specifies the number.', DAN = 'Angiver nummeret.';
+                }
+            }
+        }
+    }
+}
+
+---
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (quoted_identifier))
+        (option_member
+          (identifier))))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (ml_value_list
+        (ml_value_pair
+          language: (identifier)
+          value: (string_literal))
+        (ml_value_pair
+          language: (identifier)
+          value: (string_literal))))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (group_section
+          (group_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (page_field
+            name: (quoted_identifier)
+            source: (member_expression
+              object: (identifier)
+              member: (quoted_identifier))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (ml_value_list
+                (ml_value_pair
+                  language: (identifier)
+                  value: (string_literal))
+                (ml_value_pair
+                  language: (identifier)
+                  value: (string_literal))))))))))

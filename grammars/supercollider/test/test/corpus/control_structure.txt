@@ -1,0 +1,581 @@
+;==================
+;If-statements with no commas: if(expr) trueFunc falseFunc
+;==================
+;(
+;if(1<0.5){6+6+6}{666}
+;)
+;---
+;(source_file
+;  (code_block
+;    (control_structure
+;      (if
+;        expression: (binary_expression
+;          left: (literal
+;            (number
+;              (integer )))
+;          right: (literal
+;            (number
+;              (float ))))
+;        true: (function_block
+;          (binary_expression
+;            left: (binary_expression
+;              left: (literal
+;                (number
+;                  (integer )))
+;              right: (literal
+;                (number
+;                  (integer ))))
+;            right: (literal
+;              (number
+;                (integer )))))
+;        false: (function_block
+;          (literal
+;            (number
+;              (integer ))))))))
+;==================
+;If-statements with double binary expressions
+;==================
+;(
+;if(a.isKindOf(Stream) && a.class == Routine, {}, {});
+;)
+;---
+;(source_file
+;  (code_block
+;    (control_structure
+;      (if
+;        expression: (binary_expression
+;          left: (function_call
+;            (receiver
+;              (binary_expression
+;                left: (function_call
+;                  (receiver
+;                    (variable
+;                      (environment_var
+;                        name: (identifier ))))
+;                    name: (method_name )
+;                    (parameter_call_list
+;                      (argument_calls
+;                        (unnamed_argument
+;                          (class )))))
+;                right: (variable
+;                  (environment_var
+;                    name: (identifier )))))
+;                name: (method_name ))
+;          right: (class ))
+;        true: (function_block )
+;        false: (function_block )))))
+;
+;==================
+;function call in if expression
+;==================
+;(
+;if(nil.isNil, { "hello".postln });
+;)
+;---
+;(source_file
+;  (code_block
+;    (control_structure
+;      (if
+;        expression: (function_call
+;          (receiver
+;            (variable
+;              (builtin_var )))
+;          (method_call
+;            name: (method_name )))
+;        true: (function_block
+;          (function_call
+;            (receiver
+;              (literal
+;                (string )))
+;            (method_call
+;              name: (method_name ))))))))
+;==================
+;if with one clause
+;==================
+;if(1 == 1, { "is true".postln; });
+;if(true, { "is true".postln; });
+;
+;---
+;(source_file
+;  (control_structure
+;    (if
+;      expression: (binary_expression
+;        left: (literal
+;          (number
+;            (integer )))
+;        right: (literal
+;          (number
+;            (integer ))))
+;      true: (function_block
+;        (function_call
+;          (receiver
+;            (literal
+;              (string )))
+;          (method_call
+;            name: (method_name ))))))
+;  (control_structure
+;    (if
+;      expression: (literal
+;        (bool ))
+;      true: (function_block
+;        (function_call
+;          (receiver
+;            (literal
+;              (string )))
+;          (method_call
+;            name: (method_name )))))))
+;
+;==================
+;if with two clauses
+;==================
+;if(1 == 2, { "is true".postln; }, { 2; });
+;---
+;(source_file
+;  (control_structure
+;    (if
+;      expression: (binary_expression
+;        left: (literal
+;          (number
+;            (integer )))
+;        right: (literal
+;          (number
+;            (integer ))))
+;      true: (function_block
+;        (function_call
+;          (receiver
+;            (literal
+;              (string )))
+;          (method_call
+;            name: (method_name ))))
+;      false: (function_block
+;        (literal
+;          (number
+;            (integer )))))))
+;
+;==================
+;expr.if with two clauses
+;==================
+;
+;true.if({ "hello".postln; }, { "no".postln; });
+;---
+;(source_file
+;  (control_structure
+;    (if
+;      expression: (literal
+;        (bool ))
+;      true: (function_block
+;        (function_call
+;          (receiver
+;            (literal
+;              (string )))
+;          (method_call
+;            name: (method_name ))))
+;      false: (function_block
+;        (function_call
+;          (receiver
+;            (literal
+;              (string )))
+;          (method_call
+;            (method_name)))))))
+;
+;==================
+;expr.if with one clause
+;==================
+;
+;true.if({ "hello".postln; });
+;
+;---
+;(source_file
+;  (control_structure
+;    (if
+;      expression: (literal
+;        (bool ))
+;      true: (function_block
+;        (function_call
+;          (receiver
+;            (literal
+;              (string )))
+;          (method_call
+;            name: (method_name )))))))
+;
+;==================
+;(expr).if with one clause
+;==================
+;(0 > 1).if({ "that can't be true!".postln; });
+;
+;---
+;(source_file
+;  (control_structure
+;    (if
+;      expression: (code_block
+;        (binary_expression
+;          left: (literal
+;            (number
+;              (integer )))
+;          right: (literal
+;            (number
+;              (integer )))))
+;      true: (function_block
+;        (function_call
+;          (receiver
+;            (literal
+;              (string )))
+;          (method_call
+;            name: (method_name )))))))
+;
+;==================
+;while(func, func)
+;==================
+;while( {1 < 10;}, { "still counting".println;});
+;
+;---
+;(source_file
+;  (control_structure
+;    (while
+;      test_func: (function_block
+;        (binary_expression
+;          left: (literal
+;            (number
+;              (integer )))
+;          right: (literal
+;            (number
+;              (integer )))))
+;      body_func: (function_block
+;        (function_call
+;          (receiver
+;            (literal
+;              (string )))
+;          (method_call
+;            name: (method_name )))))))
+;
+;==================
+;func.while{func}
+;==================
+;{1 < 10;}.while{
+;	"still counting".println;
+;};
+;
+;---
+;(source_file
+;  (control_structure
+;    (while
+;      expression: (function_block
+;        (binary_expression
+;          left: (literal
+;            (number
+;              (integer )))
+;          right: (literal
+;            (number
+;              (integer )))))
+;      body_func: (function_block
+;        (function_call
+;          (receiver
+;            (literal
+;              (string )))
+;          (method_call
+;            name: (method_name )))))))
+;
+;==================
+;while {test} {body}
+;==================
+;
+;while { false } { "never".postln };
+;
+;---
+;
+;(source_file
+;  (control_structure
+;    (while
+;      test_func: (function_block
+;        (literal
+;          (bool)))
+;      body_func: (function_block
+;        (function_call
+;          (receiver
+;            (literal
+;              (string)))
+;          (method_call
+;            (method_name)))))))
+;
+;==================
+;for(start, end, func)
+;==================
+;
+;for(1,10,{|i| i.postln});
+;---
+;(source_file
+;  (control_structure
+;    (for
+;      (integer )
+;      (integer )
+;      (function_block
+;        (parameter_list
+;          (argument name:
+;            (identifier )))
+;        (function_call
+;          (receiver
+;            (variable
+;              (environment_var name: (identifier))))
+;          (method_call
+;            name: (method_name )))))))
+;
+;==================
+;start.for(end, func)
+;==================
+;1.for(10,{|i| i.postln});
+;---
+;(source_file
+;  (control_structure
+;    (for
+;      (integer )
+;      (integer )
+;      (function_block
+;        (parameter_list
+;          (argument name:
+;            (identifier )))
+;        (function_call
+;          (receiver
+;            (variable
+;              (environment_var name: (identifier))))
+;          (method_call
+;            name: (method_name )))))))
+;
+;==================
+;start.forBy(end, step, func)
+;==================
+;1.forBy(2,10,{|i| i.postln});
+;---
+;(source_file
+;  (control_structure
+;    (forby
+;      (integer)
+;      (integer)
+;      (integer)
+;      (function_block
+;        (parameter_list
+;          (argument name:
+;            (identifier )))
+;        (function_call
+;          (receiver
+;            (variable
+;              (environment_var name: (identifier))))
+;          (method_call
+;            name: (method_name )))))))
+;
+;==================
+;forBy(start, end, step, func)
+;==================
+;1.forBy(2,10,{|i| i.postln});
+;---
+;(source_file
+;  (control_structure
+;    (forby
+;      (integer )
+;      (integer )
+;      (integer )
+;      (function_block
+;        (parameter_list
+;          (argument name:
+;            (identifier )))
+;        (function_call
+;          (receiver
+;            (variable
+;              (environment_var name: (identifier))))
+;          (method_call
+;            name: (method_name )))))))
+;
+;==================
+;case
+;==================
+;(
+;x = case
+;{ i == 1.5 } { \wrong }
+;{ true }   { \wrong }
+;{ i == 0 }   { \true };
+;)
+;---
+;(source_file
+;  (code_block
+;    (variable_definition name:
+;      (variable
+;        (environment_var name: (identifier)))
+;      value: (control_structure
+;        (case
+;          (function_block
+;            (binary_expression
+;              left: (variable
+;                (environment_var name: (identifier)))
+;              right: (literal
+;                (number
+;                  (float )))))
+;          (function_block
+;            (literal
+;              (symbol)))
+;          (function_block
+;            (literal
+;              (bool )))
+;          (function_block
+;            (literal
+;              (symbol)))
+;          (function_block
+;            (binary_expression
+;              left: (variable
+;                (environment_var name: (identifier)))
+;              right: (literal
+;                (number
+;                  (integer )))))
+;          (function_block
+;            (literal
+;              (symbol))))))))
+;
+;==================
+;simple switch with literal as test value
+;==================
+;(
+;switch(0,
+;	{1},   { \no },
+;	{0},   { \true });
+;)
+;---
+;(source_file
+;  (code_block
+;    (control_structure
+;      (switch
+;        (literal
+;          (number
+;            (integer )))
+;        (function_block
+;          (literal
+;            (number
+;              (integer ))))
+;        (function_block
+;          (literal
+;            (symbol)))
+;        (function_block
+;          (literal
+;            (number
+;              (integer ))))
+;        (function_block
+;          (literal
+;            (symbol)))))))
+;
+;============
+;Weird kind of switch (no commas)
+;============
+;(
+;switch (201)
+;    {1}   { \no }
+;    {1.1} { \wrong }
+;    {2}   { \wrong }
+;    {0}   { \true };
+;)
+;---
+;
+;(source_file
+;  (code_block
+;    (control_structure
+;      (switch
+;        (code_block
+;          (literal
+;            (number
+;              (integer ))))
+;        (function_block
+;          (literal
+;            (number
+;              (integer ))))
+;        (function_block
+;          (literal
+;            (symbol)))
+;        (function_block
+;          (literal
+;            (number
+;              (float ))))
+;        (function_block
+;          (literal
+;            (symbol)))
+;        (function_block
+;          (literal
+;            (number
+;              (integer ))))
+;        (function_block
+;          (literal
+;            (symbol)))
+;        (function_block
+;          (literal
+;            (number
+;              (integer ))))
+;        (function_block
+;          (literal
+;            (symbol)))))))
+;
+;===========
+;Switch with variable.choose as input
+;===========
+;(
+;y = [0,1,2,3];
+;x = switch (y.choose)
+;    {1}   { \no }
+;    {2} { \wrong }
+;    {3}   { \wrong }
+;    {0}   { \true };
+;)
+;
+;---
+;(source_file
+;  (code_block
+;    (variable_definition name:
+;      (variable
+;        (environment_var name: (identifier)))
+;      value: (collection
+;        (literal
+;          (number
+;            (integer )))
+;        (literal
+;          (number
+;            (integer )))
+;        (literal
+;          (number
+;            (integer )))
+;        (literal
+;          (number
+;            (integer )))))
+;    (variable_definition name:
+;      (variable
+;        (environment_var name: (identifier)))
+;      value: (control_structure
+;        (switch
+;          (code_block
+;            (function_call
+;              (receiver
+;                (variable
+;                  (environment_var name: (identifier))))
+;              (method_call
+;                name: (method_name ))))
+;          (function_block
+;            (literal
+;              (number
+;                (integer ))))
+;          (function_block
+;            (literal
+;              (symbol)))
+;          (function_block
+;            (literal
+;              (number
+;                (integer ))))
+;          (function_block
+;            (literal
+;              (symbol)))
+;          (function_block
+;            (literal
+;              (number
+;                (integer ))))
+;          (function_block
+;            (literal
+;              (symbol)))
+;          (function_block
+;            (literal
+;              (number
+;                (integer ))))
+;          (function_block
+;            (literal
+;              (symbol))))))))

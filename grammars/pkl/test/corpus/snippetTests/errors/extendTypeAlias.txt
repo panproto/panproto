@@ -1,0 +1,33 @@
+===
+errors/extendTypeAlias.pkl
+===
+
+open class Foo
+typealias Bar = Foo(true)
+class Baz extends Bar
+qux = new Baz {}
+
+---
+
+(module
+  (clazz
+    (modifier)
+    (identifier))
+  (typeAlias
+    (identifier)
+    (constrainedType
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (trueLiteralExpr)))
+  (clazz
+    (identifier)      (classExtendsClause
+      (qualifiedIdentifier
+        (identifier))))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody))))

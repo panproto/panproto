@@ -1,0 +1,102 @@
+====================================
+Rule/action/code block: Minimal
+====================================
+/*!re2c
+  foo {}
+  bar { }
+  baz { foobar(); }*/
+---
+
+(re2c
+  (global_block
+    (body
+      (ordinary_rule
+        (pattern
+          (regex (name)))
+        (action))
+      (ordinary_rule
+        (pattern
+          (regex (name)))
+        (action
+          (host_lang)))
+      (ordinary_rule
+        (pattern
+          (regex (name)))
+        (action
+          (host_lang))))))
+
+======================================================
+Rule/action/code block: Nested blocks (matching pairs)
+======================================================
+/*!re2c
+  foo {{}}
+  bar {{}{}}
+  baz {{{}}{{}}{{}}}
+*/
+---
+
+(re2c
+  (global_block
+    (body
+      (ordinary_rule
+        (pattern
+          (regex (name)))
+        (action
+          (host_lang)))
+      (ordinary_rule
+        (pattern
+          (regex (name)))
+        (action
+          (host_lang)))
+      (ordinary_rule
+        (pattern
+          (regex (name)))
+        (action
+          (host_lang))))))
+
+===============================================================
+Rule/action/code block: Nested blocks (missing closing bracket)
+===============================================================
+/*!re2c
+  foo {{}
+  bar {{{}
+  baz {{{{{{}
+*/
+---
+
+(re2c
+  (global_block
+    (body
+      (ordinary_rule
+        (pattern
+          (regex (name)))
+        (action
+          (host_lang)))
+      (ordinary_rule
+        (pattern
+          (regex (name)))
+        (action
+          (host_lang)))
+      (ordinary_rule
+        (pattern
+          (regex (name)))
+        (action
+          (host_lang))))))
+
+
+===============================================================
+Rule/action/code block: Nesting {foo{}bar}
+===============================================================
+/*!re2c
+  foo {foo{}bar}
+*/
+---
+
+(re2c
+  (global_block
+    (body
+      (ordinary_rule
+        (pattern
+          (regex (name)))
+        (action
+          (host_lang))))))

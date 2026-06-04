@@ -1,0 +1,111 @@
+================================================================================
+Simple 'is' operator test
+================================================================================
+
+codeunit 50100 Test
+{
+    procedure TestIs();
+    begin
+        if Shape is IShape then
+            Message('test');
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (if_statement
+          (if_keyword)
+          left: (identifier)
+          right: (type_specification
+            (identifier))
+          (then_keyword)
+          then_branch: (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (string_literal))))
+        (end_keyword)))))
+
+================================================================================
+Simple 'as' operator test
+================================================================================
+
+codeunit 50101 Test2
+{
+    procedure TestAs();
+    begin
+        Result := Shape as IDrawable;
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (identifier)
+          left: (identifier)
+          right: (type_specification
+            (identifier)))
+        (end_keyword)))))
+
+================================================================================
+Mixed operators test
+================================================================================
+
+codeunit 50102 Test3
+{
+    procedure TestMixed();
+    begin
+        if (Obj is IShape) and (Obj is IDrawable) then
+            Result := Obj as IShape;
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (if_statement
+          (if_keyword)
+          condition: (logical_expression
+            left: (parenthesized_expression
+              left: (identifier)
+              right: (type_specification
+                (identifier)))
+            right: (parenthesized_expression
+              left: (identifier)
+              right: (type_specification
+                (identifier))))
+          (then_keyword)
+          then_branch: (assignment_statement
+            left: (identifier)
+            left: (identifier)
+            right: (type_specification
+              (identifier))))
+        (end_keyword)))))

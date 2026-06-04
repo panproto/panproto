@@ -1,0 +1,274 @@
+================================================================================
+IndentationControls with single value
+================================================================================
+
+page 50000 "Test Page"
+{
+    PageType = List;
+    SourceTable = "Test Table";
+    
+    layout
+    {
+        area(Content)
+        {
+            repeater(TestRepeater)
+            {
+                IndentationControls = MyField;
+                
+                field(MyField; Rec.MyField)
+                {
+                    ApplicationArea = All;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    (integer)
+    (quoted_identifier)
+    (property
+      (property_name)
+      (identifier))
+    (property
+      (property_name)
+      (quoted_identifier))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (repeater_section
+          (repeater_keyword)
+          (identifier)
+          (property
+            (property_name)
+            (identifier))
+          (page_field
+            (identifier)
+            (member_expression
+              (identifier)
+              (identifier))
+            (property
+              (property_name)
+              (identifier))))))))
+
+================================================================================
+IndentationControls with multiple values
+================================================================================
+
+page 50001 "Permission Set Tree"
+{
+    PageType = List;
+    SourceTable = "Permission Set";
+    
+    layout
+    {
+        area(Content)
+        {
+            repeater(PermissionSets)
+            {
+                TreeInitialState = CollapseAll;
+                IndentationColumn = Rec.Indent;
+                IndentationControls = "Related Role ID As Text", "Related Scope";
+                ShowAsTree = true;
+                
+                field("Related Role ID As Text"; Rec."Related Role ID As Text")
+                {
+                    ApplicationArea = All;
+                }
+                
+                field("Related Scope"; Rec."Related Scope")
+                {
+                    ApplicationArea = All;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    (integer)
+    (quoted_identifier)
+    (property
+      (property_name)
+      (identifier))
+    (property
+      (property_name)
+      (quoted_identifier))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (repeater_section
+          (repeater_keyword)
+          (identifier)
+          (property
+            (property_name)
+            (identifier))
+          (property
+            (property_name)
+            (table_relation_value
+              (table_relation_expression
+                (simple_table_relation
+                  (identifier)
+                  (identifier)))))
+          (property
+            (property_name)
+            (option_member_list
+              (option_member
+                (quoted_identifier))
+              (option_member
+                (quoted_identifier))))
+          (property
+            (property_name)
+            (boolean))
+          (page_field
+            (quoted_identifier)
+            (member_expression
+              (identifier)
+              (quoted_identifier))
+            (property
+              (property_name)
+              (identifier)))
+          (page_field
+            (quoted_identifier)
+            (member_expression
+              (identifier)
+              (quoted_identifier))
+            (property
+              (property_name)
+              (identifier))))))))
+
+================================================================================
+IndentationControls with multiple quoted and unquoted identifiers
+================================================================================
+
+page 50002 "Mixed Identifiers"
+{
+    PageType = List;
+    SourceTable = TestTable;
+    
+    layout
+    {
+        area(Content)
+        {
+            repeater(TestRepeater)
+            {
+                IndentationControls = Field1, "Field 2", Field3;
+                
+                field(Field1; Rec.Field1)
+                {
+                    ApplicationArea = All;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    (integer)
+    (quoted_identifier)
+    (property
+      (property_name)
+      (identifier))
+    (property
+      (property_name)
+      (identifier))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (repeater_section
+          (repeater_keyword)
+          (identifier)
+          (property
+            (property_name)
+            (option_member_list
+              (option_member
+                (identifier))
+              (option_member
+                (quoted_identifier))
+              (option_member
+                (identifier))))
+          (page_field
+            (identifier)
+            (member_expression
+              (identifier)
+              (identifier))
+            (property
+              (property_name)
+              (identifier))))))))
+
+================================================================================
+IndentationControls with expressions
+================================================================================
+
+page 50003 "Expression Controls"
+{
+    PageType = List;
+    SourceTable = TestTable;
+
+    layout
+    {
+        area(Content)
+        {
+            repeater(TestRepeater)
+            {
+                IndentationControls = FieldName, "Other Field";
+
+                field(TestField; Rec.TestField)
+                {
+                    ApplicationArea = All;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    (integer)
+    (quoted_identifier)
+    (property
+      (property_name)
+      (identifier))
+    (property
+      (property_name)
+      (identifier))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (repeater_section
+          (repeater_keyword)
+          (identifier)
+          (property
+            (property_name)
+            (option_member_list
+              (option_member
+                (identifier))
+              (option_member
+                (quoted_identifier))))
+          (page_field
+            (identifier)
+            (member_expression
+              (identifier)
+              (identifier))
+            (property
+              (property_name)
+              (identifier))))))))

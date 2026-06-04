@@ -1,0 +1,147 @@
+================================================================================
+TestRequestPage data type with various reference formats
+================================================================================
+
+codeunit 50000 "TestRequestPage Test"
+{
+    [Test]
+    procedure TestRequestPageWithQuotedReference()
+    var
+        TestReq: TestRequestPage "My Report";
+    begin
+    end;
+
+    [Test] 
+    procedure TestRequestPageWithIdentifier()
+    var
+        TestReq: TestRequestPage MyReport;
+    begin
+    end;
+
+    [Test]
+    procedure TestRequestPageWithInteger()
+    var
+        TestReq: TestRequestPage 50000;
+    begin
+    end;
+
+    [RequestPageHandler]
+    procedure TestRequestPageHandler(var PhysInvtTest: TestRequestPage "Phys. Invt. Order - Test")
+    var
+        HeaderNo: Variant;
+    begin
+        LibraryVariableStorage.Dequeue(HeaderNo);
+    end;
+
+    [RequestPageHandler]
+    [Scope('OnPrem')]
+    procedure TestRequestPageHandlerWithScope(var ReportTest: TESTREQUESTPAGE "Some Report")
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (object_reference_type
+              reference: (quoted_identifier)))))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (object_reference_type
+              reference: (identifier)))))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (object_reference_type
+              reference: (integer)))))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (object_reference_type
+              reference: (quoted_identifier)))))
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (member_expression
+            object: (identifier)
+            member: (identifier))
+          arguments: (argument_list
+            (identifier)))
+        (end_keyword)))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (string_literal)))))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (object_reference_type
+              reference: (quoted_identifier)))))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))

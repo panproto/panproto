@@ -1,0 +1,22 @@
+===
+errors/moduleAmendsVersionCheck2.pkl
+===
+
+@ModuleInfo { minPklVersion = "99.9.9" }
+amends "baseModule.pkl"
+
+---
+
+(module
+  (moduleHeader
+    (annotation
+      (qualifiedIdentifier
+        (identifier))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart)))))
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart)))))

@@ -1,0 +1,131 @@
+==================================================
+array assign
+==================================================
+
+array=(one two three)
+
+----------
+
+(program
+  (variable_assignment
+    name: (variable_name)
+    value: (array
+      (word)
+      (word)
+      (word))))
+
+==================================================
+typeset hash
+==================================================
+
+typeset -A hash
+hash=(key1 value1 key2 value2)
+
+----------
+
+(program
+  (declaration_command
+    argument: (word)
+    argument: (word))
+  (variable_assignment
+    name: (variable_name)
+    value: (array
+      (word)
+      (word)
+      (word)
+      (word))))
+
+==================================================
+expand with flags
+==================================================
+
+echo ${${var}:u}
+
+----------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (expansion
+      (expansion_with_modifier
+        name: (expansion
+          name: (simple_variable_name))
+        modifier: (expansion_modifier)))))
+
+==================================================
+expand with default
+==================================================
+
+echo ${var:-default}
+
+----------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (expansion
+      (expansion_default
+        name: (simple_variable_name)
+        default: (expansion_default_list
+          (word))))))
+
+==================================================
+expand with default alternate
+==================================================
+
+echo ${var:=default}
+
+----------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (expansion
+      (expansion_default
+        name: (simple_variable_name)
+        default: (expansion_default_list
+          (word))))))
+
+==================================================
+expand with default blank
+==================================================
+
+echo ${var:-}
+echo ${var:=}
+
+----------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (expansion
+      (expansion_default
+        name: (simple_variable_name))))
+  (command
+    name: (command_name
+      (word))
+    argument: (expansion
+      (expansion_default
+        name: (simple_variable_name)))))
+
+==================================================
+expand with ansi string
+==================================================
+
+echo "${REPLY%%$'\n'}"
+
+----------
+
+(program
+  (command
+    (command_name
+      (word))
+    (string
+      (expansion
+        (expansion_pattern
+          (simple_variable_name)
+          (ansi_c_string))))))

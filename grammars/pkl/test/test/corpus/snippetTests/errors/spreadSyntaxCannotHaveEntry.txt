@@ -1,0 +1,34 @@
+===
+errors/spreadSyntaxCannotHaveEntry.pkl
+===
+
+local source {
+  ["foo"] = 1
+}
+
+res: Listing = new {
+  ...source
+}
+
+---
+
+(module
+  (classProperty
+    (modifier)
+    (identifier)
+    (objectBody
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (newExpr
+      (objectBody
+        (objectSpread
+          (unqualifiedAccessExpr
+            (identifier)))))))

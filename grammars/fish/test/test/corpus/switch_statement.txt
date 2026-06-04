@@ -1,0 +1,54 @@
+================================================================================
+Switch Statement - simple
+================================================================================
+
+switch x; end;
+
+switch x;
+end;
+
+--------------------------------------------------------------------------------
+
+(program
+  (switch_statement
+    value: (word))
+  (switch_statement
+    value: (word)))
+
+================================================================================
+Switch Statement - with cases
+================================================================================
+
+switch x; case '*'; end;
+
+switch x
+    case '*'
+end
+
+switch x
+    case a b c d
+        custom $x
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (switch_statement
+    value: (word)
+    (case_clause
+      (single_quote_string)))
+  (switch_statement
+    value: (word)
+    (case_clause
+      (single_quote_string)))
+  (switch_statement
+    value: (word)
+    (case_clause
+      (word)
+      (word)
+      (word)
+      (word)
+      (command
+        name: (word)
+        argument: (variable_expansion
+          (variable_name))))))

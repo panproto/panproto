@@ -1,0 +1,369 @@
+================================================================================
+simple-contract-bool.ncl
+================================================================================
+
+# Example of simple custom contract, parametrized by a first argument.
+# In practice, for this kind of simple predicate, one should rather use
+# `contract.from_predicate`
+let EqualsTo = fun reference_value label value =>
+  if reference_value == value then
+    value
+  else
+    contract.blame label in
+
+let AlwaysTrue = EqualsTo true in
+let AlwaysFalse = EqualsTo false in
+
+# This contract says: `not` requires its argument to be true, and in return
+# promise that the return value is false.
+# Try passing `false` to `not`, or to use the identity function (replacing `!x`
+# by `x`) to see contract errors appear.
+let not | AlwaysTrue -> AlwaysFalse = fun x => !x in
+not true
+
+--------------------------------------------------------------------------------
+
+(term
+  (comment)
+  (comment)
+  (comment)
+  (uni_term
+    (let_expr
+      (let_in_block
+        (let_binding
+          (pattern
+            (ident))
+          (term
+            (uni_term
+              (fun_expr
+                (pattern_fun
+                  (ident))
+                (pattern_fun
+                  (ident))
+                (pattern_fun
+                  (ident))
+                (term
+                  (uni_term
+                    (ite_expr
+                      (term
+                        (uni_term
+                          (infix_expr
+                            (infix_expr
+                              (applicative
+                                (record_operand
+                                  (atom
+                                    (ident)))))
+                            (infix_b_op_8)
+                            (infix_expr
+                              (applicative
+                                (record_operand
+                                  (atom
+                                    (ident))))))))
+                      (term
+                        (uni_term
+                          (infix_expr
+                            (applicative
+                              (record_operand
+                                (atom
+                                  (ident)))))))
+                      (term
+                        (uni_term
+                          (infix_expr
+                            (applicative
+                              (applicative
+                                (record_operand
+                                  (record_operation_chain
+                                    (record_operand
+                                      (atom
+                                        (ident)))
+                                    (ident))))
+                              (record_operand
+                                (atom
+                                  (ident)))))))))))))))
+      (term
+        (uni_term
+          (let_expr
+            (let_in_block
+              (let_binding
+                (pattern
+                  (ident))
+                (term
+                  (uni_term
+                    (infix_expr
+                      (applicative
+                        (applicative
+                          (record_operand
+                            (atom
+                              (ident))))
+                        (record_operand
+                          (atom
+                            (bool)))))))))
+            (term
+              (uni_term
+                (let_expr
+                  (let_in_block
+                    (let_binding
+                      (pattern
+                        (ident))
+                      (term
+                        (uni_term
+                          (infix_expr
+                            (applicative
+                              (applicative
+                                (record_operand
+                                  (atom
+                                    (ident))))
+                              (record_operand
+                                (atom
+                                  (bool)))))))))
+                  (comment)
+                  (comment)
+                  (comment)
+                  (comment)
+                  (term
+                    (uni_term
+                      (let_expr
+                        (let_in_block
+                          (let_binding
+                            (pattern
+                              (ident))
+                            (annot
+                              (annot_atom
+                                (types
+                                  (infix_expr
+                                    (infix_expr
+                                      (applicative
+                                        (record_operand
+                                          (atom
+                                            (ident)))))
+                                    (infix_expr
+                                      (applicative
+                                        (record_operand
+                                          (atom
+                                            (ident)))))))))
+                            (term
+                              (uni_term
+                                (fun_expr
+                                  (pattern_fun
+                                    (ident))
+                                  (term
+                                    (uni_term
+                                      (infix_expr
+                                        (infix_u_op_5)
+                                        (infix_expr
+                                          (applicative
+                                            (record_operand
+                                              (atom
+                                                (ident)))))))))))))
+                        (term
+                          (uni_term
+                            (infix_expr
+                              (applicative
+                                (applicative
+                                  (record_operand
+                                    (atom
+                                      (ident))))
+                                (record_operand
+                                  (atom
+                                    (bool)))))))))))))))))))
+
+================================================================================
+simple-contract-div.ncl
+================================================================================
+
+# /!\ THIS EXAMPLE IS EXPECTED TO FAIL
+# Illustrate a basic contract violation.
+
+let Even = fun label value =>
+  if builtin.is_num value && value % 2 == 0 then
+    value
+  else
+    contract.blame label in
+let DivBy3 = fun label value =>
+  if builtin.is_num value && value % 3 == 0 then
+    value
+  else
+    contract.blame label in
+# Will cause an error! 4 is no divided by 3.
+(4 | Even
+   | DivBy3)
+
+--------------------------------------------------------------------------------
+
+(term
+  (comment)
+  (comment)
+  (uni_term
+    (let_expr
+      (let_in_block
+        (let_binding
+          (pattern
+            (ident))
+          (term
+            (uni_term
+              (fun_expr
+                (pattern_fun
+                  (ident))
+                (pattern_fun
+                  (ident))
+                (term
+                  (uni_term
+                    (ite_expr
+                      (term
+                        (uni_term
+                          (infix_expr
+                            (infix_expr
+                              (applicative
+                                (applicative
+                                  (record_operand
+                                    (record_operation_chain
+                                      (record_operand
+                                        (atom
+                                          (ident)))
+                                      (ident))))
+                                (record_operand
+                                  (atom
+                                    (ident)))))
+                            (infix_lazy_b_op_9)
+                            (infix_expr
+                              (infix_expr
+                                (infix_expr
+                                  (applicative
+                                    (record_operand
+                                      (atom
+                                        (ident)))))
+                                (infix_b_op_3)
+                                (infix_expr
+                                  (applicative
+                                    (record_operand
+                                      (atom
+                                        (num_literal))))))
+                              (infix_b_op_8)
+                              (infix_expr
+                                (applicative
+                                  (record_operand
+                                    (atom
+                                      (num_literal)))))))))
+                      (term
+                        (uni_term
+                          (infix_expr
+                            (applicative
+                              (record_operand
+                                (atom
+                                  (ident)))))))
+                      (term
+                        (uni_term
+                          (infix_expr
+                            (applicative
+                              (applicative
+                                (record_operand
+                                  (record_operation_chain
+                                    (record_operand
+                                      (atom
+                                        (ident)))
+                                    (ident))))
+                              (record_operand
+                                (atom
+                                  (ident)))))))))))))))
+      (term
+        (uni_term
+          (let_expr
+            (let_in_block
+              (let_binding
+                (pattern
+                  (ident))
+                (term
+                  (uni_term
+                    (fun_expr
+                      (pattern_fun
+                        (ident))
+                      (pattern_fun
+                        (ident))
+                      (term
+                        (uni_term
+                          (ite_expr
+                            (term
+                              (uni_term
+                                (infix_expr
+                                  (infix_expr
+                                    (applicative
+                                      (applicative
+                                        (record_operand
+                                          (record_operation_chain
+                                            (record_operand
+                                              (atom
+                                                (ident)))
+                                            (ident))))
+                                      (record_operand
+                                        (atom
+                                          (ident)))))
+                                  (infix_lazy_b_op_9)
+                                  (infix_expr
+                                    (infix_expr
+                                      (infix_expr
+                                        (applicative
+                                          (record_operand
+                                            (atom
+                                              (ident)))))
+                                      (infix_b_op_3)
+                                      (infix_expr
+                                        (applicative
+                                          (record_operand
+                                            (atom
+                                              (num_literal))))))
+                                    (infix_b_op_8)
+                                    (infix_expr
+                                      (applicative
+                                        (record_operand
+                                          (atom
+                                            (num_literal)))))))))
+                            (term
+                              (uni_term
+                                (infix_expr
+                                  (applicative
+                                    (record_operand
+                                      (atom
+                                        (ident)))))))
+                            (term
+                              (uni_term
+                                (infix_expr
+                                  (applicative
+                                    (applicative
+                                      (record_operand
+                                        (record_operation_chain
+                                          (record_operand
+                                            (atom
+                                              (ident)))
+                                          (ident))))
+                                    (record_operand
+                                      (atom
+                                        (ident)))))))))))))))
+            (comment)
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom
+                        (uni_term
+                          (annotated_infix_expr
+                            (infix_expr
+                              (applicative
+                                (record_operand
+                                  (atom
+                                    (num_literal)))))
+                            (annot
+                              (annot_atom
+                                (types
+                                  (infix_expr
+                                    (applicative
+                                      (record_operand
+                                        (atom
+                                          (ident)))))))
+                              (annot_atom
+                                (types
+                                  (infix_expr
+                                    (applicative
+                                      (record_operand
+                                        (atom
+                                          (ident))))))))))))))))))))))

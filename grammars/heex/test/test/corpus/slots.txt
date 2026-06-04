@@ -1,0 +1,106 @@
+================================================================================
+Named Slots
+================================================================================
+
+<.modal>
+  <:header>
+    This is the top of the modal.
+  </:header>
+  This is the content of the modal.
+</.modal>
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (component
+    (start_component
+      (component_name
+        (function)))
+    (slot
+      (start_slot
+        (slot_name))
+      (text)
+      (end_slot
+        (slot_name)))
+    (text)
+    (end_component
+      (component_name
+        (function)))))
+
+================================================================================
+Named Slots with Attributes
+================================================================================
+
+<.modal>
+  <:header key={@value}>
+  </:header>
+</.modal>
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (component
+    (start_component
+      (component_name
+        (function)))
+    (slot
+      (start_slot
+        (slot_name)
+        (attribute
+          (attribute_name)
+          (expression
+            (expression_value))))
+      (end_slot
+        (slot_name)))
+    (end_component
+      (component_name
+        (function)))))
+
+================================================================================
+Slots must be a child of a Component
+================================================================================
+
+<div>
+  <:header>
+    This should produce an ERROR
+  </:header>
+</div>
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (tag
+    (start_tag
+      (tag_name))
+    (ERROR
+      (attribute_name)
+      (attribute_name)
+      (attribute_name)
+      (attribute_name)
+      (attribute_name)
+      (attribute_name)
+      (attribute_name))
+    (end_tag
+      (tag_name))))
+
+================================================================================
+Self-closing slot does not error
+================================================================================
+
+<.modal>
+  <:header />
+</.modal>
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (component
+    (start_component
+      (component_name
+        (function)))
+    (slot
+      (self_closing_slot
+        (slot_name)))
+    (end_component
+      (component_name
+        (function)))))

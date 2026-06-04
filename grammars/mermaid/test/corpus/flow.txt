@@ -1,0 +1,657 @@
+==========================
+Simple flow chart
+==========================
+
+flowchart LR
+  subgraph TOP
+    direction TB
+    subgraph B1
+        direction RL
+        i1 -->f1
+    end
+    subgraph B2
+        direction BT
+        i2 -->f2
+    end
+  end
+  A --> TOP --> B
+  B1 --> B2
+
+---
+
+(source_file
+  (diagram_flow
+    (flowchart_direction_lr)
+    (flow_stmt_subgraph
+      (flow_vertex_text)
+      (flow_stmt_subgraph_inner
+        (flow_stmt_direction
+          (flowchart_direction_tb))
+        (flow_stmt_subgraph
+          (flow_vertex_text)
+          (flow_stmt_subgraph_inner
+            (flow_stmt_direction
+              (flowchart_direction_rl))
+            (flow_stmt_vertice
+              (flow_node
+                (flow_vertex
+                  (flow_vertex_id)))
+              (flow_link_simplelink
+                (flow_link_arrow))
+              (flow_node
+                (flow_vertex
+                  (flow_vertex_id))))))
+        (flow_stmt_subgraph
+          (flow_vertex_text)
+          (flow_stmt_subgraph_inner
+            (flow_stmt_direction
+              (flowchart_direction_bt))
+            (flow_stmt_vertice
+              (flow_node
+                (flow_vertex
+                  (flow_vertex_id)))
+              (flow_link_simplelink
+                (flow_link_arrow))
+              (flow_node
+                (flow_vertex
+                  (flow_vertex_id))))))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)))
+      (flow_link_simplelink
+        (flow_link_arrow))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)))
+      (flow_link_simplelink
+        (flow_link_arrow))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)))
+      (flow_link_simplelink
+        (flow_link_arrow))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id))))))
+
+==========================
+Nodes
+==========================
+
+flowchart LR
+    id
+    id1[This is the text in the box]
+    id1(This is the text in the box)
+    id1([This is the text in the box])
+    id1[[This is the text in the box]]
+    id1[(Database)]
+    id1((This is the text in the circle))
+    id1>This is the text in the box]
+    id1{This is the text in the box}
+    id1{{This is the text in the box}}
+    id1[/This is the text in the box/]
+    id1[\This is the text in the box\]
+    A[/Christmas\]
+    B[\Go shopping/]
+
+---
+
+(source_file
+  (diagram_flow
+    (flowchart_direction_lr)
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)
+          (flow_vertex_square
+            (flow_text_literal)))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)
+          (flow_vertex_round
+            (flow_text_literal)))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)
+          (flow_vertex_stadium
+            (flow_text_literal)))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)
+          (flow_vertex_subroutine
+            (flow_text_literal)))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)
+          (flow_vertex_cylinder
+            (flow_text_literal)))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)
+          (flow_vertex_circle
+            (flow_text_literal)))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)
+          (flow_vertex_odd
+            (flow_text_literal)))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)
+          (flow_vertex_diamond
+            (flow_text_literal)))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)
+          (flow_vertex_hexagon
+            (flow_text_literal)))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)
+          (flow_vertex_leanright
+            (flow_text_literal)))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)
+          (flow_vertex_leanleft
+            (flow_text_literal)))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)
+          (flow_vertex_trapezoid
+            (flow_text_literal)))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)
+          (flow_vertex_inv_trapezoid
+            (flow_text_literal)))))))
+
+
+==========================
+Links
+==========================
+
+flowchart LR
+    A-->B
+    A --- B
+    A-- This is the text! ---B
+    A---|This is the text|B
+    A-->|text|B
+    A-- text -->B
+    A-.->B;
+    A-. text .-> B
+    A ==> B
+    A == text ==> B
+    A -- text --> B -- text2 --> C
+
+---
+
+(source_file
+  (diagram_flow
+    (flowchart_direction_lr)
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)))
+      (flow_link_simplelink
+        (flow_link_arrow))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)))
+      (flow_link_simplelink
+        (flow_link_arrow))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)))
+      (flow_link_middletext
+        (flow_link_arrow_start)
+        (flow_arrow_text)
+        (flow_link_arrow))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)))
+      (flow_link_arrowtext
+        (flow_link_arrow)
+        (flow_arrow_text))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)))
+      (flow_link_arrowtext
+        (flow_link_arrow)
+        (flow_arrow_text))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)))
+      (flow_link_middletext
+        (flow_link_arrow_start)
+        (flow_arrow_text)
+        (flow_link_arrow))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)))
+      (flow_link_simplelink
+        (flow_link_arrow))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id
+            (MISSING _alpha_num_token)))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)))
+      (flow_link_middletext
+        (flow_link_arrow_start)
+        (flow_arrow_text)
+        (flow_link_arrow))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)))
+      (flow_link_simplelink
+        (flow_link_arrow))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)))
+      (flow_link_middletext
+        (flow_link_arrow_start)
+        (flow_arrow_text)
+        (flow_link_arrow))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)))
+      (flow_link_middletext
+        (flow_link_arrow_start)
+        (flow_arrow_text)
+        (flow_link_arrow))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)))
+      (flow_link_middletext
+        (flow_link_arrow_start)
+        (flow_arrow_text)
+        (flow_link_arrow))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id))))))
+
+
+==========================
+Arrow types
+==========================
+
+flowchart LR
+    A --o B
+    B --x C
+    A o--o B
+    B <--> C
+    C x--x D
+
+---
+
+(source_file
+  (diagram_flow
+    (flowchart_direction_lr)
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)))
+      (flow_link_simplelink
+        (flow_link_arrow))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)))
+      (flow_link_simplelink
+        (flow_link_arrow))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)))
+      (flow_link_simplelink
+        (flow_link_arrow))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)))
+      (flow_link_simplelink
+        (flow_link_arrow))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)))
+      (flow_link_simplelink
+        (flow_link_arrow))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id))))))
+
+==========================
+Link length
+==========================
+
+flowchart TD
+    A[Start] --> B{Is it?}
+    B -->|Yes| C[OK]
+    C --> D[Rethink]
+    D --> B
+    B ---->|No| E[End]
+    B -- Yes --> C[OK]
+    B -- No ----> E[End]
+
+---
+
+(source_file
+  (diagram_flow
+    (flowchart_direction_tb)
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)
+          (flow_vertex_square
+            (flow_text_literal))))
+      (flow_link_simplelink
+        (flow_link_arrow))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)
+          (flow_vertex_diamond
+            (flow_text_literal)))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)))
+      (flow_link_arrowtext
+        (flow_link_arrow)
+        (flow_arrow_text))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)
+          (flow_vertex_square
+            (flow_text_literal)))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)))
+      (flow_link_simplelink
+        (flow_link_arrow))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)
+          (flow_vertex_square
+            (flow_text_literal)))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)))
+      (flow_link_simplelink
+        (flow_link_arrow))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)))
+      (flow_link_arrowtext
+        (flow_link_arrow)
+        (flow_arrow_text))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)
+          (flow_vertex_square
+            (flow_text_literal)))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)))
+      (flow_link_middletext
+        (flow_link_arrow_start)
+        (flow_arrow_text)
+        (flow_link_arrow))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)
+          (flow_vertex_square
+            (flow_text_literal)))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)))
+      (flow_link_middletext
+        (flow_link_arrow_start)
+        (flow_arrow_text)
+        (flow_link_arrow))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)
+          (flow_vertex_square
+            (flow_text_literal)))))))
+
+==========================
+Multi-nodes
+==========================
+
+flowchart LR
+    a --> b & c--> d
+    A & B--> C & D
+
+---
+
+(source_file
+  (diagram_flow
+    (flowchart_direction_lr)
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)))
+      (flow_link_simplelink
+        (flow_link_arrow))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id))
+        (flow_vertex
+          (flow_vertex_id)))
+      (flow_link_simplelink
+        (flow_link_arrow))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id))
+        (flow_vertex
+          (flow_vertex_id)))
+      (flow_link_simplelink
+        (flow_link_arrow))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id))
+        (flow_vertex
+          (flow_vertex_id))))))
+
+==========================
+Double-quote escape
+==========================
+
+flowchart LR
+    id1["This is the (text) in the box"]
+    A["A double quote:#quot;"] -->B["A dec char:#9829;"]
+
+---
+
+(source_file
+  (diagram_flow
+    (flowchart_direction_lr)
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)
+          (flow_vertex_square
+            (flow_text_quoted)))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)
+          (flow_vertex_square
+            (flow_text_quoted))))
+      (flow_link_simplelink
+        (flow_link_arrow))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)
+          (flow_vertex_square
+            (flow_text_quoted)))))))
+
+==========================
+Subgraph
+==========================
+
+flowchart LR
+  subgraph TOP
+    direction TB
+    subgraph B1
+        direction RL
+        i1 -->f1
+    end
+    subgraph B2
+        direction BT
+        i2 -->f2
+    end
+  end
+  A --> TOP --> B
+  B1 --> B2
+
+---
+
+(source_file
+  (diagram_flow
+    (flowchart_direction_lr)
+    (flow_stmt_subgraph
+      (flow_vertex_text)
+      (flow_stmt_subgraph_inner
+        (flow_stmt_direction
+          (flowchart_direction_tb))
+        (flow_stmt_subgraph
+          (flow_vertex_text)
+          (flow_stmt_subgraph_inner
+            (flow_stmt_direction
+              (flowchart_direction_rl))
+            (flow_stmt_vertice
+              (flow_node
+                (flow_vertex
+                  (flow_vertex_id)))
+              (flow_link_simplelink
+                (flow_link_arrow))
+              (flow_node
+                (flow_vertex
+                  (flow_vertex_id))))))
+        (flow_stmt_subgraph
+          (flow_vertex_text)
+          (flow_stmt_subgraph_inner
+            (flow_stmt_direction
+              (flowchart_direction_bt))
+            (flow_stmt_vertice
+              (flow_node
+                (flow_vertex
+                  (flow_vertex_id)))
+              (flow_link_simplelink
+                (flow_link_arrow))
+              (flow_node
+                (flow_vertex
+                  (flow_vertex_id))))))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)))
+      (flow_link_simplelink
+        (flow_link_arrow))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)))
+      (flow_link_simplelink
+        (flow_link_arrow))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id))))
+    (flow_stmt_vertice
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id)))
+      (flow_link_simplelink
+        (flow_link_arrow))
+      (flow_node
+        (flow_vertex
+          (flow_vertex_id))))))

@@ -1,0 +1,106 @@
+===
+modules/typedModuleProperties1.pkl
+===
+
+import "library.pkl"
+
+res1: String = "str"
+res2: String(!isEmpty) = "str"
+res3: library.Person = new library.Person {
+  name = "Pigeon"
+}
+res4: library.Person = new Teacher {
+  name = "Parrot"
+  subjects = List("Fire making, Stone age")
+}
+
+class Teacher extends library.Person {
+  subjects: List<String(!isEmpty)>
+}
+
+---
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (slStringLiteralExpr
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (constrainedType
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (logicalNotExpr
+          (unqualifiedAccessExpr
+            (identifier)))))
+    (slStringLiteralExpr
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)
+          (identifier))))
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)
+          (identifier))))
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart)))
+        (objectProperty
+          (identifier)
+          (unqualifiedAccessExpr
+            (identifier)
+            (argumentList
+              (slStringLiteralExpr
+                (slStringLiteralPart))))))))
+  (clazz
+    (identifier)      (classExtendsClause
+      (qualifiedIdentifier
+        (identifier)
+        (identifier)))
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))
+            (typeArgumentList
+              (constrainedType
+                (declaredType
+                  (qualifiedIdentifier
+                    (identifier)))
+                (logicalNotExpr
+                  (unqualifiedAccessExpr
+                    (identifier)))))))))))

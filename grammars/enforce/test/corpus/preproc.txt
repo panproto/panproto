@@ -1,0 +1,42 @@
+================================================================================
+preproc
+================================================================================
+#include path/to/somefile.c
+#include "path/to/somefile.c"
+
+#define foo
+#define "foo"
+#define ""
+#define "foo#bar"
+
+#ifdef foo
+#ifdef "foo"
+#ifdef ""
+#ifdef "foo#bar"
+
+#ifndef foo
+#ifndef "foo"
+#ifndef ""
+#ifndef "foo#bar"
+
+#else
+
+#endif
+--------------------------------------------------------------------------------
+(compilation_unit
+	(preproc_include (preproc_const))
+	(preproc_include (preproc_const))
+	(preproc_define (preproc_const))
+	(preproc_define (preproc_const))
+	(preproc_define (preproc_const))
+	(preproc_define (preproc_const))
+	(preproc_ifdef (preproc_const))
+	(preproc_ifdef (preproc_const))
+	(preproc_ifdef (preproc_const))
+	(preproc_ifdef (preproc_const))
+	(preproc_ifndef (preproc_const))
+	(preproc_ifndef (preproc_const))
+	(preproc_ifndef (preproc_const))
+	(preproc_ifndef (preproc_const))
+	(preproc_else)
+	(preproc_endif))

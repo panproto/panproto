@@ -1,0 +1,268 @@
+================================================================================
+Action with lowercase image property
+================================================================================
+
+page 50100 "Test Page"
+{
+    PageType = List;
+    
+    actions
+    {
+        area(Processing)
+        {
+            action(SaveToCSV)
+            {
+                ApplicationArea = All;
+                Caption = 'Save as CSV';
+                ToolTip = 'Saves the data in CSV format.';
+                image = ExportFile;
+                
+                trigger OnAction()
+                begin
+                    Message('Export to CSV');
+                end;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (trigger_declaration
+            (trigger_keyword)
+            name: (identifier)
+            (code_block
+              (begin_keyword)
+              (call_expression
+                function: (identifier)
+                arguments: (argument_list
+                  (string_literal)))
+              (end_keyword))))))))
+
+================================================================================
+Action with mixed case Image property variations
+================================================================================
+
+page 50101 "Test Actions"
+{
+    actions
+    {
+        area(Navigation)
+        {
+            action(Action1)
+            {
+                IMAGE = Edit;
+            }
+            action(Action2)
+            {
+                Image = Delete;
+            }
+            action(Action3)
+            {
+                image = Add;
+            }
+            action(Action4)
+            {
+                ImAgE = Refresh;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))
+        (action_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))
+        (action_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))
+        (action_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))))))
+
+================================================================================
+Action group with image property
+================================================================================
+
+page 50102 "Action Groups"
+{
+    actions
+    {
+        area(Processing)
+        {
+            group(ExportGroup)
+            {
+                Caption = 'Export Options';
+                Image = Export;
+                
+                action(ExportExcel)
+                {
+                    Caption = 'Export to Excel';
+                    image = ExportToExcel;
+                }
+                
+                action(ExportPDF)
+                {
+                    Caption = 'Export to PDF';
+                    IMAGE = ExportToPDF;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_group_section
+          (group_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (action_declaration
+            name: (identifier)
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (identifier)))
+          (action_declaration
+            name: (identifier)
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (identifier))))))))
+
+================================================================================
+File upload action with image property
+================================================================================
+
+page 50103 "File Upload"
+{
+    actions
+    {
+        area(Processing)
+        {
+            fileuploadaction(UploadFile)
+            {
+                Caption = 'Upload Document';
+                ToolTip = 'Upload a document file';
+                image = Import;
+                AllowedFileExtensions = '.pdf,.docx';
+                
+                trigger OnAction(Stream: InStream; FileName: Text)
+                begin
+                    ProcessUploadedFile(Stream, FileName);
+                end;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (fileuploadaction_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (trigger_declaration
+            (trigger_keyword)
+            name: (identifier)
+            (parameter_list
+              (parameter
+                name: (identifier)
+                type: (type_specification
+                  (basic_type)))
+              (parameter
+                name: (identifier)
+                type: (type_specification
+                  (text_type))))
+            (code_block
+              (begin_keyword)
+              (call_expression
+                function: (identifier)
+                arguments: (argument_list
+                  (identifier)
+                  (identifier)))
+              (end_keyword))))))))

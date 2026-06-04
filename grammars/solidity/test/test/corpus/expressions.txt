@@ -1,0 +1,822 @@
+================================================================================
+Member Access
+================================================================================
+
+contract Example {
+    function example() {
+        int a;
+        a.b;
+        TypeA memory a = new TypeA(1);
+        TypeA[] a = new TypeA[](1);
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (contract_declaration
+    name: (identifier)
+    body: (contract_body
+      (function_definition
+        name: (identifier)
+        body: (function_body
+          (statement
+            (variable_declaration_statement
+              (variable_declaration
+                type: (type_name
+                  (primitive_type))
+                name: (identifier))))
+          (statement
+            (expression_statement
+              (expression
+                (member_expression
+                  object: (identifier)
+                  property: (identifier)))))
+          (statement
+            (variable_declaration_statement
+              (variable_declaration
+                type: (type_name
+                  (user_defined_type
+                    (identifier)))
+                name: (identifier))
+              value: (expression
+                (call_expression
+                  function: (expression
+                    (new_expression
+                      name: (type_name
+                        (user_defined_type
+                          (identifier)))))
+                  (call_argument
+                    (expression
+                      (number_literal)))))))
+          (statement
+            (variable_declaration_statement
+              (variable_declaration
+                type: (type_name
+                  (type_name
+                    (user_defined_type
+                      (identifier))))
+                name: (identifier))
+              value: (expression
+                (call_expression
+                  function: (expression
+                    (new_expression
+                      name: (type_name
+                        (type_name
+                          (user_defined_type
+                            (identifier))))))
+                  (call_argument
+                    (expression
+                      (number_literal))))))))))))
+
+================================================================================
+Subscript Access
+================================================================================
+
+contract Example {
+    function example() {
+        a[1];
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (contract_declaration
+    name: (identifier)
+    body: (contract_body
+      (function_definition
+        name: (identifier)
+        body: (function_body
+          (statement
+            (expression_statement
+              (expression
+                (array_access
+                  base: (expression
+                    (identifier))
+                  index: (expression
+                    (number_literal)))))))))))
+
+================================================================================
+Slice Access
+================================================================================
+
+contract Example {
+    function example() {
+        a[1:];
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (contract_declaration
+    name: (identifier)
+    body: (contract_body
+      (function_definition
+        name: (identifier)
+        body: (function_body
+          (statement
+            (expression_statement
+              (expression
+                (slice_access
+                  base: (expression
+                    (identifier))
+                  from: (expression
+                    (number_literal)))))))))))
+
+================================================================================
+Parenthesized expression
+================================================================================
+
+contract Example {
+    function example() {
+        (1);
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (contract_declaration
+    name: (identifier)
+    body: (contract_body
+      (function_definition
+        name: (identifier)
+        body: (function_body
+          (statement
+            (expression_statement
+              (expression
+                (parenthesized_expression
+                  (expression
+                    (number_literal)))))))))))
+
+================================================================================
+Maths expression
+================================================================================
+
+contract Example {
+    function example() {
+        1+1;
+        ++a;
+        a>>b;
+        a<=b;
+        a||c;
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (contract_declaration
+    name: (identifier)
+    body: (contract_body
+      (function_definition
+        name: (identifier)
+        body: (function_body
+          (statement
+            (expression_statement
+              (expression
+                (binary_expression
+                  left: (expression
+                    (number_literal))
+                  right: (expression
+                    (number_literal))))))
+          (statement
+            (expression_statement
+              (expression
+                (update_expression
+                  argument: (expression
+                    (identifier))))))
+          (statement
+            (expression_statement
+              (expression
+                (binary_expression
+                  left: (expression
+                    (identifier))
+                  right: (expression
+                    (identifier))))))
+          (statement
+            (expression_statement
+              (expression
+                (binary_expression
+                  left: (expression
+                    (identifier))
+                  right: (expression
+                    (identifier))))))
+          (statement
+            (expression_statement
+              (expression
+                (binary_expression
+                  left: (expression
+                    (identifier))
+                  right: (expression
+                    (identifier)))))))))))
+
+================================================================================
+Struct expression
+================================================================================
+
+contract Example {
+    function example() {
+        a{b: c};
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (contract_declaration
+    name: (identifier)
+    body: (contract_body
+      (function_definition
+        name: (identifier)
+        body: (function_body
+          (statement
+            (expression_statement
+              (expression
+                (struct_expression
+                  type: (expression
+                    (identifier))
+                  (struct_field_assignment
+                    name: (identifier)
+                    value: (expression
+                      (identifier))))))))))))
+
+================================================================================
+Call
+================================================================================
+
+contract Example {
+    function example() {
+        a(b);
+        c({d: e, f: g});
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (contract_declaration
+    name: (identifier)
+    body: (contract_body
+      (function_definition
+        name: (identifier)
+        body: (function_body
+          (statement
+            (expression_statement
+              (expression
+                (call_expression
+                  function: (expression
+                    (identifier))
+                  (call_argument
+                    (expression
+                      (identifier)))))))
+          (statement
+            (expression_statement
+              (expression
+                (call_expression
+                  function: (expression
+                    (identifier))
+                  (call_argument
+                    (call_struct_argument
+                      name: (identifier)
+                      value: (expression
+                        (identifier)))
+                    (call_struct_argument
+                      name: (identifier)
+                      value: (expression
+                        (identifier)))))))))))))
+
+================================================================================
+Payable conversion
+================================================================================
+
+contract Example {
+    function example() {
+        payable(b);
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (contract_declaration
+    name: (identifier)
+    body: (contract_body
+      (function_definition
+        name: (identifier)
+        body: (function_body
+          (statement
+            (expression_statement
+              (expression
+                (payable_conversion_expression
+                  (call_argument
+                    (expression
+                      (identifier))))))))))))
+
+================================================================================
+increment and unary
+================================================================================
+
+contract Example {
+    function example() {
+        ++b;
+        delete b;
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (contract_declaration
+    name: (identifier)
+    body: (contract_body
+      (function_definition
+        name: (identifier)
+        body: (function_body
+          (statement
+            (expression_statement
+              (expression
+                (update_expression
+                  argument: (expression
+                    (identifier))))))
+          (statement
+            (expression_statement
+              (expression
+                (unary_expression
+                  argument: (expression
+                    (identifier)))))))))))
+
+================================================================================
+call and unary
+================================================================================
+
+contract Example {
+    function example() {
+        !call();
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (contract_declaration
+    name: (identifier)
+    body: (contract_body
+      (function_definition
+        name: (identifier)
+        body: (function_body
+          (statement
+            (expression_statement
+              (expression
+                (unary_expression
+                  argument: (expression
+                    (call_expression
+                      function: (expression
+                        (identifier)))))))))))))
+
+================================================================================
+call and binary
+================================================================================
+
+contract Example {
+    function example() {
+        value == call();
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (contract_declaration
+    name: (identifier)
+    body: (contract_body
+      (function_definition
+        name: (identifier)
+        body: (function_body
+          (statement
+            (expression_statement
+              (expression
+                (binary_expression
+                  left: (expression
+                    (identifier))
+                  right: (expression
+                    (call_expression
+                      function: (expression
+                        (identifier)))))))))))))
+
+================================================================================
+Boolean logic
+================================================================================
+
+contract Example {
+    function example() {
+        a && b;
+        a || c;
+
+        // Bit
+        a & c;
+        a ^ d;
+        a | b;
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (contract_declaration
+    name: (identifier)
+    body: (contract_body
+      (function_definition
+        name: (identifier)
+        body: (function_body
+          (statement
+            (expression_statement
+              (expression
+                (binary_expression
+                  left: (expression
+                    (identifier))
+                  right: (expression
+                    (identifier))))))
+          (statement
+            (expression_statement
+              (expression
+                (binary_expression
+                  left: (expression
+                    (identifier))
+                  right: (expression
+                    (identifier))))))
+          (comment)
+          (statement
+            (expression_statement
+              (expression
+                (binary_expression
+                  left: (expression
+                    (identifier))
+                  right: (expression
+                    (identifier))))))
+          (statement
+            (expression_statement
+              (expression
+                (binary_expression
+                  left: (expression
+                    (identifier))
+                  right: (expression
+                    (identifier))))))
+          (statement
+            (expression_statement
+              (expression
+                (binary_expression
+                  left: (expression
+                    (identifier))
+                  right: (expression
+                    (identifier)))))))))))
+
+================================================================================
+Comparisons
+================================================================================
+
+contract Example {
+    function example() {
+        a == b;
+        a < b;
+        a > b;
+        a >= b;
+        a <= b;
+        a != b;
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (contract_declaration
+    (identifier)
+    (contract_body
+      (function_definition
+        (identifier)
+        (function_body
+          (statement
+            (expression_statement
+              (expression
+                (binary_expression
+                  (expression
+                    (identifier))
+                  (expression
+                    (identifier))))))
+          (statement
+            (expression_statement
+              (expression
+                (binary_expression
+                  (expression
+                    (identifier))
+                  (expression
+                    (identifier))))))
+          (statement
+            (expression_statement
+              (expression
+                (binary_expression
+                  (expression
+                    (identifier))
+                  (expression
+                    (identifier))))))
+          (statement
+            (expression_statement
+              (expression
+                (binary_expression
+                  (expression
+                    (identifier))
+                  (expression
+                    (identifier))))))
+          (statement
+            (expression_statement
+              (expression
+                (binary_expression
+                  (expression
+                    (identifier))
+                  (expression
+                    (identifier))))))
+          (statement
+            (expression_statement
+              (expression
+                (binary_expression
+                  (expression
+                    (identifier))
+                  (expression
+                    (identifier)))))))))))
+
+================================================================================
+Update expression
+================================================================================
+
+contract Example {
+    function example() {
+        a = b;
+        a |= b;
+        a /= c;
+        a %= d;
+        a >>= d;
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (contract_declaration
+    (identifier)
+    (contract_body
+      (function_definition
+        (identifier)
+        (function_body
+          (statement
+            (expression_statement
+              (expression
+                (assignment_expression
+                  (expression
+                    (identifier))
+                  (expression
+                    (identifier))))))
+          (statement
+            (expression_statement
+              (expression
+                (augmented_assignment_expression
+                  (expression
+                    (identifier))
+                  (expression
+                    (identifier))))))
+          (statement
+            (expression_statement
+              (expression
+                (augmented_assignment_expression
+                  (expression
+                    (identifier))
+                  (expression
+                    (identifier))))))
+          (statement
+            (expression_statement
+              (expression
+                (augmented_assignment_expression
+                  (expression
+                    (identifier))
+                  (expression
+                    (identifier))))))
+          (statement
+            (expression_statement
+              (expression
+                (augmented_assignment_expression
+                  (expression
+                    (identifier))
+                  (expression
+                    (identifier)))))))))))
+
+================================================================================
+Special Expression types
+================================================================================
+
+contract Example {
+    function example() {
+        (a, b);
+        [1, 2];
+        identifier;
+        1;
+        user.type;
+        uint;
+    }
+}
+--------------------------------------------------------------------------------
+
+(source_file
+  (contract_declaration
+    (identifier)
+    (contract_body
+      (function_definition
+        (identifier)
+        (function_body
+          (statement
+            (expression_statement
+              (expression
+                (tuple_expression
+                  (expression
+                    (identifier))
+                  (expression
+                    (identifier))))))
+          (statement
+            (expression_statement
+              (expression
+                (inline_array_expression
+                  (expression
+                    (number_literal))
+                  (expression
+                    (number_literal))))))
+          (statement
+            (expression_statement
+              (expression
+                (identifier))))
+          (statement
+            (expression_statement
+              (expression
+                (number_literal))))
+          (statement
+            (expression_statement
+              (expression
+                (member_expression
+                  (identifier)
+                  (identifier)))))
+          (statement
+            (expression_statement
+              (expression
+                (primitive_type)))))))))
+
+================================================================================
+New expression
+================================================================================
+
+contract Example {
+    function example() {
+        new lambo;
+    }
+}
+--------------------------------------------------------------------------------
+
+(source_file
+  (contract_declaration
+    (identifier)
+    (contract_body
+      (function_definition
+        (identifier)
+        (function_body
+          (statement
+            (expression_statement
+              (expression
+                (new_expression
+                  (type_name
+                    (user_defined_type
+                      (identifier))))))))))))
+
+================================================================================
+Ternary expression
+================================================================================
+
+contract Example {
+    function example() {
+        a  ? b : c;
+    }
+}
+--------------------------------------------------------------------------------
+
+(source_file
+  (contract_declaration
+    (identifier)
+    (contract_body
+      (function_definition
+        (identifier)
+        (function_body
+          (statement
+            (expression_statement
+              (expression
+                (ternary_expression
+                  (expression
+                    (identifier))
+                  (expression
+                    (identifier))
+                  (expression
+                    (identifier)))))))))))
+
+================================================================================
+Type cast
+================================================================================
+
+contract Example {
+    function example() {
+        uint64(2);
+    }
+}
+--------------------------------------------------------------------------------
+
+(source_file
+  (contract_declaration
+    (identifier)
+    (contract_body
+      (function_definition
+        (identifier)
+        (function_body
+          (statement
+            (expression_statement
+              (expression
+                (type_cast_expression
+                  (primitive_type)
+                  (call_argument
+                    (expression
+                      (number_literal))))))))))))
+
+================================================================================
+Type Expression
+================================================================================
+
+contract Example {
+    function example() {
+        uint64[2][2];
+    }
+}
+--------------------------------------------------------------------------------
+
+(source_file
+  (contract_declaration
+    (identifier)
+    (contract_body
+      (function_definition
+        (identifier)
+        (function_body
+          (statement
+            (expression_statement
+              (expression
+                (array_access
+                  (expression
+                    (array_access
+                      (expression
+                        (primitive_type))
+                      (expression
+                        (number_literal))))
+                  (expression
+                    (number_literal)))))))))))
+
+================================================================================
+Type Cast Expression Nested (TODO: Solidity specification is wrong here fix it)
+================================================================================
+
+contract Example {
+    function example(bytes b) {
+        uint64[2][2] (b);
+    }
+}
+--------------------------------------------------------------------------------
+
+(source_file
+  (contract_declaration
+    (identifier)
+    (contract_body
+      (function_definition
+        (identifier)
+        (parameter
+          (type_name
+            (primitive_type))
+          (identifier))
+        (function_body
+          (statement
+            (expression_statement
+              (expression
+                (call_expression
+                  (expression
+                    (array_access
+                      (expression
+                        (array_access
+                          (expression
+                            (primitive_type))
+                          (expression
+                            (number_literal))))
+                      (expression
+                        (number_literal))))
+                  (call_argument
+                    (expression
+                      (identifier))))))))))))

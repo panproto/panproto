@@ -1,0 +1,15 @@
+===
+multilineInterpolation2.txt
+===
+foo {
+  """
+  \(`this`)
+  """
+  """
+  \(`that`)
+  """
+  """
+  \(`quick brown fox`)
+  """
+}
+---

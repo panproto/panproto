@@ -1,0 +1,1455 @@
+==================
+If Statements
+==================
+
+if (a)
+    1;
+
+if (!a) {
+    2;
+} else {
+    3;
+}
+
+---
+
+(source_file
+  (if_statement
+    (if_keyword)
+    condition: (parenthesized_expression
+      (identifier))
+    consequence: (expression_statement
+      (number_literal)))
+  (if_statement
+    (if_keyword)
+    condition: (parenthesized_expression
+      (unary_expression
+        argument: (identifier)))
+    consequence: (compound_statement
+      (expression_statement
+        (number_literal)))
+    alternative: (else_clause
+      (else_keyword)
+      (compound_statement
+        (expression_statement
+          (number_literal))))))
+
+==================
+Switch statements
+==================
+
+switch (a) {
+    print('entered switch!');
+
+    case 3:
+    case 5:
+        if (b) {
+            c();
+        }
+        break;
+
+    default:
+        c();
+        break;
+}
+
+---
+
+(source_file
+  (switch_statement
+    (switch_keyword)
+    condition: (parenthesized_expression
+      (identifier))
+    body: (compound_statement
+      (expression_statement
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list
+            (string_literal
+              (string_content)))))
+      (case_statement
+        (case_keyword)
+        value: (number_literal))
+      (case_statement
+        (case_keyword)
+        value: (number_literal)
+        (if_statement
+          (if_keyword)
+          condition: (parenthesized_expression
+            (identifier))
+          consequence: (compound_statement
+            (expression_statement
+              (call_expression
+                function: (identifier)
+                arguments: (argument_list)))))
+        (break_statement
+          (break_keyword)))
+      (case_statement
+        (default_keyword)
+        (expression_statement
+          (call_expression
+            function: (identifier)
+            arguments: (argument_list)))
+        (break_statement
+          (break_keyword))))))
+
+================================================================================
+Case statements separate from switch statements
+================================================================================
+
+switch (count % 8) {
+case 0:
+    while (--n > 0) {
+      foo = bar++;
+      case 2: foo = bar++;
+      case 1: foo = bar++;
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (switch_statement
+    (switch_keyword)
+    (parenthesized_expression
+      (binary_expression
+        (identifier)
+        (number_literal)))
+    (compound_statement
+      (case_statement
+        (case_keyword)
+        (number_literal)
+        (while_statement
+          (while_keyword)
+          (parenthesized_expression
+            (binary_expression
+              (update_expression
+                (identifier))
+              (number_literal)))
+          (compound_statement
+            (expression_statement
+              (assignment_expression
+                (identifier)
+                (update_expression
+                  (identifier))))
+            (case_statement
+              (case_keyword)
+              (number_literal)
+              (expression_statement
+                (assignment_expression
+                  (identifier)
+                  (update_expression
+                    (identifier)))))
+            (case_statement
+              (case_keyword)
+              (number_literal)
+              (expression_statement
+                (assignment_expression
+                  (identifier)
+                  (update_expression
+                    (identifier)))))))))))
+
+================================================================================
+Return statements
+================================================================================
+
+return;
+return a;
+return a, b;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (return_statement
+    (return_keyword))
+  (return_statement
+    (return_keyword)
+    (identifier))
+  (return_statement
+    (return_keyword)
+    (comma_expression
+      (identifier)
+      (identifier))))
+
+==================
+For loops
+==================
+
+for (;;)
+    1;
+
+for (i = 0; i < 5; next(), i++) {
+    2;
+}
+
+for (start(); check(); step())
+    3;
+
+for (i = 0, j = 0, k = 0, l = 0; i < 1, j < 1; i++, j++, k++, l++)
+    1;
+
+---
+
+(source_file
+  (for_statement
+    (for_keyword)
+    body: (expression_statement
+      (number_literal)))
+  (for_statement
+    (for_keyword)
+    initializer: (assignment_expression
+      left: (identifier)
+      right: (number_literal))
+    condition: (binary_expression
+      left: (identifier)
+      right: (number_literal))
+    update: (comma_expression
+      left: (call_expression
+        function: (identifier)
+        arguments: (argument_list))
+      right: (update_expression
+        argument: (identifier)))
+    body: (compound_statement
+      (expression_statement
+        (number_literal))))
+  (for_statement
+    (for_keyword)
+    initializer: (call_expression
+      function: (identifier)
+      arguments: (argument_list))
+    condition: (call_expression
+      function: (identifier)
+      arguments: (argument_list))
+    update: (call_expression
+      function: (identifier)
+      arguments: (argument_list))
+    body: (expression_statement
+      (number_literal)))
+  (for_statement
+    (for_keyword)
+    initializer: (comma_expression
+      left: (assignment_expression
+        left: (identifier)
+        right: (number_literal))
+      right: (comma_expression
+        left: (assignment_expression
+          left: (identifier)
+          right: (number_literal))
+        right: (comma_expression
+          left: (assignment_expression
+            left: (identifier)
+            right: (number_literal))
+          right: (assignment_expression
+            left: (identifier)
+            right: (number_literal)))))
+    condition: (comma_expression
+      left: (binary_expression
+        left: (identifier)
+        right: (number_literal))
+      right: (binary_expression
+        left: (identifier)
+        right: (number_literal)))
+    update: (comma_expression
+      left: (update_expression
+        argument: (identifier))
+      right: (comma_expression
+        left: (update_expression
+          argument: (identifier))
+        right: (comma_expression
+          left: (update_expression
+            argument: (identifier))
+          right: (update_expression
+            argument: (identifier)))))
+    body: (expression_statement
+      (number_literal))))
+
+==================
+While loops
+==================
+
+while (x)
+    printf('hi');
+
+---
+
+(source_file
+  (while_statement
+    (while_keyword)
+    condition: (parenthesized_expression
+      (identifier))
+    body: (expression_statement
+      (call_expression
+        function: (identifier)
+        arguments: (argument_list
+          (string_literal
+            (string_content)))))))
+
+==================
+Long_While loops
+==================
+
+long_while (x)
+{
+  // do the thing
+}
+
+---
+
+(source_file
+  (while_statement
+    (long_while_keyword)
+    condition: (parenthesized_expression
+      (identifier))
+    body: (compound_statement
+      (comment))))
+
+
+==================
+Select Statement
+==================
+
+SELECT {
+    ACTIVE(btnMode == MODE_NORMAL): {
+        processNormal()
+    }
+    ACTIVE(btnMode == MODE_ADMIN): {
+        processAdmin()
+    }
+    active(true): {
+        processGuest()
+    }
+}
+
+---
+
+(source_file
+  (select_statement
+    (select_keyword)
+    body: (compound_statement
+      (active_statement
+        (active_keyword)
+        condition: (parenthesized_expression
+          (binary_expression
+            left: (identifier)
+            right: (identifier)))
+        body: (compound_statement
+          (expression_statement
+            (call_expression
+              function: (identifier)
+              arguments: (argument_list)))))
+      (active_statement
+        (active_keyword)
+        condition: (parenthesized_expression
+          (binary_expression
+            left: (identifier)
+            right: (identifier)))
+        body: (compound_statement
+          (expression_statement
+            (call_expression
+              function: (identifier)
+              arguments: (argument_list)))))
+      (active_statement
+        (active_keyword)
+        condition: (parenthesized_expression
+          (system_constant
+            (true)))
+        body: (compound_statement
+          (expression_statement
+            (call_expression
+              function: (identifier)
+              arguments: (argument_list))))))))
+
+==================
+Dangling else and nested if statements
+==================
+
+if (a)
+    if (b)
+        1;
+    else
+        2;
+
+if (x) {
+    if (y) {
+        3;
+    }
+} else {
+    4;
+}
+
+if (c)
+    5;
+else if (d)
+    6;
+else if (e) {
+    7;
+} else {
+    8;
+}
+
+---
+
+(source_file
+  (if_statement
+    (if_keyword)
+    (parenthesized_expression
+      (identifier))
+    (if_statement
+      (if_keyword)
+      (parenthesized_expression
+        (identifier))
+      (expression_statement
+        (number_literal))
+      (else_clause
+        (else_keyword)
+        (expression_statement
+          (number_literal)))))
+  (if_statement
+    (if_keyword)
+    (parenthesized_expression
+      (identifier))
+    (compound_statement
+      (if_statement
+        (if_keyword)
+        (parenthesized_expression
+          (identifier))
+        (compound_statement
+          (expression_statement
+            (number_literal)))))
+    (else_clause
+      (else_keyword)
+      (compound_statement
+        (expression_statement
+          (number_literal)))))
+  (if_statement
+    (if_keyword)
+    (parenthesized_expression
+      (identifier))
+    (expression_statement
+      (number_literal))
+    (else_clause
+      (else_keyword)
+      (if_statement
+        (if_keyword)
+        (parenthesized_expression
+          (identifier))
+        (expression_statement
+          (number_literal))
+        (else_clause
+          (else_keyword)
+          (if_statement
+            (if_keyword)
+            (parenthesized_expression
+              (identifier))
+            (compound_statement
+              (expression_statement
+                (number_literal)))
+            (else_clause
+              (else_keyword)
+              (compound_statement
+                (expression_statement
+                  (number_literal))))))))))
+
+==================
+Break and continue in loops
+==================
+
+for (i = 0; i < 10; i++) {
+    if (i == 5)
+        break;
+
+    if (i == 3)
+        continue;
+
+    doSomething(i);
+}
+
+while (running) {
+    if (error)
+        break;
+
+    if (skip)
+        continue;
+
+    process();
+}
+
+---
+
+(source_file
+  (for_statement
+    (for_keyword)
+    (assignment_expression
+      (identifier)
+      (number_literal))
+    (binary_expression
+      (identifier)
+      (number_literal))
+    (update_expression
+      (identifier))
+    (compound_statement
+      (if_statement
+        (if_keyword)
+        (parenthesized_expression
+          (binary_expression
+            (identifier)
+            (number_literal)))
+        (break_statement
+          (break_keyword)))
+      (if_statement
+        (if_keyword)
+        (parenthesized_expression
+          (binary_expression
+            (identifier)
+            (number_literal)))
+        (continue_statement
+          (continue_keyword)))
+      (expression_statement
+        (call_expression
+          (identifier)
+          (argument_list
+            (identifier))))))
+  (while_statement
+    (while_keyword)
+    (parenthesized_expression
+      (identifier))
+    (compound_statement
+      (if_statement
+        (if_keyword)
+        (parenthesized_expression
+          (identifier))
+        (break_statement
+          (break_keyword)))
+      (if_statement
+        (if_keyword)
+        (parenthesized_expression
+          (identifier))
+        (continue_statement
+          (continue_keyword)))
+      (expression_statement
+        (call_expression
+          (identifier)
+          (argument_list))))))
+
+==================
+Nested loops with break/continue
+==================
+
+for (i = 0; i < 10; i++) {
+    for (j = 0; j < 10; j++) {
+        if (i * j > 50)
+            break;
+
+        if ((i + j) % 2 == 0)
+            continue;
+
+        process(i, j);
+    }
+}
+
+---
+
+(source_file
+  (for_statement
+    (for_keyword)
+    (assignment_expression
+      (identifier)
+      (number_literal))
+    (binary_expression
+      (identifier)
+      (number_literal))
+    (update_expression
+      (identifier))
+    (compound_statement
+      (for_statement
+        (for_keyword)
+        (assignment_expression
+          (identifier)
+          (number_literal))
+        (binary_expression
+          (identifier)
+          (number_literal))
+        (update_expression
+          (identifier))
+        (compound_statement
+          (if_statement
+            (if_keyword)
+            (parenthesized_expression
+              (binary_expression
+                (binary_expression
+                  (identifier)
+                  (identifier))
+                (number_literal)))
+            (break_statement
+              (break_keyword)))
+          (if_statement
+            (if_keyword)
+            (parenthesized_expression
+              (binary_expression
+                (binary_expression
+                  (parenthesized_expression
+                    (binary_expression
+                      (identifier)
+                      (identifier)))
+                  (number_literal))
+                (number_literal)))
+            (continue_statement
+              (continue_keyword)))
+          (expression_statement
+            (call_expression
+              (identifier)
+              (argument_list
+                (identifier)
+                (identifier)))))))))
+
+==================
+Switch variations
+==================
+
+switch (x) {
+    // Empty case with fallthrough
+    case 1:
+    case 2:
+        doSomething();
+        // No break - intentional fallthrough
+    case 3:
+        doSomethingElse();
+        break;
+    // Empty default
+    default:
+}
+
+switch (empty) {
+    // Empty switch body
+}
+
+---
+
+(source_file
+  (switch_statement
+    (switch_keyword)
+    (parenthesized_expression
+      (identifier))
+    (compound_statement
+      (comment)
+      (case_statement
+        (case_keyword)
+        (number_literal))
+      (case_statement
+        (case_keyword)
+        (number_literal)
+        (expression_statement
+          (call_expression
+            (identifier)
+            (argument_list))))
+      (comment)
+      (case_statement
+        (case_keyword)
+        (number_literal)
+        (expression_statement
+          (call_expression
+            (identifier)
+            (argument_list)))
+        (break_statement
+          (break_keyword)))
+      (comment)
+      (case_statement
+        (default_keyword))))
+  (switch_statement
+    (switch_keyword)
+    (parenthesized_expression
+      (identifier))
+    (compound_statement
+      (comment))))
+
+==================
+Empty statement bodies
+:error
+==================
+
+if (condition);
+
+for (;;);
+
+while (true);
+
+---
+
+
+
+==================
+Send String
+==================
+
+send_string dvProj, "$02, 'PON', $03"
+send_string 0, 'Hello, World!'
+send_string 5001:1:0, payload
+
+---
+
+(source_file
+  (send_string_statement
+    (send_string_keyword)
+    device: (identifier)
+    value: (string_expression
+      (number_literal)
+      (string_literal
+        (string_content))
+      (number_literal)))
+  (send_string_statement
+    (send_string_keyword)
+    device: (number_literal)
+    value: (string_literal
+      (string_content)))
+  (send_string_statement
+    (send_string_keyword)
+    device: (device_literal
+      device: (number_literal)
+      port: (number_literal)
+      system: (number_literal))
+    value: (identifier)))
+
+==================
+Send Command
+==================
+
+send_command vdvObject, 'Foo'
+send_command 33201:1:0, "'bar', 'baz'"
+send_command vdvObject, "cmd"
+send_command (33201 + 1):1:2, 'INPUT-HDMI,1'
+
+---
+
+(source_file
+  (send_command_statement
+    (send_command_keyword)
+    device: (identifier)
+    value: (string_literal
+      (string_content)))
+  (send_command_statement
+    (send_command_keyword)
+    device: (device_literal
+      device: (number_literal)
+      port: (number_literal)
+      system: (number_literal))
+    value: (string_expression
+      (string_literal
+        (string_content))
+      (string_literal
+        (string_content))))
+  (send_command_statement
+    (send_command_keyword)
+    device: (identifier)
+    value: (string_expression
+      (identifier)))
+  (send_command_statement
+    (send_command_keyword)
+    device: (device_literal
+      device: (parenthesized_expression
+        (binary_expression
+          left: (number_literal)
+          right: (number_literal)))
+      port: (number_literal)
+      system: (number_literal))
+    value: (string_literal
+      (string_content))))
+
+===================
+Send Level
+===================
+
+send_level dvTP, 1, 255
+send_level dvTP, 2, (255 - 10)
+
+---
+
+(source_file
+  (send_level_statement
+    (send_level_keyword)
+    device: (identifier)
+    level: (number_literal)
+    value: (number_literal))
+  (send_level_statement
+    (send_level_keyword)
+    device: (identifier)
+    level: (number_literal)
+    value: (parenthesized_expression
+      (binary_expression
+        left: (number_literal)
+        right: (number_literal)))))
+
+==================
+Create Buffer
+==================
+
+create_buffer dvProj, buffer
+
+---
+
+(source_file
+  (create_buffer_statement
+    (create_buffer_keyword)
+    (comma_expression
+      left: (identifier)
+      right: (identifier))))
+
+=====================
+Clear Buffer
+=====================
+
+clear_buffer buffer
+
+---
+
+(source_file
+  (clear_buffer_statement
+    (clear_buffer_keyword)
+    (identifier)))
+
+====================
+Create Multi Buffer
+====================
+
+create_multi_buffer dvProj, dvDisplay, buffer
+
+---
+
+(source_file
+  (create_multi_buffer_statement
+    (create_multi_buffer_keyword)
+    (comma_expression
+      left: (identifier)
+      right: (comma_expression
+        left: (identifier)
+        right: (identifier)))))
+
+===================
+Wait
+===================
+
+wait 1 foo()
+wait 2 {
+    bar()
+}
+
+wait (timeout * 10) 'Timeout' {
+    baz()
+}
+
+---
+
+(source_file
+  (wait_statement
+    (wait_keyword)
+    time: (number_literal))
+  (expression_statement
+    (call_expression
+      function: (identifier)
+      arguments: (argument_list)))
+  (wait_statement
+    (wait_keyword)
+    time: (number_literal))
+  (compound_statement
+    (expression_statement
+      (call_expression
+        function: (identifier)
+        arguments: (argument_list))))
+  (wait_statement
+    (wait_keyword)
+    time: (parenthesized_expression
+      (binary_expression
+        left: (identifier)
+        right: (number_literal)))
+    name: (string_literal
+      (string_content)))
+  (compound_statement
+    (expression_statement
+      (call_expression
+        function: (identifier)
+        arguments: (argument_list)))))
+
+====================
+Wait Until
+====================
+
+wait_until (foo == true) bar()
+wait_until (bar == false) {
+    baz()
+}
+
+wait_until (volume > 50) 'VolumeWait' {
+    foo()
+}
+
+---
+
+(source_file
+  (wait_until_statement
+    (wait_until_keyword)
+    condition: (parenthesized_expression
+      (binary_expression
+        left: (identifier)
+        right: (system_constant
+          (true)))))
+  (expression_statement
+    (call_expression
+      function: (identifier)
+      arguments: (argument_list)))
+  (wait_until_statement
+    (wait_until_keyword)
+    condition: (parenthesized_expression
+      (binary_expression
+        left: (identifier)
+        right: (system_constant
+          (false)))))
+  (compound_statement
+    (expression_statement
+      (call_expression
+        function: (identifier)
+        arguments: (argument_list))))
+  (wait_until_statement
+    (wait_until_keyword)
+    condition: (parenthesized_expression
+      (binary_expression
+        left: (identifier)
+        right: (number_literal)))
+    name: (string_literal
+      (string_content)))
+  (compound_statement
+    (expression_statement
+      (call_expression
+        function: (identifier)
+        arguments: (argument_list)))))
+
+====================
+Combine
+====================
+
+(vdvObject, dvObject1, dvObject2)
+(vdvObject, DVA_OBJECT)
+(vdvObject, DVA_OBJECT[1], DVA_OBJECT[2])
+
+---
+
+(source_file
+  (expression_statement
+    (parenthesized_expression
+      (comma_expression
+        (identifier)
+        (comma_expression
+          (identifier)
+          (identifier)))))
+  (expression_statement
+    (parenthesized_expression
+      (comma_expression
+        (identifier)
+        (identifier))))
+  (expression_statement
+    (parenthesized_expression
+      (comma_expression
+        (identifier)
+        (comma_expression
+          (subscript_expression
+            (identifier)
+            (number_literal))
+          (subscript_expression
+            (identifier)
+            (number_literal)))))))
+
+==============================
+Connect Level
+==============================
+
+(vdvObject, dvObject1, dvObject2)
+(vdvObject, DVA_OBJECT)
+(vdvObject, DVA_OBJECT[1], DVA_OBJECT[2])
+
+---
+
+(source_file
+  (expression_statement
+    (parenthesized_expression
+      (comma_expression
+        (identifier)
+        (comma_expression
+          (identifier)
+          (identifier)))))
+  (expression_statement
+    (parenthesized_expression
+      (comma_expression
+        (identifier)
+        (identifier))))
+  (expression_statement
+    (parenthesized_expression
+      (comma_expression
+        (identifier)
+        (comma_expression
+          (subscript_expression
+            (identifier)
+            (number_literal))
+          (subscript_expression
+            (identifier)
+            (number_literal)))))))
+
+====================
+Latching
+====================
+
+[dvTP,1]
+[dvTP,2]
+[dvTP,11]..[dvTP,15]
+POWER_BTN
+MODE_BTN
+
+---
+
+(source_file
+  (expression_statement
+    (devchan_expression
+      (identifier)
+      (number_literal)))
+  (expression_statement
+    (devchan_expression
+      (identifier)
+      (number_literal)))
+  (expression_statement
+    (devchan_range_expression
+      (devchan_expression
+        (identifier)
+        (number_literal))
+      (range_operator)
+      (devchan_expression
+        (identifier)
+        (number_literal))))
+  (expression_statement
+    (identifier))
+  (expression_statement
+    (identifier)))
+
+======================
+Define module
+======================
+
+define_module 'MyModule1' MyModuleInstance1(vdvObject, dvObject)
+define_module 'MyModule2' MyModuleInstance2(dvObject)
+define_module 'MyModule3' MyModuleInstance3()
+define_module 'MyModule4' MyModuleInstance4(vdvObject[1], dvObject)
+define_module 'MyModule5' MyModuleInstance5(vdvObject, CONST_ARRAY, dvObject)
+define_module 'MyModule6' MyModuleInstance6(vdvObject, dvObject, foo, bar)
+
+---
+
+(source_file
+  (define_module
+    (define_module_keyword)
+    (module_definition
+      (string_literal
+        (string_content))
+      (identifier)
+      (argument_list
+        (identifier)
+        (identifier))))
+  (define_module
+    (define_module_keyword)
+    (module_definition
+      (string_literal
+        (string_content))
+      (identifier)
+      (argument_list
+        (identifier))))
+  (define_module
+    (define_module_keyword)
+    (module_definition
+      (string_literal
+        (string_content))
+      (identifier)
+      (argument_list)))
+  (define_module
+    (define_module_keyword)
+    (module_definition
+      (string_literal
+        (string_content))
+      (identifier)
+      (argument_list
+        (subscript_expression
+          (identifier)
+          (number_literal))
+        (identifier))))
+  (define_module
+    (define_module_keyword)
+    (module_definition
+      (string_literal
+        (string_content))
+      (identifier)
+      (argument_list
+        (identifier)
+        (identifier)
+        (identifier))))
+  (define_module
+    (define_module_keyword)
+    (module_definition
+      (string_literal
+        (string_content))
+      (identifier)
+      (argument_list
+        (identifier)
+        (identifier)
+        (identifier)
+        (identifier)))))
+
+=======================
+Mutually Exclusive
+=======================
+
+([dvTP,1],[dvTP,2],[dvTP,3])
+([dvTP,11]..[dvTP,15])
+(DVD_PLAY_BTN, DVD_STOP_BTN, DVD_PAUSE_BTN)
+
+---
+
+(source_file
+  (expression_statement
+    (parenthesized_expression
+      (comma_expression
+        (devchan_expression
+          (identifier)
+          (number_literal))
+        (comma_expression
+          (devchan_expression
+            (identifier)
+            (number_literal))
+          (devchan_expression
+            (identifier)
+            (number_literal))))))
+  (expression_statement
+    (parenthesized_expression
+      (devchan_range_expression
+        (devchan_expression
+          (identifier)
+          (number_literal))
+        (range_operator)
+        (devchan_expression
+          (identifier)
+          (number_literal)))))
+  (expression_statement
+    (parenthesized_expression
+      (comma_expression
+        (identifier)
+        (comma_expression
+          (identifier)
+          (identifier))))))
+
+=======================
+Toggling
+=======================
+
+[dvTP,1]
+[dvTP,2]
+[dvTP,3]
+
+---
+
+(source_file
+  (expression_statement
+    (devchan_expression
+      (identifier)
+      (number_literal)))
+  (expression_statement
+    (devchan_expression
+      (identifier)
+      (number_literal)))
+  (expression_statement
+    (devchan_expression
+      (identifier)
+      (number_literal))))
+
+============================
+Call
+============================
+
+call 'MyFunction'()
+call 'MyFunction'(param1, param2)
+call 'MyFunction' (param1, param2, param3)
+call 'MyFunction'
+
+---
+
+(source_file
+  (call_statement
+    (call_keyword)
+    (string_literal
+      (string_content))
+    (argument_list))
+  (call_statement
+    (call_keyword)
+    (string_literal
+      (string_content))
+    (argument_list
+      (identifier)
+      (identifier)))
+  (call_statement
+    (call_keyword)
+    (string_literal
+      (string_content))
+    (argument_list
+      (identifier)
+      (identifier)
+      (identifier)))
+  (call_statement
+    (call_keyword)
+    (string_literal
+      (string_content))))
+
+=================================
+Named Wait Statements
+=================================
+
+// Named wait statements
+WAIT 500 'PowerSequence'
+WAIT_UNTIL(powerState) 'PowerCheck'
+
+// Cancel wait statements
+CANCEL_WAIT 'PowerSequence'
+CANCEL_WAIT_UNTIL 'PowerCheck'
+
+// Cancel all waits
+CANCEL_ALL_WAIT
+CANCEL_ALL_WAIT_UNTIL
+
+// Wait with dynamic expression
+WAIT timeout * multiplier 'DynamicWait'
+CANCEL_WAIT 'DynamicWait'
+
+---
+
+(source_file
+  (comment)
+  (wait_statement
+    (wait_keyword)
+    (number_literal)
+    (string_literal
+      (string_content)))
+  (wait_until_statement
+    (wait_until_keyword)
+    (parenthesized_expression
+      (identifier))
+    (string_literal
+      (string_content)))
+  (comment)
+  (cancel_wait_statement
+    (cancel_wait_keyword)
+    (string_literal
+      (string_content)))
+  (cancel_wait_until_statement
+    (cancel_wait_until_keyword)
+    (string_literal
+      (string_content)))
+  (comment)
+  (cancel_all_wait_statement
+    (cancel_all_wait_keyword))
+  (cancel_all_wait_until_statement
+    (cancel_all_wait_until_keyword))
+  (comment)
+  (wait_statement
+    (wait_keyword)
+    (binary_expression
+      (identifier)
+      (identifier))
+    (string_literal
+      (string_content)))
+  (cancel_wait_statement
+    (cancel_wait_keyword)
+    (string_literal
+      (string_content))))
+
+=================================
+DevChan Range in Operations
+=================================
+
+// DevChan range operations
+ON [dvTP, 1]..[dvTP, 10]
+OFF [dvTP, 11]..[dvTP, 20]
+TO [dvTP, 21]..[dvTP, 30]
+
+// Complex range operations
+ON [dv[i], ch[j]]..[dv[i+5], ch[j+10]]
+PULSE [devices[1], startChannel]..[devices[1], endChannel]
+
+---
+
+(source_file
+  (comment)
+  (devchan_operation_statement
+    (devchan_operation
+      (devchan_on_keyword))
+    (devchan_range_expression
+      (devchan_expression
+        (identifier)
+        (number_literal))
+      (range_operator)
+      (devchan_expression
+        (identifier)
+        (number_literal))))
+  (devchan_operation_statement
+    (devchan_operation
+      (devchan_off_keyword))
+    (devchan_range_expression
+      (devchan_expression
+        (identifier)
+        (number_literal))
+      (range_operator)
+      (devchan_expression
+        (identifier)
+        (number_literal))))
+  (devchan_operation_statement
+    (devchan_operation
+      (devchan_to_keyword))
+    (devchan_range_expression
+      (devchan_expression
+        (identifier)
+        (number_literal))
+      (range_operator)
+      (devchan_expression
+        (identifier)
+        (number_literal))))
+  (comment)
+  (devchan_operation_statement
+    (devchan_operation
+      (devchan_on_keyword))
+    (devchan_range_expression
+      (devchan_expression
+        (subscript_expression
+          (identifier)
+          (identifier))
+        (subscript_expression
+          (identifier)
+          (identifier)))
+      (range_operator)
+      (devchan_expression
+        (subscript_expression
+          (identifier)
+          (binary_expression
+            (identifier)
+            (number_literal)))
+        (subscript_expression
+          (identifier)
+          (binary_expression
+            (identifier)
+            (number_literal))))))
+  (devchan_operation_statement
+    (devchan_operation
+      (devchan_pulse_keyword))
+    (devchan_range_expression
+      (devchan_expression
+        (subscript_expression
+          (identifier)
+          (number_literal))
+        (identifier))
+      (range_operator)
+      (devchan_expression
+        (subscript_expression
+          (identifier)
+          (number_literal))
+        (identifier)))))
+
+=================================
+Create Multi Buffer
+=================================
+
+// Simple multi buffer
+CREATE_MULTI_BUFFER dvTP1, dvTP2, BUFFER
+
+// Complex multi buffer expressions
+CREATE_MULTI_BUFFER devices[currentIndex], BUFFER[i+1], MakeDevice(5001)
+CREATE_BUFFER someDevice, GetBuffer(index), bufferSize * 2
+
+// Clear buffer operations
+CLEAR_BUFFER BUFFER
+CLEAR_BUFFER dynamicBuffer[currentIndex]
+
+---
+
+(source_file
+  (comment)
+  (create_multi_buffer_statement
+    (create_multi_buffer_keyword)
+    (comma_expression
+      (identifier)
+      (comma_expression
+        (identifier)
+        (identifier))))
+  (comment)
+  (create_multi_buffer_statement
+    (create_multi_buffer_keyword)
+    (comma_expression
+      (subscript_expression
+        (identifier)
+        (identifier))
+      (comma_expression
+        (subscript_expression
+          (identifier)
+          (binary_expression
+            (identifier)
+            (number_literal)))
+        (call_expression
+          (identifier)
+          (argument_list
+            (number_literal))))))
+  (create_buffer_statement
+    (create_buffer_keyword)
+    (comma_expression
+      (identifier)
+      (comma_expression
+        (call_expression
+          (identifier)
+          (argument_list
+            (identifier)))
+        (binary_expression
+          (identifier)
+          (number_literal)))))
+  (comment)
+  (clear_buffer_statement
+    (clear_buffer_keyword)
+    (identifier))
+  (clear_buffer_statement
+    (clear_buffer_keyword)
+    (subscript_expression
+      (identifier)
+      (identifier))))
+
+============================
+System Call
+============================
+
+system_call 'MyFunction'()
+system_call 'MyFunction'(param1, param2)
+system_call 'MyFunction' (param1, param2, param3)
+system_call 'MyFunction'
+
+---
+
+(source_file
+  (system_call_statement
+    (system_call_keyword)
+    (string_literal
+      (string_content))
+    (argument_list))
+  (system_call_statement
+    (system_call_keyword)
+    (string_literal
+      (string_content))
+    (argument_list
+      (identifier)
+      (identifier)))
+  (system_call_statement
+    (system_call_keyword)
+    (string_literal
+      (string_content))
+    (argument_list
+      (identifier)
+      (identifier)
+      (identifier)))
+  (system_call_statement
+    (system_call_keyword)
+    (string_literal
+      (string_content))))

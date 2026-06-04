@@ -1,0 +1,136 @@
+================================================================================
+unquoted string
+================================================================================
+
+[section]
+    key = hello world !
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (unquoted_string
+        (string_content)))))
+
+================================================================================
+unquoted string starting with an "integer"
+================================================================================
+
+[section]
+    room = 100b
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (unquoted_string
+        (string_content)))))
+
+================================================================================
+unquoted string starting with a "boolean"
+================================================================================
+
+[section]
+    wisdom = True is the Truth, indeed.
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (unquoted_string
+        (string_content)))))
+
+================================================================================
+unquoted string starting with a "datetime"
+================================================================================
+
+[section]
+    do you remember = 2024-09-19T21:27:12Z was a very nice day
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (unquoted_string
+        (string_content)))))
+
+================================================================================
+unquoted string with quotes inside
+================================================================================
+
+[section]
+    parable = the end is never "the end is never" the end.
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (unquoted_string
+        (string_content)))))
+
+================================================================================
+unquoted string with line continuation
+================================================================================
+
+[section]
+    story = a long long \
+      long long long \
+      time ago...
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (unquoted_string
+        (string_content
+          (line_continuation)
+          (line_continuation))))))
+
+================================================================================
+unquoted string with backslashes
+================================================================================
+
+[section]
+    3BP = judgment \ day \ ship \ after \ some \ nanofibers \ passing \ by
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (unquoted_string
+        (string_content)))))

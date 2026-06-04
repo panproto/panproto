@@ -1,0 +1,27 @@
+===
+lambdas/tooManyLambdaParams.pkl
+===
+
+f = (a1, a2, a3, a4, a5, a6) -> a1
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (functionLiteralExpr
+      (parameterList
+        (typedIdentifier
+          (identifier))
+        (typedIdentifier
+          (identifier))
+        (typedIdentifier
+          (identifier))
+        (typedIdentifier
+          (identifier))
+        (typedIdentifier
+          (identifier))
+        (typedIdentifier
+          (identifier)))
+      (unqualifiedAccessExpr
+        (identifier)))))

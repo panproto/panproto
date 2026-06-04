@@ -1,0 +1,386 @@
+================================================================================
+Empty record
+================================================================================
+
+local type foo = record
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (type_declaration
+    name: (identifier)
+    value: (anon_record
+      record_body: (record_body))))
+
+================================================================================
+Empty record (shorthand)
+================================================================================
+
+local record foo
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (record_declaration
+    name: (identifier)
+    record_body: (record_body)))
+
+================================================================================
+Record with stuff
+================================================================================
+
+local type foo = record
+   bar: {number}
+   baz: string
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (type_declaration
+    name: (identifier)
+    value: (anon_record
+      record_body: (record_body
+        (field
+          key: (identifier)
+          type: (table_type
+            value_type: (simple_type
+              name: (identifier))))
+        (field
+          key: (identifier)
+          type: (simple_type
+            name: (identifier)))))))
+
+================================================================================
+Arrayrecord with stuff
+================================================================================
+
+local type foo = record
+   {thread}
+   bar: {number}
+   baz: string
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (type_declaration
+    name: (identifier)
+    value: (anon_record
+      record_body: (record_body
+        (record_array_type
+          (simple_type
+            name: (identifier)))
+        (field
+          key: (identifier)
+          type: (table_type
+            value_type: (simple_type
+              name: (identifier))))
+        (field
+          key: (identifier)
+          type: (simple_type
+            name: (identifier)))))))
+
+================================================================================
+Nested records
+================================================================================
+
+local type foo = record
+   type bar = record
+      x: number
+   end
+   baz: bar
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (type_declaration
+    name: (identifier)
+    value: (anon_record
+      record_body: (record_body
+        (typedef
+          name: (identifier)
+          value: (anon_record
+            record_body: (record_body
+              (field
+                key: (identifier)
+                type: (simple_type
+                  name: (identifier))))))
+        (field
+          key: (identifier)
+          type: (simple_type
+            name: (identifier)))))))
+
+================================================================================
+Generic record
+================================================================================
+
+local type foo = record<T>
+   foo: T
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (type_declaration
+    name: (identifier)
+    value: (anon_record
+      (typeargs
+        (typearg
+          name: (identifier)))
+      record_body: (record_body
+        (field
+          key: (identifier)
+          type: (simple_type
+            name: (identifier)))))))
+
+================================================================================
+Record with a 'type' entry
+================================================================================
+
+local type foo = record
+   type: number
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (type_declaration
+    name: (identifier)
+    value: (anon_record
+      record_body: (record_body
+        (field
+          key: (identifier)
+          type: (simple_type
+            name: (identifier)))))))
+
+================================================================================
+Record with a 'type' entry and types
+================================================================================
+
+local type foo = record
+   type: number
+   type bar = record
+   end
+   type baz = enum
+      "foo" "bar"
+   end
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (type_declaration
+    name: (identifier)
+    value: (anon_record
+      record_body: (record_body
+        (field
+          key: (identifier)
+          type: (simple_type
+            name: (identifier)))
+        (typedef
+          name: (identifier)
+          value: (anon_record
+            record_body: (record_body)))
+        (typedef
+          name: (identifier)
+          value: (enum_body
+            (string
+              content: (string_content))
+            (string
+              content: (string_content))))))))
+
+================================================================================
+Nested record shorthand syntax
+================================================================================
+
+local record Foo
+   record Bar
+   end
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (record_declaration
+    name: (identifier)
+    record_body: (record_body
+      (record_declaration
+        name: (identifier)
+        record_body: (record_body)))))
+
+================================================================================
+Nested enum shorthand syntax
+================================================================================
+
+local record Foo
+   enum Bar
+    "foo" "bar"
+   end
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (record_declaration
+    name: (identifier)
+    record_body: (record_body
+      (enum_declaration
+        name: (identifier)
+        enum_body: (enum_body
+          (string
+            content: (string_content))
+          (string
+            content: (string_content)))))))
+
+================================================================================
+Record with a 'record' entry
+================================================================================
+
+local record Foo
+   record: number
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (record_declaration
+    name: (identifier)
+    record_body: (record_body
+      (field
+        key: (identifier)
+        type: (simple_type
+          name: (identifier))))))
+
+================================================================================
+Record with a 'enum' entry
+================================================================================
+
+local record Foo
+   enum: number
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (record_declaration
+    name: (identifier)
+    record_body: (record_body
+      (field
+        key: (identifier)
+        type: (simple_type
+          name: (identifier))))))
+
+================================================================================
+Record with ['entry']
+================================================================================
+
+local record Foo
+   ["things"]: number
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (record_declaration
+    name: (identifier)
+    record_body: (record_body
+      (field
+        key: (string
+          content: (string_content))
+        type: (simple_type
+          name: (identifier))))))
+
+================================================================================
+Nested generic record shorthand
+================================================================================
+
+local record Foo
+   record Bar<T>
+   end
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (record_declaration
+    name: (identifier)
+    record_body: (record_body
+      (record_declaration
+        name: (identifier)
+        typeargs: (typeargs
+          (typearg name: (identifier)))
+        record_body: (record_body)))))
+
+================================================================================
+Userdata record
+================================================================================
+
+local record Foo
+   userdata
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (record_declaration
+    name: (identifier)
+    record_body: (record_body
+      (userdata))))
+
+================================================================================
+Record with metamethod
+================================================================================
+
+local record Foo
+   metamethod __call: number
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (record_declaration
+    name: (identifier)
+    record_body: (record_body
+      metamethod: (metamethod
+        name: (identifier)
+        type: (simple_type
+          name: (identifier))))))
+
+================================================================================
+Record with is clause
+================================================================================
+
+local record Foo is Bar
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (record_declaration
+    name: (identifier)
+    record_body: (record_body
+      is_types: (simple_type
+        name: (identifier)))))
+
+================================================================================
+Record with is and where clause
+================================================================================
+
+local record Foo is Bar where self.blah
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (record_declaration
+    name: (identifier)
+    record_body: (record_body
+      is_types: (simple_type
+        name: (identifier))
+      where: (index
+        (identifier)
+        key: (identifier)))))

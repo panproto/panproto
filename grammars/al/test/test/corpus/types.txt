@@ -1,0 +1,344 @@
+========================================================================
+Basic types in field declarations
+========================================================================
+table 50100 T
+{
+    fields
+    {
+        field(1; F1; Integer) { }
+        field(2; F2; Decimal) { }
+        field(3; F3; Boolean) { }
+        field(4; F4; Date) { }
+        field(5; F5; Time) { }
+        field(6; F6; DateTime) { }
+        field(7; F7; Guid) { }
+        field(8; F8; Blob) { }
+        field(9; F9; Duration) { }
+        field(10; F10; DateFormula) { }
+        field(11; F11; BigInteger) { }
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (basic_type)))
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (basic_type)))
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (basic_type)))
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (basic_type)))
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (basic_type)))
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (basic_type)))
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (basic_type)))
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (basic_type)))
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (basic_type)))
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (basic_type)))
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (basic_type))))))
+
+========================================================================
+Parameterized text and code types
+========================================================================
+table 50100 T
+{
+    fields
+    {
+        field(1; F1; Text[100]) { }
+        field(2; F2; Code[20]) { }
+        field(3; F3; Text) { }
+        field(4; F4; Code) { }
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (text_type
+            (integer))))
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (code_type
+            (integer))))
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (text_type)))
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (code_type))))))
+
+========================================================================
+Record type
+========================================================================
+table 50100 T
+{
+    fields
+    {
+        field(1; CustRec; Record Customer) { }
+        field(2; VendRec; Record "Sales Header") { }
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (record_type
+            (identifier))))
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (record_type
+            (quoted_identifier)))))))
+
+========================================================================
+Object reference types
+========================================================================
+table 50100 T
+{
+    fields
+    {
+        field(1; F1; Codeunit "Sales-Post") { }
+        field(2; F2; Page "Customer Card") { }
+        field(3; F3; Enum "Sales Document Type") { }
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (object_reference_type
+            (codeunit_keyword)
+            (quoted_identifier))))
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (object_reference_type
+            (page_keyword)
+            (quoted_identifier))))
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (object_reference_type
+            (enum_keyword)
+            (quoted_identifier)))))))
+
+========================================================================
+Array type
+========================================================================
+table 50100 T
+{
+    fields
+    {
+        field(1; F1; array[10] of Integer) { }
+        field(2; F2; array[5,3] of Text[100]) { }
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (array_type
+            (integer)
+            (type_specification
+              (basic_type)))))
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (array_type
+            (integer)
+            (integer)
+            (type_specification
+              (text_type
+                (integer)))))))))
+
+========================================================================
+List and Dictionary types
+========================================================================
+table 50100 T
+{
+    fields
+    {
+        field(1; F1; List of [Integer]) { }
+        field(2; F2; Dictionary of [Text, Integer]) { }
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (list_type
+            (type_specification
+              (basic_type)))))
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (dictionary_type
+            (type_specification
+              (text_type))
+            (type_specification
+              (basic_type))))))))
+
+========================================================================
+Option type with members
+========================================================================
+table 50100 T
+{
+    fields
+    {
+        field(1; F1; Option) { }
+        field(2; F2; Option OptionA,OptionB,OptionC) { }
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (option_type)))
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (option_type
+            (option_member_list
+              (option_member
+                (identifier))
+              (option_member
+                (identifier))
+              (option_member
+                (identifier)))))))))
+
+========================================================================
+Identifier fallback for unknown types
+========================================================================
+table 50100 T
+{
+    fields
+    {
+        field(1; F1; HttpClient) { }
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (basic_type))))))

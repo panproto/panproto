@@ -1,0 +1,417 @@
+================================================================================
+section header
+================================================================================
+[core]
+
+--------------------------------------------------------------------------------
+
+(config
+  (section
+    (section_header
+      (section_name))))
+
+================================================================================
+subsection header
+================================================================================
+[remote "origin"]
+
+--------------------------------------------------------------------------------
+
+(config
+  (section
+    (section_header
+      (section_name)
+      (subsection_name))))
+
+================================================================================
+section with variables
+================================================================================
+[core]
+	repositoryformatversion = 0
+	filemode = true
+
+--------------------------------------------------------------------------------
+
+(config
+  (section
+    (section_header
+      (section_name))
+    (variable
+      (name)
+      (integer))
+    (variable
+      (name)
+      (true))))
+
+================================================================================
+subsection with variables
+================================================================================
+[remote "origin"]
+	url = git@github.com:the-mikedavis/tree-sitter-git-config.git
+	fetch = +refs/heads/*:refs/remotes/origin/*
+
+--------------------------------------------------------------------------------
+
+(config
+  (section
+    (section_header
+      (section_name)
+      (subsection_name))
+    (variable
+      (name)
+      (string))
+    (variable
+      (name)
+      (string))))
+
+================================================================================
+example from documentation with comments and multiple sections
+================================================================================
+# Core variables
+[core]
+	; Don't trust file modes
+	filemode = false
+
+# Proxy settings
+[core]
+	gitProxy="ssh" for "kernel.org"
+	gitProxy=default-proxy ; for the rest
+
+[include]
+	path = /path/to/foo.inc ; include by absolute path
+	path = foo.inc ; find "foo.inc" relative to the current file
+	path = ~/foo.inc ; find "foo.inc" in your `$HOME` directory
+
+--------------------------------------------------------------------------------
+
+(config
+  (comment)
+  (section
+    (section_header
+      (section_name))
+    (comment)
+    (variable
+      (name)
+      (false))
+    (comment))
+  (section
+    (section_header
+      (section_name))
+    (variable
+      (name)
+      (string))
+    (variable
+      (name)
+      (string))
+    (comment))
+  (section
+    (section_header
+      (section_name))
+    (variable
+      (name)
+      (string))
+    (comment)
+    (variable
+      (name)
+      (string))
+    (comment)
+    (variable
+      (name)
+      (string))
+    (comment)))
+
+================================================================================
+full example from documentation with comments and multiple sections
+================================================================================
+# Core variables
+[core]
+	; Don't trust file modes
+	filemode = false
+
+# Our diff algorithm
+[diff]
+	external = /usr/local/bin/diff-wrapper
+	renames = true
+
+[branch "devel"]
+	remote = origin
+	merge = refs/heads/devel
+
+# Proxy settings
+[core]
+	gitProxy="ssh" for "kernel.org"
+	gitProxy=default-proxy ; for the rest
+
+[include]
+	path = /path/to/foo.inc ; include by absolute path
+	path = foo.inc ; find "foo.inc" relative to the current file
+	path = ~/foo.inc ; find "foo.inc" in your `$HOME` directory
+
+; include if $GIT_DIR is /path/to/foo/.git
+[includeIf "gitdir:/path/to/foo/.git"]
+	path = /path/to/foo.inc
+
+; include for all repositories inside /path/to/group
+[includeIf "gitdir:/path/to/group/"]
+	path = /path/to/foo.inc
+
+; include for all repositories inside $HOME/to/group
+[includeIf "gitdir:~/to/group/"]
+	path = /path/to/foo.inc
+
+; relative paths are always relative to the including
+; file (if the condition is true); their location is not
+; affected by the condition
+[includeIf "gitdir:/path/to/group/"]
+	path = foo.inc
+
+; include only if we are in a worktree where foo-branch is
+; currently checked out
+[includeIf "onbranch:foo-branch"]
+	path = foo.inc
+
+--------------------------------------------------------------------------------
+
+(config
+  (comment)
+  (section
+    (section_header
+      (section_name))
+    (comment)
+    (variable
+      (name)
+      (false))
+    (comment))
+  (section
+    (section_header
+      (section_name))
+    (variable
+      (name)
+      (string))
+    (variable
+      (name)
+      (true)))
+  (section
+    (section_header
+      (section_name)
+      (subsection_name))
+    (variable
+      (name)
+      (string))
+    (variable
+      (name)
+      (string))
+    (comment))
+  (section
+    (section_header
+      (section_name))
+    (variable
+      (name)
+      (string))
+    (variable
+      (name)
+      (string))
+    (comment))
+  (section
+    (section_header
+      (section_name))
+    (variable
+      (name)
+      (string))
+    (comment)
+    (variable
+      (name)
+      (string))
+    (comment)
+    (variable
+      (name)
+      (string))
+    (comment)
+    (comment))
+  (section
+    (section_header
+      (section_name)
+      (subsection_name))
+    (variable
+      (name)
+      (string))
+    (comment))
+  (section
+    (section_header
+      (section_name)
+      (subsection_name))
+    (variable
+      (name)
+      (string))
+    (comment))
+  (section
+    (section_header
+      (section_name)
+      (subsection_name))
+    (variable
+      (name)
+      (string))
+    (comment)
+    (comment)
+    (comment))
+  (section
+    (section_header
+      (section_name)
+      (subsection_name))
+    (variable
+      (name)
+      (string))
+    (comment)
+    (comment))
+  (section
+    (section_header
+      (section_name)
+      (subsection_name))
+    (variable
+      (name)
+      (string))))
+
+================================================================================
+string starting with an integer
+================================================================================
+[submodule "3rdparty/perfparser"]
+	path = 3rdparty/perfparser
+	url = git@github.com:KDAB/perfparser.git
+
+--------------------------------------------------------------------------------
+
+(config
+  (section
+    (section_header
+      (section_name)
+      (subsection_name))
+    (variable
+      (name)
+      (string))
+    (variable
+      (name)
+      (string))))
+
+================================================================================
+comment characters within strings
+================================================================================
+[alias]
+	test = "!f() { echo test; }; f"
+	rbq = !"git rebase --quit \"$@\" #comment"
+
+--------------------------------------------------------------------------------
+
+(config
+  (section
+    (section_header
+      (section_name))
+    (variable
+      (name)
+      (string
+        (shell_command)))
+    (variable
+      (name)
+      (string
+        (shell_command)
+        (escape_sequence)
+        (escape_sequence)))))
+
+================================================================================
+line continuations with backslash
+================================================================================
+[foo]
+	bar = a \
+          multiline \
+          value
+	baz = a single line value
+
+--------------------------------------------------------------------------------
+
+(config
+  (section
+    (section_header
+      (section_name))
+    (variable
+      (name)
+      (string))
+    (variable
+      (name)
+      (string))))
+
+================================================================================
+line continuations with backslash in quotes
+================================================================================
+[foo]
+	bar = "a \
+          multiline \
+          value"
+	baz = a single line value
+
+--------------------------------------------------------------------------------
+
+(config
+  (section
+    (section_header
+      (section_name))
+    (variable
+      (name)
+      (string))
+    (variable
+      (name)
+      (string))))
+
+================================================================================
+empty string
+================================================================================
+[foo]
+	bar = ""
+
+--------------------------------------------------------------------------------
+
+(config
+  (section
+    (section_header
+      (section_name))
+    (variable
+      (name)
+      (string))))
+
+================================================================================
+shell commands
+================================================================================
+[foo]
+    a = !"echo ok"
+    b = "!echo ok"
+    c = !echo ok
+    d = "echo" !"fail"
+    e = echo "!fail"
+    f = echo fail !
+
+--------------------------------------------------------------------------------
+
+(config
+  (section
+    (section_header
+      (section_name))
+    (variable
+      (name)
+      (string
+        (shell_command)))
+    (variable
+      (name)
+      (string
+        (shell_command)))
+    (variable
+      (name)
+      (string
+        (shell_command)))
+    (variable
+      (name)
+      (string))
+    (variable
+      (name)
+      (string))
+    (variable
+      (name)
+      (string))))
+

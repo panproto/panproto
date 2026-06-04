@@ -1,0 +1,120 @@
+===
+file
+===
+
+@if(foo), @blah()
+@experiment(try)
+
+package foo
+
+---
+
+(source_file
+  (attribute
+    (identifier)
+    (identifier))
+  (attribute
+    (identifier))
+  (attribute
+    (identifier)
+    (identifier))
+  (package_clause
+    (package_identifier)))
+
+===
+package
+===
+
+package foo
+
+@foo(bar)
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (attribute
+    (identifier)
+    (identifier)))
+
+===
+field and struct
+===
+
+a: string @tag(type=bool,short=foo|bar)
+b: {
+    @foo(bar)
+    @bar(foo)
+    c: 1
+}
+
+---
+
+(source_file
+  (field
+	(label
+	  (identifier))
+	(value
+	  (primitive_type))
+	(attribute
+	  (identifier)
+	  (identifier)
+	  (primitive_type)
+	  (identifier)
+	  (identifier)
+	  (identifier)))
+  (field
+	(label
+	  (identifier))
+	(value
+	  (struct_lit
+		(attribute
+		  (identifier)
+		  (identifier))
+		(attribute
+		  (identifier)
+		  (identifier))
+		(field
+		  (label
+			(identifier))
+		  (value
+			(number)))))))
+
+===
+tokens
+===
+
+myStruct2: {
+    field: string @go(Field)
+    attr:  int    @xml(a1,attr) @go(Attr)
+}
+
+---
+
+    (source_file
+      (field
+        (label
+          (identifier))
+        (value
+          (struct_lit
+            (field
+              (label
+                (identifier))
+              (value
+                (primitive_type))
+              (attribute
+                (identifier)
+                (identifier)))
+            (field
+              (label
+                (identifier))
+              (value
+                (primitive_type))
+              (attribute
+                (identifier)
+                (identifier)
+                (identifier)))
+            (attribute
+              (identifier)
+              (identifier))))))

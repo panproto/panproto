@@ -1,0 +1,121 @@
+===
+listings/wrongIndex.pkl
+===
+
+import "pkl:test"
+
+local x = new Listing {
+  "pigeon"
+}
+
+res1 = test.catch(() -> (x) {
+  [3] = "barn owl"
+})
+
+res2 = test.catch(() -> (x) {
+  [2 + 1] = "barn owl"
+})
+
+res3 = test.catch(() -> (x) {
+  [-1] = "barn owl"
+})
+
+res4 = test.catch(() -> (x) {
+  [-1 * 1] = "barn owl"
+})
+
+---
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (classProperty
+    (modifier)
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectElement
+          (slStringLiteralExpr
+            (slStringLiteralPart))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (amendExpr
+            (parenthesizedExpr
+              (unqualifiedAccessExpr
+                (identifier)))
+            (objectBody
+              (objectEntry
+                (intLiteralExpr)
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (amendExpr
+            (parenthesizedExpr
+              (unqualifiedAccessExpr
+                (identifier)))
+            (objectBody
+              (objectEntry
+                (additiveExpr
+                  (intLiteralExpr)
+                  (intLiteralExpr))
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (amendExpr
+            (parenthesizedExpr
+              (unqualifiedAccessExpr
+                (identifier)))
+            (objectBody
+              (objectEntry
+                (unaryMinusExpr
+                  (intLiteralExpr))
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (amendExpr
+            (parenthesizedExpr
+              (unqualifiedAccessExpr
+                (identifier)))
+            (objectBody
+              (objectEntry
+                (multiplicativeExpr
+                  (unaryMinusExpr
+                    (intLiteralExpr))
+                  (intLiteralExpr))
+                (slStringLiteralExpr
+                  (slStringLiteralPart))))))))))

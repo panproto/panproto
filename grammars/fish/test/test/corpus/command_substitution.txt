@@ -1,0 +1,105 @@
+================================================================================
+Command Substitution - simple
+================================================================================
+
+echo (printf text)
+echo (begin; print 1; end;;;)
+echo (;;;)
+echo ()
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (word)
+    argument: (command_substitution
+      (command
+        name: (word)
+        argument: (word))))
+  (command
+    name: (word)
+    argument: (command_substitution
+      (begin_statement
+        (command
+          name: (word)
+          argument: (integer)))))
+  (command
+    name: (word)
+    argument: (command_substitution))
+  (command
+    name: (word)
+    argument: (command_substitution)))
+
+================================================================================
+Command Substitution - multiline
+================================================================================
+
+echo (
+    printf text
+)
+echo (
+    printf text
+    printf ' ing'
+)
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (word)
+    argument: (command_substitution
+      (command
+        name: (word)
+        argument: (word))))
+  (command
+    name: (word)
+    argument: (command_substitution
+      (command
+        name: (word)
+        argument: (word))
+      (command
+        name: (word)
+        argument: (single_quote_string)))))
+
+================================================================================
+Command Substitution - $ support since 3.4.0 (3.5.0 removed "$$()")
+================================================================================
+
+echo $(print)
+echo "$(print)"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (word)
+    argument: (command_substitution
+      (command
+        name: (word))))
+  (command
+    name: (word)
+    argument: (double_quote_string
+      (command_substitution
+        (command
+          name: (word))))))
+
+================================================================================
+Command Substitution - inside double quoted string
+================================================================================
+
+echo "( echo )" # All good if this is not parsed as command_substitution
+echo "$( echo )"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (word)
+    argument: (double_quote_string))
+  (comment)
+  (command
+    name: (word)
+    argument: (double_quote_string
+      (command_substitution
+        (command
+          name: (word))))))

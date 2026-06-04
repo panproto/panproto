@@ -1,0 +1,42 @@
+===
+errors/listingTypeCheckError7.pkl
+===
+
+foo: Listing = new { 1; 2; 3 }
+bar: Listing<String> = (foo) { "bar" }
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (newExpr
+      (objectBody
+        (objectElement
+          (intLiteralExpr))
+        (objectElement
+          (intLiteralExpr))
+        (objectElement
+          (intLiteralExpr)))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))))
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (objectElement
+          (slStringLiteralExpr
+            (slStringLiteralPart)))))))

@@ -1,0 +1,50 @@
+=====================
+namespace declaration
+=====================
+
+public namespace mx_internal = "http://www.adobe.com/2006/flex/mx/internal";
+
+---
+
+(program
+    (namespace_declaration
+        (property_attribut)
+        (identifier)
+        (string)
+    )
+)
+
+==========================
+namespace variable scoping
+==========================
+
+my_namespace var hello: String = "World";
+
+---
+
+(program
+    (variable_declaration
+        (property_attribut (identifier))
+        (identifier)
+        (type_hint (identifier))
+        (string)
+    )
+)
+
+==================
+namespace accessor
+==================
+
+const a = my_namespace::var;
+
+---
+
+(program
+    (constant_declaration
+        (identifier)
+        (namespace_expression
+            (identifier)
+            (identifier)
+        )
+    )
+)

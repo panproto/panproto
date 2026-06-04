@@ -1,0 +1,152 @@
+================================================================================
+Enum tags
+================================================================================
+
+'Foo : [| 'Foo, 'Bar, 'Baz |]
+
+--------------------------------------------------------------------------------
+
+
+(term
+  (uni_term
+    (annotated_infix_expr
+      (infix_expr
+        (applicative
+          (record_operand
+            (atom
+              (enum_tag
+                (raw_enum_tag))))))
+      (annot
+        (annot_atom
+          (types
+            (infix_expr
+              (applicative
+                (record_operand
+                  (atom
+                    (type_atom
+                      (enum
+                        (enum_tag
+                          (raw_enum_tag)))
+                      (enum
+                        (enum_tag
+                          (raw_enum_tag)))
+                      (enum
+                        (enum_tag
+                          (raw_enum_tag))))))))))))))
+
+================================================================================
+Enum tags with trailing comma
+================================================================================
+
+'Foo : [| 'Foo, 'Bar, 'Baz, |]
+
+--------------------------------------------------------------------------------
+
+
+(term
+  (uni_term
+    (annotated_infix_expr
+      (infix_expr
+        (applicative
+          (record_operand
+            (atom
+              (enum_tag
+                (raw_enum_tag))))))
+      (annot
+        (annot_atom
+          (types
+            (infix_expr
+              (applicative
+                (record_operand
+                  (atom
+                    (type_atom
+                      (enum
+                        (enum_tag
+                          (raw_enum_tag)))
+                      (enum
+                        (enum_tag
+                          (raw_enum_tag)))
+                      (enum
+                        (enum_tag
+                          (raw_enum_tag))))))))))))))
+
+
+================================================================================
+Enum variants
+================================================================================
+
+'Foo 5 : [| 'Foo Number, 'Bar SomeContract |]
+
+--------------------------------------------------------------------------------
+
+
+(term
+  (uni_term
+    (annotated_infix_expr
+      (infix_expr
+        (applicative
+          (enum_variant
+            (enum_tag
+              (raw_enum_tag))
+            (record_operand
+              (atom
+                (num_literal))))))
+      (annot
+        (annot_atom
+          (types
+            (infix_expr
+              (applicative
+                (record_operand
+                  (atom
+                    (type_atom
+                      (enum
+                        (enum_variant
+                          (enum_tag
+                            (raw_enum_tag))
+                          (record_operand
+                            (atom
+                              (type_atom
+                                (type_builtin))))))
+                      (enum
+                        (enum_variant
+                          (enum_tag
+                            (raw_enum_tag))
+                          (record_operand
+                            (atom
+                              (ident))))))))))))))))
+
+================================================================================
+Polymorphic enum
+================================================================================
+
+null : forall a r. [| 'Foo a; r |]
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (annotated_infix_expr
+      (infix_expr
+        (applicative
+          (record_operand
+            (atom))))
+      (annot
+        (annot_atom
+          (types
+            (forall
+              (ident)
+              (ident)
+              (types
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom
+                        (type_atom
+                          (enum
+                            (enum_variant
+                              (enum_tag
+                                (raw_enum_tag))
+                              (record_operand
+                                (atom
+                                  (ident)))))
+                          (ident))))))))))))))

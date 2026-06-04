@@ -1,0 +1,24 @@
+===========
+simple with
+===========
+
+with (Math) {
+    max(a, b);
+}
+
+---
+
+(program
+    (with_statement
+        (parenthesized_expression (identifier))
+        (statement_block
+            (expression_statement
+                (call_expression
+                    (identifier)
+                    (identifier)
+                    (identifier)
+                )
+            )
+        )
+    )
+)

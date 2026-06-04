@@ -1,0 +1,378 @@
+======================================================
+Basic .editorconfig file
+======================================================
+
+# EditorConfig is awesome: https://EditorConfig.org
+
+# top-most EditorConfig file
+root = true
+
+# Unix-style newlines with a newline ending every file
+[*]
+end_of_line = lf
+# test comment inside a section
+insert_final_newline = true
+
+------------------------------------------------------
+
+(editorconfig
+  (preamble
+    (comment)
+    (comment)
+    (pair
+      key: (property)
+      value: (string))
+    (comment))
+  (section
+    (header
+      (glob
+        (wildcard)))
+    (pair
+      key: (property)
+      value: (string))
+    (comment)
+    (pair
+      key: (property)
+      value: (string))))
+
+======================================================
+Supported values
+======================================================
+root = true
+
+[a]
+end_of_line = lf
+insert_final_newline = false
+indent_size = true
+charset = utf-8
+spelling_language = es-MX
+max_line_length = 100
+
+[b]
+end_of_line = crlf
+indent_style = space
+insert_final_newline = true
+
+[c]
+end_of_line = cr
+indent_style = tab
+indent_size = 4
+
+[d]
+max_line_length = off
+spelling_language = es
+------------------------------------------------------
+
+(editorconfig
+  (preamble
+    (pair
+      key: (property)
+      value: (string)))
+  (section
+    (header
+      (glob))
+    (pair
+      key: (property)
+      value: (string))
+    (pair
+      key: (property)
+      value: (string))
+    (pair
+      key: (property)
+      value: (string))
+    (pair
+      key: (property)
+      value: (string))
+    (pair
+      key: (property)
+      value: (string))
+    (pair
+      key: (property)
+      value: (string)))
+  (section
+    (header
+      (glob))
+    (pair
+      key: (property)
+      value: (string))
+    (pair
+      key: (property)
+      value: (string))
+    (pair
+      key: (property)
+      value: (string)))
+  (section
+    (header
+      (glob))
+    (pair
+      key: (property)
+      value: (string))
+    (pair
+      key: (property)
+      value: (string))
+    (pair
+      key: (property)
+      value: (string)))
+  (section
+    (header
+      (glob))
+    (pair
+      key: (property)
+      value: (string))
+    (pair
+      key: (property)
+      value: (string))))
+
+======================================================
+Unsupported keys and values with spaces
+======================================================
+[a]
+# space should not matter
+  my_custom_key = myval
+key with spaces     = value with spaces
+    This [ also counts = also this =
+charset = utf-8
+key = # this is not a comment
+
+------------------------------------------------------
+
+(editorconfig
+  (section
+    (header
+      (glob))
+    (comment)
+    (pair
+      key: (property)
+      value: (string))
+    (pair
+      key: (property)
+      value: (string))
+    (pair
+      key: (property)
+      value: (string))
+    (pair
+      key: (property)
+      value: (string))
+    (pair
+      key: (property)
+      value: (string))))
+
+======================================================
+Properties with an empty value
+======================================================
+[a]
+a=
+b =
+ c=
+ d =  
+spaces =     
+------------------------------------------------------
+
+(editorconfig
+  (section
+    (header
+      (glob))
+    (pair
+      key: (property))
+    (pair
+      key: (property))
+    (pair
+      key: (property))
+    (pair
+      key: (property))
+    (pair
+      key: (property))))
+
+======================================================
+Comments
+======================================================
+# Hash
+; Semicolon
+[#]
+;
+Key # = ; value
+#
+[;]
+;
+key ; = # value
+#
+------------------------------------------------------
+
+(editorconfig
+  (preamble
+    (comment)
+    (comment))
+  (section
+    (header
+      (glob))
+    (comment)
+    (pair
+      key: (property)
+      value: (string))
+    (comment))
+  (section
+    (header
+      (glob))
+    (comment)
+    (pair
+      key: (property)
+      value: (string))
+    (comment)))
+
+======================================================
+Case insensitive options
+======================================================
+[i]
+charset = UtF-8
+end_of_line = cRlF
+insert_final_newline = tRuE
+indent_style = sPAce
+
+------------------------------------------------------
+
+(editorconfig
+  (section
+    (header
+      (glob))
+    (pair
+      key: (property)
+      value: (string))
+    (pair
+      key: (property)
+      value: (string))
+    (pair
+      key: (property)
+      value: (string))
+    (pair
+      key: (property)
+      value: (string))))
+
+======================================================
+Directory Separator
+======================================================
+[a/]
+[a/b]
+[/a/b]
+[a\b\c]
+------------------------------------------------------
+
+(editorconfig
+  (section
+    (header
+      (glob)))
+  (section
+    (header
+      (glob)))
+  (section
+    (header
+      (glob)))
+  (section
+    (header
+      (glob))))
+
+======================================================
+Globs/Wildcards
+======================================================
+[*.py]
+[*.log_??]
+[src/**/*.c]
+[\**\?]
+------------------------------------------------------
+
+(editorconfig
+  (section
+    (header
+      (glob
+        (wildcard))))
+  (section
+    (header
+      (glob
+        (wildcard)
+        (wildcard)
+        (wildcard))))
+  (section
+    (header
+      (glob
+        (wildcard)
+        (wildcard))))
+  (section
+    (header
+      (glob
+        (character_escape)
+        (wildcard)
+        (character_escape)))))
+
+======================================================
+Without ending new line
+======================================================
+root = true
+------------------------------------------------------
+
+(editorconfig
+  (preamble
+    (pair
+      key: (property)
+      value: (string))))
+
+======================================================
+Empty file
+======================================================
+
+------------------------------------------------------
+
+(editorconfig)
+
+======================================================
+Only whitespacae
+======================================================
+        
+------------------------------------------------------
+
+(editorconfig)
+
+======================================================
+New line in section name
+:error
+======================================================
+[fai
+l]
+end_of_line = lf
+------------------------------------------------------
+
+
+
+======================================================
+Empty section name
+:error
+======================================================
+[]
+------------------------------------------------------
+
+
+
+======================================================
+Characters after section header
+:error
+======================================================
+[a] key = value
+------------------------------------------------------
+
+
+
+======================================================
+Property without '=' and value
+:error
+======================================================
+property
+------------------------------------------------------
+
+
+
+======================================================
+Comment after section header
+:error
+======================================================
+[a] # Comment
+------------------------------------------------------
+
+

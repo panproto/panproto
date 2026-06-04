@@ -1,0 +1,117 @@
+================================================================================
+Query with EntitySetCaption and other entity properties
+================================================================================
+
+query 50100 "Customer Sales API"
+{
+    QueryType = API;
+    APIPublisher = 'contoso';
+    APIGroup = 'sales';
+    APIVersion = 'v2.0';
+    EntityName = 'customerSale';
+    EntitySetName = 'customerSales';
+    EntityCaption = 'Customer Sale';
+    EntitySetCaption = 'Customer Sales';
+    
+    elements
+    {
+        dataitem(Customer; Customer)
+        {
+            column(customerNumber; "No.")
+            {
+                Caption = 'Customer Number';
+            }
+            
+            column(customerName; Name)
+            {
+                Caption = 'Customer Name';
+            }
+            
+            dataitem(Sales_Line; "Sales Line")
+            {
+                DataItemLink = "Sell-to Customer No." = Customer."No.";
+                
+                column(amount; Amount)
+                {
+                    Caption = 'Amount';
+                    Method = Sum;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          field_name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (string_literal)))
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          field_name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal)))
+        (query_dataitem
+          (dataitem_keyword)
+          name: (identifier)
+          table_name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (property_expression
+              (comparison_expression
+                left: (quoted_identifier)
+                operator: (comparison_operator)
+                right: (member_expression
+                  object: (identifier)
+                  member: (quoted_identifier)))))
+          (query_column
+            (column_keyword)
+            name: (identifier)
+            field_name: (identifier)
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (identifier))))))))

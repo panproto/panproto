@@ -1,0 +1,94 @@
+====================================
+Comment, conflict, lookahead operator (\)  I
+====================================
+/*!re2c
+  foo = bar / bar // 
+;*/
+---
+
+(re2c
+  (global_block
+    (body
+      (named_definition
+        name: (name)
+        value: (regex
+          (lookahead
+            expr: (name)
+            lookahead: (name)))
+        (comment)))))
+
+====================================
+Comment, conflict, lookahead operator (\) II
+====================================
+/*!re2c
+  foo = bar / bar //
+;*/
+---
+
+(re2c
+  (global_block
+    (body
+      (named_definition
+        name: (name)
+        value: (regex
+          (lookahead
+            expr: (name)
+            lookahead: (name)))
+        (comment)))))
+
+====================================
+Comment, conflict, lookahead operator (\) III
+====================================
+/*!re2c
+  foo = bar / bar //f
+;*/
+---
+
+(re2c
+  (global_block
+    (body
+      (named_definition
+        name: (name)
+        value: (regex
+          (lookahead
+            expr: (name)
+            lookahead: (name)))
+        (comment)))))
+
+====================================
+Comment, conflict, lookahead operator (\) IV
+====================================
+/*!re2c
+  foo = bar / bar //ff
+;*/
+---
+
+(re2c
+  (global_block
+    (body
+      (named_definition
+        name: (name)
+        value: (regex
+          (lookahead
+            expr: (name)
+            lookahead: (name)))
+        (comment)))))
+
+====================================
+Comment, conflict, lookahead operator (\)  V
+====================================
+/*!re2c
+  foo = bar / bar //ff
+;*/
+---
+
+(re2c
+  (global_block
+    (body
+      (named_definition
+        name: (name)
+        value: (regex
+          (lookahead
+            expr: (name)
+            lookahead: (name)))
+        (comment)))))

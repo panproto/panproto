@@ -1,0 +1,88 @@
+================================================================================
+Report type with namespace-qualified reference
+================================================================================
+
+codeunit 1234 "Test Codeunit"
+{
+    procedure TestProcedure()
+    var
+        MyReport: Report Microsoft.Inventory.Reports."Certificate of Supply";
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (object_reference_type
+              (report_keyword)
+              (identifier)
+              (identifier)
+              (identifier)
+              (quoted_identifier)))))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))
+
+================================================================================
+Multiple report type declarations
+================================================================================
+
+codeunit 5678 "Another Test"
+{
+    procedure AnotherProc()
+    var
+        SimpleReport: Report 1234;
+        NamedReport: Report "Sales Invoice";
+        NamespaceReport: Report System.Utilities."Integer Report";
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (object_reference_type
+              (report_keyword)
+              (integer))))
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (object_reference_type
+              (report_keyword)
+              (quoted_identifier))))
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (object_reference_type
+              (report_keyword)
+              (identifier)
+              (identifier)
+              (quoted_identifier)))))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))

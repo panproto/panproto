@@ -1,0 +1,127 @@
+================================================================================
+Trigger with preprocessor in var and fragmented if-else in body
+================================================================================
+
+table 5880 "Test Table"
+{
+    trigger OnDelete()
+    var
+#if not CLEAN24
+        OldRecord: Record "Old Record";
+#endif
+        NewRecord: Record "New Record";
+    begin
+#if not CLEAN24
+        if not TestCondition() then begin
+            OldRecord.Reset();
+            OldRecord.DeleteAll();
+        end else begin
+#endif
+            NewRecord.Reset();
+            NewRecord.DeleteAll();
+#if not CLEAN24
+        end;
+#endif
+    end;
+    
+    var
+        GlobalVar: Integer;
+#if not CLEAN24
+        OldGlobalVar: Codeunit "Old Codeunit";
+#endif
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (preproc_conditional_var
+          (preproc_if
+            (preproc_open)
+            condition: (preproc_not_expression
+              (identifier)))
+          (variable_declaration
+            name: (identifier)
+            type: (type_specification
+              (record_type
+                reference: (quoted_identifier))))
+          (preproc_endif
+            (preproc_close)))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier)))))
+      (code_block
+        (begin_keyword)
+        (preproc_split_if_else_statement
+          (preproc_if
+            (preproc_open)
+            condition: (preproc_not_expression
+              (identifier)))
+          (if_keyword)
+          condition: (unary_expression
+            operand: (call_expression
+              function: (identifier)
+              arguments: (argument_list)))
+          (then_keyword)
+          then_branch: (code_block
+            (call_expression
+              function: (member_expression
+                object: (identifier)
+                member: (identifier))
+              arguments: (argument_list))
+            (call_expression
+              function: (member_expression
+                object: (identifier)
+                member: (identifier))
+              arguments: (argument_list)))
+          (else_keyword)
+          (preproc_fragmented_else_tail
+            (preproc_split_begin)
+            (preproc_endif
+              (preproc_close))
+            (call_expression
+              function: (member_expression
+                object: (identifier)
+                member: (identifier))
+              arguments: (argument_list))
+            (call_expression
+              function: (member_expression
+                object: (identifier)
+                member: (identifier))
+              arguments: (argument_list))
+            (preproc_if
+              (preproc_open)
+              condition: (preproc_not_expression
+                (identifier)))
+            (preproc_endif
+              (preproc_close))))
+        (end_keyword)))
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type)))
+      (preproc_conditional_var
+        (preproc_if
+          (preproc_open)
+          condition: (preproc_not_expression
+            (identifier)))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (object_reference_type
+              object_type: (codeunit_keyword)
+              reference: (quoted_identifier))))
+        (preproc_endif
+          (preproc_close))))))

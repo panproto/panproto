@@ -1,0 +1,19 @@
+===
+errors/invalidTypeName3.pkl
+===
+
+class Foo
+bar = new Foo.Bar {}
+---
+
+(module
+  (clazz
+    (identifier))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)
+          (identifier)))
+      (objectBody))))

@@ -1,0 +1,30 @@
+===
+errors/listingTypeCheckError2.pkl
+===
+
+one = 1
+
+res = new Listing<String> {
+  one
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (intLiteralExpr))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))
+      (objectBody
+        (objectElement
+          (unqualifiedAccessExpr
+            (identifier)))))))

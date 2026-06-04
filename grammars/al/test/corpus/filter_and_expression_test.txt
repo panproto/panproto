@@ -1,0 +1,229 @@
+================================================================================
+Filter with AND expression - two not equal conditions
+================================================================================
+
+table 50100 "Test Filter And"
+{
+    fields
+    {
+        field(1; "User Name"; Code[50])
+        {
+            TableRelation = User."User Name" where("License Type" = filter(<> "External User" & <> "Application"));
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (code_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (table_relation_value
+            (table_relation_expression
+              (simple_table_relation
+                table: (identifier)
+                table: (quoted_identifier)
+                (where_clause
+                  (where_conditions
+                    (where_condition
+                      field: (quoted_identifier)
+                      (filter_keyword)
+                      value: (filter_value
+                        (quoted_identifier)
+                        (quoted_identifier)))))))))))))
+
+================================================================================
+Filter with AND expression - three conditions
+================================================================================
+
+table 50101 "Test Multiple And"
+{
+    fields
+    {
+        field(1; "User Name"; Code[50])
+        {
+            TableRelation = User."User Name" where("License Type" = filter(<> "External User" & <> "Application" & <> "AAD Group"));
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (code_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (table_relation_value
+            (table_relation_expression
+              (simple_table_relation
+                table: (identifier)
+                table: (quoted_identifier)
+                (where_clause
+                  (where_conditions
+                    (where_condition
+                      field: (quoted_identifier)
+                      (filter_keyword)
+                      value: (filter_value
+                        (quoted_identifier)
+                        (quoted_identifier)
+                        (quoted_identifier)))))))))))))
+
+================================================================================
+Filter with AND expression - mixed operators
+================================================================================
+
+table 50102 "Test Mixed And"
+{
+    fields
+    {
+        field(1; "Amount"; Decimal)
+        {
+            TableRelation = Item."No." where(Quantity = filter(> 0 & <= 100));
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (table_relation_value
+            (table_relation_expression
+              (simple_table_relation
+                table: (identifier)
+                table: (quoted_identifier)
+                (where_clause
+                  (where_conditions
+                    (where_condition
+                      field: (identifier)
+                      (filter_keyword)
+                      value: (filter_value
+                        (integer)
+                        (integer)))))))))))))
+
+================================================================================
+Filter with AND expression - with identifiers
+================================================================================
+
+table 50103 "Test And Identifiers"
+{
+    fields
+    {
+        field(1; "Type"; Code[20])
+        {
+            TableRelation = Item.Type where(Status = filter(<> Blocked & <> Obsolete));
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (code_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (table_relation_value
+            (table_relation_expression
+              (simple_table_relation
+                table: (identifier)
+                table: (identifier)
+                (where_clause
+                  (where_conditions
+                    (where_condition
+                      field: (identifier)
+                      (filter_keyword)
+                      value: (filter_value
+                        (identifier)
+                        (identifier)))))))))))))
+
+================================================================================
+Filter with AND expression - range and comparison
+================================================================================
+
+table 50104 "Test Complex And"
+{
+    fields
+    {
+        field(1; "Date"; Date)
+        {
+            TableRelation = Calendar.Date where(Year = filter(2020..2025 & <> 2023));
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (table_relation_value
+            (table_relation_expression
+              (simple_table_relation
+                table: (identifier)
+                table: (identifier)
+                (where_clause
+                  (where_conditions
+                    (where_condition
+                      field: (identifier)
+                      (filter_keyword)
+                      value: (filter_value
+                        (integer)
+                        (integer)
+                        (integer)))))))))))))

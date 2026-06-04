@@ -1,0 +1,38 @@
+===
+errors/functionNotFoundInScope.pkl
+===
+
+function fooa() = 42
+function foob(x) = 42
+fooc = 42
+function other() = 42
+
+res1 = foox()
+---
+
+(module
+  (classMethod
+    (methodHeader
+      (identifier)
+      (parameterList))
+    (intLiteralExpr))
+  (classMethod
+    (methodHeader
+      (identifier)
+      (parameterList
+        (typedIdentifier
+          (identifier))))
+    (intLiteralExpr))
+  (classProperty
+    (identifier)
+    (intLiteralExpr))
+  (classMethod
+    (methodHeader
+      (identifier)
+      (parameterList))
+    (intLiteralExpr))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList))))

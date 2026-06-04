@@ -1,0 +1,194 @@
+================================================================================
+PrintOnlyIfDetail after RequestFilterFields
+================================================================================
+
+report 50000 "Test Report"
+{
+    dataset
+    {
+        dataitem(Customer; Customer)
+        {
+            RequestFilterFields = "No.", "Name";
+            PrintOnlyIfDetail = true;
+            
+            column(CustomerNo; "No.")
+            {
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (quoted_identifier))))
+        (property
+          name: (property_name)
+          value: (boolean))
+        (report_column
+          (column_keyword)
+          name: (identifier)
+          source: (quoted_identifier))))))
+
+================================================================================
+Multiple properties with PrintOnlyIfDetail
+================================================================================
+
+report 50001 "Complex Report"
+{
+    dataset
+    {
+        dataitem(Item; Item)
+        {
+            DataItemTableView = sorting("No.") where(Type = const(Inventory));
+            RequestFilterFields = "No.", Description, "Item Category Code";
+            PrintOnlyIfDetail = false;
+            MaxIteration = 100;
+            
+            column(ItemNo; "No.")
+            {
+                IncludeCaption = true;
+            }
+            
+            dataitem(ItemLedgerEntry; "Item Ledger Entry")
+            {
+                DataItemLink = "Item No." = field("No.");
+                PrintOnlyIfDetail = true;
+                
+                column(EntryNo; "Entry No.")
+                {
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (property
+          name: (property_name)
+          value: (sorting_value
+            (quoted_identifier)
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (identifier)
+                  value: (identifier))))))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (identifier))
+            (option_member
+              (quoted_identifier))))
+        (property
+          name: (property_name)
+          value: (boolean))
+        (property
+          name: (property_name)
+          value: (integer))
+        (report_column
+          (column_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (boolean)))
+        (report_dataitem
+          (dataitem_keyword)
+          name: (identifier)
+          table_name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (property_expression
+              (comparison_expression
+                left: (quoted_identifier)
+                operator: (comparison_operator)
+                right: (call_expression
+                  function: (identifier)
+                  arguments: (argument_list
+                    (quoted_identifier))))))
+          (property
+            name: (property_name)
+            value: (boolean))
+          (report_column
+            (column_keyword)
+            name: (identifier)
+            source: (quoted_identifier)))))))
+
+================================================================================
+PrintOnlyIfDetail used as field name in RequestFilterFields
+================================================================================
+
+report 50002 "Edge Case Report"
+{
+    dataset
+    {
+        dataitem(CustomTable; "Custom Table")
+        {
+            RequestFilterFields = PrintOnlyIfDetail, "No.";
+            PrintOnlyIfDetail = true;
+            
+            column(No; "No.")
+            {
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (identifier))
+            (option_member
+              (quoted_identifier))))
+        (property
+          name: (property_name)
+          value: (boolean))
+        (report_column
+          (column_keyword)
+          name: (identifier)
+          source: (quoted_identifier))))))

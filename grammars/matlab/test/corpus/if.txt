@@ -1,0 +1,187 @@
+================================================================================
+If Statement: Simple
+================================================================================
+
+if something
+    1
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (if_statement
+    (identifier)
+    (block
+      (number))))
+
+================================================================================
+If Statement: Else If
+================================================================================
+
+if something
+    1
+elseif other
+    2
+end
+
+if something
+    1
+elseif other
+    2
+elseif again
+    3
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (if_statement
+    (identifier)
+    (block
+      (number))
+    (elseif_clause
+      (identifier)
+      (block
+        (number))))
+  (if_statement
+    (identifier)
+    (block
+      (number))
+    (elseif_clause
+      (identifier)
+      (block
+        (number)))
+    (elseif_clause
+      (identifier)
+      (block
+        (number)))))
+
+================================================================================
+If Statement: Else
+================================================================================
+
+if something
+    1
+else
+    2
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (if_statement
+    (identifier)
+    (block
+      (number))
+    (else_clause
+      (block
+        (number)))))
+
+================================================================================
+If Statement: Complete
+================================================================================
+
+if something
+    1
+elseif other
+    2
+elseif again
+    3
+else
+    return
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (if_statement
+    (identifier)
+    (block
+      (number))
+    (elseif_clause
+      (identifier)
+      (block
+        (number)))
+    (elseif_clause
+      (identifier)
+      (block
+        (number)))
+    (else_clause
+      (block
+        (return_statement)))))
+
+================================================================================
+If Statement: Inline
+================================================================================
+
+if 1==1, func; else, func; end
+if 1==1 func; else func; end
+if 1==1,, func; elseif 2==2,, func; else,, func; end
+if a' < 'a' a, end
+if a'b'
+     disp('here')
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (if_statement
+    (comparison_operator
+      (number)
+      (number))
+    (block
+      (command
+        (command_name)))
+    (else_clause
+      (block
+        (command
+          (command_name)))))
+  (if_statement
+    (comparison_operator
+      (number)
+      (number))
+    (block
+      (command
+        (command_name)))
+    (else_clause
+      (block
+        (command
+          (command_name)))))
+  (if_statement
+    (comparison_operator
+      (number)
+      (number))
+    (block
+      (command
+        (command_name)))
+    (elseif_clause
+      (comparison_operator
+        (number)
+        (number))
+      (block
+        (command
+          (command_name))))
+    (else_clause
+      (block
+        (command
+          (command_name)))))
+  (if_statement
+    (comparison_operator
+      (postfix_operator
+        (identifier))
+      (string
+        (string_content)))
+    (block
+      (command
+        (command_name))))
+  (if_statement
+    (postfix_operator
+      (identifier))
+    (block
+      (postfix_operator
+        (identifier))
+      (function_call
+        (identifier)
+        (arguments
+          (string
+            (string_content)))))))

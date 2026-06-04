@@ -1,0 +1,25 @@
+===
+api/moduleOutput2.pkl
+===
+
+output {
+  renderer = new JsonRenderer {}
+}
+
+res1 = 42
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (objectBody)))))
+  (classProperty
+    (identifier)
+    (intLiteralExpr)))

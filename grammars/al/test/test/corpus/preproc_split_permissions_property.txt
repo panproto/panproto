@@ -1,0 +1,80 @@
+========================================================================
+Permissions property with semicolon inside #if block (trailing entry)
+========================================================================
+permissionset 50000 MyPermSet {
+    Permissions = tabledata Foo = rimd,
+                  tabledata Bar = rimd
+#if not CLEAN29
+                  ,
+                  tabledata Baz = Rim;
+#endif
+}
+------------------------------------------------------------------------
+(source_file
+  (permissionset_declaration
+    (permissionset_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (property
+      name: (property_name)
+      value: (tabledata_permission_list
+        (tabledata_permission
+          table_name: (identifier)
+          permission: (permission_type))
+        (tabledata_permission
+          table_name: (identifier)
+          permission: (permission_type))
+        (preproc_conditional_permissions
+          (preproc_if
+            (preproc_open)
+            condition: (preproc_not_expression
+              (identifier)))
+          (tabledata_permission
+            table_name: (identifier)
+            permission: (permission_type))
+          (preproc_endif
+            (preproc_close)))))))
+
+========================================================================
+Permissions property with semicolon inside #if/#else block
+========================================================================
+codeunit 50000 MyCU {
+    Permissions = tabledata Foo = d,
+                  tabledata Bar = d
+#if not CLEAN27APP
+                  ,
+                  tabledata "Old Table" = d;
+#else
+                  ,
+                  tabledata "New Table" = d;
+#endif
+}
+------------------------------------------------------------------------
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (property
+      name: (property_name)
+      value: (tabledata_permission_list
+        (tabledata_permission
+          table_name: (identifier)
+          permission: (permission_type))
+        (tabledata_permission
+          table_name: (identifier)
+          permission: (permission_type))
+        (preproc_conditional_permissions
+          (preproc_if
+            (preproc_open)
+            condition: (preproc_not_expression
+              (identifier)))
+          (tabledata_permission
+            table_name: (quoted_identifier)
+            permission: (permission_type))
+          (preproc_else)
+          (tabledata_permission
+            table_name: (quoted_identifier)
+            permission: (permission_type))
+          (preproc_endif
+            (preproc_close)))))))

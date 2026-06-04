@@ -1,0 +1,15 @@
+==========
+Includes
+==========
+
+|0000
+
+~projects/library/check-rom.tal
+
+---
+
+(program
+  (memory_execution
+    (absolute_pad_operation
+      (number)))
+  (include))

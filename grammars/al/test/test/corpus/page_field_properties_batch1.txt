@@ -1,0 +1,128 @@
+===========
+First batch of Page Field Properties
+===========
+
+page 50000 "Test Page"
+{
+    layout
+    {
+        area(Content)
+        {
+            field(MyField1; "Field 1")
+            {
+                AssistEdit = true;
+                Caption = 'Test Field 1';
+            }
+            
+            field(MyField2; "Field 2")
+            {
+                ColumnSpan = 3;
+                Caption = 'Test Field 2';
+            }
+            
+            field(MyField3; "Field 3")
+            {
+                DrillDown = true;
+                Caption = 'Test Field 3';
+            }
+            
+            field(MyField4; "Field 4")
+            {
+                HideValue = false;
+                Caption = 'Test Field 4';
+            }
+            
+            field(MyField5; "Field 5")
+            {
+                Importance = Additional;
+                Caption = 'Test Field 5';
+            }
+            
+            field(ComplexField; Amount)
+            {
+                // Test all new properties together
+                AssistEdit = true;
+                ColumnSpan = 2;
+                DrillDown = true;
+                HideValue = false;
+                Importance = Promoted;
+            }
+        }
+    }
+}
+
+---
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (string_literal)))
+        (page_field
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (integer))
+          (property
+            name: (property_name)
+            value: (string_literal)))
+        (page_field
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (string_literal)))
+        (page_field
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (string_literal)))
+        (page_field
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal)))
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (comment)
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (integer))
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (identifier)))))))

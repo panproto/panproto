@@ -1,0 +1,67 @@
+============================================
+comment
+============================================
+
+; just comment
+
+----
+
+(source_file (comment))
+
+============================================
+empty circuit
+============================================
+
+circuit C1 :
+
+----
+
+(source_file
+  (circuit (identifier)))
+
+============================================
+empty module
+============================================
+
+circuit C1 :
+  module M1 :
+
+----
+
+(source_file
+  (circuit (identifier)
+    (module (identifier))))
+
+============================================
+module with ios
+============================================
+
+circuit C1 :
+  module M1 :
+    input clk : Clock
+    input addr : UInt<11>
+    output data : UInt<32>
+
+----
+
+(source_file
+  (circuit
+	(identifier)
+	(module
+	  (identifier)
+	  (port
+		(dir)
+		(identifier)
+		(type))
+	  (port
+		(dir)
+		(identifier)
+		(type
+		  (number
+			(number))))
+	  (port
+		(dir)
+		(identifier)
+		(type
+		  (number
+			(number)))))))

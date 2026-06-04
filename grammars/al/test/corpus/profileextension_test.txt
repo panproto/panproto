@@ -1,0 +1,111 @@
+================================================================================
+Basic profile extension
+================================================================================
+
+profileextension BlankExt extends BLANK
+{
+    Enabled = false;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (profileextension_declaration
+    (profileextension_keyword)
+    object_name: (identifier)
+    (extends_keyword)
+    base_object: (identifier)
+    (property
+      name: (property_name)
+      value: (boolean))))
+
+================================================================================
+Profile extension with namespace
+================================================================================
+
+namespace System.Environment.Configuration;
+
+profileextension BlankExt extends BLANK
+{
+    Enabled = false;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (namespace_declaration
+    (namespace_keyword)
+    name: (namespace_name
+      (identifier)
+      (identifier)
+      (identifier)))
+  (profileextension_declaration
+    (profileextension_keyword)
+    object_name: (identifier)
+    (extends_keyword)
+    base_object: (identifier)
+    (property
+      name: (property_name)
+      value: (boolean))))
+
+================================================================================
+Profile extension with multiple properties
+================================================================================
+
+profileextension "My Profile Extension" extends "Business Manager"
+{
+    Caption = 'Custom Business Manager';
+    Enabled = true;
+    Description = 'Extended profile for business managers';
+    Promoted = true;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (profileextension_declaration
+    (profileextension_keyword)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (boolean))))
+
+================================================================================
+Profile extension with role center
+================================================================================
+
+profileextension MyExt extends "Accountant"
+{
+    RoleCenter = 9001;
+    Customizations = MyCustomization;
+    ProfileDescription = 'Extended accountant profile';
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (profileextension_declaration
+    (profileextension_keyword)
+    object_name: (identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (integer))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))))

@@ -1,0 +1,49 @@
+================================================================================
+Lambda: Simple
+================================================================================
+
+@() 1
+@() 1+1
+@(x) 2
+a = @(x,~) 3
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (lambda
+    (number))
+  (lambda
+    (binary_operator
+      (number)
+      (number)))
+  (lambda
+    (arguments
+      (identifier))
+    (number))
+  (assignment
+    (identifier)
+    (lambda
+      (arguments
+        (identifier)
+        (ignored_argument))
+      (number))))
+
+================================================================================
+Lambda: Handle
+================================================================================
+
+a = @sin
+b = @math.sin
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (assignment
+    (identifier)
+    (handle_operator
+      (identifier)))
+  (assignment
+    (identifier)
+    (handle_operator
+      (identifier)
+      (identifier))))

@@ -1,0 +1,75 @@
+================================================================================
+Test attribute preproc split procedure
+================================================================================
+
+table 50000 "Test"
+{
+    var
+        Config: Record "Config";
+
+    [BusinessEvent(false, false)]
+#if CLEAN25
+    procedure OnBeforeAction(var Rec: Record "Test"; var IsHandled: Boolean)
+#else  
+    procedure OnBeforeAction(var Rec: Record "Test")
+#endif
+    begin
+        // Event
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (record_type
+            reference: (quoted_identifier)))))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (boolean)
+            (boolean)))))
+    (preproc_split_procedure
+      (preproc_if
+        (preproc_open)
+        condition: (identifier))
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier))))
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (preproc_else)
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier)))))
+      (preproc_endif
+        (preproc_close))
+      (code_block
+        (begin_keyword)
+        (comment)
+        (end_keyword)))))

@@ -1,0 +1,145 @@
+================================================================================
+Switch: Simple
+================================================================================
+
+switch lower(method)
+  case 'cubic'
+    disp('Method is cubic')
+  case 5
+    disp('Method is nearest')
+  otherwise
+    disp('Unknown method.')
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (switch_statement
+    (function_call
+      (identifier)
+      (arguments
+        (identifier)))
+    (case_clause
+      (string
+        (string_content))
+      (block
+        (function_call
+          (identifier)
+          (arguments
+            (string
+              (string_content))))))
+    (case_clause
+      (number)
+      (block
+        (function_call
+          (identifier)
+          (arguments
+            (string
+              (string_content))))))
+    (otherwise_clause
+      (block
+        (function_call
+          (identifier)
+          (arguments
+            (string
+              (string_content))))))))
+
+================================================================================
+Switch: Multiple Matches
+================================================================================
+
+switch lower(method)
+  case {'linear', 'bilinear'}
+    disp('Method is linear')
+  otherwise
+    disp('Unknown method.')
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (switch_statement
+    (function_call
+      (identifier)
+      (arguments
+        (identifier)))
+    (case_clause
+      (cell
+        (row
+          (string
+            (string_content))
+          (string
+            (string_content))))
+      (block
+        (function_call
+          (identifier)
+          (arguments
+            (string
+              (string_content))))))
+    (otherwise_clause
+      (block
+        (function_call
+          (identifier)
+          (arguments
+            (string
+              (string_content))))))))
+
+================================================================================
+Switch: Inline
+================================================================================
+
+switch i case 1, func; case 2, func; otherwise func; end
+switch i, case 1, func; case 2, func; otherwise, func; end
+switch i,, case 1,, func; case 2, func; otherwise,, func; end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (switch_statement
+    (identifier)
+    (case_clause
+      (number)
+      (block
+        (command
+          (command_name))))
+    (case_clause
+      (number)
+      (block
+        (command
+          (command_name))))
+    (otherwise_clause
+      (block
+        (command
+          (command_name)))))
+  (switch_statement
+    (identifier)
+    (case_clause
+      (number)
+      (block
+        (command
+          (command_name))))
+    (case_clause
+      (number)
+      (block
+        (command
+          (command_name))))
+    (otherwise_clause
+      (block
+        (command
+          (command_name)))))
+  (switch_statement
+    (identifier)
+    (case_clause
+      (number)
+      (block
+        (command
+          (command_name))))
+    (case_clause
+      (number)
+      (block
+        (command
+          (command_name))))
+    (otherwise_clause
+      (block
+        (command
+          (command_name))))))

@@ -1,0 +1,53 @@
+========================================
+comment: start of line
+========================================
+
+# Foo
+
+---
+
+(file
+  (comment))
+
+========================================
+comment: no argument
+========================================
+
+bind # Foo
+
+---
+
+(file
+  (ERROR
+    (command))
+  (comment))
+
+========================================
+comment: missing argument
+========================================
+
+bind a # Foo
+
+---
+
+(file
+  (ERROR
+    (command))
+  (comment))
+
+========================================
+comment: end of line
+========================================
+
+bind a send-keys a # Foo
+
+---
+
+(file
+  (bind_key_directive
+    (command)
+    (key)
+    (send_keys_directive
+      (command)
+      (key)
+      (comment))))

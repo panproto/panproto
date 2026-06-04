@@ -1,0 +1,144 @@
+===
+annotation/deprecationSuperMethod.pkl
+===
+
+open class Foo {
+  @Deprecated
+  function bar() = 40
+
+  @Deprecated { message="Use only Foo#qux" }
+  function baz() = "baz"
+
+  function qux() = 0
+}
+
+class Bar extends Foo {
+  function bar() = super.bar() + 2
+  function baz() = super.baz() + " was called"
+  function qux() = super.qux() - 1
+}
+
+barCall = new Bar {}.bar()
+bazCall = new Bar {}.baz()
+quxCall = new Bar {}.qux()
+
+barCall2ShouldNotWarn = new Bar {}.bar()
+bazCall2ShouldNotWarn = new Bar {}.baz()
+
+---
+
+(module
+  (clazz
+    (modifier)
+    (identifier)
+    (classBody
+      (classMethod
+        (annotation
+          (qualifiedIdentifier
+            (identifier)))
+        (methodHeader
+          (identifier)
+          (parameterList))
+        (intLiteralExpr))
+      (classMethod
+        (annotation
+          (qualifiedIdentifier
+            (identifier))
+          (objectBody
+            (objectProperty
+              (identifier)
+              (slStringLiteralExpr
+                (slStringLiteralPart)))))
+        (methodHeader
+          (identifier)
+          (parameterList))
+        (slStringLiteralExpr
+          (slStringLiteralPart)))
+      (classMethod
+        (methodHeader
+          (identifier)
+          (parameterList))
+        (intLiteralExpr))))
+  (clazz
+    (identifier)      (classExtendsClause
+      (qualifiedIdentifier
+        (identifier)))
+    (classBody
+      (classMethod
+        (methodHeader
+          (identifier)
+          (parameterList))
+        (additiveExpr
+          (superAccessExpr
+            (identifier)
+            (argumentList))
+          (intLiteralExpr)))
+      (classMethod
+        (methodHeader
+          (identifier)
+          (parameterList))
+        (additiveExpr
+          (superAccessExpr
+            (identifier)
+            (argumentList))
+          (slStringLiteralExpr
+            (slStringLiteralPart))))
+      (classMethod
+        (methodHeader
+          (identifier)
+          (parameterList))
+        (additiveExpr
+          (superAccessExpr
+            (identifier)
+            (argumentList))
+          (intLiteralExpr)))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody))
+      (identifier)
+      (argumentList)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody))
+      (identifier)
+      (argumentList)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody))
+      (identifier)
+      (argumentList)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody))
+      (identifier)
+      (argumentList)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody))
+      (identifier)
+      (argumentList))))

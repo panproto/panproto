@@ -1,0 +1,135 @@
+================================================================================
+OptionCaption property with Comment parameter support
+================================================================================
+
+table 123 "Test Table"
+{
+    fields
+    {
+        field(1; "Test Option Field"; Option)
+        {
+            Caption = 'Test Option Field';
+            OptionCaption = ' ,Option1,Option2,Option3';
+            OptionMembers = " ",Option1,Option2,Option3;
+        }
+        field(2; "Complex Option Field"; Option)
+        {
+            Caption = 'Complex Option Field';
+            OptionCaption = ' ,Equally,By Amount,By Weight,By Volume', Comment = 'Translation note: Please use Search TM to see how terms are translated';
+            OptionMembers = " ",Equally,"By Amount","By Weight","By Volume";
+        }
+        field(3; "Comment Case Variations"; Option)
+        {
+            Caption = 'Comment Case Variations';
+            OptionCaption = 'Option1,Option2', comment = 'Lowercase comment parameter';
+            OptionMembers = Option1,Option2;
+        }
+        field(4; "COMMENT Uppercase"; Option)
+        {
+            Caption = 'COMMENT Uppercase';
+            OptionCaption = 'Value1,Value2', COMMENT = 'UPPERCASE COMMENT PARAMETER';
+            OptionMembers = Value1,Value2;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (option_type))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (identifier))
+            (option_member
+              (identifier))
+            (option_member
+              (identifier)))))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (option_type))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (caption_value
+            (string_literal)
+            (property_name)
+            (string_literal)))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (identifier))
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (quoted_identifier)))))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (option_type))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (caption_value
+            (string_literal)
+            (property_name)
+            (string_literal)))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (identifier))
+            (option_member
+              (identifier)))))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (option_type))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (caption_value
+            (string_literal)
+            (property_name)
+            (string_literal)))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (identifier))
+            (option_member
+              (identifier))))))))

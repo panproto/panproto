@@ -1,0 +1,41 @@
+========================================================================
+ControlAddIn with event declarations
+========================================================================
+
+controladdin MyAddIn
+{
+    event OnReady();
+    event OnData(Data: Text);
+    procedure Initialize(Data: Text)
+    begin
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (controladdin_declaration
+    (controladdin_keyword)
+    object_name: (identifier)
+    (event_declaration
+      (event_keyword)
+      name: (identifier))
+    (event_declaration
+      (event_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (text_type)))))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (text_type))))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))

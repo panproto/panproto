@@ -1,0 +1,241 @@
+================================================================================
+Key with MaintainSQLIndex property
+================================================================================
+
+table 50100 "Warehouse Request Test"
+{
+    keys
+    {
+        key(PK; "Type", "Location Code", "Source Type")
+        {
+            Clustered = true;
+        }
+        key(Key2; "Source Type", "Source Subtype", "Source No.")
+        {
+            MaintainSQLIndex = false;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (keys_section
+      (keys_keyword)
+      (key_declaration
+        (key_keyword)
+        name: (identifier)
+        fields: (field_list
+          (quoted_identifier)
+          (quoted_identifier)
+          (quoted_identifier))
+        (property
+          name: (property_name)
+          value: (boolean)))
+      (key_declaration
+        (key_keyword)
+        name: (identifier)
+        fields: (field_list
+          (quoted_identifier)
+          (quoted_identifier)
+          (quoted_identifier))
+        (property
+          name: (property_name)
+          value: (boolean))))))
+
+================================================================================
+Key properties case variations
+================================================================================
+
+table 50200 "Index Test"
+{
+    keys
+    {
+        key(Key1; "Field1")
+        {
+            maintainsqlindex = true;
+            MaintainSQLIndex = false;
+            MAINTAINSQLINDEX = true;
+        }
+        key(Key2; "Field2")
+        {
+            MaintainSIFTIndex = true;
+            maintainsiftindex = false;
+        }
+        key(Key3; "Field3", "Field4")
+        {
+            SQLIndex = "Field4", "Field3";
+            sqlindex = "Field3";
+        }
+        key(Key4; "Amount")
+        {
+            SumIndexFields = "Amount";
+            sumindexfields = "Amount", "Quantity";
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (keys_section
+      (keys_keyword)
+      (key_declaration
+        (key_keyword)
+        name: (identifier)
+        fields: (field_list
+          (quoted_identifier))
+        (property
+          name: (property_name)
+          value: (boolean))
+        (property
+          name: (property_name)
+          value: (boolean))
+        (property
+          name: (property_name)
+          value: (boolean)))
+      (key_declaration
+        (key_keyword)
+        name: (identifier)
+        fields: (field_list
+          (quoted_identifier))
+        (property
+          name: (property_name)
+          value: (boolean))
+        (property
+          name: (property_name)
+          value: (boolean)))
+      (key_declaration
+        (key_keyword)
+        name: (identifier)
+        fields: (field_list
+          (quoted_identifier)
+          (quoted_identifier))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (quoted_identifier))))
+        (property
+          name: (property_name)
+          value: (quoted_identifier)))
+      (key_declaration
+        (key_keyword)
+        name: (identifier)
+        fields: (field_list
+          (quoted_identifier))
+        (property
+          name: (property_name)
+          value: (quoted_identifier))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (quoted_identifier))))))))
+
+================================================================================
+Complete key with all SQL-related properties
+================================================================================
+
+table 50300 "Full Key Test"
+{
+    keys
+    {
+        key(PrimaryKey; "Entry No.")
+        {
+            Clustered = true;
+            MaintainSQLIndex = true;
+            MaintainSIFTIndex = false;
+        }
+        key(SecondaryKey; "Document Type", "Document No.", "Line No.")
+        {
+            MaintainSQLIndex = false;
+            SQLIndex = "Document No.", "Line No.";
+            IncludedFields = "Amount", "Quantity";
+        }
+        key(SumKey; "Item No.", "Location Code", "Posting Date")
+        {
+            MaintainSIFTIndex = true;
+            SumIndexFields = "Quantity", "Amount", "Cost Amount";
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (keys_section
+      (keys_keyword)
+      (key_declaration
+        (key_keyword)
+        name: (identifier)
+        fields: (field_list
+          (quoted_identifier))
+        (property
+          name: (property_name)
+          value: (boolean))
+        (property
+          name: (property_name)
+          value: (boolean))
+        (property
+          name: (property_name)
+          value: (boolean)))
+      (key_declaration
+        (key_keyword)
+        name: (identifier)
+        fields: (field_list
+          (quoted_identifier)
+          (quoted_identifier)
+          (quoted_identifier))
+        (property
+          name: (property_name)
+          value: (boolean))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (quoted_identifier))))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (quoted_identifier)))))
+      (key_declaration
+        (key_keyword)
+        name: (identifier)
+        fields: (field_list
+          (quoted_identifier)
+          (quoted_identifier)
+          (quoted_identifier))
+        (property
+          name: (property_name)
+          value: (boolean))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (quoted_identifier))))))))

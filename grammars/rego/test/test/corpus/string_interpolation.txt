@@ -1,0 +1,323 @@
+================================================================================
+interpolated string - simple double quote
+================================================================================
+
+package test
+
+msg := $"hello {world}"
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (module
+    (package)
+    (ref
+      (var))
+    (policy
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (assignment)
+          (term
+            (scalar
+              (string
+                (interpolated_string_double
+                  (interpolation
+                    (expr
+                      (term
+                        (ref
+                          (var))))))))))))))
+
+================================================================================
+interpolated string - simple raw
+================================================================================
+
+package test
+
+msg := $`hello {world}`
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (module
+    (package)
+    (ref
+      (var))
+    (policy
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (assignment)
+          (term
+            (scalar
+              (string
+                (interpolated_string_raw
+                  (interpolation
+                    (expr
+                      (term
+                        (ref
+                          (var))))))))))))))
+
+================================================================================
+interpolated string - multiple expressions
+================================================================================
+
+package test
+
+msg := $"result: {x} and {y} and {123}"
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (module
+    (package)
+    (ref
+      (var))
+    (policy
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (assignment)
+          (term
+            (scalar
+              (string
+                (interpolated_string_double
+                  (interpolation
+                    (expr
+                      (term
+                        (ref
+                          (var)))))
+                  (interpolation
+                    (expr
+                      (term
+                        (ref
+                          (var)))))
+                  (interpolation
+                    (expr
+                      (term
+                        (scalar
+                          (number))))))))))))))
+
+================================================================================
+interpolated string - boolean and null
+================================================================================
+
+package test
+
+msg := $"value: {true} or {false} or {null}"
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (module
+    (package)
+    (ref
+      (var))
+    (policy
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (assignment)
+          (term
+            (scalar
+              (string
+                (interpolated_string_double
+                  (interpolation
+                    (expr
+                      (term
+                        (scalar
+                          (boolean)))))
+                  (interpolation
+                    (expr
+                      (term
+                        (scalar
+                          (boolean)))))
+                  (interpolation
+                    (expr
+                      (term
+                        (scalar)))))))))))))
+
+================================================================================
+interpolated string - escape sequences
+================================================================================
+
+package test
+
+msg := $"brace: \{not_interpolated\} newline: \n"
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (module
+    (package)
+    (ref
+      (var))
+    (policy
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (assignment)
+          (term
+            (scalar
+              (string
+                (interpolated_string_double
+                  (interpolation_escape)
+                  (interpolation_escape)
+                  (string_escape))))))))))
+
+================================================================================
+interpolated string - nested interpolation
+================================================================================
+
+package test
+
+msg := $"outer {$"inner {value}"}"
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (module
+    (package)
+    (ref
+      (var))
+    (policy
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (assignment)
+          (term
+            (scalar
+              (string
+                (interpolated_string_double
+                  (interpolation
+                    (expr
+                      (term
+                        (scalar
+                          (string
+                            (interpolated_string_double
+                              (interpolation
+                                (expr
+                                  (term
+                                    (ref
+                                      (var))))))))))))))))))))
+
+================================================================================
+interpolated string - multiline raw
+================================================================================
+
+package test
+
+msg := $`
+line one {x}
+line two {y}
+`
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (module
+    (package)
+    (ref
+      (var))
+    (policy
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (assignment)
+          (term
+            (scalar
+              (string
+                (interpolated_string_raw
+                  (interpolation
+                    (expr
+                      (term
+                        (ref
+                          (var)))))
+                  (interpolation
+                    (expr
+                      (term
+                        (ref
+                          (var))))))))))))))
+
+================================================================================
+interpolated string - nested mixed types
+================================================================================
+
+package test
+
+msg := $`raw with {$"double {x}"} inside`
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (module
+    (package)
+    (ref
+      (var))
+    (policy
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (assignment)
+          (term
+            (scalar
+              (string
+                (interpolated_string_raw
+                  (interpolation
+                    (expr
+                      (term
+                        (scalar
+                          (string
+                            (interpolated_string_double
+                              (interpolation
+                                (expr
+                                  (term
+                                    (ref
+                                      (var))))))))))))))))))))
+
+================================================================================
+interpolated string - expression with operators
+================================================================================
+
+package test
+
+msg := $"sum: {x + y}"
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (module
+    (package)
+    (ref
+      (var))
+    (policy
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (assignment)
+          (term
+            (scalar
+              (string
+                (interpolated_string_double
+                  (interpolation
+                    (expr
+                      (expr_infix
+                        (expr
+                          (term
+                            (ref
+                              (var))))
+                        (infix_operator
+                          (arith_operator))
+                        (expr
+                          (term
+                            (ref
+                              (var))))))))))))))))

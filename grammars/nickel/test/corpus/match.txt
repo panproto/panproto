@@ -1,0 +1,185 @@
+================================================================================
+match (simple)
+================================================================================
+
+let x = 'bar in
+x |> match {
+ 'foo => 1,
+ 'bar => 2,
+}
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (let_expr
+      (let_in_block
+        (let_binding
+          (pattern
+            (ident))
+          (term
+            (uni_term
+              (infix_expr
+                (applicative
+                  (record_operand
+                    (atom
+                      (enum_tag
+                        (raw_enum_tag))))))))))
+      (term
+        (uni_term
+          (infix_expr
+            (infix_expr
+              (applicative
+                (record_operand
+                  (atom
+                    (ident)))))
+            (infix_b_op_6)
+            (infix_expr
+              (applicative
+                (match_expr
+                  (match_branch
+                    (pattern
+                      (enum_pattern
+                        (enum_tag
+                          (raw_enum_tag))))
+                    (term
+                      (uni_term
+                        (infix_expr
+                          (applicative
+                            (record_operand
+                              (atom
+                                (num_literal))))))))
+                  (match_branch
+                    (pattern
+                      (enum_pattern
+                        (enum_tag
+                          (raw_enum_tag))))
+                    (term
+                      (uni_term
+                        (infix_expr
+                          (applicative
+                            (record_operand
+                              (atom
+                                (num_literal)))))))))))))))))
+
+================================================================================
+match (stand-alone with default case)
+================================================================================
+
+match {
+  'Http => true,
+  'Ftp => false,
+  'Sftp => false,
+  _ => false,
+}
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (match_expr
+          (match_branch
+            (pattern
+              (enum_pattern
+                (enum_tag
+                  (raw_enum_tag))))
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom
+                        (bool))))))))
+          (match_branch
+            (pattern
+              (enum_pattern
+                (enum_tag
+                  (raw_enum_tag))))
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom
+                        (bool))))))))
+          (match_branch
+            (pattern
+              (enum_pattern
+                (enum_tag
+                  (raw_enum_tag))))
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom
+                        (bool))))))))
+          (match_branch
+            (pattern)
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom
+                        (bool)))))))))))))
+
+================================================================================
+match (stored in a function)
+================================================================================
+
+let f = match { 'a => 1, 'b => 2 } in
+f 'a
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (let_expr
+      (let_in_block
+        (let_binding
+          (pattern
+            (ident))
+          (term
+            (uni_term
+              (infix_expr
+                (applicative
+                  (match_expr
+                    (match_branch
+                      (pattern
+                        (enum_pattern
+                          (enum_tag
+                            (raw_enum_tag))))
+                      (term
+                        (uni_term
+                          (infix_expr
+                            (applicative
+                              (record_operand
+                                (atom
+                                  (num_literal))))))))
+                    (match_branch
+                      (pattern
+                        (enum_pattern
+                          (enum_tag
+                            (raw_enum_tag))))
+                      (term
+                        (uni_term
+                          (infix_expr
+                            (applicative
+                              (record_operand
+                                (atom
+                                  (num_literal)))))))))))))))
+      (term
+        (uni_term
+          (infix_expr
+            (applicative
+              (applicative
+                (record_operand
+                  (atom
+                    (ident))))
+              (record_operand
+                (atom
+                  (enum_tag
+                    (raw_enum_tag)))))))))))

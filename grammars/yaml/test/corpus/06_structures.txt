@@ -1,0 +1,763 @@
+============================================================================||||
+Indentation Spaces
+============================================================================||||
+  # Leading comment line spaces are
+   # neither content nor indentation.
+
+Not indented:
+ By one space: |
+    By four
+      spaces
+ Flow style: [    # Leading spaces
+   By two,        # in flow style
+  Also by two,    # are neither
+  	Still by two   # content nor
+    ]             # indentation.
+
+----------------------------------------------------------------------------||||
+
+(stream
+ (comment)
+ (comment)
+ (document
+  (block_node
+   (block_mapping
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (block_node
+      (block_mapping
+       (block_mapping_pair
+        (flow_node
+         (plain_scalar
+          (string_scalar)))
+        (block_node
+         (block_scalar)))
+       (block_mapping_pair
+        (flow_node
+         (plain_scalar
+          (string_scalar)))
+        (flow_node
+         (flow_sequence
+          (comment)
+          (flow_node
+           (plain_scalar
+            (string_scalar)))
+          (comment)
+          (flow_node
+           (plain_scalar
+            (string_scalar)))
+          (comment)
+          (flow_node
+           (plain_scalar
+            (string_scalar)))
+          (comment))))
+(comment))))))))
+
+============================================================================||||
+Indentation Indicators
+============================================================================||||
+? a
+: -	b
+  -  -	c
+     - d
+
+----------------------------------------------------------------------------||||
+
+(stream
+ (document
+  (block_node
+   (block_mapping
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (block_node
+      (block_sequence
+       (block_sequence_item
+        (flow_node
+         (plain_scalar
+          (string_scalar))))
+       (block_sequence_item
+        (block_node
+         (block_sequence
+          (block_sequence_item
+           (flow_node
+            (plain_scalar
+             (string_scalar))))
+          (block_sequence_item
+           (flow_node
+            (plain_scalar
+             (string_scalar))))))))))))))
+
+============================================================================||||
+Separation Spaces
+============================================================================||||
+- foo:	 bar
+- - baz
+  -	baz
+
+----------------------------------------------------------------------------||||
+
+(stream
+ (document
+  (block_node
+   (block_sequence
+    (block_sequence_item
+     (block_node
+      (block_mapping
+       (block_mapping_pair
+        (flow_node
+         (plain_scalar
+          (string_scalar)))
+        (flow_node
+         (plain_scalar
+          (string_scalar)))))))
+    (block_sequence_item
+     (block_node
+      (block_sequence
+       (block_sequence_item
+        (flow_node
+         (plain_scalar
+          (string_scalar))))
+       (block_sequence_item
+        (flow_node
+         (plain_scalar
+          (string_scalar)))))))))))
+
+============================================================================||||
+Line Prefixes
+============================================================================||||
+plain: text
+  lines
+quoted: "text
+  	lines"
+block: |
+  text
+   	lines
+
+----------------------------------------------------------------------------||||
+
+(stream
+ (document
+  (block_node
+   (block_mapping
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (plain_scalar
+       (string_scalar))))
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (double_quote_scalar)))
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (block_node
+      (block_scalar)))))))
+
+============================================================================||||
+Empty Lines
+============================================================================||||
+Folding:
+  "Empty line
+
+  as a line feed"
+Chomping: |
+  Clipped empty lines
+
+
+----------------------------------------------------------------------------||||
+
+(stream
+ (document
+  (block_node
+   (block_mapping
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (double_quote_scalar)))
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (block_node
+      (block_scalar)))))))
+
+============================================================================||||
+Line Folding
+============================================================================||||
+>-
+  trimmed
+
+
+
+
+
+
+
+  as
+
+  space
+
+----------------------------------------------------------------------------||||
+
+(stream
+ (document
+  (block_node
+   (block_scalar))))
+
+============================================================================||||
+Block Folding
+============================================================================||||
+>
+  foo
+
+
+
+  	 bar
+
+
+
+  baz
+
+
+----------------------------------------------------------------------------||||
+
+(stream
+ (document
+  (block_node
+   (block_scalar))))
+
+============================================================================||||
+Flow Folding
+============================================================================||||
+"
+
+  foo
+
+
+
+  	 bar
+
+
+
+  baz
+
+"
+
+----------------------------------------------------------------------------||||
+
+(stream
+ (document
+  (flow_node
+   (double_quote_scalar))))
+
+============================================================================||||
+Separated Comment
+============================================================================||||
+key:    # Comment
+
+  value
+----------------------------------------------------------------------------||||
+
+(stream
+ (document
+  (block_node
+   (block_mapping
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (comment)
+     (flow_node
+      (plain_scalar
+       (string_scalar))))))))
+
+============================================================================||||
+Comment Lines
+============================================================================||||
+  # Comment
+
+
+
+
+
+
+----------------------------------------------------------------------------||||
+
+(stream
+ (comment))
+
+============================================================================||||
+Multi-Line Comments
+============================================================================||||
+key:    # Comment
+
+        # lines
+
+  value
+
+
+
+
+----------------------------------------------------------------------------||||
+
+(stream
+ (document
+  (block_node
+   (block_mapping
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (comment)
+     (comment)
+     (flow_node
+      (plain_scalar
+       (string_scalar))))))))
+
+============================================================================||||
+Separation Spaces
+============================================================================||||
+{ first: Sammy, last: Sosa }:
+
+# Statistics:
+  hr:  # Home runs
+     65
+  avg: # Average
+   0.278
+
+----------------------------------------------------------------------------||||
+
+(stream
+ (document
+  (block_node
+   (block_mapping
+    (block_mapping_pair
+     (flow_node
+      (flow_mapping
+       (flow_pair
+        (flow_node
+         (plain_scalar
+          (string_scalar)))
+        (flow_node
+         (plain_scalar
+          (string_scalar))))
+       (flow_pair
+        (flow_node
+         (plain_scalar
+          (string_scalar)))
+        (flow_node
+         (plain_scalar
+          (string_scalar))))))
+     (comment)
+     (block_node
+      (block_mapping
+       (block_mapping_pair
+        (flow_node
+         (plain_scalar
+          (string_scalar)))
+        (comment)
+        (flow_node
+         (plain_scalar
+          (integer_scalar))))
+       (block_mapping_pair
+        (flow_node
+         (plain_scalar
+          (string_scalar)))
+        (comment)
+        (flow_node
+         (plain_scalar
+          (float_scalar)))))))))))
+
+============================================================================||||
+Reserved Directives
+============================================================================||||
+%FOO  bar baz # Should be ignored
+               # with a warning.
+--- "foo"
+
+----------------------------------------------------------------------------||||
+
+(stream
+ (document
+  (reserved_directive
+   (directive_name)
+   (directive_parameter)
+   (directive_parameter))
+  (comment)
+  (comment)
+  (flow_node
+   (double_quote_scalar))))
+
+============================================================================||||
+“YAML” directive
+============================================================================||||
+%YAML 1.3 # Attempt parsing
+           # with a warning
+---
+"foo"
+
+----------------------------------------------------------------------------||||
+
+(stream
+ (document
+  (yaml_directive
+   (yaml_version))
+  (comment)
+  (comment)
+  (flow_node
+   (double_quote_scalar))))
+
+============================================================================||||
+Invalid Repeated YAML directive
+:error
+============================================================================||||
+%YAML 1.2
+%YAML 1.1
+foo
+
+----------------------------------------------------------------------------||||
+
+============================================================================||||
+“TAG” directive
+============================================================================||||
+%TAG !yaml! tag:yaml.org,2002:
+---
+!yaml!str "foo"
+
+----------------------------------------------------------------------------||||
+
+(stream
+ (document
+  (tag_directive
+   (tag_handle)
+   (tag_prefix))
+  (flow_node
+   (tag)
+   (double_quote_scalar))))
+
+============================================================================||||
+Invalid Repeated TAG directive
+:error
+============================================================================||||
+%TAG ! !foo
+%TAG ! !foo
+bar
+
+----------------------------------------------------------------------------||||
+
+============================================================================||||
+Primary Tag Handle
+============================================================================||||
+# Private
+!foo "bar"
+...
+# Global
+%TAG ! tag:example.com,2000:app/
+---
+!foo "bar"
+
+----------------------------------------------------------------------------||||
+
+(stream
+ (comment)
+ (document
+  (flow_node
+   (tag)
+   (double_quote_scalar)))
+ (comment)
+ (document
+  (tag_directive
+   (tag_handle)
+   (tag_prefix))
+  (flow_node
+   (tag)
+   (double_quote_scalar))))
+
+============================================================================||||
+Secondary Tag Handle
+============================================================================||||
+%TAG !! tag:example.com,2000:app/
+---
+!!int 1 - 3 # Interval, not integer
+
+----------------------------------------------------------------------------||||
+
+(stream
+ (document
+  (tag_directive
+   (tag_handle)
+   (tag_prefix))
+  (flow_node
+   (tag)
+   (plain_scalar
+    (string_scalar))))
+ (comment))
+
+============================================================================||||
+Tag Handles
+============================================================================||||
+%TAG !e! tag:example.com,2000:app/
+---
+!e!foo "bar"
+
+----------------------------------------------------------------------------||||
+
+(stream
+(document
+(tag_directive
+(tag_handle)
+(tag_prefix))
+(flow_node
+(tag)
+(double_quote_scalar))))
+
+============================================================================||||
+Local Tag Prefix
+============================================================================||||
+%TAG !m! !my-
+--- # Bulb here
+!m!light fluorescent
+...
+%TAG !m! !my-
+--- # Color here
+!m!light green
+
+----------------------------------------------------------------------------||||
+
+(stream
+(document
+(tag_directive
+(tag_handle)
+(tag_prefix))
+(comment)
+(flow_node
+(tag)
+(plain_scalar
+(string_scalar))))
+(document
+(tag_directive
+(tag_handle)
+(tag_prefix))
+(comment)
+(flow_node
+(tag)
+(plain_scalar
+(string_scalar)))))
+
+============================================================================||||
+Global Tag Prefix
+============================================================================||||
+%TAG !e! tag:example.com,2000:app/
+---
+- !e!foo "bar"
+
+----------------------------------------------------------------------------||||
+
+(stream
+(document
+(tag_directive
+(tag_handle)
+(tag_prefix))
+(block_node
+(block_sequence
+(block_sequence_item
+(flow_node
+(tag)
+(double_quote_scalar)))))))
+
+============================================================================||||
+Node Properties
+============================================================================||||
+!!str &a1 "foo":
+  !!str bar
+&a2 baz : *a1
+
+----------------------------------------------------------------------------||||
+
+(stream
+(document
+(block_node
+(block_mapping
+(block_mapping_pair
+(flow_node
+(tag)
+(anchor
+(anchor_name))
+(double_quote_scalar))
+(flow_node
+(tag)
+(plain_scalar
+(string_scalar))))
+(block_mapping_pair
+(flow_node
+(anchor
+(anchor_name))
+(plain_scalar
+(string_scalar)))
+(flow_node
+(alias
+(alias_name))))))))
+
+============================================================================||||
+Verbatim Tags
+============================================================================||||
+!<tag:yaml.org,2002:str> foo :
+  !<!bar> baz
+
+----------------------------------------------------------------------------||||
+
+(stream
+(document
+(block_node
+(block_mapping
+(block_mapping_pair
+(flow_node
+(tag)
+(plain_scalar
+(string_scalar)))
+(flow_node
+(tag)
+(plain_scalar
+(string_scalar))))))))
+
+============================================================================||||
+Invalid Verbatim Tags
+============================================================================||||
+- !<!> foo
+- !<$:?> bar
+
+----------------------------------------------------------------------------||||
+
+(stream
+(document
+(block_node
+(block_sequence
+(block_sequence_item
+(flow_node
+(tag)
+(plain_scalar
+(string_scalar))))
+(block_sequence_item
+(flow_node
+(tag)
+(plain_scalar
+(string_scalar))))))))
+
+============================================================================||||
+Tag Shorthands
+============================================================================||||
+%TAG !e! tag:example.com,2000:app/
+---
+- !local foo
+- !!str bar
+- !e!tag%21 baz
+
+----------------------------------------------------------------------------||||
+
+(stream
+(document
+(tag_directive
+(tag_handle)
+(tag_prefix))
+(block_node
+(block_sequence
+(block_sequence_item
+(flow_node
+(tag)
+(plain_scalar
+(string_scalar))))
+(block_sequence_item
+(flow_node
+(tag)
+(plain_scalar
+(string_scalar))))
+(block_sequence_item
+(flow_node
+(tag)
+(plain_scalar
+(string_scalar))))))))
+
+============================================================================||||
+Invalid Tag Shorthands
+============================================================================||||
+%TAG !e! tag:example,2000:app/
+---
+- !e! foo
+- !h!bar baz
+
+----------------------------------------------------------------------------||||
+
+(ERROR
+(tag_directive
+(tag_handle)
+(tag_prefix))
+(block_sequence_item))
+
+============================================================================||||
+Non-Specific Tags
+============================================================================||||
+# Assuming conventional resolution:
+- "12"
+- 12
+- ! 12
+
+----------------------------------------------------------------------------||||
+
+(stream
+(comment)
+(document
+(block_node
+(block_sequence
+(block_sequence_item
+(flow_node
+(double_quote_scalar)))
+(block_sequence_item
+(flow_node
+(plain_scalar
+(integer_scalar))))
+(block_sequence_item
+(flow_node
+(tag)
+(plain_scalar
+(integer_scalar))))))))
+
+============================================================================||||
+Node Anchors
+============================================================================||||
+First occurrence: &anchor Value
+Second occurrence: *anchor
+
+----------------------------------------------------------------------------||||
+
+(stream
+ (document
+  (block_node
+   (block_mapping
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (anchor
+       (anchor_name))
+      (plain_scalar
+       (string_scalar))))
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (alias
+       (alias_name))))))))

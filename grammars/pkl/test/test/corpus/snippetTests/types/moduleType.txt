@@ -1,0 +1,58 @@
+===
+types/moduleType.pkl
+===
+
+import "helpers/someModule.pkl"
+
+res1: someModule = new {
+  foo = "foo2"
+}
+
+res2 = res1 is someModule
+
+res3: Listing<someModule> = new {
+  res1
+}
+
+
+---
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (newExpr
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart))))))
+  (classProperty
+    (identifier)
+    (typeTestExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))))
+    (newExpr
+      (objectBody
+        (objectElement
+          (unqualifiedAccessExpr
+            (identifier)))))))

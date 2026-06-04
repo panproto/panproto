@@ -1,0 +1,45 @@
+===============
+Sum Formula Test
+===============
+
+table 50100 "CalcFormula Test"
+{
+    fields
+    {
+        field(1; "Sum Example"; Decimal)
+        {
+            FieldClass = FlowField;
+            CalcFormula = sum("Sales Line".Amount where("Document No." = field("No.")));
+        }
+    }
+}
+
+---
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        (integer)
+        (quoted_identifier)
+        (type_specification
+          (basic_type))
+        (property
+          (property_name)
+          (identifier))
+        (property
+          (property_name)
+          (aggregate_formula
+            (aggregate_function)
+            (calc_field_reference
+              (quoted_identifier)
+              (identifier))
+            (where_clause
+              (where_conditions
+                (where_condition
+                  (quoted_identifier)
+                  (quoted_identifier))))))))))

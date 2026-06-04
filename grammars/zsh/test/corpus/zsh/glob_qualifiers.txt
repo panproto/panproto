@@ -1,0 +1,241 @@
+================================================================================
+Glob qualifier - regular files
+================================================================================
+
+print *(.)
+
+
+(program
+  (command
+    (command_name (word))
+    (zsh_glob
+      (word)
+      (zsh_glob_qualifier))))
+
+================================================================================
+Glob qualifier - directories
+================================================================================
+
+print *(/)
+
+
+(program
+  (command
+    (command_name (word))
+    (zsh_glob
+      (word)
+      (zsh_glob_qualifier))))
+
+================================================================================
+Glob qualifier - executable files
+================================================================================
+
+print *(*)
+
+
+(program
+  (command
+    (command_name (word))
+    (zsh_glob
+      (word)
+      (zsh_glob_qualifier))))
+
+================================================================================
+Glob qualifier - symbolic links
+================================================================================
+
+print *(@)
+
+
+(program
+  (command
+    (command_name (word))
+    (zsh_glob
+      (word)
+      (zsh_glob_qualifier))))
+
+================================================================================
+Glob qualifier - socket files
+================================================================================
+
+print *(=)
+
+
+(program
+  (command
+    (command_name (word))
+    (zsh_glob
+      (word)
+      (zsh_glob_qualifier))))
+
+================================================================================
+Glob qualifier - empty directories
+================================================================================
+
+print *(/^F)
+
+
+(program
+  (command
+    (command_name (word))
+    (zsh_glob
+      (word)
+      (zsh_glob_qualifier))))
+
+================================================================================
+Glob qualifier - files with size
+================================================================================
+
+print *(Lk+10)
+
+
+(program
+  (command
+    (command_name (word))
+    (zsh_glob
+      (word)
+      (zsh_glob_qualifier))))
+
+================================================================================
+Glob qualifier - multiple qualifiers
+================================================================================
+
+print *(.Lm+5)
+
+
+(program
+  (command
+    (command_name (word))
+    (zsh_glob
+      (word)
+      (zsh_glob_qualifier))))
+
+================================================================================
+Glob modifier - tail (basename)
+================================================================================
+
+print *(:t)
+
+
+(program
+  (command
+    (command_name (word))
+    (zsh_glob
+      (word)
+      (zsh_glob_modifier))))
+
+================================================================================
+Glob modifier - head (dirname)
+================================================================================
+
+print *(:h)
+
+
+(program
+  (command
+    (command_name (word))
+    (zsh_glob
+      (word)
+      (zsh_glob_modifier))))
+
+================================================================================
+Glob modifier - remove extension
+================================================================================
+
+print *(:r)
+
+
+(program
+  (command
+    (command_name (word))
+    (zsh_glob
+      (word)
+      (zsh_glob_modifier))))
+
+================================================================================
+Glob modifier - extension only
+================================================================================
+
+print *(:e)
+
+
+(program
+  (command
+    (command_name (word))
+    (zsh_glob
+      (word)
+      (zsh_glob_modifier))))
+
+================================================================================
+Glob modifier - uppercase
+================================================================================
+
+print *(:u)
+
+
+(program
+  (command
+    (command_name (word))
+    (zsh_glob
+      (word)
+      (zsh_glob_modifier))))
+
+================================================================================
+Glob modifier - lowercase
+================================================================================
+
+print *(:l)
+
+
+(program
+  (command
+    (command_name (word))
+    (zsh_glob
+      (word)
+      (zsh_glob_modifier))))
+
+================================================================================
+Glob with qualifier and modifier
+================================================================================
+
+print *(.)(:t)
+
+
+(program
+  (command
+    (command_name (word))
+    (zsh_glob
+      (word)
+      (zsh_glob_qualifier)
+      (zsh_glob_modifier))))
+
+================================================================================
+Glob qualifier with path
+================================================================================
+
+ls glob.tmp/**(.)
+
+
+(program
+  (command
+    (command_name (word))
+    (zsh_glob
+      (word)
+      (zsh_glob_qualifier))))
+
+================================================================================
+Complex glob pattern with qualifiers
+================================================================================
+
+print glob.tmp/**/*~*/dir3(/*|(#e))(/)
+
+(program
+  (command
+    (command_name (word))
+    (word)))
+
+================================================================================
+Glob qualifier in command substitution
+================================================================================
+
+files=$(echo *(.))

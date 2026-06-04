@@ -1,0 +1,47 @@
+========================================================================
+Field header type split across preprocessor branches
+========================================================================
+table 1 T
+{
+    fields
+    {
+#if not CLOUD
+        field(1; Path; Text[2048])
+#else
+        field(1; Path; Text[250])
+#endif
+        {
+            Caption = 'Path';
+        }
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (identifier)
+    (fields_section
+      (fields_keyword)
+      (preproc_split_table_field
+        (preproc_if
+          (preproc_open)
+          (preproc_not_expression
+            (identifier)))
+        (integer)
+        (identifier)
+        (type_specification
+          (text_type
+            (integer)))
+        (preproc_else)
+        (integer)
+        (identifier)
+        (type_specification
+          (text_type
+            (integer)))
+        (preproc_endif
+          (preproc_close))
+        (property
+          (property_name)
+          (string_literal))))))

@@ -1,0 +1,492 @@
+==============
+Function application
+==============
+
+#check f x y z
+
+---
+
+(module
+  (check
+    term: (app
+      fn: (app
+        fn: (app
+          fn: (identifier)
+          arg: (identifier))
+        arg: (identifier))
+      arg: (identifier))))
+
+==============
+Projection
+==============
+
+#check foo.fst
+
+---
+
+(module
+  (check
+    term: (identifier)))
+
+==============
+Projection on parens
+==============
+
+#check (f x).fst
+
+---
+
+(module
+  (check
+    term: (proj
+      term: (paren
+        (app
+          fn: (identifier)
+          arg: (identifier)))
+      field: (identifier))))
+
+==============
+Numeric projection
+==============
+
+#check pair.1
+
+---
+
+(module
+  (check
+    term: (proj
+      term: (identifier)
+      field: (num_lit))))
+
+==============
+Arrow type
+==============
+
+#check Nat → Nat
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+ASCII arrow type
+==============
+
+#check Nat -> Nat -> Nat
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (binary_op
+        lhs: (identifier)
+        rhs: (identifier)))))
+
+==============
+Addition
+==============
+
+#check x + y
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+Precedence: add over mul
+==============
+
+#check a + b * c
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (binary_op
+        lhs: (identifier)
+        rhs: (identifier)))))
+
+==============
+Left-associative add
+==============
+
+#check a + b + c
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (binary_op
+        lhs: (identifier)
+        rhs: (identifier))
+      rhs: (identifier))))
+
+==============
+Right-associative pow
+==============
+
+#check a ^ b ^ c
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (binary_op
+        lhs: (identifier)
+        rhs: (identifier)))))
+
+==============
+Iff
+==============
+
+#check P ↔ Q
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+Comparison
+==============
+
+#check x ≤ y
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+Membership
+==============
+
+#check x ∈ s
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+Negation
+==============
+
+#check ¬ p
+
+---
+
+(module
+  (check
+    term: (unary_op
+      rhs: (identifier))))
+
+==============
+Hole
+==============
+
+#check _
+
+---
+
+(module
+  (check
+    term: (hole)))
+
+==============
+Synthetic hole
+==============
+
+#check ?_
+
+---
+
+(module
+  (check
+    term: (synth_hole)))
+
+==============
+Named hole
+==============
+
+#check ?h
+
+---
+
+(module
+  (check
+    term: (named_hole
+      (identifier))))
+
+==============
+Type universe
+==============
+
+#check Type u
+
+---
+
+(module
+  (check
+    term: (type_const
+      (identifier))))
+
+==============
+Type star
+==============
+
+#check Type*
+
+---
+
+(module
+  (check
+    term: (type_const)))
+
+==============
+Anonymous constructor
+==============
+
+#check ⟨1, 2, x⟩
+
+---
+
+(module
+  (check
+    term: (anon_ctor
+      (num_lit)
+      (num_lit)
+      (identifier))))
+
+==============
+List literal
+==============
+
+#check [1, 2, 3]
+
+---
+
+(module
+  (check
+    term: (list_lit
+      (num_lit)
+      (num_lit)
+      (num_lit))))
+
+==============
+Parenthesized
+==============
+
+#check (x + y)
+
+---
+
+(module
+  (check
+    term: (paren
+      (binary_op
+        lhs: (identifier)
+        rhs: (identifier)))))
+
+==============
+Type ascription
+==============
+
+#check (1 : Nat)
+
+---
+
+(module
+  (check
+    term: (paren
+      (num_lit)
+      type: (identifier))))
+
+==============
+Lambda
+==============
+
+#check fun x => x
+
+---
+
+(module
+  (check
+    term: (fun
+      (binders
+        (identifier))
+      body: (identifier))))
+
+==============
+Lambda with type
+==============
+
+#check fun (x : Nat) => x + 1
+
+---
+
+(module
+  (check
+    term: (fun
+      (binders
+        (explicit_binder
+          name: (identifier)
+          type: (identifier)))
+      body: (binary_op
+        lhs: (identifier)
+        rhs: (num_lit)))))
+
+==============
+Lambda chained
+==============
+
+#check fun x => fun y => x + y
+
+---
+
+(module
+  (check
+    term: (fun
+      (binders
+        (identifier))
+      body: (fun
+        (binders
+          (identifier))
+        body: (binary_op
+          lhs: (identifier)
+          rhs: (identifier))))))
+
+==============
+Forall
+==============
+
+#check ∀ x : Nat, x = x
+
+---
+
+(module
+  (check
+    term: (forall
+      (binders
+        (identifier))
+      type: (identifier)
+      body: (binary_op
+        lhs: (identifier)
+        rhs: (identifier)))))
+
+==============
+Let
+==============
+
+#check let x := 1; x + 1
+
+---
+
+(module
+  (check
+    term: (let
+      name: (identifier)
+      value: (num_lit)
+      body: (binary_op
+        lhs: (identifier)
+        rhs: (num_lit)))))
+
+==============
+Have
+==============
+
+#check have h : P := proof; e
+
+---
+
+(module
+  (check
+    term: (have
+      name: (identifier)
+      type: (identifier)
+      value: (identifier)
+      body: (identifier))))
+
+==============
+If-then-else
+==============
+
+#check if cond then x else y
+
+---
+
+(module
+  (check
+    term: (if_then_else
+      cond: (identifier)
+      then: (identifier)
+      else: (identifier))))
+
+==============
+Match expression
+==============
+
+#check match x with | 0 => 1 | n => n
+
+---
+
+(module
+  (check
+    term: (match
+      scrutinee: (identifier)
+      (match_alt
+        pattern: (num_lit)
+        body: (num_lit))
+      (match_alt
+        pattern: (identifier)
+        body: (identifier)))))
+
+==============
+By term
+==============
+
+#check by sorry
+
+---
+
+(module
+  (check
+    term: (by
+      inline: (sorry))))
+
+==============
+Sorry
+==============
+
+#check sorry
+
+---
+
+(module
+  (check
+    term: (sorry)))

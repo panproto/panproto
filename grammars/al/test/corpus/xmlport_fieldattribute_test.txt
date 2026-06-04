@@ -1,0 +1,255 @@
+================================================================================
+XMLPort with fieldattribute elements
+================================================================================
+
+xmlport 50100 "Test XMLPort"
+{
+    Direction = Export;
+    Format = Xml;
+    
+    schema
+    {
+        tableelement(Customer; Customer)
+        {
+            fieldattribute(CustomerNo; Customer."No.")
+            {
+            }
+            
+            fieldattribute(CustomerName; Customer.Name)
+            {
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (schema_section
+      (schema_keyword)
+      (xmlport_element
+        name: (identifier)
+        source: (identifier)
+        (xmlport_attribute
+          name: (identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (quoted_identifier)))
+        (xmlport_attribute
+          name: (identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (identifier)))))))
+
+================================================================================
+XMLPort with fieldattribute and properties
+================================================================================
+
+xmlport 50101 "Export Setup"
+{
+    Direction = Export;
+    Format = Xml;
+    
+    schema
+    {
+        tableelement(integrationTableMapping; "Integration Table Mapping")
+        {
+            AutoSave = false;
+            AutoUpdate = false;
+            XmlName = 'IntegrationTableMapping';
+            
+            fieldattribute(IntegrationTableMapping_Name; integrationTableMapping.Name)
+            {
+            }
+            
+            fieldattribute(IntegrationTableMapping_TableID; integrationTableMapping."Table ID")
+            {
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (schema_section
+      (schema_keyword)
+      (xmlport_element
+        name: (identifier)
+        source: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (boolean))
+        (property
+          name: (property_name)
+          value: (boolean))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (xmlport_attribute
+          name: (identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (identifier)))
+        (xmlport_attribute
+          name: (identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (quoted_identifier)))))))
+
+================================================================================
+Nested XMLPort elements with fieldattribute
+================================================================================
+
+xmlport 50102 "Complex Export"
+{
+    schema
+    {
+        textelement(root)
+        {
+            XmlName = 'Root';
+            
+            tableelement(SalesHeader; "Sales Header")
+            {
+                fieldattribute(DocNo; SalesHeader."No.")
+                {
+                }
+                
+                tableelement(SalesLine; "Sales Line")
+                {
+                    LinkFields = "Document No." = FIELD("No.");
+                    
+                    fieldattribute(LineNo; SalesLine."Line No.")
+                    {
+                    }
+                    
+                    fieldattribute(ItemNo; SalesLine."No.")
+                    {
+                    }
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (schema_section
+      (schema_keyword)
+      (xmlport_element
+        name: (identifier)
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (xmlport_element
+          name: (identifier)
+          source: (quoted_identifier)
+          (xmlport_attribute
+            name: (identifier)
+            source: (member_expression
+              object: (identifier)
+              member: (quoted_identifier)))
+          (xmlport_element
+            name: (identifier)
+            source: (quoted_identifier)
+            (property
+              name: (property_name)
+              value: (property_expression
+                (comparison_expression
+                  left: (quoted_identifier)
+                  operator: (comparison_operator)
+                  right: (call_expression
+                    function: (identifier)
+                    arguments: (argument_list
+                      (quoted_identifier))))))
+            (xmlport_attribute
+              name: (identifier)
+              source: (member_expression
+                object: (identifier)
+                member: (quoted_identifier)))
+            (xmlport_attribute
+              name: (identifier)
+              source: (member_expression
+                object: (identifier)
+                member: (quoted_identifier)))))))))
+
+================================================================================
+XMLPort fieldattribute with properties
+================================================================================
+
+xmlport 50103 "Field Attribute Properties"
+{
+    schema
+    {
+        tableelement(Item; Item)
+        {
+            fieldattribute(ItemNo; Item."No.")
+            {
+                XmlName = 'ItemNumber';
+            }
+            
+            fieldattribute(Description; Item.Description)
+            {
+                XmlName = 'ItemDescription';
+                MinOccurs = Zero;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (schema_section
+      (schema_keyword)
+      (xmlport_element
+        name: (identifier)
+        source: (identifier)
+        (xmlport_attribute
+          name: (identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (quoted_identifier))
+          (property
+            name: (property_name)
+            value: (string_literal)))
+        (xmlport_attribute
+          name: (identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (identifier)))))))

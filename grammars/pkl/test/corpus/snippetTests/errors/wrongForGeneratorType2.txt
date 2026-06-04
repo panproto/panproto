@@ -1,0 +1,37 @@
+===
+errors/wrongForGeneratorType2.pkl
+===
+
+res1 = new Mapping {
+  for (n: Int in List(1, "other", 2)) { [n] = n }
+}
+---
+
+(module
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (forGenerator
+          (typedIdentifier
+            (identifier)
+            (typeAnnotation
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))))
+          (unqualifiedAccessExpr
+            (identifier)
+            (argumentList
+              (intLiteralExpr)
+              (slStringLiteralExpr
+                (slStringLiteralPart))
+              (intLiteralExpr)))
+          (objectBody
+            (objectEntry
+              (unqualifiedAccessExpr
+                (identifier))
+              (unqualifiedAccessExpr
+                (identifier)))))))))

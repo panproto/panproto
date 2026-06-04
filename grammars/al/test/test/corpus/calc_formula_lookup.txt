@@ -1,0 +1,74 @@
+==================
+Lookup Formula Test
+==================
+
+table 50100 "CalcFormula Test"
+{
+    fields
+    {
+        field(1; "Simple Lookup"; Text[100])
+        {
+            FieldClass = FlowField;
+            CalcFormula = lookup(Customer.Name where("No." = field("No.")));
+        }
+        field(2; "Complex Lookup"; Text[100])
+        {
+            FieldClass = FlowField;
+            CalcFormula = lookup(Customer.Name where("No." = field("No."),
+                                                    "Country Code" = const('US')));
+        }
+    }
+}
+
+---
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        (integer)
+        (quoted_identifier)
+        (type_specification
+          (text_type
+            (integer)))
+        (property
+          (property_name)
+          (identifier))
+        (property
+          (property_name)
+          (lookup_formula
+            (calc_field_reference
+              (identifier)
+              (identifier))
+            (where_clause
+              (where_conditions
+                (where_condition
+                  (quoted_identifier)
+                  (quoted_identifier)))))))
+      (field_declaration
+        (integer)
+        (quoted_identifier)
+        (type_specification
+          (text_type
+            (integer)))
+        (property
+          (property_name)
+          (identifier))
+        (property
+          (property_name)
+          (lookup_formula
+            (calc_field_reference
+              (identifier)
+              (identifier))
+            (where_clause
+              (where_conditions
+                (where_condition
+                  (quoted_identifier)
+                  (quoted_identifier))
+                (where_condition
+                  (quoted_identifier)
+                  (string_literal))))))))))

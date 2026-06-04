@@ -1,0 +1,14 @@
+===
+modules/filename with spaces 2.pkl
+===
+
+otherFile = import("filename with spaces.pkl")
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (importExpr
+      (stringConstant
+        (slStringLiteralPart)))))

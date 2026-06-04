@@ -1,0 +1,25 @@
+===
+objects/implicitReceiver4.pkl
+===
+
+foo {
+  bar {
+    y = x + 3
+  }
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (objectBody
+          (objectProperty
+            (identifier)
+            (additiveExpr
+              (unqualifiedAccessExpr
+                (identifier))
+              (intLiteralExpr))))))))

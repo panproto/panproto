@@ -1,0 +1,31 @@
+===
+basic/typeResolution1.pkl
+===
+
+open module typeResolution1
+
+class Person1 { name = "person1" }
+
+p1: Person1
+---
+
+(module
+  (moduleHeader
+    (moduleClause
+
+      (modifier)
+      (qualifiedIdentifier
+        (identifier))))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))))

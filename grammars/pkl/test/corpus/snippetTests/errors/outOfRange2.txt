@@ -1,0 +1,17 @@
+===
+errors/outOfRange2.pkl
+===
+
+res1 = "abc".substring(2, 1)
+---
+
+(module
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (slStringLiteralExpr
+        (slStringLiteralPart))
+      (identifier)
+      (argumentList
+        (intLiteralExpr)
+        (intLiteralExpr)))))

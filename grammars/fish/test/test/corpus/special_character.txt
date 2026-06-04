@@ -1,0 +1,31 @@
+================================================================================
+Special Character - bracket
+================================================================================
+
+echo [
+echo ]
+echo test]
+echo [test]
+echo test[]
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (concatenation
+      (word)))
+  (command
+    name: (word)
+    argument: (concatenation
+      (word)))
+  (command
+    name: (word)
+    argument: (concatenation
+      (word))))

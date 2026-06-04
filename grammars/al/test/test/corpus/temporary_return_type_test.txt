@@ -1,0 +1,213 @@
+================================================================================
+Procedure with temporary return type
+================================================================================
+
+codeunit 50100 "Prepare Sales Line For Copying"
+{
+    procedure GetPreparedLine(): Record "Sales Line" temporary
+    begin
+        exit(TempGlobalPreparedSalesLine);
+    end;
+
+    var
+        TempGlobalPreparedSalesLine: Record "Sales Line" temporary;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      return_type: (type_specification
+        (record_type
+          reference: (quoted_identifier)
+          (temporary_keyword)))
+      (code_block
+        (begin_keyword)
+        (exit_statement
+          (exit_keyword)
+          return_value: (identifier))
+        (end_keyword)))
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (record_type
+            reference: (quoted_identifier)
+            (temporary_keyword)))))))
+
+================================================================================
+Procedure with named return value and temporary
+================================================================================
+
+codeunit 50200 "Temporary Record Handler"
+{
+    procedure GetTempCustomer() TempCust: Record Customer temporary
+    begin
+        TempCust.Init();
+        TempCust."No." := 'TEMP001';
+        TempCust.Name := 'Temporary Customer';
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      return_value: (identifier)
+      return_type: (type_specification
+        (record_type
+          reference: (identifier)
+          (temporary_keyword)))
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (member_expression
+            object: (identifier)
+            member: (identifier))
+          arguments: (argument_list))
+        (assignment_statement
+          left: (member_expression
+            object: (identifier)
+            member: (quoted_identifier))
+          right: (string_literal))
+        (assignment_statement
+          left: (member_expression
+            object: (identifier)
+            member: (identifier))
+          right: (string_literal))
+        (end_keyword)))))
+
+================================================================================
+Procedure with temporary parameter and return
+================================================================================
+
+codeunit 50300 "Temp Record Processor"
+{
+    procedure ProcessTempRecord(var TempRec: Record "Sales Line" temporary): Record "Sales Header" temporary
+    var
+        TempHeader: Record "Sales Header" temporary;
+    begin
+        TempHeader.Init();
+        TempHeader."No." := TempRec."Document No.";
+        exit(TempHeader);
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier)
+              (temporary_keyword)))))
+      return_type: (type_specification
+        (record_type
+          reference: (quoted_identifier)
+          (temporary_keyword)))
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier)
+              (temporary_keyword)))))
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (member_expression
+            object: (identifier)
+            member: (identifier))
+          arguments: (argument_list))
+        (assignment_statement
+          left: (member_expression
+            object: (identifier)
+            member: (quoted_identifier))
+          right: (member_expression
+            object: (identifier)
+            member: (quoted_identifier)))
+        (exit_statement
+          (exit_keyword)
+          return_value: (identifier))
+        (end_keyword)))))
+
+================================================================================
+Case variations of temporary keyword
+================================================================================
+
+codeunit 50400 "Case Test"
+{
+    procedure GetTemp1(): Record Item TEMPORARY
+    begin
+    end;
+
+    procedure GetTemp2(): Record Item temporary
+    begin  
+    end;
+
+    procedure GetTemp3(): Record Item Temporary
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      return_type: (type_specification
+        (record_type
+          reference: (identifier)
+          (temporary_keyword)))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      return_type: (type_specification
+        (record_type
+          reference: (identifier)
+          (temporary_keyword)))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      return_type: (type_specification
+        (record_type
+          reference: (identifier)
+          (temporary_keyword)))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))

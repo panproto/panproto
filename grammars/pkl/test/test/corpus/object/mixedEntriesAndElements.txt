@@ -1,0 +1,52 @@
+===
+mixedEntriesAndElements
+===
+
+foo {
+  new { name = "" }
+  [2] { name = "" }
+  [computeIndex()] { name = "" }
+  new { name = "" }
+  [1 + 0] { name = "" }
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectElement
+        (newExpr
+          (objectBody
+            (objectProperty
+              (identifier)
+              (slStringLiteralExpr)))))
+      (objectEntry
+        (intLiteralExpr)
+        (objectBody
+          (objectProperty
+            (identifier)
+            (slStringLiteralExpr))))
+      (objectEntry
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList))
+        (objectBody
+          (objectProperty
+            (identifier)
+            (slStringLiteralExpr))))
+      (objectElement
+        (newExpr
+          (objectBody
+            (objectProperty
+              (identifier)
+              (slStringLiteralExpr)))))
+      (objectEntry
+        (additiveExpr
+          (intLiteralExpr)
+          (intLiteralExpr))
+        (objectBody
+          (objectProperty
+            (identifier)
+            (slStringLiteralExpr)))))))

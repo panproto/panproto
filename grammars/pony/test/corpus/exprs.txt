@@ -1,0 +1,281 @@
+=========
+Unary ops
+=========
+
+use "snot" if not badger
+
+---
+
+(source_file
+  (use_statement
+    (string
+      (string_content))
+    (platform_specifier
+      (if_block
+        (block
+          (unary_expression
+            (identifier)))))))
+
+==============
+Array Literals
+==============
+
+use "snot" if [
+  []
+  [
+    1
+    2
+    3
+  ]
+]
+
+---
+
+(source_file
+  (use_statement
+    (string
+      (string_content))
+    (platform_specifier
+      (if_block
+        (block
+          (array_literal
+            (block
+              (array_literal)
+              (array_literal
+                (block
+                  (number)
+                  (number)
+                  (number))))))))))
+
+=======================
+Array Literals In Block
+=======================
+
+primitive Snot
+  fun foo() =>
+    []
+    []
+
+---
+
+(source_file
+  (primitive_definition
+    (identifier)
+    (members
+      (method
+        (identifier)
+        (parameters)
+        (block
+          (array_literal)
+          (array_literal))))))
+
+=======================
+Strings In Block
+=======================
+
+primitive Snot
+  fun foo() =>
+    "foo"
+    "bar"
+
+---
+
+(source_file
+  (primitive_definition
+    (identifier)
+    (members
+      (method
+        (identifier)
+        (parameters)
+        (block
+          (string
+            (string_content))
+          (string
+            (string_content)))))))
+
+===================
+Empty Array Literal
+===================
+
+use "" if []
+
+---
+
+(source_file
+  (use_statement
+    (string)
+    (platform_specifier
+      (if_block
+        (block
+          (array_literal))))))
+
+===============
+Array Type Hint
+===============
+
+use "" if [as U8:
+  13
+  12
+]
+
+---
+
+(source_file
+  (use_statement
+    (string)
+    (platform_specifier
+      (if_block
+        (block
+          (array_literal
+            (base_type
+              (identifier))
+            (block
+              (number)
+              (number))))))))
+
+=====================
+Chaining in Arguments
+=====================
+
+primitive Foo
+  fun foo() =>
+    Promises[A].join(
+      [this]
+        .> concat(ps)
+        .values())
+
+---
+
+(source_file
+  (primitive_definition
+    (identifier)
+    (members
+      (method
+        (identifier)
+        (parameters)
+        (block
+          (call_expression
+            (member_expression
+              (generic_expression
+                (identifier)
+                (type_args
+                  (base_type
+                    (identifier))))
+              (identifier))
+            (arguments
+              (chain_expression
+                (array_literal
+                  (block
+                    (this)))
+                (call_expression
+                  (member_expression
+                    (call_expression
+                      (identifier)
+                      (arguments (identifier))
+                    )
+                    (identifier))
+                  (arguments))))))))))
+
+===================
+Block with ffi call
+===================
+
+primitive Foo
+  fun bar() =>
+    let f = Foo.bar()
+    @baz("argument")
+
+---
+
+(source_file
+  (primitive_definition
+    (identifier)
+    (members
+      (method
+        (identifier)
+        (parameters)
+        (block
+          (assignment_expression
+            (variable_declaration
+              (identifier))
+            (block
+              (call_expression
+                (member_expression 
+                  (identifier) 
+                  (identifier))
+                (arguments))))
+          (call_expression
+            (ffi_identifier
+              (identifier))
+            (arguments
+              (string
+                (string_content)))))))))
+
+
+============================================
+Array Literal with Elements on the same Line
+============================================
+
+trait iso T
+
+class iso C1 is T
+class iso C2 is T
+
+primitive Foo
+  fun apply(): Array[T] =>
+    let c1: C1 iso = C1
+    let c2: C2 iso = C2
+    [as T: consume c1; consume c2]
+
+---
+
+(source_file
+  (trait_definition
+    (capability)
+    (identifier))
+  (class_definition
+    (capability)
+    (identifier)
+    (base_type
+      (identifier)))
+  (class_definition
+    (capability)
+    (identifier)
+    (base_type
+      (identifier)))
+  (primitive_definition
+    (identifier)
+    (members
+      (method
+        (identifier)
+        (parameters)
+        (base_type
+          (identifier)
+          (type_args
+            (base_type
+              (identifier))))
+        (block
+          (assignment_expression
+            (variable_declaration
+              (identifier)
+              (iso_type
+                (base_type
+                  (identifier))))
+            (block
+              (identifier)))
+          (assignment_expression
+            (variable_declaration
+              (identifier)
+              (iso_type
+                (base_type
+                  (identifier))))
+            (block
+              (identifier)))
+          (array_literal
+            (base_type
+              (identifier))
+            (block
+              (consume_statement
+                (identifier))
+              (consume_statement
+                (identifier)))))))))

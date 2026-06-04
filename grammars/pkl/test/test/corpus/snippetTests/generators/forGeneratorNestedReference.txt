@@ -1,0 +1,277 @@
+===
+generators/forGeneratorNestedReference.pkl
+===
+
+class Aviary {
+  birds: Listing<Bird>
+}
+
+class Bird {
+  age: Int
+}
+
+function Bird(_age: Int) = new Bird { age = _age }
+
+res1 {
+  for (i in IntSeq(1, 1)) {
+    for (j in 
+      new Aviary {
+        birds {
+          Bird(i)
+        }
+      }.birds
+    ) {
+      j
+    }
+  }
+}
+
+res2 {
+  for (i in IntSeq(1, 1)) {
+    ...new Aviary {
+      birds {
+        Bird(i)
+      }
+    }.birds
+  }
+}
+
+res3 {
+  for (key, _ in Map("hello-there", 5)) {
+    ...myself(new Listing {
+      new Listing {
+        key
+      }
+    })
+  }
+}
+
+res4 {
+  for (key, _ in Map("hello-there", 5)) {
+    ...myself2.apply(new Listing {
+      new Listing {
+        key
+      }
+    })
+  }
+}
+
+function myself(l: Listing<Listing<String>>) = l
+
+local myself2 = (l: Listing<Listing<String>>) -> l
+
+---
+
+(module
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))
+            (typeArgumentList
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))))))))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (classMethod
+    (methodHeader
+      (identifier)
+      (parameterList
+        (typedIdentifier
+          (identifier)
+          (typeAnnotation
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))))))
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (unqualifiedAccessExpr
+            (identifier))))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (forGenerator
+        (typedIdentifier
+          (identifier))
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList
+            (intLiteralExpr)
+            (intLiteralExpr)))
+        (objectBody
+          (forGenerator
+            (typedIdentifier
+              (identifier))
+            (qualifiedAccessExpr
+              (newExpr
+                (declaredType
+                  (qualifiedIdentifier
+                    (identifier)))
+                (objectBody
+                  (objectProperty
+                    (identifier)
+                    (objectBody
+                      (objectElement
+                        (unqualifiedAccessExpr
+                          (identifier)
+                          (argumentList
+                            (unqualifiedAccessExpr
+                              (identifier)))))))))
+              (identifier))
+            (objectBody
+              (objectElement
+                (unqualifiedAccessExpr
+                  (identifier)))))))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (forGenerator
+        (typedIdentifier
+          (identifier))
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList
+            (intLiteralExpr)
+            (intLiteralExpr)))
+        (objectBody
+          (objectSpread
+            (qualifiedAccessExpr
+              (newExpr
+                (declaredType
+                  (qualifiedIdentifier
+                    (identifier)))
+                (objectBody
+                  (objectProperty
+                    (identifier)
+                    (objectBody
+                      (objectElement
+                        (unqualifiedAccessExpr
+                          (identifier)
+                          (argumentList
+                            (unqualifiedAccessExpr
+                              (identifier)))))))))
+              (identifier)))))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (forGenerator
+        (typedIdentifier
+          (identifier))
+        (blankIdentifier)
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList
+            (slStringLiteralExpr
+              (slStringLiteralPart))
+            (intLiteralExpr)))
+        (objectBody
+          (objectSpread
+            (unqualifiedAccessExpr
+              (identifier)
+              (argumentList
+                (newExpr
+                  (declaredType
+                    (qualifiedIdentifier
+                      (identifier)))
+                  (objectBody
+                    (objectElement
+                      (newExpr
+                        (declaredType
+                          (qualifiedIdentifier
+                            (identifier)))
+                        (objectBody
+                          (objectElement
+                            (unqualifiedAccessExpr
+                              (identifier)))))))))))))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (forGenerator
+        (typedIdentifier
+          (identifier))
+        (blankIdentifier)
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList
+            (slStringLiteralExpr
+              (slStringLiteralPart))
+            (intLiteralExpr)))
+        (objectBody
+          (objectSpread
+            (qualifiedAccessExpr
+              (unqualifiedAccessExpr
+                (identifier))
+              (identifier)
+              (argumentList
+                (newExpr
+                  (declaredType
+                    (qualifiedIdentifier
+                      (identifier)))
+                  (objectBody
+                    (objectElement
+                      (newExpr
+                        (declaredType
+                          (qualifiedIdentifier
+                            (identifier)))
+                        (objectBody
+                          (objectElement
+                            (unqualifiedAccessExpr
+                              (identifier)))))))))))))))
+  (classMethod
+    (methodHeader
+      (identifier)
+      (parameterList
+        (typedIdentifier
+          (identifier)
+          (typeAnnotation
+            (declaredType
+              (qualifiedIdentifier
+                (identifier))
+              (typeArgumentList
+                (declaredType
+                  (qualifiedIdentifier
+                    (identifier))
+                  (typeArgumentList
+                    (declaredType
+                      (qualifiedIdentifier
+                        (identifier)))))))))))
+    (unqualifiedAccessExpr
+      (identifier)))
+  (classProperty
+    (modifier)
+    (identifier)
+    (functionLiteralExpr
+      (parameterList
+        (typedIdentifier
+          (identifier)
+          (typeAnnotation
+            (declaredType
+              (qualifiedIdentifier
+                (identifier))
+              (typeArgumentList
+                (declaredType
+                  (qualifiedIdentifier
+                    (identifier))
+                  (typeArgumentList
+                    (declaredType
+                      (qualifiedIdentifier
+                        (identifier))))))))))
+      (unqualifiedAccessExpr
+        (identifier)))))

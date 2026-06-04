@@ -1,0 +1,70 @@
+============
+simple array
+============
+
+const a = ["1", 2, 3];
+
+---
+
+(program
+    (constant_declaration
+        (identifier)
+        (array (string) (number) (number))
+    )
+)
+
+======
+nested
+======
+
+const a = [[1, 2], 3];
+
+---
+
+(program
+    (constant_declaration
+        (identifier)
+        (array 
+            (array (number) (number))
+            (number)
+        )
+    )
+)
+
+==================
+complex expression
+==================
+
+const a = [{b: (c.d[2])}, 3, c.e];
+
+---
+
+(program
+    (constant_declaration
+        (identifier)
+        (array
+            (object
+                (pair (identifier) (parenthesized_expression
+                    (subscript_expression
+                        (member_expression (identifier) (identifier))
+                        (number)
+                    )
+                ))
+            )
+            (number)
+            (member_expression (identifier) (identifier))
+        )
+    )
+)
+
+===========
+empty array
+===========
+
+const a = [];
+
+---
+
+(program
+    (constant_declaration (identifier) (array))
+)

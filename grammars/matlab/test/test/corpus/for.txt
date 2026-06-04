@@ -1,0 +1,235 @@
+================================================================================
+For Statement: Simple
+================================================================================
+
+for i = 1:10
+    1
+end
+for i = colVect'
+  1
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (for_statement
+    (iterator
+      (identifier)
+      (range
+        (number)
+        (number)))
+    (block
+      (number)))
+  (for_statement
+    (iterator
+      (identifier)
+      (postfix_operator
+        (identifier)))
+    (block
+      (number))))
+
+================================================================================
+For Statement: Nested
+================================================================================
+
+for (R = 1:N)
+    for C = 1:N
+        continue
+    end
+    break
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (for_statement
+    (iterator
+      (identifier)
+      (range
+        (number)
+        (identifier)))
+    (block
+      (for_statement
+        (iterator
+          (identifier)
+          (range
+            (number)
+            (identifier)))
+        (block
+          (continue_statement)))
+      (break_statement))))
+
+================================================================================
+For Statement: Single Line
+================================================================================
+
+for S = 1.0: -0.1: 0.0, do_some_task(S), end
+
+for E = eye(N), do_some_task(E), end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (for_statement
+    (iterator
+      (identifier)
+      (range
+        (number)
+        (unary_operator
+          (number))
+        (number)))
+    (block
+      (function_call
+        (identifier)
+        (arguments
+          (identifier)))))
+  (for_statement
+    (iterator
+      (identifier)
+      (function_call
+        (identifier)
+        (arguments
+          (identifier))))
+    (block
+      (function_call
+        (identifier)
+        (arguments
+          (identifier))))))
+
+================================================================================
+ParFor Statement: Simple
+================================================================================
+
+parfor i = 1:3
+    1
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (for_statement
+    (iterator
+      (identifier)
+      (range
+        (number)
+        (number)))
+    (block
+      (number))))
+
+================================================================================
+ParFor Statement: Options
+================================================================================
+
+parfor (i = 1:3, 1)
+    1
+end
+
+parfor (i = 1:3, option())
+    1
+end
+
+parfor (i = 1:3, cluster)
+    1
+end
+
+parfor (i = 1:3, some.cluster)
+    1
+end
+
+parfor (i = 1:3, 'cluster')
+    1
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (for_statement
+    (iterator
+      (identifier)
+      (range
+        (number)
+        (number)))
+    (parfor_options
+      (number))
+    (block
+      (number)))
+  (for_statement
+    (iterator
+      (identifier)
+      (range
+        (number)
+        (number)))
+    (parfor_options
+      (function_call
+        (identifier)))
+    (block
+      (number)))
+  (for_statement
+    (iterator
+      (identifier)
+      (range
+        (number)
+        (number)))
+    (parfor_options
+      (identifier))
+    (block
+      (number)))
+  (for_statement
+    (iterator
+      (identifier)
+      (range
+        (number)
+        (number)))
+    (parfor_options
+      (field_expression
+        (identifier)
+        (identifier)))
+    (block
+      (number)))
+  (for_statement
+    (iterator
+      (identifier)
+      (range
+        (number)
+        (number)))
+    (parfor_options
+      (string
+        (string_content)))
+    (block
+      (number))))
+
+================================================================================
+For Statement: Inline
+================================================================================
+
+for i = 1:10 1; end
+for i = 1:10, 1; end
+for i = 1:10,,,, 1; end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (for_statement
+    (iterator
+      (identifier)
+      (range
+        (number)
+        (number)))
+    (block
+      (number)))
+  (for_statement
+    (iterator
+      (identifier)
+      (range
+        (number)
+        (number)))
+    (block
+      (number)))
+  (for_statement
+    (iterator
+      (identifier)
+      (range
+        (number)
+        (number)))
+    (block
+      (number))))

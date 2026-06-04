@@ -1,0 +1,474 @@
+================================================================================
+subtype indication (subtype mark: identifier)
+================================================================================
+
+procedure P is
+begin
+   A := new T;
+end;
+
+--------------------------------------------------------------------------------
+
+(compilation
+  (compilation_unit
+    (subprogram_body
+      (procedure_specification
+        name: (identifier))
+      (handled_sequence_of_statements
+        (assignment_statement
+          variable_name: (identifier)
+          (expression
+            (term
+              (allocator
+                subtype_mark: (identifier)))))))))
+
+================================================================================
+subtype indication (subtype mark: selected component)
+================================================================================
+
+procedure P is
+begin
+   A := new X.T;
+end;
+
+--------------------------------------------------------------------------------
+
+(compilation
+  (compilation_unit
+    (subprogram_body
+      (procedure_specification
+        name: (identifier))
+      (handled_sequence_of_statements
+        (assignment_statement
+          variable_name: (identifier)
+          (expression
+            (term
+              (allocator
+                subtype_mark: (selected_component
+                  prefix: (identifier)
+                  selector_name: (identifier))))))))))
+
+================================================================================
+subtype indication (subtype mark: attribute reference)
+================================================================================
+
+procedure P is
+begin
+   A := new T'Base;
+end;
+
+--------------------------------------------------------------------------------
+
+(compilation
+  (compilation_unit
+    (subprogram_body
+      (procedure_specification
+        name: (identifier))
+      (handled_sequence_of_statements
+        (assignment_statement
+          variable_name: (identifier)
+          (expression
+            (term
+              (allocator
+                subtype_mark: (identifier)
+                subtype_mark: (tick)
+                subtype_mark: (attribute_designator
+                  (identifier))))))))))
+
+================================================================================
+subtype indication (null exclusion)
+================================================================================
+
+procedure P is
+begin
+   A := new not null T;
+end;
+
+--------------------------------------------------------------------------------
+
+(compilation
+  (compilation_unit
+    (subprogram_body
+      (procedure_specification
+        name: (identifier))
+      (handled_sequence_of_statements
+        (assignment_statement
+          variable_name: (identifier)
+          (expression
+            (term
+              (allocator
+                (null_exclusion)
+                subtype_mark: (identifier)))))))))
+
+================================================================================
+subtype indication (constraint: index constraint)
+================================================================================
+
+procedure P is
+begin
+   A := new T (1 .. 10, 1 .. 20);
+end;
+
+--------------------------------------------------------------------------------
+
+(compilation
+  (compilation_unit
+    (subprogram_body
+      (procedure_specification
+        name: (identifier))
+      (handled_sequence_of_statements
+        (assignment_statement
+          variable_name: (identifier)
+          (expression
+            (term
+              (allocator
+                subtype_mark: (identifier)
+                (index_constraint
+                  (range_g
+                    (term
+                      (numeric_literal))
+                    (term
+                      (numeric_literal)))
+                  (range_g
+                    (term
+                      (numeric_literal))
+                    (term
+                      (numeric_literal))))))))))))
+
+================================================================================
+subtype indication (constraint: discriminant constraint - numeric literal)
+================================================================================
+
+procedure P is
+begin
+   A := new T (100);
+end;
+
+--------------------------------------------------------------------------------
+
+(compilation
+  (compilation_unit
+    (subprogram_body
+      (procedure_specification
+        name: (identifier))
+      (handled_sequence_of_statements
+        (assignment_statement
+          variable_name: (identifier)
+          (expression
+            (term
+              (allocator
+                subtype_mark: (identifier)
+                (discriminant_constraint
+                  (expression
+                    (term
+                      (numeric_literal))))))))))))
+
+================================================================================
+subtype indication (constraint: discriminant constraint - discriminant association)
+================================================================================
+
+procedure P is
+begin
+   A := new T (F => 100);
+end;
+
+--------------------------------------------------------------------------------
+
+(compilation
+  (compilation_unit
+    (subprogram_body
+      (procedure_specification
+        name: (identifier))
+      (handled_sequence_of_statements
+        (assignment_statement
+          variable_name: (identifier)
+          (expression
+            (term
+              (allocator
+                subtype_mark: (identifier)
+                (discriminant_constraint
+                  (discriminant_association
+                    (identifier)
+                    (expression
+                      (term
+                        (numeric_literal)))))))))))))
+
+================================================================================
+subtype indication (constraint: discriminant constraint - identifier)
+================================================================================
+
+procedure P is
+begin
+   A := new T (F);
+end;
+
+--------------------------------------------------------------------------------
+
+(compilation
+  (compilation_unit
+    (subprogram_body
+      (procedure_specification
+        name: (identifier))
+      (handled_sequence_of_statements
+        (assignment_statement
+          variable_name: (identifier)
+          (expression
+            (term
+              (allocator
+                subtype_mark: (identifier)
+                (discriminant_constraint
+                  (expression
+                    (term
+                      name: (identifier))))))))))))
+
+================================================================================
+qualified expression (aggregate: positional array aggregate)
+================================================================================
+
+procedure P is
+begin
+   A := new T'(0, 255, 0);
+end;
+
+--------------------------------------------------------------------------------
+
+(compilation
+  (compilation_unit
+    (subprogram_body
+      (procedure_specification
+        name: (identifier))
+      (handled_sequence_of_statements
+        (assignment_statement
+          variable_name: (identifier)
+          (expression
+            (term
+              (allocator
+                (qualified_expression
+                  subtype_name: (identifier)
+                  (tick)
+                  (positional_array_aggregate
+                    (expression
+                      (term
+                        (numeric_literal)))
+                    (expression
+                      (term
+                        (numeric_literal)))
+                    (expression
+                      (term
+                        (numeric_literal)))))))))))))
+
+================================================================================
+qualified expression (aggregate: record aggregate)
+================================================================================
+
+procedure P is
+begin
+   A := new T'(F => 1);
+end;
+
+--------------------------------------------------------------------------------
+
+(compilation
+  (compilation_unit
+    (subprogram_body
+      (procedure_specification
+        name: (identifier))
+      (handled_sequence_of_statements
+        (assignment_statement
+          variable_name: (identifier)
+          (expression
+            (term
+              (allocator
+                (qualified_expression
+                  subtype_name: (identifier)
+                  (tick)
+                (record_aggregate
+                  (record_component_association_list
+                    (component_choice_list
+                      (identifier))
+                    (expression
+                      (term
+                        (numeric_literal))))))))))))))
+
+================================================================================
+qualified expression (aggregate: named array aggregate)
+================================================================================
+
+procedure P is
+begin
+   A := new T'(1 .. 10 => (1 .. 20 => 0.0));
+end;
+
+--------------------------------------------------------------------------------
+
+(compilation
+  (compilation_unit
+    (subprogram_body
+      (procedure_specification
+        name: (identifier))
+      (handled_sequence_of_statements
+        (assignment_statement
+          variable_name: (identifier)
+          (expression
+            (term
+              (allocator
+                (qualified_expression
+                  subtype_name: (identifier)
+                  (tick)
+                  (named_array_aggregate
+                    (array_component_association
+                      (discrete_choice_list
+                        (discrete_choice
+                          (range_g
+                            (term
+                              (numeric_literal))
+                            (term
+                              (numeric_literal)))))
+                      (expression
+                        (term
+                          (named_array_aggregate
+                            (array_component_association
+                              (discrete_choice_list
+                                (discrete_choice
+                                  (range_g
+                                    (term
+                                      (numeric_literal))
+                                    (term
+                                      (numeric_literal)))))
+                              (expression
+                                (term
+                                  (numeric_literal))))))))))))))))))
+
+================================================================================
+qualified expression (expression: numeric literal)
+================================================================================
+
+procedure P is
+begin
+   A := new T'(55);
+end;
+
+--------------------------------------------------------------------------------
+
+(compilation
+  (compilation_unit
+    (subprogram_body
+      (procedure_specification
+        name: (identifier))
+      (handled_sequence_of_statements
+        (assignment_statement
+          variable_name: (identifier)
+          (expression
+            (term
+              (allocator
+                (qualified_expression
+                  subtype_name: (identifier)
+                  (tick)
+                  (expression
+                    (term
+                      (numeric_literal))))))))))))
+
+================================================================================
+qualified expression (expression: identifier)
+================================================================================
+
+procedure P is
+begin
+   A := new T'(F);
+end;
+
+--------------------------------------------------------------------------------
+
+(compilation
+  (compilation_unit
+    (subprogram_body
+      (procedure_specification
+        name: (identifier))
+      (handled_sequence_of_statements
+        (assignment_statement
+          variable_name: (identifier)
+          (expression
+            (term
+              (allocator
+                (qualified_expression
+                  subtype_name: (identifier)
+                  (tick)
+                  (expression
+                    (term
+                      name: (identifier))))))))))))
+
+================================================================================
+qualified expression (subtype mark: attribute reference)
+================================================================================
+
+procedure P is
+begin
+   A := new T'Base'(5);
+end;
+
+--------------------------------------------------------------------------------
+
+(compilation
+  (compilation_unit
+    (subprogram_body
+      (procedure_specification
+        name: (identifier))
+      (handled_sequence_of_statements
+        (assignment_statement
+          variable_name: (identifier)
+          (expression
+            (term
+              (allocator
+                (qualified_expression
+                  subtype_name: (identifier)
+                  subtype_name: (tick)
+                  subtype_name: (attribute_designator
+                    (identifier))
+                  (tick)
+                  (expression
+                    (term
+                      (numeric_literal))))))))))))
+
+================================================================================
+subpool specification
+================================================================================
+
+procedure P is
+begin
+   A := new (pkg.pool) T;
+   A := new (pkg.pool) T'(55);
+end;
+
+--------------------------------------------------------------------------------
+
+(compilation
+  (compilation_unit
+    (subprogram_body
+      (procedure_specification
+        name: (identifier))
+      (handled_sequence_of_statements
+        (assignment_statement
+          variable_name: (identifier)
+          (expression
+            (term
+              (allocator
+                (subpool_specification
+                  subpool_handle_name: (selected_component
+                    prefix: (identifier)
+                    selector_name: (identifier)))
+                subtype_mark: (identifier)))))
+        (assignment_statement
+          variable_name: (identifier)
+          (expression
+            (term
+              (allocator
+                (subpool_specification
+                  subpool_handle_name: (selected_component
+                    prefix: (identifier)
+                    selector_name: (identifier)))
+                (qualified_expression
+                  subtype_name: (identifier)
+                  (tick)
+                  (expression
+                    (term
+                      (numeric_literal))))))))))))

@@ -1,0 +1,477 @@
+================================================================================
+simple codeblock
+================================================================================
+>
+  1.1
+<   
+
+block2:
+>
+  2.1
+<   foo
+
+block3:
+>
+  3.1
+<
+
+  text
+
+
+--------------------------------------------------------------------------------
+
+(help_file
+  (block
+    (line
+      (codeblock
+        (code
+          (line)))))
+  (block
+    (line
+      (word))
+    (line
+      (codeblock
+        (code
+          (line)))))
+  (block
+    (line
+      (word)))
+  (block
+    (line
+      (word))
+    (line
+      (codeblock
+        (code
+          (line)))))
+  (block
+    (line
+      (word))))
+
+================================================================================
+codeblock with text before
+================================================================================
+This code: >
+  code-line1
+  code-line2
+  code-line3
+<
+
+From luaref.txt:
+
+        (see |luaref-luaL_newstate|).
+>
+            static void *l_alloc (void *ud, void *ptr) {
+              return NULL;
+            }
+<
+
+text
+
+
+--------------------------------------------------------------------------------
+
+(help_file
+  (block
+    (line
+      (word)
+      (word)
+      (codeblock
+        (code
+          (line)
+          (line)
+          (line)))))
+  (block
+    (line
+      (word)
+      (word)
+      (word)
+      (word)))
+  (block
+    (line
+      (word)
+      (word)
+      (taglink
+        (word))
+      (word)
+      (word))
+    (line
+      (codeblock
+        (code
+          (line)
+          (line)
+          (line)))))
+  (block
+    (line
+      (word))))
+
+================================================================================
+codeblock with language annotations
+================================================================================
+This code is in Lua: >lua
+  local foo = 'bar'
+<
+
+This code is in Vimscript: >vim
+  let foo = "bar"
+<
+
+--------------------------------------------------------------------------------
+
+(help_file
+  (block
+    (line
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (codeblock
+        (language)
+        (code
+          (line)))))
+  (block
+    (line
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (codeblock
+        (language)
+        (code
+          (line))))))
+
+================================================================================
+codeblock with implicit stop
+================================================================================
+>
+  line1
+  line2
+
+===============================
+h1-headline *foo*
+line1
+
+line2
+
+>
+  line1
+
+-------------------------------
+h2-headline *foo*
+
+>
+  line1
+
+H3 HEADLINE *foo*
+
+
+--------------------------------------------------------------------------------
+
+(help_file
+  (block
+    (line
+      (codeblock
+        (code
+          (line)
+          (line)
+          (line))))
+    (line
+      (h1
+        (delimiter)
+        (heading
+          (word))
+        (tag
+          (word))))
+    (line
+      (word)))
+  (block
+    (line
+      (word)))
+  (block
+    (line
+      (codeblock
+        (code
+          (line)
+          (line))))
+    (line
+      (h2
+        (delimiter)
+        (heading
+          (word))
+        (tag
+          (word)))))
+  (block
+    (line
+      (codeblock
+        (code
+          (line)
+          (line))))
+    (line
+      (h3
+        (heading)
+        (tag
+          (word))))))
+
+================================================================================
+codeblock with empty lines
+================================================================================
+
+Example: >
+
+    - let buf = nvim_create_buf(v:false, v:true)
+    - call nvim_buf_set_lines(buf, 0, -1, v:true, ["test", "text"])
+
+    let opts = {'relative': 'cursor', 'width': 10, 'height': 2, 'col': 0,
+        \ 'row': 1, 'anchor': 'NW', 'style': 'minimal'}
+
+    let win = nvim_open_win(buf, 0, opts)
+    call nvim_win_set_option(win, 'winhl', 'Normal:MyHighlight')
+x
+
+
+--------------------------------------------------------------------------------
+
+(help_file
+  (block
+    (line
+      (word)
+      (codeblock
+        (code
+          (line)
+          (line)
+          (line)
+          (line)
+          (line)
+          (line)
+          (line)
+          (line)
+          (line))))
+    (line
+      (word))))
+
+================================================================================
+tricky codeblock
+================================================================================
+>
+  line1 >
+  line2
+  < line3
+<
+
+    Example: >
+
+        vim.spell.check()
+        -->
+        {
+            {'quik', 'bad', 4}
+        }
+<
+
+tricky
+
+
+--------------------------------------------------------------------------------
+
+(help_file
+  (block
+    (line
+      (codeblock
+        (code
+          (line)
+          (line)
+          (line)))))
+  (block
+    (line
+      (word)
+      (codeblock
+        (code
+          (line)
+          (line)
+          (line)
+          (line)
+          (line)
+          (line)))))
+  (block
+    (line
+      (word))))
+
+================================================================================
+strange codeblock
+================================================================================
+Note that in the command: >
+	:if "foo"
+	:" NOT executed
+"foo" is converted to 0, which means FALSE.  If the string starts with a
+non-zero number it means TRUE: >
+	:if "8foo"
+	:" executed
+To test for a non-empty string, use empty(): >
+	:if !empty("foo")
+<
+
+--------------------------------------------------------------------------------
+
+(help_file
+  (block
+    (line
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (codeblock
+        (code
+          (line)
+          (line))))
+    (line
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word))
+    (line
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (codeblock
+        (code
+          (line)
+          (line))))
+    (line
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (codeblock
+        (code
+          (line))))))
+
+================================================================================
+codeblock stop and start on same line
+================================================================================
+    Examples: >
+        :lua vim.api.nvim_command('echo "Hello, Nvim!"')
+<    LuaJIT: >
+        :lua =jit.version
+<
+    *:lua-heredoc*
+:lua << [endmarker]
+{script}
+
+    Example: >
+        lua << EOF
+        EOF
+<
+
+--------------------------------------------------------------------------------
+
+(help_file
+  (block
+    (line
+      (word)
+      (codeblock
+        (code
+          (line)))))
+  (block
+    (line
+      (word)
+      (codeblock
+        (code
+          (line)))))
+  (block
+    (line
+      (tag
+        (word)))
+    (line
+      (word)
+      (word)
+      (word)
+      (word))
+    (line
+      (argument
+        (word))))
+  (block
+    (line
+      (word)
+      (codeblock
+        (code
+          (line)
+          (line))))))
+
+================================================================================
+NOT codeblock: whitespace after ">"
+================================================================================
+x > 
+  line
+
+x x> 
+  line
+
+Not a language annotation: > lua
+  line
+
+Not a language annotation: >lua is not at EOL
+  line
+
+
+--------------------------------------------------------------------------------
+
+(help_file
+  (block
+    (line
+      (word)
+      (word))
+    (line
+      (word)))
+  (block
+    (line
+      (word)
+      (word))
+    (line
+      (word)))
+  (block
+    (line
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word))
+    (line
+      (word)))
+  (block
+    (line
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word))
+    (line
+      (word))))

@@ -1,0 +1,54 @@
+================================================================================
+Option enum with backslashes in quoted identifiers
+================================================================================
+
+codeunit 123 TestOptionEnums
+{
+    var
+        DirStructure: Option "One Directory","Year\Month","Year\Month\Day";
+        PathSeparator: Option "Slash","\","Backslash\Path";
+        ComplexPath: Option "C:\Windows","D:\Program Files\App","\\server\share\folder";
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (option_type
+            (option_member_list
+              (option_member
+                (quoted_identifier))
+              (option_member
+                (quoted_identifier))
+              (option_member
+                (quoted_identifier))))))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (option_type
+            (option_member_list
+              (option_member
+                (quoted_identifier))
+              (option_member
+                (quoted_identifier))
+              (option_member
+                (quoted_identifier))))))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (option_type
+            (option_member_list
+              (option_member
+                (quoted_identifier))
+              (option_member
+                (quoted_identifier))
+              (option_member
+                (quoted_identifier)))))))))

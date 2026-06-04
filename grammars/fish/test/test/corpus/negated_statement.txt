@@ -1,0 +1,70 @@
+================================================================================
+Negated Statement - simple
+================================================================================
+
+not true
+! true
+
+--------------------------------------------------------------------------------
+
+(program
+  (negated_statement
+    (command
+      name: (word)))
+  (negated_statement
+    (command
+      name: (word))))
+
+================================================================================
+Negated Statement - with conditional
+================================================================================
+
+not true || false
+! true || true
+! false >&0 || true
+
+--------------------------------------------------------------------------------
+
+(program
+  (conditional_execution
+    (negated_statement
+      (command
+        name: (word)))
+    (command
+      name: (word)))
+  (conditional_execution
+    (negated_statement
+      (command
+        name: (word)))
+    (command
+      name: (word)))
+  (conditional_execution
+    (negated_statement
+      (command
+        name: (word)
+        redirect: (stream_redirect)))
+    (command
+      name: (word))))
+
+================================================================================
+Negated Statement - with pipe
+================================================================================
+
+not true | false
+! true | true
+
+--------------------------------------------------------------------------------
+
+(program
+  (negated_statement
+    (pipe
+      (command
+        name: (word))
+      (command
+        name: (word))))
+  (negated_statement
+    (pipe
+      (command
+        name: (word))
+      (command
+        name: (word)))))

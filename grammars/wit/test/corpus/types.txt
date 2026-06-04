@@ -1,0 +1,166 @@
+==================
+Additional types
+==================
+
+interface foo {
+    type alias = string;
+
+    fn1: func(hey: u32, ho: string) -> bool;
+    fn2: func() -> result<bool, u32>;
+    fn3: func() -> option<bool>;
+    fn4: func(str: stream) -> list<bool, 4>;
+    fn5: async func(fut: future<T>) -> stream<list<T, 2>>;
+
+    resource res {
+        constructor();
+        fn1: func(p: string) -> result<u32, aaa>;
+        fn2: func(%p: borrow<string>) -> result<u32, aaa>;
+    }
+
+    record rec2 {
+        num: u32,
+    }
+
+    flags fl {
+        a,
+        b,
+    }
+
+    enum en {
+        a,
+        b,
+    }
+
+    variant var {
+        a,
+        b,
+    }
+}
+
+---
+
+(source_file
+  (interface_item
+    (id)
+    (body
+      (type_item
+        (id)
+        (ty))
+      (func_item
+        (id)
+        (func_type
+          (param_list
+            (named_type
+              (id)
+              (ty))
+            (named_type
+              (id)
+              (ty)))
+          (result_list
+            (ty))))
+      (func_item
+        (id)
+        (func_type
+          (param_list)
+          (result_list
+            (ty
+              (result
+                (ty)
+                (ty))))))
+      (func_item
+        (id)
+        (func_type
+          (param_list)
+          (result_list
+            (ty
+              (option
+                (ty))))))
+      (func_item
+        (id)
+        (func_type
+          (param_list
+            (named_type
+              (id)
+              (ty
+                (stream))))
+          (result_list
+            (ty
+              (list
+                (ty)
+                (uint))))))
+      (func_item
+        (id)
+        (func_type
+          (param_list
+            (named_type
+              (id)
+              (ty
+                (future
+                  (ty
+                    (id))))))
+          (result_list
+            (ty
+              (stream
+                (ty
+                  (list
+                    (ty
+                      (id))
+                    (uint))))))))
+      (resource_item
+        (id)
+        (body
+          (resource_method
+            (param_list))
+          (resource_method
+            (func_item
+              (id)
+              (func_type
+                (param_list
+                  (named_type
+                    (id)
+                    (ty)))
+                (result_list
+                  (ty
+                    (result
+                      (ty)
+                      (ty
+                        (id))))))))
+          (resource_method
+            (func_item
+              (id)
+              (func_type
+                (param_list
+                  (named_type
+                    (id)
+                    (ty
+                      (handle
+                        (id)))))
+                (result_list
+                  (ty
+                    (result
+                      (ty)
+                      (ty
+                        (id))))))))))
+      (record_item
+        (id)
+        (body
+          (record_field
+            (id)
+            (ty))))
+      (flags_items
+        (id)
+        (body
+          (flags_field)
+          (flags_field)))
+      (enum_items
+        (id)
+        (body
+          (enum_case)
+          (enum_case)))
+      (variant_items
+        (id)
+        (body
+          (variant_case
+            (id))
+          (variant_case
+            (id)))))))

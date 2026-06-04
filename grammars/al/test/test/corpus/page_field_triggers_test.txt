@@ -1,0 +1,164 @@
+================================================================================
+Page field trigger with OnDrillDown and semicolon
+================================================================================
+
+page 50000 "Test Page"
+{
+    layout
+    {
+        area(Content)
+        {
+            field(TestField; TestField)
+            {
+                ApplicationArea = All;
+                trigger OnDrillDown();
+                begin
+                    Message('OnDrillDown triggered');
+                end;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    (integer)
+    (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          (identifier)
+          (identifier)
+          (property
+            (property_name)
+            (identifier))
+          (trigger_declaration
+            (trigger_keyword)
+            (identifier)
+            (code_block
+              (begin_keyword)
+              (call_expression
+                (identifier)
+                (argument_list
+                  (string_literal)))
+              (end_keyword))))))))
+
+================================================================================
+Page field trigger with OnDrillDown without semicolon
+================================================================================
+
+page 50001 "Test Page 2"
+{
+    layout
+    {
+        area(Content)
+        {
+            field(TestField2; TestField2)
+            {
+                ApplicationArea = All;
+                trigger OnDrillDown()
+                begin
+                    Message('OnDrillDown triggered');
+                end;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    (integer)
+    (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          (identifier)
+          (identifier)
+          (property
+            (property_name)
+            (identifier))
+          (trigger_declaration
+            (trigger_keyword)
+            (identifier)
+            (code_block
+              (begin_keyword)
+              (call_expression
+                (identifier)
+                (argument_list
+                  (string_literal)))
+              (end_keyword))))))))
+
+================================================================================
+Page field triggers with multiple trigger types
+================================================================================
+
+page 50002 "Test Page Triggers"
+{
+    layout
+    {
+        area(Content)
+        {
+            field(TestField3; TestField3)
+            {
+                ApplicationArea = All;
+                trigger OnValidate();
+                begin
+                    Message('OnValidate triggered');
+                end;
+                
+                trigger OnLookup();
+                begin
+                    Message('OnLookup triggered');
+                end;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    (integer)
+    (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          (identifier)
+          (identifier)
+          (property
+            (property_name)
+            (identifier))
+          (trigger_declaration
+            (trigger_keyword)
+            (identifier)
+            (code_block
+              (begin_keyword)
+              (call_expression
+                (identifier)
+                (argument_list
+                  (string_literal)))
+              (end_keyword)))
+          (trigger_declaration
+            (trigger_keyword)
+            (identifier)
+            (code_block
+              (begin_keyword)
+              (call_expression
+                (identifier)
+                (argument_list
+                  (string_literal)))
+              (end_keyword))))))))

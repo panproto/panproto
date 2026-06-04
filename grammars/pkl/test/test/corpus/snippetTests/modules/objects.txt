@@ -1,0 +1,22 @@
+===
+modules/objects.pkl
+===
+
+x {
+  y {
+    z = 1
+  }
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (objectBody
+          (objectProperty
+            (identifier)
+            (intLiteralExpr)))))))

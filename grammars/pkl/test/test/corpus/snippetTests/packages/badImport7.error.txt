@@ -1,0 +1,14 @@
+===
+packages/badImport7.error.pkl
+===
+
+res = import("package://localhost:0/badMetadataJson@1.0.0#/Bug.pkl")
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (importExpr
+      (stringConstant
+        (slStringLiteralPart)))))

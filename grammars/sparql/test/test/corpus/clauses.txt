@@ -1,0 +1,134 @@
+===============
+Dataset clause
+===============
+
+SELECT * 
+
+FROM <www.example.com>
+FROM NAMED <www.example.com>
+
+{}
+
+---
+
+(unit
+  (select_query 
+    (select_clause) 
+    (dataset_clause
+      (default_graph_clause
+        source_selector: (iri_reference)))
+    (dataset_clause
+      (named_graph_clause
+        source_selector: (iri_reference)))
+    (where_clause
+      (group_graph_pattern))))
+
+=============
+Group clause
+=============
+
+SELECT * {}
+
+GROUP BY ?a
+
+---
+
+(unit
+  (select_query 
+    (select_clause)
+    (where_clause
+      (group_graph_pattern))
+    (solution_modifier
+      (group_clause
+        (group_condition
+          (var))))))
+
+==============
+Having clause
+==============
+
+SELECT * {}
+
+HAVING ex:function ()
+
+---
+
+(unit
+  (select_query 
+    (select_clause)
+    (where_clause (group_graph_pattern))
+    (solution_modifier
+      (having_clause
+        (having_condition
+          (function_call 
+            (prefixed_name (namespace (pn_prefix)) (pn_local))
+            (arg_list (nil)))))))) 
+
+=============
+Order clause
+=============
+
+SELECT * {}
+
+ORDER BY ASC (?a)
+
+---
+
+(unit
+  (select_query 
+    (select_clause)
+    (where_clause
+      (group_graph_pattern))
+    (solution_modifier
+      (order_clause 
+        (order_condition 
+          (bracketted_expression 
+            (var)))))))
+
+====================
+Limit offset clause
+====================
+
+SELECT * {}
+
+LIMIT 10
+
+OFFSET 10
+
+---
+
+(unit
+  (select_query 
+    (select_clause)
+    (where_clause
+      (group_graph_pattern))
+    (solution_modifier
+      (limit_offset_clauses
+        (limit_clause
+          (integer))
+        (offset_clause
+          (integer))))))
+
+==============
+Values clause
+==============
+
+SELECT * {}
+
+VALUES (?a ?b) {
+  (UNDEF 'a')
+}
+
+---
+
+(unit
+  (select_query 
+    (select_clause)
+    (where_clause
+      (group_graph_pattern))) 
+  (values_clause 
+    (data_block
+      (var)
+      (var)
+      (rdf_literal
+        (string)))))

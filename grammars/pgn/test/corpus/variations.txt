@@ -1,0 +1,479 @@
+================================================================================
+Single variation
+================================================================================
+
+[Event "?"]
+[SetUp "1"]
+[FEN "r1bR2Q1/ppp3pp/4p1k1/2b1P1n1/1np1q3/5N2/PPP3PP/5R1K w - - 2 18"]
+
+18. Qe8+ Kh6 (18... Nf7 19. Rxc8 Qc6 20. Rxa8 Qxe8 21. Rxe8 Kh5 22. Rd1 Ng5 23. Rd7)
+19. Nxg5 Kxg5
+*
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (move_number)
+      (san_move
+        (check_or_mate_condition))
+      (san_move)
+      (variation
+        (variation_delimiter_open)
+        (variation_movetext
+          (move_number)
+          (san_move)
+          (move_number)
+          (san_move)
+          (san_move)
+          (move_number)
+          (san_move)
+          (san_move)
+          (move_number)
+          (san_move)
+          (san_move)
+          (move_number)
+          (san_move)
+          (san_move)
+          (move_number)
+          (san_move))
+        (variation_delimiter_close))
+      (move_number)
+      (san_move)
+      (san_move))
+    (result_code)))
+
+================================================================================
+Recursive variation 1
+================================================================================
+
+[Event "?"]
+[SetUp "1"]
+[FEN "r1bR2Q1/ppp3pp/4p1k1/2b1P1n1/1np1q3/5N2/PPP3PP/5R1K w - - 2 18"]
+
+18. Qe8+ Kh6 (18... Nf7 19. Rxc8 Qc6 20. Rxa8 Qxe8 (21. Rxe8 Kh5 22. Rd1 Ng5 23. Rd7))
+19. Nxg5 Kxg5
+*
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (move_number)
+      (san_move
+        (check_or_mate_condition))
+      (san_move)
+      (variation
+        (variation_delimiter_open)
+        (variation_movetext
+          (move_number)
+          (san_move)
+          (move_number)
+          (san_move)
+          (san_move)
+          (move_number)
+          (san_move)
+          (san_move)
+          (recursive_variation
+            (variation_delimiter_open)
+            (variation_movetext
+              (move_number)
+              (san_move)
+              (san_move)
+              (move_number)
+              (san_move)
+              (san_move)
+              (move_number)
+              (san_move))
+            (variation_delimiter_close)))
+        (variation_delimiter_close))
+      (move_number)
+      (san_move)
+      (san_move))
+    (result_code)))
+
+================================================================================
+Recursive variation 2
+================================================================================
+
+[Event "?"]
+[SetUp "1"]
+[FEN "r1bR2Q1/ppp3pp/4p1k1/2b1P1n1/1np1q3/5N2/PPP3PP/5R1K w - - 2 18"]
+
+18. Qe8+ Kh6 (18... Nf7 19. Rxc8 Qc6 20. Rxa8 Qxe8 (21. Rxe8 Kh5 (22. Rd1 Ng5 23. Rd7)))
+19. Nxg5 Kxg5
+*
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (move_number)
+      (san_move
+        (check_or_mate_condition))
+      (san_move)
+      (variation
+        (variation_delimiter_open)
+        (variation_movetext
+          (move_number)
+          (san_move)
+          (move_number)
+          (san_move)
+          (san_move)
+          (move_number)
+          (san_move)
+          (san_move)
+          (recursive_variation
+            (variation_delimiter_open)
+            (variation_movetext
+              (move_number)
+              (san_move)
+              (san_move)
+              (recursive_variation
+                (variation_delimiter_open)
+                (variation_movetext
+                  (move_number)
+                  (san_move)
+                  (san_move)
+                  (move_number)
+                  (san_move))
+                (variation_delimiter_close)))
+            (variation_delimiter_close)))
+        (variation_delimiter_close))
+      (move_number)
+      (san_move)
+      (san_move))
+    (result_code)))
+
+================================================================================
+Empty variation
+================================================================================
+
+[Event "?"]
+[SetUp "1"]
+[FEN "r1bR2Q1/ppp3pp/4p1k1/2b1P1n1/1np1q3/5N2/PPP3PP/5R1K w - - 2 18"]
+
+18. Qe8+ Kh6 () 19. Nxg5 Kxg5
+*
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (move_number)
+      (san_move
+        (check_or_mate_condition))
+      (san_move)
+      (variation
+        (variation_delimiter_open)
+        (variation_delimiter_close))
+      (move_number)
+      (san_move)
+      (san_move))
+    (result_code)))
+
+================================================================================
+Variation containing inline commentary
+================================================================================
+
+[Event "?"]
+[SetUp "1"]
+[FEN "r1bR2Q1/ppp3pp/4p1k1/2b1P1n1/1np1q3/5N2/PPP3PP/5R1K w - - 2 18"]
+
+18. Qe8+ Kh6 ({play could have been} 18... Nf7 19. Rxc8 Qc6 20. Rxa8 Qxe8 21. Rxe8 Kh5 22. Rd1 Ng5 23. Rd7)
+19. Nxg5 Kxg5
+*
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (move_number)
+      (san_move
+        (check_or_mate_condition))
+      (san_move)
+      (variation
+        (variation_delimiter_open)
+        (variation_movetext
+          (inline_comment
+            (inline_comment_delimiter_open)
+            (inline_comment_text)
+            (inline_comment_delimiter_close))
+          (move_number)
+          (san_move)
+          (move_number)
+          (san_move)
+          (san_move)
+          (move_number)
+          (san_move)
+          (san_move)
+          (move_number)
+          (san_move)
+          (san_move)
+          (move_number)
+          (san_move)
+          (san_move)
+          (move_number)
+          (san_move))
+        (variation_delimiter_close))
+      (move_number)
+      (san_move)
+      (san_move))
+    (result_code)))
+
+================================================================================
+Variation containing annotation
+================================================================================
+
+[Event "?"]
+[SetUp "1"]
+[FEN "r1bR2Q1/ppp3pp/4p1k1/2b1P1n1/1np1q3/5N2/PPP3PP/5R1K w - - 2 18"]
+
+18. Qe8+ Kh6 (18... Nf7 19. Rxc8 Qc6 20. Rxa8 Qxe8 21. Rxe8 Kh5 22. Rd1 Ng5 23. Rd7 +−)
+19. Nxg5 Kxg5
+*
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (move_number)
+      (san_move
+        (check_or_mate_condition))
+      (san_move)
+      (variation
+        (variation_delimiter_open)
+        (variation_movetext
+          (move_number)
+          (san_move)
+          (move_number)
+          (san_move)
+          (san_move)
+          (move_number)
+          (san_move)
+          (san_move)
+          (move_number)
+          (san_move)
+          (san_move)
+          (move_number)
+          (san_move)
+          (san_move)
+          (move_number)
+          (san_move)
+          (annotation))
+        (variation_delimiter_close))
+      (move_number)
+      (san_move)
+      (san_move))
+    (result_code)))
+
+================================================================================
+Variation containing inline commentary and annotation
+================================================================================
+
+[Event "?"]
+[SetUp "1"]
+[FEN "r1bR2Q1/ppp3pp/4p1k1/2b1P1n1/1np1q3/5N2/PPP3PP/5R1K w - - 2 18"]
+
+18. Qe8+ Kh6 ({play could have been} 18... Nf7 19. Rxc8 Qc6 20. Rxa8 Qxe8 21. Rxe8 Kh5 22. Rd1 Ng5 23. Rd7 +−)
+19. Nxg5 Kxg5
+*
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (move_number)
+      (san_move
+        (check_or_mate_condition))
+      (san_move)
+      (variation
+        (variation_delimiter_open)
+        (variation_movetext
+          (inline_comment
+            (inline_comment_delimiter_open)
+            (inline_comment_text)
+            (inline_comment_delimiter_close))
+          (move_number)
+          (san_move)
+          (move_number)
+          (san_move)
+          (san_move)
+          (move_number)
+          (san_move)
+          (san_move)
+          (move_number)
+          (san_move)
+          (san_move)
+          (move_number)
+          (san_move)
+          (san_move)
+          (move_number)
+          (san_move)
+          (annotation))
+        (variation_delimiter_close))
+      (move_number)
+      (san_move)
+      (san_move))
+    (result_code)))

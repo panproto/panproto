@@ -1,0 +1,62 @@
+==================
+bare words fail
+==================
+
+{{ text }}
+
+---
+
+(source_file
+  (ERROR
+    (identifier)
+  )
+)
+
+==================
+multiple jinja calls
+==================
+
+some text {{ 'floating lit' }} more text {{ config() }} text.
+
+---
+
+(source_file
+  (lit_string)
+  (fn_call
+    (identifier)
+    (argument_list)
+  )
+)
+
+==================
+text with curlys works
+==================
+
+some curlys { }
+
+---
+
+(source_file)
+
+==================
+doesn't hang on the empty string
+==================
+---
+
+(source_file)
+
+==================
+unclosed jinja calls fail
+==================
+
+{{ fn() 
+
+---
+
+(source_file
+  (fn_call
+    (identifier)
+    (argument_list)
+  )
+  (MISSING "}}")
+)

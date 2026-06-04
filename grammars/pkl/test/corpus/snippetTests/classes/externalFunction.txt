@@ -1,0 +1,18 @@
+===
+classes/externalFunction.pkl
+===
+
+class Foo {
+  external function bar()
+}
+---
+
+(module
+  (clazz
+    (identifier)
+    (classBody
+      (classMethod
+        (methodHeader
+          (modifier)
+          (identifier)
+          (parameterList))))))

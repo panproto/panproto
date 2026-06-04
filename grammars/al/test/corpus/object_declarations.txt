@@ -1,0 +1,424 @@
+========================================================================
+Table declaration
+========================================================================
+table 50100 "My Table"
+{
+}
+------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)))
+
+========================================================================
+Table declaration with unquoted name
+========================================================================
+table 50100 MyTable
+{
+}
+------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (identifier)))
+
+========================================================================
+Table extension declaration
+========================================================================
+tableextension 50100 "My Ext" extends "Base Table"
+{
+}
+------------------------------------------------------------------------
+
+(source_file
+  (tableextension_declaration
+    (tableextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)))
+
+========================================================================
+Page declaration
+========================================================================
+page 50100 "My Page"
+{
+}
+------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)))
+
+========================================================================
+Page extension declaration
+========================================================================
+pageextension 50100 "My Page Ext" extends "Customer Card"
+{
+}
+------------------------------------------------------------------------
+
+(source_file
+  (pageextension_declaration
+    (pageextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)))
+
+========================================================================
+Page customization declaration
+========================================================================
+pagecustomization MyCustomization customizes "Customer Card"
+{
+}
+------------------------------------------------------------------------
+
+(source_file
+  (pagecustomization_declaration
+    (pagecustomization_keyword)
+    object_name: (identifier)
+    (customizes_keyword)
+    target_page: (quoted_identifier)))
+
+========================================================================
+Codeunit declaration
+========================================================================
+codeunit 50100 "My Codeunit"
+{
+}
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)))
+
+========================================================================
+Codeunit with implements
+========================================================================
+codeunit 50100 "My Codeunit" implements IMyInterface
+{
+}
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (implements_clause
+      (implements_keyword)
+      interface: (identifier))))
+
+========================================================================
+Codeunit with multiple implements
+========================================================================
+codeunit 50100 "My Codeunit" implements IFirst, "ISecond Interface"
+{
+}
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (implements_clause
+      (implements_keyword)
+      interface: (identifier)
+      interface: (quoted_identifier))))
+
+========================================================================
+Report declaration
+========================================================================
+report 50100 "My Report"
+{
+}
+------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)))
+
+========================================================================
+Report extension declaration
+========================================================================
+reportextension 50100 "My Report Ext" extends "Sales Invoice"
+{
+}
+------------------------------------------------------------------------
+
+(source_file
+  (reportextension_declaration
+    (reportextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)))
+
+========================================================================
+Query declaration
+========================================================================
+query 50100 "My Query"
+{
+}
+------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)))
+
+========================================================================
+XMLport declaration
+========================================================================
+xmlport 50100 "My XMLport"
+{
+}
+------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)))
+
+========================================================================
+Enum declaration
+========================================================================
+enum 50100 "My Enum"
+{
+}
+------------------------------------------------------------------------
+
+(source_file
+  (enum_declaration
+    (enum_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)))
+
+========================================================================
+Enum with implements
+========================================================================
+enum 50100 "My Enum" implements IMyInterface
+{
+}
+------------------------------------------------------------------------
+
+(source_file
+  (enum_declaration
+    (enum_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (implements_clause
+      (implements_keyword)
+      interface: (identifier))))
+
+========================================================================
+Enum extension declaration
+========================================================================
+enumextension 50100 "My Enum Ext" extends "Base Enum"
+{
+}
+------------------------------------------------------------------------
+
+(source_file
+  (enumextension_declaration
+    (enumextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)))
+
+========================================================================
+Interface declaration
+========================================================================
+interface IMyInterface
+{
+}
+------------------------------------------------------------------------
+
+(source_file
+  (interface_declaration
+    (interface_keyword)
+    object_name: (identifier)))
+
+========================================================================
+Interface with extends
+========================================================================
+interface IChild extends IParent
+{
+}
+------------------------------------------------------------------------
+
+(source_file
+  (interface_declaration
+    (interface_keyword)
+    object_name: (identifier)
+    (extends_keyword)
+    extends_interface: (identifier)))
+
+========================================================================
+Control add-in declaration
+========================================================================
+controladdin MyControl
+{
+}
+------------------------------------------------------------------------
+
+(source_file
+  (controladdin_declaration
+    (controladdin_keyword)
+    object_name: (identifier)))
+
+========================================================================
+DotNet declaration
+========================================================================
+dotnet
+{
+}
+------------------------------------------------------------------------
+
+(source_file
+  (dotnet_declaration
+    (dotnet_keyword)))
+
+========================================================================
+Profile declaration
+========================================================================
+profile MyProfile
+{
+}
+------------------------------------------------------------------------
+
+(source_file
+  (profile_declaration
+    (profile_keyword)
+    object_name: (identifier)))
+
+========================================================================
+Profile extension declaration
+========================================================================
+profileextension MyProfileExt extends MyProfile
+{
+}
+------------------------------------------------------------------------
+
+(source_file
+  (profileextension_declaration
+    (profileextension_keyword)
+    object_name: (identifier)
+    (extends_keyword)
+    base_object: (identifier)))
+
+========================================================================
+Permission set declaration
+========================================================================
+permissionset 50100 "My Permissions"
+{
+}
+------------------------------------------------------------------------
+
+(source_file
+  (permissionset_declaration
+    (permissionset_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)))
+
+========================================================================
+Permission set extension declaration
+========================================================================
+permissionsetextension 50100 "My Perm Ext" extends "Base Permissions"
+{
+}
+------------------------------------------------------------------------
+
+(source_file
+  (permissionsetextension_declaration
+    (permissionsetextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)))
+
+========================================================================
+Entitlement declaration
+========================================================================
+entitlement MyEntitlement
+{
+}
+------------------------------------------------------------------------
+
+(source_file
+  (entitlement_declaration
+    (entitlement_keyword)
+    object_name: (identifier)))
+
+========================================================================
+Case insensitive object keywords
+========================================================================
+TABLE 50100 MyTable
+{
+}
+------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (identifier)))
+
+========================================================================
+Namespace with object declaration
+========================================================================
+namespace MyApp;
+
+using System.IO;
+
+codeunit 50100 "My Codeunit"
+{
+}
+------------------------------------------------------------------------
+
+(source_file
+  (namespace_declaration
+    (namespace_keyword)
+    name: (namespace_name
+      (identifier)))
+  (using_statement
+    (using_keyword)
+    namespace: (namespace_name
+      (identifier)
+      (identifier)))
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)))
+
+========================================================================
+Comments in source file
+========================================================================
+// This is a comment
+table 50100 /* inline */ MyTable
+{
+}
+------------------------------------------------------------------------
+
+(source_file
+  (comment)
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    (multiline_comment)
+    object_name: (identifier)))

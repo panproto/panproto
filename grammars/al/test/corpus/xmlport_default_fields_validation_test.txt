@@ -1,0 +1,173 @@
+================================================================================
+XMLPort with DefaultFieldsValidation property
+================================================================================
+
+xmlport 50000 "Test XMLPort"
+{
+    Caption = 'Test XMLPort';
+    DefaultFieldsValidation = false;
+    Direction = Export;
+    Format = VariableText;
+
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Item; Item)
+            {
+                fieldelement(No; Item."No.") { }
+                fieldelement(Description; Item.Description) { }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (schema_section
+      (schema_keyword)
+      (xmlport_element
+        name: (identifier)
+        (xmlport_element
+          name: (identifier)
+          source: (identifier)
+          (xmlport_element
+            name: (identifier)
+            source: (member_expression
+              object: (identifier)
+              member: (quoted_identifier)))
+          (xmlport_element
+            name: (identifier)
+            source: (member_expression
+              object: (identifier)
+              member: (identifier))))))))
+
+================================================================================
+XMLPort with DefaultFieldsValidation true
+================================================================================
+
+xmlport 50001 "Test XMLPort True"
+{
+    DefaultFieldsValidation = true;
+
+    schema
+    {
+        textelement(root) { }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (boolean))
+    (schema_section
+      (schema_keyword)
+      (xmlport_element
+        name: (identifier)))))
+
+================================================================================
+XMLPort from BCPTLogEntries with DefaultFieldsValidation
+================================================================================
+
+xmlport 149000 "BCPT Log Entries"
+{
+    Caption = 'Export Item Data';
+    DefaultFieldsValidation = false;
+    Direction = Export;
+    FieldDelimiter = '<~>';
+    FieldSeparator = '<;>';
+    Format = VariableText;
+    TextEncoding = UTF16;
+    UseRequestPage = false;
+
+    schema
+    {
+        textelement(root)
+        {
+            tableelement(BCPTLogEntry; "BCPT Log Entry")
+            {
+                SourceTableView = sorting("BCPT Code", "Codeunit ID", "Start Time");
+                fieldelement(EntryNo; BCPTLogEntry."Entry No.") { }
+                fieldelement(BCPTCode; BCPTLogEntry."BCPT Code") { }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (schema_section
+      (schema_keyword)
+      (xmlport_element
+        name: (identifier)
+        (xmlport_element
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (sorting_value
+              (quoted_identifier)
+              (quoted_identifier)
+              (quoted_identifier)))
+          (xmlport_element
+            name: (identifier)
+            source: (member_expression
+              object: (identifier)
+              member: (quoted_identifier)))
+          (xmlport_element
+            name: (identifier)
+            source: (member_expression
+              object: (identifier)
+              member: (quoted_identifier))))))))

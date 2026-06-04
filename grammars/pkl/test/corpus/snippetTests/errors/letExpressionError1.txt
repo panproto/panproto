@@ -1,0 +1,24 @@
+===
+errors/letExpressionError1.pkl
+===
+
+res1 =
+  let (x = 1)
+    let (y = 2)
+      throw("ouch")
+---
+
+(module
+  (classProperty
+    (identifier)
+    (letExpr
+      (typedIdentifier
+        (identifier))
+      (intLiteralExpr)
+      (letExpr
+        (typedIdentifier
+          (identifier))
+        (intLiteralExpr)
+        (throwExpr
+          (slStringLiteralExpr
+            (slStringLiteralPart)))))))

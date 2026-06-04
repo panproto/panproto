@@ -1,0 +1,72 @@
+================================================================================
+TableNo as variable name after Option type
+================================================================================
+
+codeunit 50100 "TableNo Variable Test"
+{
+    var
+        FindDocumentsUsing: Option " ","Source Record PK","Document Reference",Navigate;
+        TableNo: Integer;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (option_type
+            (option_member_list
+              (option_member
+                (quoted_identifier))
+              (option_member
+                (quoted_identifier))
+              (option_member
+                (quoted_identifier))
+              (option_member
+                (identifier))))))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type))))))
+
+================================================================================
+TableNo property still works
+================================================================================
+
+table 50100 "Test Table"
+{
+    TableNo = 50100;
+    
+    fields
+    {
+        field(1; "Code"; Code[20])
+        {
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (integer))
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (code_type
+            length: (integer)))))))

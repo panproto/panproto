@@ -1,0 +1,85 @@
+=======================
+with number/string keys
+=======================
+
+const a = {"a": 1, 2: "hello"};
+
+---
+
+(program
+    (constant_declaration
+        (identifier)
+        (object
+            (pair (string) (number))
+            (pair (number) (string))
+        )
+    )
+)
+
+=====================
+with identifier keys
+=====================
+
+const a = {a: 1, b: "hello"};
+
+---
+
+(program
+    (constant_declaration
+        (identifier)
+        (object
+            (pair (identifier) (number))
+            (pair (identifier) (string))
+        )
+    )
+)
+
+=============
+nested object
+=============
+
+const a = {a: {1: 2}};
+
+---
+
+(program
+    (constant_declaration
+        (identifier)
+        (object
+            (pair (identifier) (object
+                (pair (number) (number)))
+            )
+        )
+    )
+)
+
+==================
+complex expression
+==================
+
+const a = {a: (w[0])};
+
+---
+
+(program
+    (constant_declaration
+        (identifier)
+        (object
+            (pair (identifier) (parenthesized_expression
+                (subscript_expression (identifier) (number)))
+            )
+        )
+    )
+)
+
+============
+empty object
+============
+
+const a = {};
+
+---
+
+(program
+    (constant_declaration (identifier) (object))
+)

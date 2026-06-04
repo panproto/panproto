@@ -1,0 +1,127 @@
+================================================================================
+Export message
+================================================================================
+
+edition = "2024";
+
+export message Foo {}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (edition
+    (string))
+  (message
+    (message_name
+      (identifier))
+    (message_body)))
+
+================================================================================
+Local message
+================================================================================
+
+edition = "2024";
+
+local message Foo {}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (edition
+    (string))
+  (message
+    (message_name
+      (identifier))
+    (message_body)))
+
+================================================================================
+Message
+================================================================================
+
+syntax = "proto3";
+
+message Outer {
+  option (my_option).a = true;
+  message Inner {
+    int64 ival = 1;
+  }
+  repeated Inner inner_message = 2;
+  EnumAllowingAlias enum_field =3;
+  map<int32, string> my_map = 4;
+  reserved 10, 15, 20 to 30;
+  reserved "foo", "bar";
+  reserved 'baz';
+  reserved foobaz;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (syntax)
+  (message
+    (message_name
+      (identifier))
+    (message_body
+      (option
+        (full_ident
+          (identifier))
+        (identifier)
+        (constant
+          (bool
+            (true))))
+      (message
+        (message_name
+          (identifier))
+        (message_body
+          (field
+            (type)
+            (identifier)
+            (field_number
+              (int_lit
+                (decimal_lit))))))
+      (field
+        (type
+          (message_or_enum_type
+            (identifier)))
+        (identifier)
+        (field_number
+          (int_lit
+            (decimal_lit))))
+      (field
+        (type
+          (message_or_enum_type
+            (identifier)))
+        (identifier)
+        (field_number
+          (int_lit
+            (decimal_lit))))
+      (map_field
+        (key_type)
+        (type)
+        (identifier)
+        (field_number
+          (int_lit
+            (decimal_lit))))
+      (reserved
+        (ranges
+          (range
+            (int_lit
+              (decimal_lit)))
+          (range
+            (int_lit
+              (decimal_lit)))
+          (range
+            (int_lit
+              (decimal_lit))
+            (int_lit
+              (decimal_lit)))))
+      (reserved
+        (reserved_field_names
+          (reserved_identifier)
+          (reserved_identifier)))
+      (reserved
+        (reserved_field_names
+          (reserved_identifier)))
+      (reserved
+        (reserved_field_names
+          (reserved_identifier))))))

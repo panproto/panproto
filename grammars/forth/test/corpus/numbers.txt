@@ -1,0 +1,89 @@
+==================
+Numbers basic
+==================
+
+12
+&12
+%01001
+$ffaadd
+0xFE
+'c'
+
+---
+
+(source_file
+  (number
+    (decimal_number))
+  (number
+    (octal_number))
+  (number
+    (binary_number))
+  (number
+    (hex_number))
+  (number
+    (hex_number))
+  (number
+    (character_literal)))
+
+==================
+Negative numbers
+==================
+
+-42
+-$FF
+-0xAB
+-%1010
+-&77
+
+---
+
+(source_file
+  (number
+    (decimal_number))
+  (number
+    (hex_number))
+  (number
+    (hex_number))
+  (number
+    (binary_number))
+  (number
+    (octal_number)))
+
+==================
+Float numbers
+==================
+
+3.14
+-2.5
+1.5e10
+2.0E-5
+-3.14e+2
+
+---
+
+(source_file
+  (number
+    (float_number))
+  (number
+    (float_number))
+  (number
+    (float_number))
+  (number
+    (float_number))
+  (number
+    (float_number)))
+
+==================
+Double-cell numbers
+==================
+
+123.
+-456.
+
+---
+
+(source_file
+  (number
+    (double_cell_number))
+  (number
+    (double_cell_number)))

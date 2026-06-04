@@ -1,0 +1,170 @@
+================================================================================
+OnAfterLookup trigger in field
+================================================================================
+
+page 116 "Sales Cr. Memo Subform"
+{
+    layout
+    {
+        area(content)
+        {
+            field("No."; Rec."No.")
+            {
+                ApplicationArea = Basic, Suite;
+                ToolTip = 'Specifies the number of a general ledger account, item, additional cost, or fixed asset.';
+
+                trigger OnValidate()
+                begin
+                    if Rec."No." = xRec."No." then
+                        exit;
+                    NoOnAfterValidate();
+                end;
+
+                trigger OnAfterLookup(Selected: RecordRef)
+                begin
+                    Rec.SaveLookupSelection(Selected);
+                end;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (quoted_identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (quoted_identifier))
+          (property
+            name: (property_name)
+            value: (option_member_list
+              (option_member
+                (identifier))
+              (option_member
+                (identifier))))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (trigger_declaration
+            (trigger_keyword)
+            name: (identifier)
+            (code_block
+              (begin_keyword)
+              (if_statement
+                (if_keyword)
+                condition: (comparison_expression
+                  left: (member_expression
+                    object: (identifier)
+                    member: (quoted_identifier))
+                  operator: (comparison_operator)
+                  right: (member_expression
+                    object: (identifier)
+                    member: (quoted_identifier)))
+                (then_keyword)
+                then_branch: (exit_statement
+                  (exit_keyword)))
+              (call_expression
+                function: (identifier)
+                arguments: (argument_list))
+              (end_keyword)))
+          (trigger_declaration
+            (trigger_keyword)
+            name: (identifier)
+            (parameter_list
+              (parameter
+                name: (identifier)
+                type: (type_specification
+                  (basic_type))))
+            (code_block
+              (begin_keyword)
+              (call_expression
+                function: (member_expression
+                  object: (identifier)
+                  member: (identifier))
+                arguments: (argument_list
+                  (identifier)))
+              (end_keyword))))))))
+
+================================================================================
+OnAfterLookup with different parameter types
+================================================================================
+
+page 50000 "Test Page"
+{
+    layout
+    {
+        area(content)
+        {
+            field(CustomerNo; CustomerNo)
+            {
+                trigger OnAfterLookup(var SelectedRecord: RecordRef)
+                begin
+                    ProcessSelectedRecord(SelectedRecord);
+                end;
+            }
+            field(ItemNo; ItemNo)
+            {
+                trigger onafterlookup(Selected: RecordRef)
+                begin
+                    // Process selection
+                end;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (trigger_declaration
+            (trigger_keyword)
+            name: (identifier)
+            (parameter_list
+              (parameter
+                modifier: (var_keyword)
+                name: (identifier)
+                type: (type_specification
+                  (basic_type))))
+            (code_block
+              (begin_keyword)
+              (call_expression
+                function: (identifier)
+                arguments: (argument_list
+                  (identifier)))
+              (end_keyword))))
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (trigger_declaration
+            (trigger_keyword)
+            name: (identifier)
+            (parameter_list
+              (parameter
+                name: (identifier)
+                type: (type_specification
+                  (basic_type))))
+            (code_block
+              (begin_keyword)
+              (comment)
+              (end_keyword))))))))

@@ -1,0 +1,207 @@
+================================================================================
+Case statement with only else branch
+================================================================================
+
+codeunit 50000 Test
+{
+    procedure TestCaseElseOnly()
+    var
+        Version: Text;
+    begin
+        case Version of
+            else
+                HandleW10Layout();
+        end;
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (text_type))))
+      (code_block
+        (begin_keyword)
+        (case_statement
+          (case_keyword)
+          expression: (identifier)
+          (of_keyword)
+          (case_else_branch
+            (else_keyword)
+            (call_expression
+              function: (identifier)
+              arguments: (argument_list))))
+        (end_keyword)))))
+
+================================================================================
+Case statement with else branch and multiple statements
+================================================================================
+
+codeunit 50001 Test
+{
+    procedure TestCaseElseMultiple()
+    var
+        ExtensionAppId: Guid;
+        Row: DotNet DataRow;
+        LayoutDataTable: DotNet DataTable;
+        Version: Text;
+    begin
+        Row := LayoutDataTable.Rows.Item(0);
+        if LayoutDataTable.Columns.Contains('NavApplicationVersion') then
+            Version := Row.Item('NavApplicationVersion');
+
+        case Version of
+            else
+                HandleW10Layout(ExtensionAppId, Row, LayoutDataTable);
+        end;
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type)))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (dotnet_type
+              (dotnet_keyword)
+              reference: (identifier))))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (dotnet_type
+              (dotnet_keyword)
+              reference: (identifier))))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (text_type))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (identifier)
+          right: (call_expression
+            function: (member_expression
+              object: (member_expression
+                object: (identifier)
+                member: (identifier))
+              member: (identifier))
+            arguments: (argument_list
+              (integer))))
+        (if_statement
+          (if_keyword)
+          condition: (call_expression
+            function: (member_expression
+              object: (member_expression
+                object: (identifier)
+                member: (identifier))
+              member: (identifier))
+            arguments: (argument_list
+              (string_literal)))
+          (then_keyword)
+          then_branch: (assignment_statement
+            left: (identifier)
+            right: (call_expression
+              function: (member_expression
+                object: (identifier)
+                member: (identifier))
+              arguments: (argument_list
+                (string_literal)))))
+        (case_statement
+          (case_keyword)
+          expression: (identifier)
+          (of_keyword)
+          (case_else_branch
+            (else_keyword)
+            (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (identifier)
+                (identifier)
+                (identifier)))))
+        (end_keyword)))))
+
+================================================================================
+Case statement with normal branches and else
+================================================================================
+
+codeunit 50002 Test
+{
+    procedure TestCaseNormal()
+    var
+        Version: Text;
+    begin
+        case Version of
+            'v1':
+                HandleV1();
+            'v2', 'v3':
+                HandleV2V3();
+            else
+                HandleDefault();
+        end;
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (text_type))))
+      (code_block
+        (begin_keyword)
+        (case_statement
+          (case_keyword)
+          expression: (identifier)
+          (of_keyword)
+          (case_branch
+            pattern: (string_literal)
+            body: (call_expression
+              function: (identifier)
+              arguments: (argument_list)))
+          (case_branch
+            pattern: (string_literal)
+            pattern: (string_literal)
+            body: (call_expression
+              function: (identifier)
+              arguments: (argument_list)))
+          (case_else_branch
+            (else_keyword)
+            (call_expression
+              function: (identifier)
+              arguments: (argument_list))))
+        (end_keyword)))))

@@ -1,0 +1,23 @@
+===
+errors/noDefault.pkl
+===
+
+foo: "foo"|"bar"|"baz"
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (unionType
+        (unionType
+          (stringLiteralType
+            (stringConstant
+              (slStringLiteralPart)))
+          (stringLiteralType
+            (stringConstant
+              (slStringLiteralPart))))
+        (stringLiteralType
+          (stringConstant
+            (slStringLiteralPart)))))))

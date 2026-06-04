@@ -1,0 +1,57 @@
+===
+objectBodyParams
+===
+
+root {
+  foo { bar ->
+    res = bar
+  }
+  baz { qux, ->
+    res = quz
+  }
+  zig { zag, zing, ->
+    pop = zag + zing
+  }
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (objectBody
+          (objectBodyParameters
+            (typedIdentifier
+              (identifier)))
+          (objectProperty
+            (identifier)
+            (unqualifiedAccessExpr
+              (identifier)))))
+      (objectProperty
+        (identifier)
+        (objectBody
+          (objectBodyParameters
+            (typedIdentifier
+              (identifier)))
+          (objectProperty
+            (identifier)
+            (unqualifiedAccessExpr
+              (identifier)))))
+      (objectProperty
+        (identifier)
+        (objectBody
+          (objectBodyParameters
+            (typedIdentifier
+              (identifier))
+            (typedIdentifier
+              (identifier)))
+          (objectProperty
+            (identifier)
+            (additiveExpr
+              (unqualifiedAccessExpr
+                (identifier))
+              (unqualifiedAccessExpr
+                (identifier)))))))))

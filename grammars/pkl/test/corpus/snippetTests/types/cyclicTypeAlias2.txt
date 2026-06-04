@@ -1,0 +1,42 @@
+===
+types/cyclicTypeAlias2.pkl
+===
+
+typealias Foo = List<Bar>
+
+typealias Bar = Set<Baz>
+
+typealias Baz = Map<String, Foo>
+---
+
+(module
+  (typeAlias
+    (identifier)
+    (declaredType
+      (qualifiedIdentifier
+        (identifier))
+      (typeArgumentList
+        (declaredType
+          (qualifiedIdentifier
+            (identifier))))))
+  (typeAlias
+    (identifier)
+    (declaredType
+      (qualifiedIdentifier
+        (identifier))
+      (typeArgumentList
+        (declaredType
+          (qualifiedIdentifier
+            (identifier))))))
+  (typeAlias
+    (identifier)
+    (declaredType
+      (qualifiedIdentifier
+        (identifier))
+      (typeArgumentList
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))))))

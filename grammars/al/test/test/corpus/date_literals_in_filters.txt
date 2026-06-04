@@ -1,0 +1,185 @@
+================================================================================
+Date Literals in Filter Expressions
+================================================================================
+
+query 50000 "Date Filter Test"
+{
+    elements
+    {
+        dataitem(TestItem; "Test Table")
+        {
+            DataItemTableFilter = "Due Date" = filter(<> 0D);
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (link_value_list
+            (link_value
+              field: (quoted_identifier)
+              (filter_keyword)
+              value: (filter_value
+                (date_literal)))))))))
+
+================================================================================
+Date Literals with Various Operators
+================================================================================
+
+query 50001 "Date Filter Operators"
+{
+    elements
+    {
+        dataitem(Test; "Test Table")
+        {
+            DataItemTableFilter = "Start Date" = filter(> 20230101D),
+                                  "End Date" = filter(<= 20231231D),
+                                  "Empty Date" = filter(= 0D);
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (link_value_list
+            (link_value
+              field: (quoted_identifier)
+              (filter_keyword)
+              value: (filter_value
+                (date_literal)))
+            (link_value
+              field: (quoted_identifier)
+              (filter_keyword)
+              value: (filter_value
+                (date_literal)))
+            (link_value
+              field: (quoted_identifier)
+              (filter_keyword)
+              value: (filter_value
+                (date_literal)))))))))
+
+================================================================================
+Date Literals with Time Literals in Filters
+================================================================================
+
+table 50002 "Mixed Date Time Filters"
+{
+    fields
+    {
+        field(1; MyField; Integer)
+        {
+            CalcFormula = count("Table" where("Date Field" = filter(> 20230101D),
+                                               "DateTime Field" = filter(<> 0DT),
+                                               "Time Field" = filter(= 120000T)));
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (aggregate_formula
+            function: (aggregate_function)
+            target: (calc_field_reference
+              (quoted_identifier))
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (quoted_identifier)
+                  (filter_keyword)
+                  value: (filter_value
+                    (date_literal)))
+                (where_condition
+                  field: (quoted_identifier)
+                  (filter_keyword)
+                  value: (filter_value
+                    (datetime_literal)))
+                (where_condition
+                  field: (quoted_identifier)
+                  (filter_keyword)
+                  value: (filter_value
+                    (time_literal)))))))))))
+
+================================================================================
+Date Literals in Pipe-Separated Filters
+================================================================================
+
+table 50003 "Date Pipe Filters"
+{
+    fields
+    {
+        field(1; MyField; Integer)
+        {
+            CalcFormula = count("Table" where("Holiday" = filter(= 20230101D | 20230704D | 20231225D)));
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (aggregate_formula
+            function: (aggregate_function)
+            target: (calc_field_reference
+              (quoted_identifier))
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (quoted_identifier)
+                  (filter_keyword)
+                  value: (filter_value
+                    (date_literal)
+                    (date_literal)
+                    (date_literal)))))))))))

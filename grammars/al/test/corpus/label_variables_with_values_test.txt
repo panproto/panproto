@@ -1,0 +1,58 @@
+================================================================================
+Label variable declarations with string literal values
+================================================================================
+
+page 12345 "Test Page"
+{
+    var
+        TestMessage: Label 'This is a test message';
+        ErrorMessage: Label 'An error occurred';
+        CantRunPageMsg: Label 'This page cannot be run directly.';
+        IncludeCaption: Label 'Include';
+        ExcludeCaption: Label 'Exclude';
+        MultipleMsg: Label 'Multiple words with spaces and punctuation!';
+    
+    trigger OnOpenPage()
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (basic_type)
+        value: (string_literal))
+      (variable_declaration
+        name: (identifier)
+        type: (basic_type)
+        value: (string_literal))
+      (variable_declaration
+        name: (identifier)
+        type: (basic_type)
+        value: (string_literal))
+      (variable_declaration
+        name: (identifier)
+        type: (basic_type)
+        value: (string_literal))
+      (variable_declaration
+        name: (identifier)
+        type: (basic_type)
+        value: (string_literal))
+      (variable_declaration
+        name: (identifier)
+        type: (basic_type)
+        value: (string_literal)))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))

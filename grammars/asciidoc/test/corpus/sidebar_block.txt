@@ -1,0 +1,47 @@
+================
+sidebar_block
+================
+
+****
+sidebar content
+****
+
+****
+*****
+*****
+****
+
+*****
+****
+****
+*****
+
+---
+
+(document
+  (block_element
+    (section_block
+      (sidebar_block
+        (sidebar_block_start_marker)
+        (section_block
+          (paragraph
+            (line)))
+        (sidebar_block_end_marker))))
+  (block_element
+    (section_block
+      (sidebar_block
+        (sidebar_block_start_marker)
+        (section_block
+          (sidebar_block
+            (sidebar_block_start_marker)
+            (sidebar_block_end_marker)))
+        (sidebar_block_end_marker))))
+  (block_element
+    (section_block
+      (sidebar_block
+        (sidebar_block_start_marker)
+        (section_block
+          (sidebar_block
+            (sidebar_block_start_marker)
+            (sidebar_block_end_marker)))
+        (sidebar_block_end_marker)))))

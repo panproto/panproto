@@ -1,0 +1,42 @@
+======
+simple
+======
+
+const a = 1 == 2 ? 'nomath' : 'math';
+
+---
+
+(program
+    (constant_declaration
+        (identifier)
+        (ternary_expression
+            (binary_expression (number) (number)
+        )
+        (string)
+        (string))
+    )
+)
+
+======
+nested
+======
+
+const a = 1 == 2 ? 3 == 3 ? 'verytrue' : 'kindoftrue' : 'false';
+
+---
+
+
+(program
+    (constant_declaration
+        (identifier)
+        (ternary_expression
+            (binary_expression (number) (number))
+            (ternary_expression
+                (binary_expression (number) (number))
+                (string)
+                (string)
+            )
+            (string)
+        )
+    )
+)

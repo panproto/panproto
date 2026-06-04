@@ -1,0 +1,483 @@
+================================================================================
+Test commands with regexes
+================================================================================
+
+[[ "35d8b" =~ ^[0-9a-fA-F] ]]
+[[ $CMD =~ \(^\|\;\)update_terminal_cwd\(\$\|\;\) ]]
+[[ ! " ${completions[*]} " =~ " $alias_cmd " ]]
+! [[ "$a" =~ ^a\|b\ *c\|d$ ]]
+[[ "$1" =~ ^${var}${var}*=..* ]]
+[[ "$1" =~ ^\-${var}+ ]]
+[[ ${var1} == *${var2}* ]]
+[[ "$server" =~ [0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3} ]]
+[[ "$primary_wins" =~ \([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\) ]]
+[[ -f ${x} && $(od -t x1 -N 4 "${x}") == *"7f 45 4c 46"* ]]
+[[ ${PV} == 99999999\$ ]]
+[[ " ${REPLACING_VERSIONS} " == *\ ${PVR}\ * ]]
+[[ ${file} == @(*${GENTOO_PATCH_NAME}.tar.xz|*.asc|*.sig) ]]
+[[ $RUBY_TARGETS != *$( eselect ruby show | awk 'NR==2' | tr  -d ' '  )* ]]
+[[ "${skip_files[*]} " =~ "test.tmp" ]]
+[[ ' boop xyz' =~ ' boop '(.*)$ ]]
+[[ $b =~ foo* ]]
+
+
+
+--------------------------------------------------------------------------------
+
+(program
+  (test_command
+    (binary_expression
+      left: (string
+        (string_content))
+      right: (regex)))
+  (test_command
+    (binary_expression
+      left: (variable_ref
+        (simple_variable_name))
+      right: (regex)))
+  (test_command
+    (binary_expression
+      left: (unary_expression
+        (string
+          (expansion
+            name: (simple_variable_name)
+            index: (array_star))))
+      right: (string
+        (variable_ref
+          (simple_variable_name)))))
+  (negated_command
+    (test_command
+      (binary_expression
+        left: (string
+          (variable_ref
+            (simple_variable_name)))
+        right: (regex))))
+  (test_command
+    (binary_expression
+      left: (string
+        (variable_ref
+          (special_variable_name)))
+      right: (regex)))
+  (test_command
+    (binary_expression
+      left: (string
+        (variable_ref
+          (special_variable_name)))
+      right: (regex)))
+  (test_command
+    (binary_expression
+      left: (expansion
+        name: (simple_variable_name))
+      right: (extglob_pattern)
+      right: (expansion
+        name: (simple_variable_name))
+      right: (extglob_pattern)))
+  (test_command
+    (binary_expression
+      left: (string
+        (variable_ref
+          (simple_variable_name)))
+      right: (regex)))
+  (test_command
+    (binary_expression
+      left: (string
+        (variable_ref
+          (simple_variable_name)))
+      right: (regex)))
+  (test_command
+    (binary_expression
+      left: (unary_expression
+        operator: (test_operator)
+        (expansion
+          name: (simple_variable_name)))
+      right: (binary_expression
+        left: (command_substitution
+          (command
+            name: (command_name
+              (word))
+            argument: (word)
+            argument: (word)
+            argument: (word)
+            argument: (number)
+            argument: (string
+              (expansion
+                name: (simple_variable_name)))))
+        right: (extglob_pattern)
+        right: (string
+          (string_content))
+        right: (extglob_pattern))))
+  (test_command
+    (binary_expression
+      left: (expansion
+        name: (simple_variable_name))
+      right: (word)))
+  (test_command
+    (binary_expression
+      left: (string
+        (expansion
+          name: (simple_variable_name)))
+      right: (extglob_pattern)
+      right: (expansion
+        name: (simple_variable_name))
+      right: (extglob_pattern)))
+  (test_command
+    (binary_expression
+      left: (expansion
+        name: (simple_variable_name))
+      right: (extglob_pattern)
+      right: (expansion
+        name: (simple_variable_name))
+      right: (extglob_pattern)))
+  (test_command
+    (binary_expression
+      left: (variable_ref
+        (simple_variable_name))
+      right: (extglob_pattern)
+      right: (command_substitution
+        (pipeline
+          (command
+            name: (command_name
+              (word))
+            argument: (word)
+            argument: (word))
+          (command
+            name: (command_name
+              (word))
+            argument: (raw_string))
+          (command
+            name: (command_name
+              (word))
+            argument: (word)
+            argument: (raw_string))))
+      right: (extglob_pattern)))
+  (test_command
+    (binary_expression
+      left: (string
+        (expansion
+          name: (simple_variable_name)
+          index: (array_star)))
+      right: (string
+        (string_content))))
+  (test_command
+    (binary_expression
+      left: (raw_string)
+      right: (concatenation
+        (raw_string)
+        (regex))))
+  (test_command
+    (binary_expression
+      left: (variable_ref
+        (simple_variable_name))
+      right: (regex))))
+
+==================================================
+Test commands with regexes - unprotected double minus
+==================================================
+[[ $1 == -- ]]
+
+--------------------------------------------------------------------------------
+
+(program
+  (test_command
+    (binary_expression
+      left: (variable_ref
+        (special_variable_name))
+      right: (extglob_pattern))))
+
+==================================================
+For loop without in
+==================================================
+
+for each ( "$diffs[@]" )
+do
+    warn "${each}"
+done
+
+--------------------------------------------------------------------------------
+
+(program
+  (terse_for_statement
+    variable: (simple_variable_name)
+    value: (string
+      (variable_ref
+        (simple_variable_name)
+        index: (array_at)))
+    body: (do_group
+      (command
+        name: (command_name
+          (word))
+        argument: (string
+          (expansion
+            name: (simple_variable_name)))))))
+
+==================================================
+For loop without in, multiple values, single statement
+==================================================
+
+for key ('^[[A' '^P' ${terminfo[kcuu1]}) bindkey ${key} history-substring-search-up
+
+--------------------------------------------------------------------------------
+
+(program
+  (terse_for_statement
+    variable: (simple_variable_name)
+    value: (raw_string)
+    value: (raw_string)
+    value: (expansion
+      name: (simple_variable_name)
+      index: (word))
+    body: (command
+      name: (command_name
+        (word))
+      argument: (expansion
+        name: (simple_variable_name))
+      argument: (word))))
+
+==================================================
+Select loop without in, multiple values, single statement
+==================================================
+
+select choice in "Apple" "Banana" "Orange"; do
+    echo "You picked: $choice"
+    break
+done
+
+----
+
+(program
+  (select_statement
+    (simple_variable_name)
+    (string
+      (string_content))
+    (string
+      (string_content))
+    (string
+      (string_content))
+    (do_group
+      (command
+        (command_name
+          (word))
+        (string
+          (string_content)
+          (variable_ref
+            (simple_variable_name))))
+      (command
+        (command_name
+          (word))))))
+
+================================================================================
+Case statement with numeric glob ranges
+================================================================================
+
+case $arg in
+  <->) echo "any non-negative" ;;
+  <1-10>) echo "one to ten" ;;
+  <20->) echo "twenty or more" ;;
+  <-5>) echo "five or less" ;;
+esac
+
+--------------------------------------------------------------------------------
+
+(program
+  (case_statement
+    value: (variable_ref
+      (simple_variable_name))
+    (case_item
+      value: (glob_pattern)
+      (command
+        name: (command_name
+          (word))
+        argument: (string
+          (string_content))))
+    (case_item
+      value: (glob_pattern)
+      (command
+        name: (command_name
+          (word))
+        argument: (string
+          (string_content))))
+    (case_item
+      value: (glob_pattern)
+      (command
+        name: (command_name
+          (word))
+        argument: (string
+          (string_content))))
+    (case_item
+      value: (glob_pattern)
+      (command
+        name: (command_name
+          (word))
+        argument: (string
+          (string_content))))))
+
+================================================================================
+Case statement with empty case item (fall-through pattern)
+================================================================================
+
+case x in
+    ask)
+        echo ask
+        ;;
+    auto) ;; # comment
+    *)
+        echo other
+        ;;
+esac
+
+--------------------------------------------------------------------------------
+
+(program
+  (case_statement
+    value: (word)
+    (case_item
+      value: (word)
+      (command
+        name: (command_name
+          (word))
+        argument: (word)))
+    (case_item
+      value: (word))
+    (comment)
+    (case_item
+      value: (extglob_pattern)
+      (command
+        name: (command_name
+          (word))
+        argument: (word)))))
+
+================================================================================
+Case statement with ;| fallthrough (zsh test-remaining-patterns)
+================================================================================
+
+case x in
+    a)
+        echo a
+        ;|
+    b)
+        echo b
+        ;;
+esac
+
+--------------------------------------------------------------------------------
+
+(program
+  (case_statement
+    value: (word)
+    (case_item
+      value: (word)
+      (command
+        name: (command_name
+          (word))
+        argument: (word))
+      fallthrough: (case_test_next))
+    (case_item
+      value: (word)
+      (command
+        name: (command_name
+          (word))
+        argument: (word)))))
+
+================================================================================
+Case statement with ;;& fallthrough (zsh test-remaining-patterns, ksh style)
+================================================================================
+
+case x in
+    a)
+        echo a
+        ;;&
+    b)
+        echo b
+        ;;
+esac
+
+--------------------------------------------------------------------------------
+
+(program
+  (case_statement
+    value: (word)
+    (case_item
+      value: (word)
+      (command
+        name: (command_name
+          (word))
+        argument: (word))
+      fallthrough: (case_test_next))
+    (case_item
+      value: (word)
+      (command
+        name: (command_name
+          (word))
+        argument: (word)))))
+
+================================================================================
+Case statement with ;& fallthrough (zsh execute-next-list)
+================================================================================
+
+case x in
+    a)
+        echo a
+        ;&
+    b)
+        echo b
+        ;;
+esac
+
+--------------------------------------------------------------------------------
+
+(program
+  (case_statement
+    value: (word)
+    (case_item
+      value: (word)
+      (command
+        name: (command_name
+          (word))
+        argument: (word))
+      fallthrough: (case_fallthrough))
+    (case_item
+      value: (word)
+      (command
+        name: (command_name
+          (word))
+        argument: (word)))))
+
+================================================================================
+Case statement with pipe-separated alternatives
+================================================================================
+
+case x in
+    a|b|c)
+        echo match
+        ;;
+    d|e) ;;
+    x) ;;
+    *)
+        echo other
+        ;;
+esac
+
+--------------------------------------------------------------------------------
+
+(program
+  (case_statement
+    value: (word)
+    (case_item
+      value: (extglob_pattern)
+      value: (extglob_pattern)
+      value: (extglob_pattern)
+      (command
+        name: (command_name
+          (word))
+        argument: (word)))
+    (case_item
+      value: (extglob_pattern)
+      value: (extglob_pattern))
+    (case_item
+      value: (word))
+    (case_item
+      value: (extglob_pattern)
+      (command
+        name: (command_name
+          (word))
+        argument: (word)))))

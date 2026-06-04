@@ -1,0 +1,243 @@
+================================================================================
+struct
+================================================================================
+
+library this_is_library;
+
+type Struct = struct {
+  field1 int32;
+
+  @a
+  field2 OtherStruct;
+
+  field3 vector<uint8>:32;
+};
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (library
+    (compound_identifier
+      (identifier)))
+  (declaration
+    (layout_declaration
+      (identifier)
+      (inline_layout
+        (layout_kind)
+        (layout_body
+          (struct_layout
+            (struct_layout_member
+              (member_field
+                (identifier)
+                (type_constructor
+                  (primitives_type))))
+            (struct_layout_member
+              (attribute_list
+                (attribute
+                  (identifier)))
+              (member_field
+                (identifier)
+                (type_constructor
+                  (layout
+                    (compound_identifier
+                      (identifier))))))
+            (struct_layout_member
+              (member_field
+                (identifier)
+                (type_constructor
+                  (layout
+                    (builtin_complex_type))
+                  (layout_parameters
+                    (layout_parameter
+                      (type_constructor
+                        (primitives_type))))
+                  (type_constraints
+                    (type_constraint
+                      (constant_allows_bit_ops
+                        (numeric_literal)))))))))))))
+
+================================================================================
+struct in struct
+================================================================================
+
+library this_is_library;
+
+type Struct = struct {
+  field struct {
+    field1 int32;
+
+    @a
+    field2 OtherStruct;
+  };
+};
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (library
+    (compound_identifier
+      (identifier)))
+  (declaration
+    (layout_declaration
+      (identifier)
+      (inline_layout
+        (layout_kind)
+        (layout_body
+          (struct_layout
+            (struct_layout_member
+              (member_field
+                (identifier)
+                (type_constructor
+                  (layout
+                    (inline_layout
+                      (layout_kind)
+                      (layout_body
+                        (struct_layout
+                          (struct_layout_member
+                            (member_field
+                              (identifier)
+                              (type_constructor
+                                (primitives_type))))
+                          (struct_layout_member
+                            (attribute_list
+                              (attribute
+                                (identifier)))
+                            (member_field
+                              (identifier)
+                              (type_constructor
+                                (layout
+                                  (compound_identifier
+                                    (identifier)))))))))))))))))))
+
+================================================================================
+table in struct
+================================================================================
+
+library this_is_library;
+
+type Struct = struct {
+  field table {
+    1: field1 int32;
+  };
+};
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (library
+    (compound_identifier
+      (identifier)))
+  (declaration
+    (layout_declaration
+      (identifier)
+      (inline_layout
+        (layout_kind)
+        (layout_body
+          (struct_layout
+            (struct_layout_member
+              (member_field
+                (identifier)
+                (type_constructor
+                  (layout
+                    (inline_layout
+                      (layout_kind)
+                      (layout_body
+                        (ordinal_layout
+                          (ordinal_layout_member
+                            (numeric_literal)
+                            (member_field
+                              (identifier)
+                              (type_constructor
+                                (primitives_type)))))))))))))))))
+
+================================================================================
+struct field with default value
+================================================================================
+
+library this_is_library;
+
+type Struct = struct {
+  field1 int32 = 0;
+  field2 int32 = -1;
+  field3 float32 = 1.0;
+};
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (library
+    (compound_identifier
+      (identifier)))
+  (declaration
+    (layout_declaration
+      (identifier)
+      (inline_layout
+        (layout_kind)
+        (layout_body
+          (struct_layout
+            (struct_layout_member
+              (member_field
+                (identifier)
+                (type_constructor
+                  (primitives_type))
+                (constant
+                  (literal
+                    (numeric_literal)))))
+            (struct_layout_member
+              (member_field
+                (identifier)
+                (type_constructor
+                  (primitives_type))
+                (constant
+                  (literal
+                    (numeric_literal)))))
+            (struct_layout_member
+              (member_field
+                (identifier)
+                (type_constructor
+                  (primitives_type))
+                (constant
+                  (literal
+                    (numeric_literal)))))))))))
+
+================================================================================
+struct field type with bit op
+================================================================================
+
+library this_is_library;
+
+type Struct = struct {
+  server_socket zx.Handle:<SOCKET, IO | WAIT>;
+};
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (library
+    (compound_identifier
+      (identifier)))
+  (declaration
+    (layout_declaration
+      (identifier)
+      (inline_layout
+        (layout_kind)
+        (layout_body
+          (struct_layout
+            (struct_layout_member
+              (member_field
+                (identifier)
+                (type_constructor
+                  (layout
+                    (builtin_complex_type))
+                  (type_constraints
+                    (type_constraint_list
+                      (type_constraint
+                        (constant_allows_bit_ops
+                          (compound_identifier
+                            (identifier))))
+                      (type_constraint
+                        (constant_allows_bit_ops
+                          (compound_identifier
+                            (identifier))
+                          (compound_identifier
+                            (identifier)))))))))))))))

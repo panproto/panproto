@@ -1,0 +1,15 @@
+===
+errors/undefinedProperty2.pkl
+===
+
+name: String
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))))

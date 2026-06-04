@@ -1,0 +1,127 @@
+================================================================================
+AdditionalSearchTerms property in report
+================================================================================
+
+report 12345 "Test Report"
+{
+    Caption = 'Test Report';
+    ProcessingOnly = true;
+    AdditionalSearchTerms = 'Search Terms for Report';
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (string_literal))))
+
+================================================================================
+AdditionalSearchTerms property in page
+================================================================================
+
+page 54321 "Test Page"
+{
+    Caption = 'Test Page';
+    PageType = List;
+    AdditionalSearchTerms = 'Additional search keywords';
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))))
+
+================================================================================
+AdditionalSearchTermsML property test
+================================================================================
+
+page 65432 "ML Test Page"
+{
+    Caption = 'ML Test Page';
+    AdditionalSearchTermsML = ENU='English terms',FRA='French terms';
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (ml_value_list
+        (ml_value_pair
+          language: (identifier)
+          value: (string_literal))
+        (ml_value_pair
+          language: (identifier)
+          value: (string_literal))))))
+
+================================================================================
+Report with multiple properties including AdditionalSearchTerms
+================================================================================
+
+report 78910 "Complete Report"
+{
+    Caption = 'Complete Report';
+    ProcessingOnly = true;
+    UsageCategory = Tasks;
+    ApplicationArea = All;
+    AdditionalSearchTerms = 'Complete Report Search Terms';
+    
+    dataset
+    {
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (dataset_section
+      (dataset_keyword))))

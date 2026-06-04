@@ -1,0 +1,463 @@
+================================================================================
+Integral literals
+================================================================================
+
+int i = 1234;
+long i = 1234l;
+unsigned int i = 1234u;
+unsigned long int i = 1234ul;
+unsigned int i = 1234U;
+unsigned long int i = 1234UL;
+
+int i = 0xabcd1234;
+unsigned int i = 0xABCD1234u;
+int i = 0Xabcd1234;
+unsigned int i = 0XABCD1234U;
+
+int i = 0b01010101;
+
+int two_kb = 2k;
+int two_megs = 2M;
+int one_gig = 1G;
+
+---
+
+(translation_unit
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (sized_type_specifier)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (sized_type_specifier
+            type: (primitive_type)
+        )
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (sized_type_specifier
+            type: (primitive_type)
+        )
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (sized_type_specifier
+            type: (primitive_type)
+        )
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (sized_type_specifier
+            type: (primitive_type)
+        )
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (sized_type_specifier
+            type: (primitive_type)
+        )
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+
+    (declaration
+        type: (sized_type_specifier
+            type: (primitive_type)
+        )
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+)
+
+================================================================================
+Float literals
+================================================================================
+
+double d = .1;
+float  f = .1f;
+double d = .1d;
+
+double d = 1.1;
+float  f = 1.1F;
+double d = 1.1D;
+
+float16 f16 = 1.1f16;
+float16 f16 = 1.1F16;
+
+double d = 2.d;
+double d = .5d;
+double d = 2.5d;
+
+double d = 2e1d;
+double d = 2.e1d;
+double d = .5e1d;
+double d = 2.5e1d;
+
+double d = 2e+1d;
+double d = 2.e+1d;
+double d = .5e+1d;
+double d = 2.5e+1d;
+
+double d = 2e-1d;
+double d = 2.e-1d;
+double d = .5e-1d;
+double d = 2.5e-1d;
+
+double d = 2d1;
+double d = 2.d1;
+double d = .5d1;
+double d = 2.5d1;
+
+---
+
+(translation_unit
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+)
+
+================================================================================
+Hexadecimal float literals
+================================================================================
+
+double d = 0x.1p+0d;
+float  f = 0x.1p+0f;
+double d = 0xf.fp-1;
+double d = 0x12ab.ffp1;
+
+float16 pi_f16    = 0x1.92p+1f16;
+float   two_f     = 0x1p+1;
+float   pi_f      = 0x1.921fb6p+1;
+float   neg_f     = -0x1.ffep+11;
+double  pi_d      = 0x1.921fb54442d18p+1d;
+
+---
+
+(translation_unit
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (identifier)
+            value: (number_literal)
+        )
+    )
+)

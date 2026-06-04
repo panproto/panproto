@@ -1,0 +1,162 @@
+================================================================================
+StyleExpr with various expressions
+================================================================================
+
+page 50100 "Test Page"
+{
+    layout
+    {
+        area(content)
+        {
+            field("Test Field"; Rec."Test Field")
+            {
+                StyleExpr = Rec."Response Description Style";
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (quoted_identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (quoted_identifier))
+          (property
+            name: (property_name)
+            value: (table_relation_value
+              (table_relation_expression
+                (simple_table_relation
+                  table: (identifier)
+                  table: (quoted_identifier))))))))))
+
+================================================================================
+StyleExpr with member expression
+================================================================================
+
+page 50101 "Test Page 2"
+{
+    layout
+    {
+        area(content)
+        {
+            field(MyField; MyRecord.Amount)
+            {
+                StyleExpr = CurrPage.Editable;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (identifier))
+          (property
+            name: (property_name)
+            value: (table_relation_value
+              (table_relation_expression
+                (simple_table_relation
+                  table: (identifier)
+                  table: (identifier))))))))))
+
+================================================================================
+StyleExpr with complex expressions
+================================================================================
+
+page 50102 "Test Page 3"
+{
+    layout
+    {
+        area(content)
+        {
+            field(Status; Rec.Status)
+            {
+                StyleExpr = GetStyleExpression();
+            }
+            field(Amount; Rec.Amount)
+            {
+                StyleExpr = "Total Amount" > 1000;
+            }
+            field(Type; Rec.Type)
+            {
+                StyleExpr = Rec.Type = Rec.Type::Customer;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (identifier))
+          (property
+            name: (property_name)
+            value: (property_expression
+              (call_expression
+                function: (identifier)
+                arguments: (argument_list)))))
+        (page_field
+          name: (identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (identifier))
+          (property
+            name: (property_name)
+            value: (property_expression
+              (comparison_expression
+                left: (quoted_identifier)
+                operator: (comparison_operator)
+                right: (integer)))))
+        (page_field
+          name: (identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (identifier))
+          (property
+            name: (property_name)
+            value: (property_expression
+              (comparison_expression
+                left: (member_expression
+                  object: (identifier)
+                  member: (identifier))
+                operator: (comparison_operator)
+                right: (qualified_enum_value
+                  enum_type: (member_expression
+                    object: (identifier)
+                    member: (identifier))
+                  value: (identifier))))))))))

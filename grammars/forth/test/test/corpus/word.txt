@@ -1,0 +1,20 @@
+==================
+Check word symbols
+==================
+
+x,y
+test:parse
+maybe?
+var@
+save!
+#num
+
+---
+
+(source_file
+  (word)
+  (word)
+  (word)
+  (word)
+  (word)
+  (word))

@@ -1,0 +1,27 @@
+===
+errors/forGeneratorCannotIterateOverTyped.pkl
+===
+
+class Person
+foo {
+  for (_ in new Person {}) { 42 }
+}
+
+---
+
+(module
+  (clazz
+    (identifier))
+  (classProperty
+    (identifier)
+    (objectBody
+      (forGenerator
+        (blankIdentifier)
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (objectBody))
+        (objectBody
+          (objectElement
+            (intLiteralExpr)))))))

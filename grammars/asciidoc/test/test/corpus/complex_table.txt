@@ -1,0 +1,82 @@
+===========
+complex_table
+===========
+
+|===
+|info 1 |info 2 |info 3 |info 4
+.3+a|info 5
+
+* list 1
+* list 2
+
+- [x] aaa
+- [x] bbb
+<e|info 6 2.2+a|info 7
+!===
+!sub 1 .2+!sub 2
+!sub 3 a!
+. number 1
+. number 2
+!===
+a|info 8
+
+. number 1
+. number 2
+2+^s|info 9 <m|info 10
+|===
+
+
+-----
+
+(document
+  (block_element
+    (section_block
+      (table_block
+        (table_block_marker)
+        (table_cell
+          (table_cell_content))
+        (table_cell
+          (table_cell_content))
+        (table_cell
+          (table_cell_content))
+        (table_cell
+          (table_cell_content))
+        (table_cell
+          (table_cell_attr)
+          (table_cell_content))
+        (table_cell
+          (table_cell_attr)
+          (table_cell_content))
+        (table_cell
+          (table_cell_attr)
+          (table_cell_content))
+        (ntable_block
+          (ntable_block_marker)
+          (ntable_cell)
+          (ntable_cell
+            (table_cell_attr))
+          (ntable_cell)
+          (ntable_cell
+            (table_cell_attr)
+            (section_block
+              (list
+                (ordered_list
+                  (ordered_list_item
+                    (ordered_list_marker
+                      (list_marker_dot))
+                    (line))
+                  (ordered_list_item
+                    (ordered_list_marker
+                      (list_marker_dot))
+                    (line))))))
+          (ntable_block_marker))
+        (table_cell
+          (table_cell_attr)
+          (table_cell_content))
+        (table_cell
+          (table_cell_attr)
+          (table_cell_content))
+        (table_cell
+          (table_cell_attr)
+          (table_cell_content))
+        (table_block_marker)))))

@@ -1,0 +1,21 @@
+===
+modules/invalidAmend4.pkl
+===
+
+amends "library.pkl"
+
+function foo() = "parrot"
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (classMethod
+    (methodHeader
+      (identifier)
+      (parameterList))
+    (slStringLiteralExpr
+      (slStringLiteralPart))))

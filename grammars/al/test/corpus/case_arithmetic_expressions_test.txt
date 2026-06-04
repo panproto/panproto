@@ -1,0 +1,66 @@
+================================================================================
+Case statement with arithmetic expressions in patterns
+================================================================================
+
+codeunit 123 "Test Codeunit"
+{
+    procedure TestArithmeticCasePatterns()
+    begin
+        case RecordType of
+            DATABASE::"Customer" + 1:
+                Message('Customer Plus One');
+            DATABASE::"Vendor" - 5:
+                Message('Vendor Minus Five');
+            DATABASE::"Item" * 2:
+                Message('Item Times Two');
+        end;
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (case_statement
+          (case_keyword)
+          expression: (identifier)
+          (of_keyword)
+          (case_branch
+            pattern: (additive_expression
+              left: (database_reference
+                keyword: (object_type_keyword)
+                table_name: (quoted_identifier))
+              right: (integer))
+            body: (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (string_literal))))
+          (case_branch
+            pattern: (additive_expression
+              left: (database_reference
+                keyword: (object_type_keyword)
+                table_name: (quoted_identifier))
+              right: (integer))
+            body: (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (string_literal))))
+          (case_branch
+            pattern: (multiplicative_expression
+              left: (database_reference
+                keyword: (object_type_keyword)
+                table_name: (quoted_identifier))
+              right: (integer))
+            body: (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (string_literal)))))
+        (end_keyword)))))

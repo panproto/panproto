@@ -1,0 +1,17 @@
+===
+types/cyclicTypeAlias1.pkl
+===
+
+typealias Foo = List<Foo>
+---
+
+(module
+  (typeAlias
+    (identifier)
+    (declaredType
+      (qualifiedIdentifier
+        (identifier))
+      (typeArgumentList
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))))))

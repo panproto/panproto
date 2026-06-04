@@ -1,0 +1,76 @@
+================================================================================
+types
+================================================================================
+int x;
+Foo x;
+ref Foo x;
+
+int[] x;
+Foo[] x;
+ref Foo[] x;
+
+array<int> x;
+array<Foo> x;
+array<ref Foo> x;
+
+map<int, int> x;
+map<int, Foo> x;
+map<int, ref array<int>> x;
+--------------------------------------------------------------------------------
+(compilation_unit
+	(decl_variable
+		(type_int)
+		(identifier))
+	(decl_variable
+		(type_identifier (identifier))
+		(identifier))
+	(decl_variable
+		(type_ref (type_identifier (identifier)))
+		(identifier))
+	(decl_variable
+		(type_array (type_int))
+		(identifier))
+	(decl_variable
+		(type_array (type_identifier (identifier)))
+		(identifier))
+	(decl_variable
+		(type_array (type_ref (type_identifier (identifier))))
+		(identifier))
+	(decl_variable
+		(type_identifier
+			(identifier)
+			(types (type_int)))
+		(identifier))
+	(decl_variable
+		(type_identifier
+			(identifier)
+			(types (type_identifier (identifier))))
+		(identifier))
+	(decl_variable
+		(type_identifier
+			(identifier)
+			(types (type_ref (type_identifier (identifier)))))
+		(identifier))
+	(decl_variable
+		(type_identifier
+			(identifier)
+			(types
+				(type_int)
+				(type_int)))
+		(identifier))
+	(decl_variable
+		(type_identifier
+			(identifier)
+			(types
+				(type_int)
+				(type_identifier (identifier))))
+		(identifier))
+	(decl_variable
+		(type_identifier
+			(identifier)
+			(types
+				(type_int)
+				(type_ref (type_identifier
+					(identifier)
+					(types (type_int))))))
+		(identifier)))

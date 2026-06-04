@@ -1,0 +1,31 @@
+==================
+label command
+==================
+
+foo:
+  LABEL foo=bar \
+      simple_quoted='a b c d' \
+      double_quoted="great stuff!"
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (label_command
+            (label
+              label: (identifier)
+              value: (string
+                (unquoted_string)))
+            (line_continuation)
+            (label
+              label: (identifier)
+              value: (string
+                (single_quoted_string)))
+            (line_continuation)
+            (label
+              label: (identifier)
+              value: (string
+                (double_quoted_string)))))))
+

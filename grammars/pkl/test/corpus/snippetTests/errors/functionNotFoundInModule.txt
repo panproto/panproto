@@ -1,0 +1,25 @@
+===
+errors/functionNotFoundInModule.pkl
+===
+
+function bar(x) = x
+
+res1 = module.baz(42)
+---
+
+(module
+  (classMethod
+    (methodHeader
+      (identifier)
+      (parameterList
+        (typedIdentifier
+          (identifier))))
+    (unqualifiedAccessExpr
+      (identifier)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (moduleExpr)
+      (identifier)
+      (argumentList
+        (intLiteralExpr)))))

@@ -1,0 +1,140 @@
+====
+Declare environment
+====
+
+empty_env = environment {};
+nonempty_env = environment {
+  foo = 1;
+  bar = foo,_;
+};
+
+---
+(program
+  (definition variable: (identifier) value: (environment))
+  (definition
+    variable: (identifier)
+    value: (environment
+      (definition variable: (identifier) value: (int))
+      (definition
+        variable: (identifier)
+        value: (parallel left: (identifier) right: (wire))))))
+
+====
+Empty with environment
+====
+
+pink = f : + ~ g with {};
+process = pink;
+
+---
+(program
+  (definition
+    variable: (identifier)
+    value: (with_environment
+      expression: (sequential
+        left: (identifier)
+        right: (recursive left: (add) right: (identifier)))
+      local_environment: (environment)))
+  (definition variable: (identifier) value: (identifier)))
+
+====
+With environment
+====
+
+pink = f : + ~ g with {
+  f(x) = 0.04957526213389*x - 0.06305581334498*x' + 0.01483220320740*x'';
+  g(x) = 1.80116083982126*x - 0.80257737639225*x';
+};
+process = pink;
+
+---
+(program
+  (definition
+    variable: (identifier)
+    value: (with_environment
+      expression: (sequential
+        left: (identifier)
+        right: (recursive left: (add) right: (identifier)))
+      local_environment: (environment
+        (function_definition
+          name: (identifier)
+          (arguments (identifier))
+          value: (infix
+            left: (infix
+              left: (infix left: (real) operator: (mult) right: (identifier))
+              operator: (sub)
+              right: (infix
+                left: (real)
+                operator: (mult)
+                right: (modifier operand: (identifier) operator: (one_sample_delay))))
+            operator: (add)
+            right: (infix
+              left: (real)
+              operator: (mult)
+              right: (modifier
+                operand: (modifier operand: (identifier) operator: (one_sample_delay))
+                operator: (one_sample_delay)))))
+        (function_definition
+          name: (identifier)
+          (arguments (identifier))
+          value: (infix
+            left: (infix left: (real) operator: (mult) right: (identifier))
+            operator: (sub)
+            right: (infix
+              left: (real)
+              operator: (mult)
+              right: (modifier operand: (identifier) operator: (one_sample_delay))))))))
+  (definition variable: (identifier) value: (identifier)))
+
+====
+letrec
+====
+
+ar(a,r,g) = v letrec {
+  'n = (n+1) * c;
+  'v = max(0, v + (n<a)/a - (n>=a)/r) * c; 
+  where
+      c = g<=g'; 
+  };
+
+---
+(program
+  (function_definition
+    name: (identifier)
+    (arguments (identifier) (identifier) (identifier))
+    value: (letrec_environment
+      expression: (identifier)
+      local_environment: (rec_environment
+        (recinition
+          name: (identifier)
+          expression: (infix
+            left: (infix left: (identifier) operator: (add) right: (int))
+            operator: (mult)
+            right: (identifier)))
+        (recinition
+          name: (identifier)
+          expression: (infix
+            left: (prim2
+              (arguments
+                (int)
+                (infix
+                  left: (infix
+                    left: (identifier)
+                    operator: (add)
+                    right: (infix
+                      left: (infix left: (identifier) operator: (lt) right: (identifier))
+                      operator: (div)
+                      right: (identifier)))
+                  operator: (sub)
+                  right: (infix
+                    left: (infix left: (identifier) operator: (ge) right: (identifier))
+                    operator: (div)
+                    right: (identifier)))))
+            operator: (mult)
+            right: (identifier)))
+        (definition
+          variable: (identifier)
+          value: (infix
+            left: (identifier)
+            operator: (le)
+            right: (modifier operand: (identifier) operator: (one_sample_delay))))))))

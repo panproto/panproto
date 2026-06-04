@@ -1,0 +1,69 @@
+===
+classes/constraints2.pkl
+===
+
+import "pkl:test"
+
+class Person {
+  age: Int(this > 0)
+}
+
+res1 = new Person {
+  age = 30
+}
+
+res2 = test.catch(() ->
+  new Person {
+    age = -30
+  }.age
+)
+
+---
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (constrainedType
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (comparisonExpr
+              (thisExpr)
+              (intLiteralExpr)))))))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (intLiteralExpr)))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (qualifiedAccessExpr
+            (newExpr
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))
+              (objectBody
+                (objectProperty
+                  (identifier)
+                  (unaryMinusExpr
+                    (intLiteralExpr)))))
+            (identifier)))))))

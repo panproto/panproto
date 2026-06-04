@@ -1,0 +1,340 @@
+================================================================================
+ShowAs property with SplitButton value
+================================================================================
+
+page 50000 TestPage
+{
+    actions
+    {
+        area(processing)
+        {
+            group(TestGroup)
+            {
+                Caption = 'Test';
+                ShowAs = SplitButton;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_group_section
+          (group_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (identifier)))))))
+
+================================================================================
+ShowAs property with Menu value
+================================================================================
+
+page 50001 TestPage
+{
+    actions
+    {
+        area(navigation)
+        {
+            group(Coupling)
+            {
+                Caption = 'Coupling';
+                ShowAs = Menu;
+                
+                action(ManageCRMCoupling)
+                {
+                    Caption = 'Set Up Coupling';
+                    ApplicationArea = Suite;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_group_section
+          (group_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (action_declaration
+            name: (identifier)
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (identifier))))))))
+
+================================================================================
+ShowAs property case variations
+================================================================================
+
+page 50002 TestPage
+{
+    actions
+    {
+        area(promoted)
+        {
+            group(Group1)
+            {
+                ShowAs = splitbutton;
+            }
+            group(Group2)
+            {
+                ShowAs = MENU;
+            }
+            group(Group3)
+            {
+                ShowAs = Menu;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_group_section
+          (group_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))
+        (action_group_section
+          (group_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))
+        (action_group_section
+          (group_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))))))
+
+================================================================================
+Complete action group with ShowAs and other properties
+================================================================================
+
+page 50003 OpportunityList
+{
+    actions
+    {
+        area(processing)
+        {
+            group(Category_Coupling)
+            {
+                Caption = 'Coupling', Comment = 'Coupling is a noun';
+                ShowAs = SplitButton;
+
+                actionref(PromotedSetupCoupling; ManageCRMCoupling)
+                {
+                }
+                actionref(PromotedDelete; DeleteCRMCoupling)
+                {
+                }
+                group(MatchBasedCoupling)
+                {
+                    Caption = 'Coupling', Comment = 'Coupling is a noun';
+                    ShowAs = SplitButton;
+
+                    actionref(PromotedMatching; CRMGotoOpportunity)
+                    {
+                    }
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_group_section
+          (group_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (caption_value
+              (string_literal)
+              (property_name)
+              (string_literal)))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (actionref_declaration
+            promoted_name: (identifier)
+            action_name: (identifier))
+          (actionref_declaration
+            promoted_name: (identifier)
+            action_name: (identifier))
+          (action_group_section
+            (group_keyword)
+            name: (identifier)
+            (property
+              name: (property_name)
+              value: (caption_value
+                (string_literal)
+                (property_name)
+                (string_literal)))
+            (property
+              name: (property_name)
+              value: (identifier))
+            (actionref_declaration
+              promoted_name: (identifier)
+              action_name: (identifier))))))))
+
+================================================================================
+ShowAs property with Standard value
+================================================================================
+
+page 50004 TestPage
+{
+    actions
+    {
+        area(Promoted)
+        {
+            group(Category_Process)
+            {
+                Caption = 'Process';
+                ShowAs = Standard;
+
+                actionref(PromotedRefresh; Refresh) { }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_group_section
+          (group_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (actionref_declaration
+            promoted_name: (identifier)
+            action_name: (identifier)))))))
+
+================================================================================
+ShowAs property with Button value and case variations
+================================================================================
+
+page 50005 TestPage
+{
+    actions
+    {
+        area(promoted)
+        {
+            group(Group1)
+            {
+                ShowAs = button;
+            }
+            group(Group2)
+            {
+                ShowAs = BUTTON;
+            }
+            group(Group3)
+            {
+                ShowAs = standard;
+            }
+            group(Group4)
+            {
+                ShowAs = STANDARD;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_group_section
+          (group_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))
+        (action_group_section
+          (group_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))
+        (action_group_section
+          (group_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))
+        (action_group_section
+          (group_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))))))

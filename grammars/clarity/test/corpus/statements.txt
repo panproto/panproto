@@ -1,0 +1,286 @@
+=====================================
+Public function definition
+=====================================
+
+(define-public (hello-world (name (string-ascii 32)))
+  (let
+    (
+      (foo (+ 3 1))
+      (bar u5)
+      (user tx-sender)
+    )
+    (ok 1)
+  )
+)
+
+---
+    (source
+      (function_definition
+        (public_function
+          (function_signature
+            (identifier)
+            (function_parameter
+              (identifier)
+              (parameter_type
+                (native_type
+                  (ascii_string_type)))))
+          (let_expression
+            (local_binding
+              (identifier)
+              (basic_native_form
+                (native_identifier)
+                (int_lit)
+                (int_lit)))
+            (local_binding
+              (identifier)
+              (uint_lit))
+            (local_binding
+              (identifier)
+              (global))
+            (response_lit
+              (int_lit))))))
+
+
+
+
+
+=====================================
+Private function definition
+=====================================
+
+(define-private (hello-world (name (string-ascii 32)))
+  (let
+    (
+      (foo (+ 3 1))
+      (bar u5)
+      (user tx-sender)
+    )
+    (ok 1)
+  )
+)
+
+---
+
+    (source
+      (function_definition
+        (private_function
+          (function_signature
+            (identifier)
+            (function_parameter
+              (identifier)
+              (parameter_type
+                (native_type
+                  (ascii_string_type)))))
+          (let_expression
+            (local_binding
+              (identifier)
+              (basic_native_form
+                (native_identifier)
+                (int_lit)
+                (int_lit)))
+            (local_binding
+              (identifier)
+              (uint_lit))
+            (local_binding
+              (identifier)
+              (global))
+            (response_lit
+              (int_lit))))))
+
+
+=====================================
+Trait definition
+=====================================
+
+;; mainnet principal: 'M0R8C3RD1EHAP2A37ERSSSZSWCS9T2GY5FGXNALC.sip-010-trait
+
+(define-trait sip-010-trait
+  (
+    ;; Transfer from the caller to a new principal
+    (transfer (uint principal principal (optional (buff 34))) (response bool uint))
+  )
+)
+
+---
+
+    (source
+      (comment)
+      (trait_definition
+        (identifier)
+        (comment)
+        (function_signature_for_trait
+          (identifier)
+          (parameter_type
+            (native_type))
+          (parameter_type
+            (native_type))
+          (parameter_type
+            (native_type))
+          (parameter_type
+            (native_type
+              (optional_type
+                (native_type
+                  (buffer_type)))))
+          (native_type
+            (response_type
+  	      (native_type)
+              (native_type))))))
+
+
+=====================================
+Trait within tuple parameter
+=====================================
+
+(define-private (foo (bar (response { baz: <luu> } principal)))
+  true)
+
+---
+
+(source
+  (function_definition
+    (private_function
+      (function_signature
+	(identifier)
+	(function_parameter
+	  (identifier)
+	  (parameter_type
+	    (native_type
+	      (response_type
+	      	(native_type
+		  (tuple_type
+		    (identifier)
+		    (parameter_type
+		      (trait_type
+		        (identifier)))))
+		(native_type))))))
+      (bool_lit))))
+
+
+=====================================
+Clarity 4: stacks-block-time keyword
+=====================================
+
+(define-read-only (get-current-block-time)
+  stacks-block-time
+)
+
+---
+
+(source
+  (function_definition
+    (read_only_function
+      (function_signature
+        (identifier))
+      (global))))
+
+
+=====================================
+Clarity 4: contract-hash? function
+=====================================
+
+(define-read-only (verify-contract (contract principal))
+  (contract-hash? contract)
+)
+
+---
+
+(source
+  (function_definition
+    (read_only_function
+      (function_signature
+        (identifier)
+        (function_parameter
+          (identifier)
+          (parameter_type
+            (native_type))))
+      (basic_native_form
+        (native_identifier)
+        (identifier)))))
+
+
+=====================================
+Clarity 4: restrict-assets? function
+=====================================
+
+(define-public (safe-call (recipient principal))
+  (restrict-assets? (list ) (ok true))
+)
+
+---
+
+(source
+  (function_definition
+    (public_function
+      (function_signature
+        (identifier)
+        (function_parameter
+          (identifier)
+          (parameter_type
+            (native_type))))
+      (basic_native_form
+        (native_identifier)
+        (list_lit
+          (list_lit_token))
+        (response_lit
+          (bool_lit))))))
+
+
+=====================================
+Clarity 4: to-ascii? function
+=====================================
+
+(define-read-only (convert-to-ascii (value principal))
+  (to-ascii? value)
+)
+
+---
+
+(source
+  (function_definition
+    (read_only_function
+      (function_signature
+        (identifier)
+        (function_parameter
+          (identifier)
+          (parameter_type
+            (native_type))))
+      (basic_native_form
+        (native_identifier)
+        (identifier)))))
+
+
+=====================================
+Clarity 4: secp256r1-verify function
+=====================================
+
+(define-read-only (verify-passkey (message (buff 32)) (signature (buff 64)) (public-key (buff 33)))
+  (secp256r1-verify message signature public-key)
+)
+
+---
+
+(source
+  (function_definition
+    (read_only_function
+      (function_signature
+        (identifier)
+        (function_parameter
+          (identifier)
+          (parameter_type
+            (native_type
+              (buffer_type))))
+        (function_parameter
+          (identifier)
+          (parameter_type
+            (native_type
+              (buffer_type))))
+        (function_parameter
+          (identifier)
+          (parameter_type
+            (native_type
+              (buffer_type)))))
+      (basic_native_form
+        (native_identifier)
+        (identifier)
+        (identifier)
+        (identifier)))))

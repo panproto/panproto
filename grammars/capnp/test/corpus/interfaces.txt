@@ -1,0 +1,536 @@
+# Copyright (c) 2013-2014 Sandstorm Development Group, Inc. and contributors
+# Licensed under the MIT License:
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+
+
+======================================
+Test an interface that extends another
+======================================
+
+interface TestExtends2 extends(TestExtends) {}
+
+---
+
+(message
+  (interface
+    (type_identifier)
+    (extend_type)))
+
+
+
+=================================
+Test a complex interface pipeline
+=================================
+
+interface TestPipeline {
+  getCap @0 (n: UInt32, inCap :TestInterface) -> (s: Text, outBox :Box);
+  testPointers @1 (cap :TestInterface, obj :AnyPointer, list :List(TestInterface)) -> ();
+  getAnyCap @2 (n: UInt32, inCap :Capability) -> (s: Text, outBox :AnyBox);
+
+  getCapPipelineOnly @3 () -> (outBox :Box);
+  # Never returns, but uses setPipeline() to make the pipeline work.
+
+  struct Box {
+    cap @0 :TestInterface;
+  }
+  struct AnyBox {
+    cap @0 :Capability;
+  }
+}
+
+---
+
+(message
+  (interface
+    (type_identifier)
+    (method
+      (method_identifier)
+      (field_version)
+      (method_parameters
+        (parameters
+          (parameter
+            (param_identifier)
+            (field_type
+              (primitive_type)))
+          (parameter
+            (param_identifier)
+            (field_type
+              (custom_type
+                (type_identifier))))))
+      (return_type
+        (named_return_types
+          (named_return_type
+            (return_identifier)
+            (type_identifier)
+            (return_identifier)
+            (type_identifier)))))
+    (method
+      (method_identifier)
+      (field_version)
+      (method_parameters
+        (parameters
+          (parameter
+            (param_identifier)
+            (field_type
+              (custom_type
+                (type_identifier))))
+          (parameter
+            (param_identifier)
+            (field_type
+              (primitive_type)))
+          (parameter
+            (param_identifier)
+            (field_type
+              (list_type
+                (field_type
+                  (custom_type
+                    (type_identifier))))))))
+      (return_type
+        (named_return_types)))
+    (method
+      (method_identifier)
+      (field_version)
+      (method_parameters
+        (parameters
+          (parameter
+            (param_identifier)
+            (field_type
+              (primitive_type)))
+          (parameter
+            (param_identifier)
+            (field_type
+              (custom_type
+                (type_identifier))))))
+      (return_type
+        (named_return_types
+          (named_return_type
+            (return_identifier)
+            (type_identifier)
+            (return_identifier)
+            (type_identifier)))))
+    (method
+      (method_identifier)
+      (field_version)
+      (method_parameters)
+      (return_type
+        (named_return_types
+          (named_return_type
+            (return_identifier)
+            (type_identifier)))))
+    (comment)
+    (struct
+      (type_identifier)
+      (field
+        (field_identifier)
+        (field_version)
+        (field_type
+          (custom_type
+            (type_identifier)))))
+    (struct
+      (type_identifier)
+      (field
+        (field_identifier)
+        (field_version)
+        (field_type
+          (custom_type
+            (type_identifier)))))))
+
+
+
+====================================
+Test an interface with an annotation
+====================================
+
+interface TestStreaming $Cxx.allowCancellation {
+  doStreamI @0 (i :UInt32) -> stream;
+  doStreamJ @1 (j :UInt32) -> stream;
+  finishStream @2 () -> (totalI :UInt32, totalJ :UInt32);
+  # Test streaming. finishStream() returns the totals of the values streamed to the other calls.
+}
+
+---
+
+(message
+  (interface
+    (type_identifier)
+    (annotation_identifier)
+    (method
+      (method_identifier)
+      (field_version)
+      (method_parameters
+        (parameters
+          (parameter
+            (param_identifier)
+            (field_type
+              (primitive_type)))))
+      (return_type
+        (unnamed_return_type
+          (type_identifier))))
+    (method
+      (method_identifier)
+      (field_version)
+      (method_parameters
+        (parameters
+          (parameter
+            (param_identifier)
+            (field_type
+              (primitive_type)))))
+      (return_type
+        (unnamed_return_type
+          (type_identifier))))
+    (method
+      (method_identifier)
+      (field_version)
+      (method_parameters)
+      (return_type
+        (named_return_types
+          (named_return_type
+            (return_identifier)
+            (type_identifier)
+            (return_identifier)
+            (type_identifier)))))
+    (comment)))
+
+
+
+=========================================================
+Test an interface with default parameters & return values
+=========================================================
+
+interface TestMoreStuff extends(TestCallOrder) {
+  # Catch-all type that contains lots of testing methods.
+
+  callFoo @0 (cap :TestInterface) -> (s: Text);
+  # Call `cap.foo()`, check the result, and return "bar".
+
+  callFooWhenResolved @1 (cap :TestInterface) -> (s: Text);
+  # Like callFoo but waits for `cap` to resolve first.
+
+  neverReturn @2 (cap :TestInterface) -> (capCopy :TestInterface) $Cxx.allowCancellation;
+  # Doesn't return.  You should cancel it.
+
+  hold @3 (cap :TestInterface) -> ();
+  # Returns immediately but holds on to the capability.
+
+  callHeld @4 () -> (s: Text);
+  # Calls the capability previously held using `hold` (and keeps holding it).
+
+  getHeld @5 () -> (cap :TestInterface);
+  # Returns the capability previously held using `hold` (and keeps holding it).
+
+  echo @6 (cap :TestCallOrder) -> (cap :TestCallOrder);
+  # Just returns the input cap.
+
+  expectCancel @7 (cap :TestInterface) -> () $Cxx.allowCancellation;
+  # evalLater()-loops forever, holding `cap`.  Must be canceled.
+
+  methodWithDefaults @8 (a :Text, b :UInt32 = 123, c :Text = "foo") -> (d :Text, e :Text = "bar");
+
+  methodWithNullDefault @12 (a :Text, b :TestInterface = null);
+
+  getHandle @9 () -> (handle :TestHandle);
+  # Get a new handle. Tests have an out-of-band way to check the current number of live handles, so
+  # this can be used to test garbage collection.
+
+  getNull @10 () -> (nullCap :TestMoreStuff);
+  # Always returns a null capability.
+
+  getEnormousString @11 () -> (str :Text);
+  # Attempts to return an 100MB string. Should always fail.
+
+  writeToFd @13 (fdCap1 :TestInterface, fdCap2 :TestInterface)
+             -> (fdCap3 :TestInterface, secondFdPresent :Bool);
+  # Expects fdCap1 and fdCap2 wrap socket file descriptors. Writes "foo" to the first and "bar" to
+  # the second. Also creates a socketpair, writes "baz" to one end, and returns the other end.
+
+  throwException @14 ();
+  throwRemoteException @15 ();
+}
+
+---
+
+(message
+  (interface
+    (type_identifier)
+    (extend_type)
+    (comment)
+    (method
+      (method_identifier)
+      (field_version)
+      (method_parameters
+        (parameters
+          (parameter
+            (param_identifier)
+            (field_type
+              (custom_type
+                (type_identifier))))))
+      (return_type
+        (named_return_types
+          (named_return_type
+            (return_identifier)
+            (type_identifier)))))
+    (comment)
+    (method
+      (method_identifier)
+      (field_version)
+      (method_parameters
+        (parameters
+          (parameter
+            (param_identifier)
+            (field_type
+              (custom_type
+                (type_identifier))))))
+      (return_type
+        (named_return_types
+          (named_return_type
+            (return_identifier)
+            (type_identifier)))))
+    (comment)
+    (method
+      (method_identifier)
+      (field_version)
+      (method_parameters
+        (parameters
+          (parameter
+            (param_identifier)
+            (field_type
+              (custom_type
+                (type_identifier))))))
+      (return_type
+        (named_return_types
+          (named_return_type
+            (return_identifier)
+            (type_identifier))))
+      (annotation_identifier))
+    (comment)
+    (method
+      (method_identifier)
+      (field_version)
+      (method_parameters
+        (parameters
+          (parameter
+            (param_identifier)
+            (field_type
+              (custom_type
+                (type_identifier))))))
+      (return_type
+        (named_return_types)))
+    (comment)
+    (method
+      (method_identifier)
+      (field_version)
+      (method_parameters)
+      (return_type
+        (named_return_types
+          (named_return_type
+            (return_identifier)
+            (type_identifier)))))
+    (comment)
+    (method
+      (method_identifier)
+      (field_version)
+      (method_parameters)
+      (return_type
+        (named_return_types
+          (named_return_type
+            (return_identifier)
+            (type_identifier)))))
+    (comment)
+    (method
+      (method_identifier)
+      (field_version)
+      (method_parameters
+        (parameters
+          (parameter
+            (param_identifier)
+            (field_type
+              (custom_type
+                (type_identifier))))))
+      (return_type
+        (named_return_types
+          (named_return_type
+            (return_identifier)
+            (type_identifier)))))
+    (comment)
+    (method
+      (method_identifier)
+      (field_version)
+      (method_parameters
+        (parameters
+          (parameter
+            (param_identifier)
+            (field_type
+              (custom_type
+                (type_identifier))))))
+      (return_type
+        (named_return_types))
+      (annotation_identifier))
+    (comment)
+    (method
+      (method_identifier)
+      (field_version)
+      (method_parameters
+        (parameters
+          (parameter
+            (param_identifier)
+            (field_type
+              (primitive_type)))
+          (parameter
+            (param_identifier)
+            (field_type
+              (primitive_type))
+            (const_value
+              (number)))
+          (parameter
+            (param_identifier)
+            (field_type
+              (primitive_type))
+            (const_value
+              (string
+                (string_fragment))))))
+      (return_type
+        (named_return_types
+          (named_return_type
+            (return_identifier)
+            (type_identifier)
+            (return_identifier)
+            (type_identifier)
+            (const_value
+              (string
+                (string_fragment)))))))
+    (method
+      (method_identifier)
+      (field_version)
+      (method_parameters
+        (parameters
+          (parameter
+            (param_identifier)
+            (field_type
+              (primitive_type)))
+          (parameter
+            (param_identifier)
+            (field_type
+              (custom_type
+                (type_identifier)))
+            (const_value
+              (const_identifier))))))
+    (method
+      (method_identifier)
+      (field_version)
+      (method_parameters)
+      (return_type
+        (named_return_types
+          (named_return_type
+            (return_identifier)
+            (type_identifier)))))
+    (comment)
+    (comment)
+    (method
+      (method_identifier)
+      (field_version)
+      (method_parameters)
+      (return_type
+        (named_return_types
+          (named_return_type
+            (return_identifier)
+            (type_identifier)))))
+    (comment)
+    (method
+      (method_identifier)
+      (field_version)
+      (method_parameters)
+      (return_type
+        (named_return_types
+          (named_return_type
+            (return_identifier)
+            (type_identifier)))))
+    (comment)
+    (method
+      (method_identifier)
+      (field_version)
+      (method_parameters
+        (parameters
+          (parameter
+            (param_identifier)
+            (field_type
+              (custom_type
+                (type_identifier))))
+          (parameter
+            (param_identifier)
+            (field_type
+              (custom_type
+                (type_identifier))))))
+      (return_type
+        (named_return_types
+          (named_return_type
+            (return_identifier)
+            (type_identifier)
+            (return_identifier)
+            (type_identifier)))))
+    (comment)
+    (comment)
+    (method
+      (method_identifier)
+      (field_version)
+      (method_parameters))
+    (method
+      (method_identifier)
+      (field_version)
+      (method_parameters))))
+
+
+
+=================================
+Test an interface with a conflict
+=================================
+
+interface TestNameAnnotationInterface $Cxx.name("RenamedInterface") {
+  badlyNamedMethod @0 (badlyNamedParam :UInt8 $Cxx.name("renamedParam")) $Cxx.name("renamedMethod");
+}
+
+---
+
+(message
+  (interface
+    (type_identifier)
+    (annotation_identifier)
+    (annotation_array
+      (const_value
+        (string
+          (string_fragment))))
+    (method
+      (method_identifier)
+      (field_version)
+      (method_parameters
+        (parameters
+          (parameter
+            (param_identifier)
+            (field_type
+              (primitive_type))
+            (annotation_identifier)
+            (annotation_array
+              (const_value
+                (string
+                  (string_fragment)))))))
+      (annotation_identifier)
+      (annotation_array
+        (const_value
+          (string
+            (string_fragment)))))))

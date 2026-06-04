@@ -1,0 +1,99 @@
+================================================================================
+DataItemTableFilter with comparison operators
+================================================================================
+
+query 50000 "Sales Lines Outstanding"
+{
+    elements
+    {
+        dataitem(salesLines; "Sales Line")
+        {
+            DataItemTableFilter = Type = const(Item), "Outstanding Qty. (Base)" = filter(> 0), "Document Type" = filter(Order | "Return Order");
+            column(documentNo; "Document No.")
+            {
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (link_value_list
+            (link_value
+              field: (identifier)
+              value: (identifier))
+            (link_value
+              field: (quoted_identifier)
+              (filter_keyword)
+              value: (filter_value
+                (integer)))
+            (link_value
+              field: (quoted_identifier)
+              (filter_keyword)
+              value: (filter_value
+                (identifier)
+                (quoted_identifier)))))
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          field_name: (quoted_identifier))))))
+
+================================================================================
+DataItemTableFilter with various comparison operators
+================================================================================
+
+report 50001 "Test Report"
+{
+    dataset
+    {
+        dataitem(Item; Item)
+        {
+            DataItemTableFilter = Quantity = filter(>= 10), "Unit Price" = filter(< 100), "Inventory Value" = filter(<> 0);
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (property
+          name: (property_name)
+          value: (link_value_list
+            (link_value
+              field: (identifier)
+              (filter_keyword)
+              value: (filter_value
+                (integer)))
+            (link_value
+              field: (quoted_identifier)
+              (filter_keyword)
+              value: (filter_value
+                (integer)))
+            (link_value
+              field: (quoted_identifier)
+              (filter_keyword)
+              value: (filter_value
+                (integer)))))))))

@@ -1,0 +1,74 @@
+================================================================================
+Pragma directives in page layout sections
+================================================================================
+
+page 50100 TestPage
+{
+    Caption = 'Test Page';
+    PageType = CardPart;
+
+    layout
+    {
+        area(Content)
+        {
+            group(General)
+            {
+                field(Name; Name)
+                {
+                    ApplicationArea = All;
+                }
+#pragma warning disable AL0432
+                field(HomePage; "Home Page")
+                {
+                    ApplicationArea = All;
+                }
+#pragma warning restore AL0432
+                field(Email; "E-Mail")
+                {
+                    ApplicationArea = All;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (group_section
+          (group_keyword)
+          name: (identifier)
+          (page_field
+            name: (identifier)
+            source: (identifier)
+            (property
+              name: (property_name)
+              value: (identifier)))
+          (pragma)
+          (page_field
+            name: (identifier)
+            source: (quoted_identifier)
+            (property
+              name: (property_name)
+              value: (identifier)))
+          (pragma)
+          (page_field
+            name: (identifier)
+            source: (quoted_identifier)
+            (property
+              name: (property_name)
+              value: (identifier))))))))

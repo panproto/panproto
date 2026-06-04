@@ -1,0 +1,14 @@
+===
+errors/outOfRange1.pkl
+===
+
+res1 = "abc"[4]
+---
+
+(module
+  (classProperty
+    (identifier)
+    (subscriptExpr
+      (slStringLiteralExpr
+        (slStringLiteralPart))
+      (intLiteralExpr))))

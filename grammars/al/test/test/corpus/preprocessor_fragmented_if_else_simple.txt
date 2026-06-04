@@ -1,0 +1,57 @@
+==================
+Simple fragmented if-else test
+==================
+
+codeunit 50000 "Test"
+{
+    procedure Test()
+    var
+        x: Integer;
+    begin
+        if x = 1 then begin
+            x := 2;
+        end else begin
+            x := 3;
+        end;
+    end;
+}
+
+---
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (if_statement
+          (if_keyword)
+          condition: (comparison_expression
+            left: (identifier)
+            operator: (comparison_operator)
+            right: (integer))
+          (then_keyword)
+          then_branch: (code_block
+            (begin_keyword)
+            (assignment_statement
+              left: (identifier)
+              right: (integer))
+            (end_keyword))
+          (else_keyword)
+          else_branch: (code_block
+            (begin_keyword)
+            (assignment_statement
+              left: (identifier)
+              right: (integer))
+            (end_keyword)))
+        (end_keyword)))))

@@ -1,0 +1,177 @@
+===
+generators/forGeneratorVariableShadowing.pkl
+===
+
+examples {
+  local a = List("1", "2", "3", "4")
+  local b = List("a", "b", "c", "d")
+  
+  ["shadow key variable"] {
+    new {
+      for (key, outerValue in a) {
+        for (key, innerValue in b) {
+          List(outerValue, key, innerValue)
+        }
+      }
+    }
+  }
+  ["shadow value variable"] {
+    new {
+      for (outerKey, value in a) {
+        for (innerKey, value in b) {
+          List(outerKey, value, innerKey)
+        }
+      }
+    }
+  }
+  ["sibling for-generators can use same variable names"] {
+    new {
+      for (key, value in a) {
+        List(key,  value)
+      }
+      for (key, value in b) {
+        List(key, value)
+      }
+    }
+  }
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (modifier)
+        (identifier)
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList
+            (slStringLiteralExpr
+              (slStringLiteralPart))
+            (slStringLiteralExpr
+              (slStringLiteralPart))
+            (slStringLiteralExpr
+              (slStringLiteralPart))
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))
+      (objectProperty
+        (modifier)
+        (identifier)
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList
+            (slStringLiteralExpr
+              (slStringLiteralPart))
+            (slStringLiteralExpr
+              (slStringLiteralPart))
+            (slStringLiteralExpr
+              (slStringLiteralPart))
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (newExpr
+              (objectBody
+                (forGenerator
+                  (typedIdentifier
+                    (identifier))
+                  (typedIdentifier
+                    (identifier))
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (objectBody
+                    (forGenerator
+                      (typedIdentifier
+                        (identifier))
+                      (typedIdentifier
+                        (identifier))
+                      (unqualifiedAccessExpr
+                        (identifier))
+                      (objectBody
+                        (objectElement
+                          (unqualifiedAccessExpr
+                            (identifier)
+                            (argumentList
+                              (unqualifiedAccessExpr
+                                (identifier))
+                              (unqualifiedAccessExpr
+                                (identifier))
+                              (unqualifiedAccessExpr
+                                (identifier))))))))))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (newExpr
+              (objectBody
+                (forGenerator
+                  (typedIdentifier
+                    (identifier))
+                  (typedIdentifier
+                    (identifier))
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (objectBody
+                    (forGenerator
+                      (typedIdentifier
+                        (identifier))
+                      (typedIdentifier
+                        (identifier))
+                      (unqualifiedAccessExpr
+                        (identifier))
+                      (objectBody
+                        (objectElement
+                          (unqualifiedAccessExpr
+                            (identifier)
+                            (argumentList
+                              (unqualifiedAccessExpr
+                                (identifier))
+                              (unqualifiedAccessExpr
+                                (identifier))
+                              (unqualifiedAccessExpr
+                                (identifier))))))))))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (newExpr
+              (objectBody
+                (forGenerator
+                  (typedIdentifier
+                    (identifier))
+                  (typedIdentifier
+                    (identifier))
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (objectBody
+                    (objectElement
+                      (unqualifiedAccessExpr
+                        (identifier)
+                        (argumentList
+                          (unqualifiedAccessExpr
+                            (identifier))
+                          (unqualifiedAccessExpr
+                            (identifier)))))))
+                (forGenerator
+                  (typedIdentifier
+                    (identifier))
+                  (typedIdentifier
+                    (identifier))
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (objectBody
+                    (objectElement
+                      (unqualifiedAccessExpr
+                        (identifier)
+                        (argumentList
+                          (unqualifiedAccessExpr
+                            (identifier))
+                          (unqualifiedAccessExpr
+                            (identifier)))))))))))))))

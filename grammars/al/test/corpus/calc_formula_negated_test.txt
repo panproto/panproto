@@ -1,0 +1,144 @@
+================================================================================
+Negated CalcFormula expressions for FlowFields
+================================================================================
+
+table 123 "Test Table"
+{
+    fields
+    {
+        field(1; "Vendor Balance"; Decimal)
+        {
+            CalcFormula = - sum("Vendor Ledger Entry"."Amount" where("Vendor No." = field("No.")));
+            FieldClass = FlowField;
+        }
+        field(2; "Customer Balance"; Decimal)
+        {
+            CalcFormula = - average("Customer Ledger Entry"."Amount" where("Customer No." = field("No.")));
+            FieldClass = FlowField;
+        }
+        field(3; "Item Count"; Integer)
+        {
+            CalcFormula = - count("Item Ledger Entry" where("Item No." = field("Item No.")));
+            FieldClass = FlowField;
+        }
+        field(4; "Min Amount"; Decimal)
+        {
+            CalcFormula = - min("Transaction"."Amount" where("Account No." = field("Account No.")));
+            FieldClass = FlowField;
+        }
+        field(5; "Max Amount"; Decimal)
+        {
+            CalcFormula = - max("Transaction"."Amount" where("Account No." = field("Account No.")));
+            FieldClass = FlowField;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (aggregate_formula
+            function: (aggregate_function)
+            target: (calc_field_reference
+              (quoted_identifier)
+              (quoted_identifier))
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (quoted_identifier)
+                  value: (quoted_identifier))))))
+        (property
+          name: (property_name)
+          value: (identifier)))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (aggregate_formula
+            function: (aggregate_function)
+            target: (calc_field_reference
+              (quoted_identifier)
+              (quoted_identifier))
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (quoted_identifier)
+                  value: (quoted_identifier))))))
+        (property
+          name: (property_name)
+          value: (identifier)))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (aggregate_formula
+            function: (aggregate_function)
+            target: (calc_field_reference
+              (quoted_identifier))
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (quoted_identifier)
+                  value: (quoted_identifier))))))
+        (property
+          name: (property_name)
+          value: (identifier)))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (aggregate_formula
+            function: (aggregate_function)
+            target: (calc_field_reference
+              (quoted_identifier)
+              (quoted_identifier))
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (quoted_identifier)
+                  value: (quoted_identifier))))))
+        (property
+          name: (property_name)
+          value: (identifier)))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (aggregate_formula
+            function: (aggregate_function)
+            target: (calc_field_reference
+              (quoted_identifier)
+              (quoted_identifier))
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (quoted_identifier)
+                  value: (quoted_identifier))))))
+        (property
+          name: (property_name)
+          value: (identifier))))))

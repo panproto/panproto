@@ -1,0 +1,64 @@
+==================
+SystemPart Elements
+==================
+
+page 50000 "Test SystemPart Page"
+{
+    PageType = Card;
+    SourceTable = Customer;
+
+    layout
+    {
+        area(factboxes)
+        {
+            systempart("4"; Links)
+            {
+                ApplicationArea = All;
+                Visible = false;
+            }
+            systempart("3"; Notes)
+            {
+                ApplicationArea = All;
+                Visible = true;
+            }
+        }
+    }
+}
+
+---
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (systempart_section
+          (systempart_keyword)
+          name: (quoted_identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (boolean)))
+        (systempart_section
+          (systempart_keyword)
+          name: (quoted_identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (boolean)))))))

@@ -1,0 +1,111 @@
+================================================================================
+For statement with field access as loop variable
+================================================================================
+
+codeunit 50000 "Test For Loop"
+{
+    procedure TestEnumFieldLoop()
+    var
+        BusChartBuf: Record "Business Chart Buffer";
+    begin
+        for BusChartBuf."Period Length" := BusChartBuf."Period Length"::Day to BusChartBuf."Period Length"::Year do begin
+            // Process each period
+        end;
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier)))))
+      (code_block
+        (begin_keyword)
+        (for_statement
+          (for_keyword)
+          variable: (member_expression
+            object: (identifier)
+            member: (quoted_identifier))
+          start: (qualified_enum_value
+            enum_type: (member_expression
+              object: (identifier)
+              member: (quoted_identifier))
+            value: (identifier))
+          direction: (to_keyword)
+          end: (qualified_enum_value
+            enum_type: (member_expression
+              object: (identifier)
+              member: (quoted_identifier))
+            value: (identifier))
+          (do_keyword)
+          body: (code_block
+            (begin_keyword)
+            (comment)
+            (end_keyword)))
+        (end_keyword)))))
+
+================================================================================
+For statement with member expression
+================================================================================
+
+codeunit 50001 "Test Member Loop"
+{
+    procedure TestMemberLoop()
+    var
+        Config: Codeunit Configuration;
+    begin
+        for Config.Index := 1 to Config.MaxItems do
+            ProcessItem(Config.Index);
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (object_reference_type
+              object_type: (codeunit_keyword)
+              reference: (identifier)))))
+      (code_block
+        (begin_keyword)
+        (for_statement
+          (for_keyword)
+          variable: (member_expression
+            object: (identifier)
+            member: (identifier))
+          start: (integer)
+          direction: (to_keyword)
+          end: (member_expression
+            object: (identifier)
+            member: (identifier))
+          (do_keyword)
+          body: (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (member_expression
+                object: (identifier)
+                member: (identifier)))))
+        (end_keyword)))))

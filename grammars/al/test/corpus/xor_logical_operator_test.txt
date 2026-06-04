@@ -1,0 +1,136 @@
+================================================================================
+XOR logical operator expressions
+================================================================================
+
+codeunit 123 "Test XOR Operator"
+{
+    trigger OnRun()
+    var
+        Flag1: Boolean;
+        Flag2: Boolean;
+        Result: Boolean;
+    begin
+        // Simple XOR expressions
+        Result := Flag1 xor Flag2;
+        Result := true xor false;
+        Result := (Flag1 = true) xor (Flag2 = false);
+        
+        // XOR with case variations
+        Result := Flag1 XOR Flag2;
+        Result := Flag1 Xor Flag2;
+        
+        // XOR in conditional statements
+        if Flag1 xor Flag2 then
+            Result := true;
+            
+        if "Prices Including VAT" xor ReverseCaption then
+            exit('2,1,' + FieldCaption);
+            
+        // Mixed logical operators
+        Result := Flag1 and Flag2 xor true;
+        Result := (Flag1 or Flag2) xor (Flag1 and Flag2);
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type)))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type)))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (comment)
+        (assignment_statement
+          left: (identifier)
+          right: (logical_expression
+            left: (identifier)
+            right: (identifier)))
+        (assignment_statement
+          left: (identifier)
+          right: (logical_expression
+            left: (boolean)
+            right: (boolean)))
+        (assignment_statement
+          left: (identifier)
+          right: (logical_expression
+            left: (parenthesized_expression
+              (comparison_expression
+                left: (identifier)
+                operator: (comparison_operator)
+                right: (boolean)))
+            right: (parenthesized_expression
+              (comparison_expression
+                left: (identifier)
+                operator: (comparison_operator)
+                right: (boolean)))))
+        (comment)
+        (assignment_statement
+          left: (identifier)
+          right: (logical_expression
+            left: (identifier)
+            right: (identifier)))
+        (assignment_statement
+          left: (identifier)
+          right: (logical_expression
+            left: (identifier)
+            right: (identifier)))
+        (comment)
+        (if_statement
+          (if_keyword)
+          condition: (logical_expression
+            left: (identifier)
+            right: (identifier))
+          (then_keyword)
+          then_branch: (assignment_statement
+            left: (identifier)
+            right: (boolean)))
+        (if_statement
+          (if_keyword)
+          condition: (logical_expression
+            left: (quoted_identifier)
+            right: (identifier))
+          (then_keyword)
+          then_branch: (exit_statement
+            (exit_keyword)
+            return_value: (additive_expression
+              left: (string_literal)
+              right: (identifier))))
+        (comment)
+        (assignment_statement
+          left: (identifier)
+          right: (logical_expression
+            left: (logical_expression
+              left: (identifier)
+              right: (identifier))
+            right: (boolean)))
+        (assignment_statement
+          left: (identifier)
+          right: (logical_expression
+            left: (parenthesized_expression
+              (logical_expression
+                left: (identifier)
+                right: (identifier)))
+            right: (parenthesized_expression
+              (logical_expression
+                left: (identifier)
+                right: (identifier)))))
+        (end_keyword)))))

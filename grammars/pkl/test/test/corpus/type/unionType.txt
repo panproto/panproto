@@ -1,0 +1,34 @@
+===
+unionType
+===
+res: Foo|Bar?
+
+res2: (Int) -> Float|String
+---
+
+(module
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (unionType
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (nullableType
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (functionLiteralType
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (unionType
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))))))

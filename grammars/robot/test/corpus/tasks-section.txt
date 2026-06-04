@@ -1,0 +1,28 @@
+================================================================================
+Simple task
+================================================================================
+
+*** Tasks ***
+
+Do Something Cool
+    As the Tasks section is just an alias for the Test Cases section
+
+    The parsed tree should be identical to Test Cases
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (test_cases_section
+      (section_header)
+      (test_case_definition
+        (name)
+        (body
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk))))
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk)))))))))

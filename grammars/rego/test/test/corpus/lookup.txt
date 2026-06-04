@@ -1,0 +1,435 @@
+================================================================================
+array - index
+================================================================================
+
+package test.block
+
+val := arr[0]
+
+--------------------------------------------------------------------------------
+(source_file
+  (module
+    (package)
+    (ref
+      (var)
+      (ref_arg
+        (ref_arg_dot
+          (var))))
+    (policy
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (assignment)
+          (term
+            (ref
+              (var))))
+        (rule_body
+          (literal
+            (expr
+              (term
+                (ref
+                  (array
+                    (open_bracket)
+                    (term
+                      (scalar
+                        (number)))
+                    (close_bracket)))))))))))
+
+================================================================================
+array - last value
+================================================================================
+
+package test.block
+
+val := arr[count(arr)-1]
+
+--------------------------------------------------------------------------------
+(source_file
+  (module
+    (package)
+    (ref
+      (var)
+      (ref_arg
+        (ref_arg_dot
+          (var))))
+    (policy
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (assignment)
+          (term
+            (ref
+              (var))))
+        (rule_body
+          (literal
+            (expr
+              (term
+                (ref
+                  (array
+                    (open_bracket)
+                    (ERROR
+                      (term
+                        (ref
+                          (expr_call
+                            (fn_name
+                              (var))
+                            (open_paren)
+                            (fn_args
+                              (expr
+                                (term
+                                  (ref
+                                    (var)))))
+                            (close_paren)))))
+                    (term
+                      (scalar
+                        (number)))
+                    (close_bracket)))))))))))
+
+
+================================================================================
+array - some...in 
+================================================================================
+
+package test.block
+
+some i, "foo" in arr
+--------------------------------------------------------------------------------
+(source_file
+  (module
+    (package)
+    (ref
+      (var)
+      (ref_arg
+        (ref_arg_dot
+          (var))))
+    (policy
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (literal
+            (expr
+              (term
+                (membership
+                  (term
+                    (ref
+                      (var)))
+                  (term
+                    (scalar
+                      (string (quoted_string))))
+                  (in)
+                  (term
+                    (ref
+                      (var))))))))))))
+
+
+================================================================================
+object - initialization
+================================================================================
+
+package test.block
+
+o := {"foo": false}
+--------------------------------------------------------------------------------
+(source_file
+  (module
+    (package)
+    (ref
+      (var)
+      (ref_arg
+        (ref_arg_dot
+          (var))))
+    (policy
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (assignment)
+          (term
+            (ref
+              (object
+                (open_curly)
+                (object_item
+                  (scalar
+                    (string (quoted_string)))
+                  (term
+                    (scalar
+                      (boolean))))
+                (close_curly)))))))))
+
+
+================================================================================
+object - key lookup
+================================================================================
+
+package test.block
+
+val := obj["foo"]
+--------------------------------------------------------------------------------
+(source_file
+  (module
+    (package)
+    (ref
+      (var)
+      (ref_arg
+        (ref_arg_dot
+          (var))))
+    (policy
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (assignment)
+          (term
+            (ref
+              (var))))
+        (rule_body
+          (literal
+            (expr
+              (term
+                (ref
+                  (array
+                    (open_bracket)
+                    (term
+                      (scalar
+                        (string (quoted_string))))
+                    (close_bracket)))))))))))
+
+
+================================================================================
+object - path
+================================================================================
+
+package test.block
+
+result {
+    obj.foo.bar.baz
+}
+
+--------------------------------------------------------------------------------
+(source_file
+  (module
+    (package)
+    (ref
+      (var)
+      (ref_arg
+        (ref_arg_dot
+          (var))))
+    (policy
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (open_curly)
+          (query
+            (literal
+              (expr
+                (term
+                  (ref
+                    (var)
+                    (ref_arg
+                      (ref_arg_dot
+                        (var)))
+                    (ref_arg
+                      (ref_arg_dot
+                        (var)))
+                    (ref_arg
+                      (ref_arg_dot
+                        (var))))))))
+          (close_curly))))))
+
+
+================================================================================
+object - check key value
+================================================================================
+
+package test.block
+
+result {
+    o := {"foo": false}
+    false in o
+    "foo", false in o
+}
+
+--------------------------------------------------------------------------------
+(source_file
+  (module
+    (package)
+    (ref
+      (var)
+      (ref_arg
+        (ref_arg_dot
+          (var))))
+    (policy
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (open_curly)
+          (query
+            (literal
+              (expr
+                (expr_infix
+                  (expr
+                    (term
+                      (ref
+                        (var))))
+                  (infix_operator
+                    (assignment_operator
+                      (assignment)))
+                  (expr
+                    (term
+                      (ref
+                        (object
+                          (open_curly)
+                          (object_item
+                            (scalar
+                              (string (quoted_string)))
+                            (term
+                              (scalar
+                                (boolean))))
+                          (close_curly))))))))
+            (literal
+              (expr
+                (term
+                  (membership
+                    (term
+                      (scalar
+                        (boolean)))
+                    (in)
+                    (term
+                      (ref
+                        (var)))))))
+            (literal
+              (expr
+                (term
+                  (membership
+                    (term
+                      (scalar
+                        (string (quoted_string))))
+                    (term
+                      (scalar
+                        (boolean)))
+                    (in)
+                    (term
+                      (ref
+                        (var))))))))
+          (close_curly))))))
+
+
+================================================================================
+set - initialization
+================================================================================
+
+package test.block
+
+myset := ["a", "b", "c"]
+
+--------------------------------------------------------------------------------
+(source_file
+  (module
+    (package)
+    (ref
+      (var)
+      (ref_arg
+        (ref_arg_dot
+          (var))))
+    (policy
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (assignment)
+          (term
+            (ref
+              (array
+                (open_bracket)
+                (term
+                  (scalar
+                    (string (quoted_string))))
+                (term
+                  (scalar
+                    (string (quoted_string))))
+                (term
+                  (scalar
+                    (string (quoted_string))))
+                (close_bracket)))))))))
+
+
+================================================================================
+set - lookup
+================================================================================
+
+package test.block
+
+result {
+    "foo" in a_set
+    some [x, "b", z] in a_set
+    not "foo" in a_set
+}
+
+--------------------------------------------------------------------------------
+(source_file
+  (module
+    (package)
+    (ref
+      (var)
+      (ref_arg
+        (ref_arg_dot
+          (var))))
+    (policy
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (open_curly)
+          (query
+            (literal
+              (expr
+                (term
+                  (membership
+                    (term
+                      (scalar
+                        (string (quoted_string))))
+                    (in)
+                    (term
+                      (ref
+                        (var)))))))
+            (literal
+              (some_decl
+                (some)
+                (term
+                  (ref
+                    (array
+                      (open_bracket)
+                      (term
+                        (ref
+                          (var)))
+                      (term
+                        (scalar
+                          (string (quoted_string))))
+                      (term
+                        (ref
+                          (var)))
+                      (close_bracket))))
+                (in)
+                (expr
+                  (term
+                    (ref
+                      (var))))))
+            (literal
+              (not)
+              (expr
+                (term
+                  (membership
+                    (term
+                      (scalar
+                        (string (quoted_string))))
+                    (in)
+                    (term
+                      (ref
+                        (var))))))))
+          (close_curly))))))
+

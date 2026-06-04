@@ -1,0 +1,16 @@
+===
+modules/externalProperty.pkl
+===
+
+external foo: String
+
+---
+
+(module
+  (classProperty
+    (modifier)
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))))

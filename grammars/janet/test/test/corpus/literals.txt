@@ -1,0 +1,133 @@
+============================================
+Boolean literal
+============================================
+
+true
+false
+
+---
+
+(source_file
+  (bool_literal)
+  (bool_literal))
+
+============================================
+Nil literal
+============================================
+
+nil
+
+---
+
+(source_file
+  (nil_literal))
+
+============================================
+Number literal
+============================================
+
+0
+12
+-65912
++129837
+4.98
+-4.1
++7.25
+1.3e18
+1.3E18
+18r123C
+11raaa&a
+1_000_000
+0xbeef
+.128
+
+---
+
+(source_file
+  (number_literal)
+  (number_literal)
+  (number_literal)
+  (number_literal)
+  (number_literal)
+  (number_literal)
+  (number_literal)
+  (number_literal)
+  (number_literal)
+  (number_literal)
+  (number_literal)
+  (number_literal)
+  (number_literal)
+  (number_literal))
+
+============================================
+String literal
+============================================
+
+"Hello, World!"
+"Hello,\n World!"
+"Multi-
+line"
+"#HELLO"
+
+---
+
+(source_file
+  (str_literal)
+  (str_literal)
+  (str_literal)
+  (str_literal))
+
+============================================
+Long String literal
+============================================
+
+`Hello, World!`
+``Hello, World!``
+```Hello,\n World!```
+```
+Multi-
+line
+```
+
+---
+
+(source_file
+  (long_str_literal)
+  (long_str_literal)
+  (long_str_literal)
+  (long_str_literal))
+
+============================================
+Buffer literal
+============================================
+
+@""
+@"Buffer."
+@"#Buffer"
+
+---
+
+(source_file
+  (buffer_literal)
+  (buffer_literal)
+  (buffer_literal))
+
+============================================
+Long Buffer literal
+============================================
+
+@`Hello, World!`
+@``Hello, World!``
+@```Hello,\n World!```
+@```
+Multi-
+line
+```
+
+---
+
+(source_file
+  (long_buffer_literal)
+  (long_buffer_literal)
+  (long_buffer_literal)
+  (long_buffer_literal))

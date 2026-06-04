@@ -1,0 +1,30 @@
+========================================
+refresh-client: no target pane
+========================================
+
+refresh-client -l -t client
+
+---
+
+(file
+  (refresh_client_directive
+    (command)
+    (command_line_option)
+    (command_line_option)
+    (client)))
+
+========================================
+refresh-client: target pane
+========================================
+
+refresh-client -l pane -t client
+
+---
+
+(file
+  (refresh_client_directive
+    (command)
+    (command_line_option)
+    (pane)
+    (command_line_option)
+    (client)))

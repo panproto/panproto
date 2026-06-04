@@ -1,0 +1,133 @@
+==============
+Line comment
+==============
+
+-- this is a comment
+import Foo
+
+---
+
+(module
+  (line_comment)
+  (import name: (identifier)))
+
+==============
+Multiple line comments
+==============
+
+-- first
+-- second
+-- third
+
+---
+
+(module
+  (line_comment)
+  (line_comment)
+  (line_comment))
+
+==============
+Block comment
+==============
+
+/- foo bar baz -/
+import Foo
+
+---
+
+(module
+  (block_comment)
+  (import name: (identifier)))
+
+==============
+Multiline block comment
+==============
+
+/-
+foo
+bar
+baz
+-/
+
+---
+
+(module
+  (block_comment))
+
+==============
+Nested block comment
+==============
+
+/- outer /- inner -/ still outer -/
+
+---
+
+(module
+  (block_comment))
+
+==============
+Deeply nested block comment
+==============
+
+/- a /- b /- c -/ b -/ a -/
+
+---
+
+(module
+  (block_comment))
+
+==============
+Doc comment
+==============
+
+/-- This is a doc comment. -/
+import Foo
+
+---
+
+(module
+  (doc_comment)
+  (import name: (identifier)))
+
+==============
+Module doc comment
+==============
+
+/-! Top of file documentation. -/
+
+import Foo
+
+---
+
+(module
+  (module_doc_comment)
+  (import name: (identifier)))
+
+==============
+Doc comment with block content
+==============
+
+/--
+  This doc comment has
+  many lines.
+-/
+import Foo
+
+---
+
+(module
+  (doc_comment)
+  (import name: (identifier)))
+
+==============
+Module doc only valid at top
+==============
+
+import Foo
+/-! Not a module doc -/
+
+---
+
+(module
+  (import name: (identifier))
+  (block_comment))

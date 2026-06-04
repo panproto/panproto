@@ -1,0 +1,21 @@
+===
+errors/cannotInstantiateAbstractModule.pkl
+===
+
+abstract module cannotInstantiateAbstractModule
+
+res1 = new module {}
+---
+
+(module
+  (moduleHeader
+    (moduleClause
+
+      (modifier)
+      (qualifiedIdentifier
+        (identifier))))
+  (classProperty
+    (identifier)
+    (newExpr
+      (moduleType)
+      (objectBody))))

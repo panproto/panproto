@@ -1,0 +1,227 @@
+================================================================================
+Preprocessor conditional with only namespace declaration
+================================================================================
+
+#if CLEAN24
+namespace Microsoft.EServices.EDocument;
+#endif
+
+page 50100 TestPage
+{
+    Caption = 'Test Page';
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (preproc_conditional_object
+    (preproc_if
+      (preproc_open)
+      condition: (identifier))
+    (namespace_declaration
+      (namespace_keyword)
+      name: (namespace_name
+        (identifier)
+        (identifier)
+        (identifier)))
+    (preproc_endif
+      (preproc_close)))
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))))
+
+================================================================================
+Preprocessor conditional with namespace and using statements
+================================================================================
+
+#if CLEAN24
+namespace Microsoft.EServices.EDocument;
+using System.Text;
+#endif
+
+table 50100 TestTable
+{
+    fields
+    {
+        field(1; ID; Integer) { }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (preproc_conditional_object
+    (preproc_if
+      (preproc_open)
+      condition: (identifier))
+    (namespace_declaration
+      (namespace_keyword)
+      name: (namespace_name
+        (identifier)
+        (identifier)
+        (identifier)))
+    (using_statement
+      (using_keyword)
+      namespace: (namespace_name
+        (identifier)
+        (identifier)))
+    (preproc_endif
+      (preproc_close)))
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (basic_type))))))
+
+================================================================================
+Preprocessor conditional with namespace and pragmas
+================================================================================
+
+#if CLEAN25
+#pragma warning disable AL0432
+namespace Microsoft.Finance.Analysis;
+#endif
+
+codeunit 50100 TestCodeunit
+{
+    procedure Test()
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (preproc_conditional_object
+    (preproc_if
+      (preproc_open)
+      condition: (identifier))
+    (pragma)
+    (namespace_declaration
+      (namespace_keyword)
+      name: (namespace_name
+        (identifier)
+        (identifier)
+        (identifier)))
+    (preproc_endif
+      (preproc_close)))
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))
+
+================================================================================
+Nested preprocessor conditionals with namespace
+================================================================================
+
+#if CLEAN24
+namespace Microsoft.EServices;
+#if CLEAN25
+using System.Collections;
+#endif
+#endif
+
+enum 50100 TestEnum
+{
+    value(0; None) { }
+    value(1; Some) { }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (preproc_conditional_object
+    (preproc_if
+      (preproc_open)
+      condition: (identifier))
+    (namespace_declaration
+      (namespace_keyword)
+      name: (namespace_name
+        (identifier)
+        (identifier)))
+    (preproc_conditional_object
+      (preproc_if
+        (preproc_open)
+        condition: (identifier))
+      (using_statement
+        (using_keyword)
+        namespace: (namespace_name
+          (identifier)
+          (identifier)))
+      (preproc_endif
+        (preproc_close)))
+    (preproc_endif
+      (preproc_close)))
+  (enum_declaration
+    (enum_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier))))
+
+================================================================================
+Traditional file with objects after namespace in preprocessor
+================================================================================
+
+#if CLEAN24
+namespace Microsoft.Test;
+
+page 50101 InnerPage
+{
+    PageType = Card;
+}
+#endif
+
+page 50102 OuterPage
+{
+    Caption = 'Outer Page';
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (preproc_conditional_object
+    (preproc_if
+      (preproc_open)
+      condition: (identifier))
+    (namespace_declaration
+      (namespace_keyword)
+      name: (namespace_name
+        (identifier)
+        (identifier)))
+    (page_declaration
+      (page_keyword)
+      object_id: (integer)
+      object_name: (identifier)
+      (property
+        name: (property_name)
+        value: (identifier)))
+    (preproc_endif
+      (preproc_close)))
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))))

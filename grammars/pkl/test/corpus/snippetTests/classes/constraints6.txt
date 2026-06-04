@@ -1,0 +1,85 @@
+===
+classes/constraints6.pkl
+===
+
+import "pkl:test"
+
+class X {
+  y: Int(abs < 100)
+}
+
+res1 = new X {
+  y = 99
+}
+
+res2 = new X {
+  y = -99
+}
+
+res3 = test.catch(() ->
+  new X {
+    y = -100
+  }.y
+)
+
+---
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (constrainedType
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (comparisonExpr
+              (unqualifiedAccessExpr
+                (identifier))
+              (intLiteralExpr)))))))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (intLiteralExpr)))))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (unaryMinusExpr
+            (intLiteralExpr))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (qualifiedAccessExpr
+            (newExpr
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))
+              (objectBody
+                (objectProperty
+                  (identifier)
+                  (unaryMinusExpr
+                    (intLiteralExpr)))))
+            (identifier)))))))

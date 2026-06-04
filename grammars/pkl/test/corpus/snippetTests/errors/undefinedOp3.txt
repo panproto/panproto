@@ -1,0 +1,24 @@
+===
+errors/undefinedOp3.pkl
+===
+
+l = List(1,2,3)
+res1 = l["idx"]
+---
+
+(module
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList
+        (intLiteralExpr)
+        (intLiteralExpr)
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (subscriptExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (slStringLiteralExpr
+        (slStringLiteralPart)))))

@@ -1,0 +1,139 @@
+================================================================================
+API page with multi-value ApiVersion
+================================================================================
+
+page 50200 "API Page"
+{
+    PageType = API;
+    ApiVersion = 'v1.0', 'v2.0';
+    EntityName = 'customer';
+    EntitySetName = 'customers';
+    SourceTable = Customer;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (string_literal))
+        (option_member
+          (string_literal))))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))))
+
+================================================================================
+Query with multi-value ApiVersion
+================================================================================
+
+query 50200 "API Query"
+{
+    QueryType = API;
+    APIPublisher = 'microsoft';
+    APIGroup = 'analytics';
+    ApiVersion = 'v0.5', 'v1.0';
+    EntityName = 'dimension';
+    EntitySetName = 'dimensions';
+
+    elements
+    {
+        dataitem(DimensionItem; Dimension)
+        {
+            column(id; SystemId) { }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (string_literal))
+        (option_member
+          (string_literal))))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          field_name: (identifier))))))
+
+================================================================================
+API page with three ApiVersion values
+================================================================================
+
+page 50201 "Multi Version API"
+{
+    PageType = API;
+    ApiVersion = 'v1.0', 'v2.0', 'v3.0';
+    EntityName = 'item';
+    EntitySetName = 'items';
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (string_literal))
+        (option_member
+          (string_literal))
+        (option_member
+          (string_literal))))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))))

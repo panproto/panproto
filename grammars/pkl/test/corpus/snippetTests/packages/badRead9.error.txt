@@ -1,0 +1,14 @@
+===
+packages/badRead9.error.pkl
+===
+
+res = import("package://localhost:0/badImportsWithinPackage@1.0.0#/invalidPathRead.pkl")
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (importExpr
+      (stringConstant
+        (slStringLiteralPart)))))

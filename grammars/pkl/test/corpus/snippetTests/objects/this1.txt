@@ -1,0 +1,24 @@
+===
+objects/this1.pkl
+===
+
+foo {
+  bar = this.baz + 1
+  baz = 3
+}
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (additiveExpr
+          (qualifiedAccessExpr
+            (thisExpr)
+            (identifier))
+          (intLiteralExpr)))
+      (objectProperty
+        (identifier)
+        (intLiteralExpr)))))

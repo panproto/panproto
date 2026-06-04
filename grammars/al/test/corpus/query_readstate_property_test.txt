@@ -1,0 +1,71 @@
+================================================================================
+ReadState property in query
+================================================================================
+
+query 986 "Time Sheet Line Status Count"
+{
+    QueryType = Normal;
+    ReadState = ReadUncommitted;
+    DataAccessIntent = ReadOnly;
+
+    elements
+    {
+        dataitem(TimeSheet; "Time Sheet")
+        {
+            column(No; "No.")
+            {
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          field_name: (quoted_identifier))))))
+
+================================================================================
+ReadState with case variations
+================================================================================
+
+query 50000 "Test Query"
+{
+    readstate = ReadCommitted;
+    READSTATE = ReadUncommitted;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))))

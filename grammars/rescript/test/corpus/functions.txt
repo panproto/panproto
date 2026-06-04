@@ -1,0 +1,249 @@
+===================================================
+Simple parameters
+===================================================
+
+a => 1
+() => 2
+(d, e) => 3
+(f, g) => {
+  h
+}
+(trailing,) => 4
+(h, trailing,) => 5
+(set, kv) => 2
+(a, .b, c, .d) => 7
+(async) => 1
+
+---
+
+(source_file
+  (expression_statement (function
+    (value_identifier)
+    (number)))
+  (expression_statement (function
+    (formal_parameters)
+    (number)))
+  (expression_statement (function
+    (formal_parameters
+      (parameter (value_identifier)) (parameter (value_identifier)))
+    (number)))
+  (expression_statement (function
+    (formal_parameters
+      (parameter (value_identifier))
+      (parameter (value_identifier)))
+    (block
+      (expression_statement (value_identifier)))))
+  (expression_statement (function
+    (formal_parameters
+      (parameter (value_identifier)))
+    (number)))
+  (expression_statement (function
+    (formal_parameters
+      (parameter (value_identifier)) (parameter (value_identifier)))
+    (number)))
+  (expression_statement (function
+    (formal_parameters (parameter (value_identifier)) (parameter (value_identifier)))
+    (number)))
+  (expression_statement (function
+    (formal_parameters
+      (parameter (value_identifier))
+      (parameter
+        (uncurry)
+        (value_identifier))
+      (parameter (value_identifier))
+      (parameter
+        (uncurry)
+        (value_identifier)))
+    (number)))
+  (expression_statement
+    (function
+      (formal_parameters
+        (parameter (value_identifier)))
+      (number))))
+
+===================================================
+Type annotations
+===================================================
+
+(x: int, ~y: float): int => 5
+({contents: (x: int)}, {contents: y}) => x == y
+
+---
+
+(source_file
+  (expression_statement
+    (function
+      parameters: (formal_parameters
+        (parameter (value_identifier) (type_annotation (type_identifier)))
+        (parameter (labeled_parameter (value_identifier) (type_annotation (type_identifier)))))
+      return_type: (type_annotation (type_identifier))
+      body: (number)))
+
+  (expression_statement
+    (function parameters:
+      (formal_parameters
+        (parameter
+          (record_pattern
+            (value_identifier)
+            (parenthesized_pattern (value_identifier) (type_annotation (type_identifier)))))
+        (parameter
+          (record_pattern
+            (value_identifier)
+            (value_identifier))))
+      body: (binary_expression
+        left: (value_identifier)
+        right: (value_identifier)))))
+
+===================================================
+Abstract type
+===================================================
+
+let foo = (type a, x: 'a): a => x
+
+---
+
+(source_file
+  (let_declaration
+    (let_binding
+      (value_identifier)
+      (function
+        (formal_parameters
+          (parameter (abstract_type (type_identifier)))
+          (parameter
+            (value_identifier)
+            (type_annotation (type_identifier))))
+        (type_annotation (type_identifier))
+        (value_identifier)))))
+
+===================================================
+Parameter defaults
+===================================================
+
+(~x: int=3, ~y=4.0, ~z: int=?, ~w=?, ()) => 5
+
+---
+
+(source_file
+  (expression_statement
+    (function
+      parameters: (formal_parameters
+        (parameter
+          (labeled_parameter
+            (value_identifier)
+            (type_annotation (type_identifier))
+            default_value: (number)))
+        (parameter
+          (labeled_parameter
+            (value_identifier)
+            default_value: (number)))
+        (parameter
+          (labeled_parameter
+          (value_identifier)
+          (type_annotation (type_identifier))))
+        (parameter
+          (labeled_parameter
+            (value_identifier)))
+        (parameter (unit)))
+      body: (number))))
+
+===================================================
+Parameter aliasing
+===================================================
+
+(~xTheGreat as x: int=3) => 5
+(~p as (x, _)) => x
+
+---
+
+(source_file
+  (expression_statement
+    (function
+      (formal_parameters
+        (parameter
+          (labeled_parameter
+            (value_identifier)
+            (as_aliasing (value_identifier))
+            (type_annotation (type_identifier))
+            (number))))
+      (number)))
+
+  (expression_statement
+    (function
+      (formal_parameters
+        (parameter
+          (labeled_parameter
+            (value_identifier)
+            (as_aliasing
+              (tuple_pattern
+                (tuple_item_pattern (value_identifier))
+                (tuple_item_pattern (value_identifier)))))))
+      (value_identifier))))
+
+===================================================
+Record pattern
+===================================================
+
+({fooField, barField: {baz, qux}, mooField: baa}) => 5
+
+---
+
+(source_file
+  (expression_statement (function
+    (formal_parameters
+      (parameter
+        (record_pattern
+          (value_identifier)
+          (value_identifier)
+          (record_pattern
+            (value_identifier)
+            (value_identifier))
+          (value_identifier)
+          (value_identifier))))
+    (number))))
+
+===================================================
+Ref assignment as body
+===================================================
+
+reactRef => myRef := Some(reactRef)
+
+---
+
+(source_file
+  (expression_statement
+    (function
+      (value_identifier)
+      (mutation_expression
+        (value_identifier)
+        (variant
+          (variant_identifier)
+          (arguments (value_identifier)))))))
+
+===================================================
+Operator precendence
+===================================================
+
+(a) => a->Foo.bar == 5
+
+---
+
+(source_file
+  (expression_statement (function
+    (formal_parameters (parameter (value_identifier)))
+    (binary_expression
+      (pipe_expression
+        (value_identifier)
+        (value_identifier_path (module_identifier) (value_identifier)))
+      (number)))))
+
+===================================================
+Async
+===================================================
+
+async () => body
+
+---
+
+(source_file
+  (expression_statement
+    (function (formal_parameters) (value_identifier))))

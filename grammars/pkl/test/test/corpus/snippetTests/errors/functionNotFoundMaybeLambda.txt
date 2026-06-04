@@ -1,0 +1,24 @@
+===
+errors/functionNotFoundMaybeLambda.pkl
+===
+
+listing = (it) -> it
+call = listing(10)
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (functionLiteralExpr
+      (parameterList
+        (typedIdentifier
+          (identifier)))
+      (unqualifiedAccessExpr
+        (identifier))))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList
+        (intLiteralExpr)))))

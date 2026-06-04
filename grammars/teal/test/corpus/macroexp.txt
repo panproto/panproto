@@ -1,0 +1,75 @@
+================================================================================
+No arguments
+================================================================================
+
+local macroexp foo()
+   return 1
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (macroexp_statement
+    name: (identifier)
+    signature: (macroexp_signature
+      arguments: (arguments))
+    body: (macroexp_body
+      (return_statement
+        (number)))))
+
+================================================================================
+One argument
+================================================================================
+
+local macroexp bar(hello: integer)
+   return hello + 1
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (macroexp_statement
+    name: (identifier)
+    signature: (macroexp_signature
+      arguments: (arguments
+        (arg
+          name: (identifier)
+          type: (simple_type
+            name: (identifier)))))
+    body: (macroexp_body
+      (return_statement
+        (bin_op
+          left: (identifier)
+          op: (op)
+          right: (number))))))
+
+================================================================================
+In a record
+================================================================================
+
+local record Foo
+   macroexp bar(a: integer, b: integer): integer
+      return a - b
+   end
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (record_declaration
+    name: (identifier)
+    record_body: (record_body
+      (macroexp_declaration
+        name: (identifier)
+        signature: (macroexp_signature
+          arguments: (arguments
+            (arg
+              name: (identifier)
+              type: (simple_type name: (identifier)))
+            (arg
+              name: (identifier)
+              type: (simple_type name: (identifier))))
+          return_type: (return_type (simple_type name: (identifier))))
+        body: (macroexp_body
+          (return_statement
+            (bin_op left: (identifier) op: (op) right: (identifier))))))))

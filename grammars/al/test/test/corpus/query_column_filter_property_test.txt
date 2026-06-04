@@ -1,0 +1,260 @@
+================================================================================
+Query with ColumnFilter in filter section
+================================================================================
+
+query 50100 "Test Query"
+{
+    elements
+    {
+        dataitem(Item; Item)
+        {
+            filter(Type; Type)
+            {
+                ColumnFilter = Type = filter(<> Inventory);
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (query_filter
+          (filter_keyword)
+          name: (identifier)
+          field_name: (identifier)
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (identifier)
+                (filter_keyword)
+                value: (filter_value
+                  (identifier))))))))))
+
+================================================================================
+Query with ColumnFilter in column section
+================================================================================
+
+query 50101 "Column Filter Test"
+{
+    elements
+    {
+        dataitem(Account; "G/L Account")
+        {
+            column(Description; Description)
+            {
+                ColumnFilter = Description = filter(<> '');
+            }
+            
+            column(Count_)
+            {
+                ColumnFilter = Count_ = filter(> 1);
+                Method = Count;
+            }
+            
+            column(Balance; Balance)
+            {
+                ColumnFilter = Balance = filter(< 0 | > 1000);
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          field_name: (identifier)
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (identifier)
+                (filter_keyword)
+                value: (filter_value
+                  (string_literal))))))
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (identifier)
+                (filter_keyword)
+                value: (filter_value
+                  (integer)))))
+          (property
+            name: (property_name)
+            value: (identifier)))
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          field_name: (identifier)
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (identifier)
+                (filter_keyword)
+                value: (filter_value
+                  (integer)
+                  (integer))))))))))
+
+================================================================================
+Query with case-insensitive ColumnFilter
+================================================================================
+
+query 50102 "Case Test"
+{
+    elements
+    {
+        dataitem(Item; Item)
+        {
+            column(Inventory)
+            {
+                columnfilter = Inventory = filter(> 0);
+            }
+            column(OnHand)
+            {
+                COLUMNFILTER = OnHand = FILTER(<> 0);
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (identifier)
+                (filter_keyword)
+                value: (filter_value
+                  (integer))))))
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (identifier)
+                (filter_keyword)
+                value: (filter_value
+                  (integer))))))))))
+
+================================================================================
+Query with ColumnFilter using const values
+================================================================================
+
+query 50103 "Const Filter Test"
+{
+    elements
+    {
+        dataitem(Sales_Line; "Sales Line")
+        {
+            column(Cancelled)
+            {
+                ColumnFilter = Cancelled = const(false);
+            }
+            
+            column(Reversed)
+            {
+                ColumnFilter = Reversed = const(false);
+            }
+            
+            column(Type)
+            {
+                ColumnFilter = Type = const("Item");
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (property_expression
+              (comparison_expression
+                left: (identifier)
+                operator: (comparison_operator)
+                right: (call_expression
+                  function: (identifier)
+                  arguments: (argument_list
+                    (boolean)))))))
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (property_expression
+              (comparison_expression
+                left: (identifier)
+                operator: (comparison_operator)
+                right: (call_expression
+                  function: (identifier)
+                  arguments: (argument_list
+                    (boolean)))))))
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (identifier)
+                value: (quoted_identifier)))))))))

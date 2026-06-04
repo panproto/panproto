@@ -1,0 +1,43 @@
+===
+modules/supercalls1.pkl
+===
+
+open module supercalls1
+
+prefix = ""
+function say(msg) = prefix + msg
+function sameMethod() = 1
+sameProp = "a"
+
+---
+
+(module
+  (moduleHeader
+    (moduleClause
+
+      (modifier)
+      (qualifiedIdentifier
+        (identifier))))
+  (classProperty
+    (identifier)
+    (slStringLiteralExpr))
+  (classMethod
+    (methodHeader
+      (identifier)
+      (parameterList
+        (typedIdentifier
+          (identifier))))
+    (additiveExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (unqualifiedAccessExpr
+        (identifier))))
+  (classMethod
+    (methodHeader
+      (identifier)
+      (parameterList))
+    (intLiteralExpr))
+  (classProperty
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart))))

@@ -1,0 +1,36 @@
+=======
+Insert
+=======
+
+INSERT DATA {
+  GRAPH <www.example.net> {
+    ?s ?p ?o .
+  }
+}
+
+---
+
+(unit 
+  (insert_data 
+    (quads
+      (quads_not_triples
+        (iri_reference)
+        (triples_template
+          (triples_same_subject
+            (var)
+            (property_list (property
+              (var)
+              (object_list (var))))))))))
+
+=====
+Load
+=====
+
+LOAD :foo INTO GRAPH :bar
+
+---
+
+(unit
+  (load
+    (prefixed_name (namespace) (pn_local))
+    (graph_ref (prefixed_name (namespace) (pn_local)))))

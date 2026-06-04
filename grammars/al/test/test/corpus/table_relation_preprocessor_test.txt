@@ -1,0 +1,156 @@
+================================================================================
+TableRelation with preprocessor in IF chain
+================================================================================
+
+table 50100 "Test Table"
+{
+    fields
+    {
+        field(1; "Type"; Option)
+        {
+            OptionMembers = "G/L Account","Item","Allocation Account";
+        }
+        field(2; "No."; Code[20])
+        {
+            TableRelation = IF ("Type" = CONST("G/L Account")) "G/L Account"
+            ELSE
+            IF ("Type" = CONST(Item)) Item
+            ELSE
+#if BC24
+            IF ("Type" = CONST("Allocation Account")) "Allocation Account" WHERE("Account Type" = CONST(Fixed));
+#else
+            IF ("Type" = CONST("Allocation Account")) "G/L Account";
+#endif;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (option_type))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (quoted_identifier)))))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (code_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (table_relation_value
+            (table_relation_expression
+              (if_table_relation
+                (where_conditions
+                  (where_condition
+                    field: (quoted_identifier)
+                    value: (quoted_identifier)))
+                then_relation: (simple_table_relation
+                  table: (quoted_identifier))
+                else_relation: (table_relation_expression
+                  (if_table_relation
+                    (where_conditions
+                      (where_condition
+                        field: (quoted_identifier)
+                        value: (identifier)))
+                    then_relation: (simple_table_relation
+                      table: (identifier))
+                    else_relation: (table_relation_expression
+                      (preproc_conditional_table_relation
+                        (preproc_if
+                          (preproc_open)
+                          condition: (identifier))
+                        (table_relation_expression
+                          (if_table_relation
+                            (where_conditions
+                              (where_condition
+                                field: (quoted_identifier)
+                                value: (quoted_identifier)))
+                            then_relation: (simple_table_relation
+                              table: (quoted_identifier)
+                              (where_clause
+                                (where_conditions
+                                  (where_condition
+                                    field: (quoted_identifier)
+                                    value: (identifier)))))))
+                        (preproc_else)
+                        (table_relation_expression
+                          (if_table_relation
+                            (where_conditions
+                              (where_condition
+                                field: (quoted_identifier)
+                                value: (quoted_identifier)))
+                            then_relation: (simple_table_relation
+                              table: (quoted_identifier))))
+                        (preproc_endif
+                          (preproc_close))))))))))))))
+
+================================================================================
+Simple TableRelation with preprocessor
+================================================================================
+
+table 50100 "Test Table"
+{
+    fields
+    {
+        field(1; "Account"; Code[20])
+        {
+            TableRelation =
+#if BC24
+            "Allocation Account";
+#else
+            "G/L Account";
+#endif;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (code_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (table_relation_value
+            (preproc_conditional_table_relation
+              (preproc_if
+                (preproc_open)
+                condition: (identifier))
+              (table_relation_expression
+                (simple_table_relation
+                  table: (quoted_identifier)))
+              (preproc_else)
+              (table_relation_expression
+                (simple_table_relation
+                  table: (quoted_identifier)))
+              (preproc_endif
+                (preproc_close)))))))))

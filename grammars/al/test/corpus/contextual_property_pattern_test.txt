@@ -1,0 +1,178 @@
+================================================================================
+Contextual Property Pattern - Documentation Test
+================================================================================
+
+page 50000 TestPage
+{
+    IsPreview = true;
+    
+    var
+        IsPreview: Boolean;
+        Style: Option None,Bold,Italic;
+        StyleExpr: Text[30];
+        TableType: Enum "Table Type";
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (property
+      name: (property_name)
+      value: (boolean))
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (option_type
+            (option_member_list
+              (option_member
+                (identifier))
+              (option_member
+                (identifier))
+              (option_member
+                (identifier))))))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (text_type
+            length: (integer))))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (object_reference_type
+            object_type: (enum_keyword)
+            reference: (quoted_identifier)))))))
+
+================================================================================
+All contextual properties in _unquoted_variable_name
+================================================================================
+
+codeunit 50000 TestVariableNames
+{
+    var
+        IsPreview: Boolean;
+        Style: Text;
+        StyleExpr: Code[20];
+        TableType: Option Normal,Temporary;
+        Description: Text[100];
+        Caption: Label 'Test';
+        Width: Decimal;
+        End: DateTime;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (text_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (code_type
+            length: (integer))))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (option_type
+            (option_member_list
+              (option_member
+                (identifier))
+              (option_member
+                (identifier))))))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (text_type
+            length: (integer))))
+      (variable_declaration
+        name: (identifier)
+        type: (basic_type)
+        value: (string_literal))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type))))))
+
+================================================================================
+Mixed case handling for contextual properties
+================================================================================
+
+table 50000 TestTable
+{
+    TableType = External;
+    
+    fields
+    {
+        field(1; ID; Integer)
+        {
+        }
+    }
+    
+    var
+        tabletype: Text;
+        TABLETYPE: Integer;
+        TableType: Code[10];
+        Tabletype: Boolean;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (basic_type))))
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (text_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (code_type
+            length: (integer))))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type))))))

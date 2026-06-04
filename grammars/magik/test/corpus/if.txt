@@ -1,0 +1,232 @@
+================================================================================
+if expressions
+================================================================================
+
+_if _true
+_then
+  >> _false
+_endif 
+
+_if _true
+_then
+  >> _false
+_elif _false
+_then
+  >> _true
+_else
+  >> _maybe
+_endif
+
+_if _true
+_then
+  >> _false
+_else
+  >> _maybe
+_endif
+
+_if _true
+_then
+  >> _false
+_elif _false
+_then
+  >> _true
+_endif
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (if
+      (true)
+      (return
+        (false))))
+  (fragment
+    (if
+      (true)
+      (return
+        (false))
+      (elif
+        (false)
+        (return
+          (true)))
+      (else
+        (return
+          (maybe)))))
+  (fragment
+    (if
+      (true)
+      (return
+        (false))
+      (else
+        (return
+          (maybe)))))
+  (fragment
+    (if
+      (true)
+      (return
+        (false))
+      (elif
+        (false)
+        (return
+          (true))))))
+
+================================================================================
+simple if one-line expressions
+================================================================================
+
+_if _true _then >> _false _endif
+_if _true _then >> _false _elif _false _then >> _true _else >> _maybe _endif
+_if _true _then >> _false _else >> _maybe _endif
+_if _true _then >> _false _elif _false _then >> _true _endif
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (if
+      (true)
+      (return
+        (false))))
+  (fragment
+    (if
+      (true)
+      (return
+        (false))
+      (elif
+        (false)
+        (return
+          (true)))
+      (else
+        (return
+          (maybe)))))
+  (fragment
+    (if
+      (true)
+      (return
+        (false))
+      (else
+        (return
+          (maybe)))))
+  (fragment
+    (if
+      (true)
+      (return
+        (false))
+      (elif
+        (false)
+        (return
+          (true))))))
+
+================================================================================
+complex if one-line expressions
+================================================================================
+
+_if _true _then _self.do_something() _endif
+_if _true _then _self.do_something() _elif _false _then _self.do_something_else() _else _self.do_something_different() _endif
+_if _true _then _self.do_something() _else _self.do_something_else() _endif
+_if _true _then _self.do_something() _elif _false _then _self.do_something_else() _endif
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (if
+      (true)
+      (call
+        (self)
+        (identifier))))
+  (fragment
+    (if
+      (true)
+      (call
+        (self)
+        (identifier))
+      (elif
+        (false)
+        (call
+          (self)
+          (identifier)))
+      (else
+        (call
+          (self)
+          (identifier)))))
+  (fragment
+    (if
+      (true)
+      (call
+        (self)
+        (identifier))
+      (else
+        (call
+          (self)
+          (identifier)))))
+  (fragment
+    (if
+      (true)
+      (call
+        (self)
+        (identifier))
+      (elif
+        (false)
+        (call
+          (self)
+          (identifier))))))
+
+================================================================================
+if assignments
+================================================================================
+
+ok? << _if _true _then >> _false _endif
+ok? << _if _true _then >> _false _elif _false _then >> _true _else >> _maybe _endif
+ok? << _if _true _then >> _false _else >> _maybe _endif
+ok? << _if _true _then >> _false _elif _false _then >> _true _endif
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (assignment
+      (variable)
+      (if
+        (true)
+        (return
+          (false)))))
+  (fragment
+    (assignment
+      (variable)
+      (if
+        (true)
+        (return
+          (false))
+        (elif
+          (false)
+          (return
+            (true)))
+        (else
+          (return
+            (maybe))))))
+  (fragment
+    (assignment
+      (variable)
+      (if
+        (true)
+        (return
+          (false))
+        (else
+          (return
+            (maybe))))))
+  (fragment
+    (assignment
+      (variable)
+      (if
+        (true)
+        (return
+          (false))
+        (elif
+          (false)
+          (return
+            (true)))))))

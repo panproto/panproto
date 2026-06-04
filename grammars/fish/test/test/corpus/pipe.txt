@@ -1,0 +1,91 @@
+================================================================================
+Pipe - simple
+================================================================================
+
+printf "one" | echo
+
+--------------------------------------------------------------------------------
+
+(program
+  (pipe
+    (command
+      name: (word)
+      argument: (double_quote_string))
+    (command
+      name: (word))))
+
+================================================================================
+Pipe - with file descriptor
+================================================================================
+
+printf "stderr" 2>| echo
+printf "stdout+stderr" &| echo
+
+--------------------------------------------------------------------------------
+
+(program
+  (pipe
+    (command
+      name: (word)
+      argument: (double_quote_string))
+    (command
+      name: (word)))
+  (pipe
+    (command
+      name: (word)
+      argument: (double_quote_string))
+    (command
+      name: (word))))
+
+================================================================================
+Pipe - with redirection
+================================================================================
+
+false | printf > file
+echo 1 >&0 | echo
+
+--------------------------------------------------------------------------------
+
+(program
+  (pipe
+    (command
+      name: (word))
+    (command
+      name: (word)
+      redirect: (file_redirect
+        operator: (direction)
+        destination: (word))))
+  (pipe
+    (command
+      name: (word)
+      argument: (integer)
+      redirect: (stream_redirect))
+    (command
+      name: (word))))
+
+================================================================================
+Pipe - with conditional execution
+================================================================================
+
+false || printf | file
+echo | echo || echo
+
+--------------------------------------------------------------------------------
+
+(program
+  (conditional_execution
+    (command
+      name: (word))
+    (pipe
+      (command
+        name: (word))
+      (command
+        name: (word))))
+  (conditional_execution
+    (pipe
+      (command
+        name: (word))
+      (command
+        name: (word)))
+    (command
+      name: (word))))

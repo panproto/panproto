@@ -1,0 +1,19 @@
+===
+errors/localFixedMember.pkl
+===
+
+local fixed name: String = "hello"
+
+---
+
+(module
+  (classProperty
+    (modifier)
+    (modifier)
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (slStringLiteralExpr
+      (slStringLiteralPart))))

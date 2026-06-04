@@ -1,0 +1,13 @@
+===
+modules/amendModule6.pkl
+===
+
+amends ".../input-helper/modules/Birds.pkl"
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart)))))

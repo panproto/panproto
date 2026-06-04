@@ -1,0 +1,197 @@
+================================================================================
+Basic WHILE loop
+================================================================================
+
+*** Test Cases ***
+Example
+    ${rc} =   Set Variable    1
+    WHILE    ${rc} != 0
+        ${rc} =    Keyword that returns zero on success
+    END
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (test_cases_section
+      (section_header)
+      (test_case_definition
+        (name)
+        (body
+          (statement
+            (variable_assignment
+              (variable_name)
+              (arguments
+                (argument
+                  (text_chunk))
+                (argument
+                  (text_chunk)))))
+          (statement
+            (while_statement
+              condition: (arguments
+                (argument
+                  (scalar_variable
+                    (variable_name))
+                  (text_chunk)))
+              body: (block
+                (statement
+                  (variable_assignment
+                    (variable_name)
+                    (arguments
+                      (argument
+                        (text_chunk)))))))))))))
+
+================================================================================
+With arguments
+================================================================================
+
+*** Test Cases ***
+
+Continue when time limit is reached
+    WHILE    True    limit=10s    on_limit=pass
+        Log    Loop will be executed for 10 seconds.
+        Sleep   0.5s
+    END
+    Log    This will be executed normally.
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (test_cases_section
+      (section_header)
+      (test_case_definition
+        (name)
+        (body
+          (statement
+            (while_statement
+              (arguments
+                (argument
+                  (text_chunk))
+                (argument
+                  (text_chunk))
+                (argument
+                  (text_chunk)))
+              (block
+                (statement
+                  (keyword_invocation
+                    (keyword
+                      (name_chunk))
+                    (arguments
+                      (argument
+                        (text_chunk)))))
+                (statement
+                  (keyword_invocation
+                    (keyword
+                      (name_chunk))
+                    (arguments
+                      (argument
+                        (text_chunk))))))))
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk))
+              (arguments
+                (argument
+                  (text_chunk))))))))))
+
+================================================================================
+Nested
+================================================================================
+
+*** Test Cases ***
+Nesting WHILE
+    ${x} =   Set Variable    10
+    WHILE    ${x} > 0
+        ${y} =   Set Variable    ${x}
+        WHILE    ${y} > 0
+            ${y} =    Evaluate    ${y} - 1
+        END
+        IF    ${x} > 5
+            ${x} =    Evaluate    ${x} - 1
+        ELSE
+            ${x} =    Evaluate    ${x} - 2
+        END
+    END
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (test_cases_section
+      (section_header)
+      (test_case_definition
+        (name)
+        (body
+          (statement
+            (variable_assignment
+              (variable_name)
+              (arguments
+                (argument
+                  (text_chunk))
+                (argument
+                  (text_chunk)))))
+          (statement
+            (while_statement
+              (arguments
+                (argument
+                  (scalar_variable
+                    (variable_name))
+                  (text_chunk)))
+              (block
+                (statement
+                  (variable_assignment
+                    (variable_name)
+                    (arguments
+                      (argument
+                        (text_chunk))
+                      (argument
+                        (scalar_variable
+                          (variable_name))))))
+                (statement
+                  (while_statement
+                    (arguments
+                      (argument
+                        (scalar_variable
+                          (variable_name))
+                        (text_chunk)))
+                    (block
+                      (statement
+                        (variable_assignment
+                          (variable_name)
+                          (arguments
+                            (argument
+                              (text_chunk))
+                            (argument
+                              (scalar_variable
+                                (variable_name))
+                              (text_chunk))))))))
+                (statement
+                  (if_statement
+                    (argument
+                      (scalar_variable
+                        (variable_name))
+                      (text_chunk))
+                    (block
+                      (statement
+                        (variable_assignment
+                          (variable_name)
+                          (arguments
+                            (argument
+                              (text_chunk))
+                            (argument
+                              (scalar_variable
+                                (variable_name))
+                              (text_chunk))))))
+                    (else_statement
+                      (block
+                        (statement
+                          (variable_assignment
+                            (variable_name)
+                            (arguments
+                              (argument
+                                (text_chunk))
+                              (argument
+                                (scalar_variable
+                                  (variable_name))
+                                (text_chunk)))))))))))))))))

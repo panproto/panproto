@@ -1,0 +1,91 @@
+===
+int type
+===
+
+i1: int
+i2: int16
+i3: float32
+i4: number
+i5: uint
+i6: uint16
+i7: rune
+
+---
+
+(source_file 
+ (field (label (identifier)) (value (primitive_type)))
+ (field (label (identifier)) (value (primitive_type)))
+ (field (label (identifier)) (value (primitive_type)))
+ (field (label (identifier)) (value (primitive_type)))
+ (field (label (identifier)) (value (primitive_type)))
+ (field (label (identifier)) (value (primitive_type)))
+ (field (label (identifier)) (value (primitive_type))))
+
+===
+rune constraints
+===
+
+r1: rune & 0x61
+r2: rune & >=0x4e00 & <=0x9fff
+r3: rune & >0 & <=0x10FFFF
+
+---
+
+(source_file
+ (field (label (identifier)) (value (binary_expression (primitive_type) (number))))
+ (field (label (identifier)) (value (binary_expression (binary_expression (primitive_type) (unary_expression (number))) (unary_expression (number)))))
+ (field (label (identifier)) (value (binary_expression (binary_expression (primitive_type) (unary_expression (number))) (unary_expression (number))))))
+
+===
+int literals
+===
+
+i1: 42
+i2: 1.5G
+i3: 1.3Ki
+i4: 170_141_183_460_469_231_731_687_303_715_884_105_727
+i5: 0xBad_Face
+i6: 0o755
+i7: 0b0101_0001
+
+---
+
+(source_file 
+ (field (label (identifier)) (value (number)))
+ (field (label (identifier)) (value (si_unit (float))))
+ (field (label (identifier)) (value (si_unit (float))))
+ (field (label (identifier)) (value (number)))
+ (field (label (identifier)) (value (number)))
+ (field (label (identifier)) (value (number)))
+ (field (label (identifier)) (value (number))))
+
+===
+float literals
+===
+
+f1: 0.
+f2: 72.40
+f3: 072.40
+f4: 2.71828
+f5: 1.e+0
+f6: 6.67428e-11
+f7: 1E6
+f8: .25
+f9: .12345E+5
+f10: -2.5
+f11: -.25
+
+---
+
+(source_file 
+ (field (label (identifier)) (value (float)))
+ (field (label (identifier)) (value (float)))
+ (field (label (identifier)) (value (float)))
+ (field (label (identifier)) (value (float)))
+ (field (label (identifier)) (value (float)))
+ (field (label (identifier)) (value (float)))
+ (field (label (identifier)) (value (float)))
+ (field (label (identifier)) (value (float)))
+ (field (label (identifier)) (value (float)))
+ (field (label (identifier)) (value (float)))
+ (field (label (identifier)) (value (float))))

@@ -1,0 +1,86 @@
+================================================================================
+simple certificate
+================================================================================
+
+-----BEGIN EC PRIVATE KEY-----
+MIGkAgEBBDB5Aias9e2t4oAPDe3ooTEAcWBuXGZwdE6jKhNDkl1nkVqc3d7GDCjZ
+ZpIJlCcqif2gBwYFK4EEACKhZANiAASh2H+X0rMwJ5lVQ4DTs5C34HKslkz/o1Ri
+gvRNjNLQ540QdgHUJp/vxn08KQBZyiTaXCghcBzXDZY9xDgvC5sUJWKGB31Ontk2
+Qbumz+SZu08d1Y3T3OVC2NGqxOzfHmg=
+-----END EC PRIVATE KEY-----
+
+--------------------------------------------------------------------------------
+
+(pem
+  (content
+    (header
+      (dashes)
+      (label)
+      (dashes))
+    (data)
+    (footer
+      (dashes)
+      (label)
+      (dashes))))
+
+================================================================================
+multiple data
+================================================================================
+
+-----BEGIN EC PARAMETERS-----
+BgUrgQQAIg==
+-----END EC PARAMETERS-----
+-----BEGIN EC PRIVATE KEY-----
+MIGkAgEBBDB5Aias9e2t4oAPDe3ooTEAcWBuXGZwdE6jKhNDkl1nkVqc3d7GDCjZ
+ZpIJlCcqif2gBwYFK4EEACKhZANiAASh2H+X0rMwJ5lVQ4DTs5C34HKslkz/o1Ri
+gvRNjNLQ540QdgHUJp/vxn08KQBZyiTaXCghcBzXDZY9xDgvC5sUJWKGB31Ontk2
+Qbumz+SZu08d1Y3T3OVC2NGqxOzfHmg=
+-----END EC PRIVATE KEY-----
+
+--------------------------------------------------------------------------------
+
+(pem
+  (content
+    (header
+      (dashes)
+      (label)
+      (dashes))
+    (data)
+    (footer
+      (dashes)
+      (label)
+      (dashes)))
+  (content
+    (header
+      (dashes)
+      (label)
+      (dashes))
+    (data)
+    (footer
+      (dashes)
+      (label)
+      (dashes))))
+
+================================================================================
+comments
+================================================================================
+
+this is a comment
+-----BEGIN EC PARAMETERS-----
+BgUrgQQAIg==
+-----END EC PARAMETERS-----
+
+--------------------------------------------------------------------------------
+
+(pem
+  (comment)
+  (content
+    (header
+      (dashes)
+      (label)
+      (dashes))
+    (data)
+    (footer
+      (dashes)
+      (label)
+      (dashes))))

@@ -1,0 +1,20 @@
+===
+annotation/annotation2.pkl
+===
+
+class NoAnn
+
+@NoAnn
+invalidAnnotationOnTypeCheckedProperty = "hi"
+---
+
+(module
+  (clazz
+    (identifier))
+  (classProperty
+    (annotation
+      (qualifiedIdentifier
+        (identifier)))
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart))))

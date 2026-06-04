@@ -1,0 +1,79 @@
+========================================================================
+Preprocessor split if-then-begin with else alternative
+========================================================================
+codeunit 50100 Test
+{
+    procedure Test()
+    begin
+#if not CLEAN25
+        if X.FindSet() then begin
+            DoExtra();
+#else
+        if X.FindSet() then
+#endif
+            repeat
+                DoSomething();
+            until X.Next() = 0;
+#if not CLEAN25
+        end;
+#endif
+    end;
+}
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (preproc_split_if_begin_else
+          (preproc_if
+            (preproc_open)
+            condition: (preproc_not_expression
+              (identifier)))
+          (if_keyword)
+          condition: (call_expression
+            function: (member_expression
+              object: (identifier)
+              member: (identifier))
+            arguments: (argument_list))
+          (then_keyword)
+          (call_expression
+            function: (identifier)
+            arguments: (argument_list))
+          (preproc_else)
+          (if_keyword)
+          condition: (call_expression
+            function: (member_expression
+              object: (identifier)
+              member: (identifier))
+            arguments: (argument_list))
+          (then_keyword)
+          (preproc_endif
+            (preproc_close))
+          (repeat_statement
+            (repeat_keyword)
+            (call_expression
+              function: (identifier)
+              arguments: (argument_list))
+            (until_keyword)
+            condition: (comparison_expression
+              left: (call_expression
+                function: (member_expression
+                  object: (identifier)
+                  member: (identifier))
+                arguments: (argument_list))
+              operator: (comparison_operator)
+              right: (integer)))
+          (preproc_if
+            (preproc_open)
+            condition: (preproc_not_expression
+              (identifier)))
+          (preproc_endif
+            (preproc_close)))
+        (end_keyword)))))

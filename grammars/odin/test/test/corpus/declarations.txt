@@ -1,0 +1,82 @@
+====================
+Bit field type
+====================
+
+Foo :: bit_field u16 { // backing type must be an integer or array of integers
+    x: i32     | 3, // signed integers will be signed extended on use
+    y: u16     | 2 + 3, // general expressions
+    z: My_Enum | foo.SOME_CONSTANT, // ability to define the bit-width elsewhere
+    w: bool    | foo.SOME_CONSTANT > 10 ? 2 : 1,
+}
+
+Handle :: bit_field u32 {
+    slot:       u32  | 16,
+    generation: u32  | 15,
+    in_use:     bool |  1,
+}
+
+---
+
+(source_file
+  (bit_field_declaration
+    (identifier)
+    (type
+      (identifier))
+    (comment)
+    (identifier)
+    (type
+      (identifier))
+    (number)
+    (comment)
+    (identifier)
+    (type
+      (identifier))
+    (binary_expression
+      (number)
+      (number))
+    (comment)
+    (identifier)
+    (type
+      (identifier))
+    (member_expression
+      (identifier)
+      (identifier))
+    (comment)
+    (identifier)
+    (type
+      (identifier))
+    (ternary_expression
+      (binary_expression
+        (member_expression
+          (identifier)
+          (identifier))
+        (number))
+      (number)
+      (number)))
+  (bit_field_declaration
+    (identifier)
+    (type
+      (identifier))
+    (identifier)
+    (type
+      (identifier))
+    (number)
+    (identifier)
+    (type
+      (identifier))
+    (number)
+    (identifier)
+    (type
+      (identifier))
+    (number)))
+
+====================
+Build Tags
+====================
+
+#+build darwin, linux
+
+---
+
+(source_file
+  (build_tag))

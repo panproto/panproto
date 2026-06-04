@@ -1,0 +1,223 @@
+================================================================================
+ContextSensitiveHelpPage property in multiple object types
+================================================================================
+
+page 50100 "Customer List"
+{
+    ContextSensitiveHelpPage = 'customer-list';
+    DataAccessIntent = ReadOnly;
+    Scope = Cloud;
+    Extensible = true;
+}
+
+query 50100 "Customer Query"
+{
+    ContextSensitiveHelpPage = 'customer-query-help';
+    DataAccessIntent = ReadOnly;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (boolean)))
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))))
+
+================================================================================
+InstructionalText properties in pages and fields
+================================================================================
+
+page 50101 "Setup Wizard"
+{
+    PageType = NavigatePage;
+    InstructionalText = 'Follow these steps to configure your system.';
+    InstructionalTextML = ENU = 'Follow these steps', DAN = 'Følg disse trin';
+    
+    layout
+    {
+        area(content)
+        {
+            field("Customer No."; Rec."No.")
+            {
+                InstructionalText = 'Enter the customer number.';
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (ml_value_list
+        (ml_value_pair
+          language: (identifier)
+          value: (string_literal))
+        (ml_value_pair
+          language: (identifier)
+          value: (string_literal))))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (quoted_identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (quoted_identifier))
+          (property
+            name: (property_name)
+            value: (string_literal)))))))
+
+================================================================================
+AdditionalSearchTerms in pages and reports
+================================================================================
+
+page 50102 "Sales Analysis"
+{
+    UsageCategory = Tasks;
+    AdditionalSearchTerms = 'revenue, income, sales stats';
+    AdditionalSearchTermsML = ENU = 'revenue, income', FRA = 'revenu, chiffre';
+    HelpLink = 'https://docs.example.com/sales-analysis';
+}
+
+report 50102 "Sales Report"
+{
+    AdditionalSearchTerms = 'sales, revenue, quarterly';
+    Scope = Personalization;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (ml_value_list
+        (ml_value_pair
+          language: (identifier)
+          value: (string_literal))
+        (ml_value_pair
+          language: (identifier)
+          value: (string_literal))))
+    (property
+      name: (property_name)
+      value: (string_literal)))
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))))
+
+================================================================================
+Extensible property in multiple object types
+================================================================================
+
+table 50100 "Custom Table"
+{
+    Extensible = false;
+    DataCaptionFields = "No.", Name;
+}
+
+enum 50100 "Document Type"
+{
+    Extensible = true;
+    
+    value(0; Quote) { }
+    value(1; Order) { }
+}
+
+page 50103 "Setup Page"
+{
+    Extensible = false;
+    PageType = Card;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (quoted_identifier))
+        (option_member
+          (identifier)))))
+  (enum_declaration
+    (enum_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (boolean))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier)))
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (identifier))))

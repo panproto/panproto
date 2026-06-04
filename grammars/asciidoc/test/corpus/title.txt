@@ -1,0 +1,111 @@
+===========
+title
+===========
+
+= Document Title (Level 0)
+:url-org: https://example.org/projects
+:url-project: {url-org}/project-name
+:toc:
+:name: value \
+more value
+:toc-title: Table of Adventures
+
+== Level 1 Section Title
+
+=== Level 2 Section Title
+
+==== Level 3 Section Title
+
+===== Level 4 Section Title
+
+====== Level 5 Section Title
+
+== Another Level 1 Section Title
+
+= Document Title
+
+= Illegal Level 0 Section (violates rule #1)
+
+== First Section
+
+==== Illegal Nested Section (violates rule #2)
+
+-----
+
+(document
+  (block_element
+    (document_title
+      (title_h0_marker)
+      (line)
+      (document_attr
+        (document_attr_marker)
+        (attr_name)
+        (document_attr_marker)
+        (line))
+      (document_attr
+        (document_attr_marker)
+        (attr_name)
+        (document_attr_marker)
+        (line))
+      (document_attr
+        (document_attr_marker)
+        (attr_name)
+        (document_attr_marker))
+      (document_attr
+        (document_attr_marker)
+        (attr_name)
+        (document_attr_marker)
+        (line))
+      (document_attr
+        (document_attr_marker)
+        (attr_name)
+        (document_attr_marker)
+        (line))))
+  (block_element
+    (section_block
+      (title1
+        (title_h1_marker)
+        (line))))
+  (block_element
+    (section_block
+      (title2
+        (title_h2_marker)
+        (line))))
+  (block_element
+    (section_block
+      (title3
+        (title_h3_marker)
+        (line))))
+  (block_element
+    (section_block
+      (title4
+        (title_h4_marker)
+        (line))))
+  (block_element
+    (section_block
+      (title5
+        (title_h5_marker)
+        (line))))
+  (block_element
+    (section_block
+      (title1
+        (title_h1_marker)
+        (line))))
+  (block_element
+    (document_title
+      (title_h0_marker)
+      (line)))
+  (block_element
+    (document_title
+      (title_h0_marker)
+      (line)))
+  (block_element
+    (section_block
+      (title1
+        (title_h1_marker)
+        (line))))
+  (block_element
+    (section_block
+      (title3
+        (title_h3_marker)
+        (line)))))

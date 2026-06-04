@@ -1,0 +1,176 @@
+===
+api/analyze1.pkl
+===
+
+amends "../snippetTest.pkl"
+
+import "pkl:analyze"
+import "pkl:reflect"
+
+import ".../input-helper/analyze/a.pkl"
+import ".../input-helper/analyze/cyclicalA.pkl"
+import ".../input-helper/analyze/globImport.pkl"
+
+examples {
+  ["basic"] {
+    analyze.importGraph(Set(reflect.Module(a).uri))
+  }
+  ["cycles"] {
+    analyze.importGraph(Set(reflect.Module(cyclicalA).uri))
+  }
+  ["globs"] {
+    analyze.importGraph(Set(reflect.Module(globImport).uri))
+  }
+  ["packages"] {
+    analyze.importGraph(Set("package://localhost:0/birds@0.5.0#/Bird.pkl"))
+  }
+}
+
+output {
+  renderer {
+    converters {
+      [Map] = (it) -> it.toMapping()
+      [Set] = (it) -> it.toListing()
+    }
+  }
+}
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (qualifiedAccessExpr
+              (unqualifiedAccessExpr
+                (identifier))
+              (identifier)
+              (argumentList
+                (unqualifiedAccessExpr
+                  (identifier)
+                  (argumentList
+                    (qualifiedAccessExpr
+                      (qualifiedAccessExpr
+                        (unqualifiedAccessExpr
+                          (identifier))
+                        (identifier)
+                        (argumentList
+                          (unqualifiedAccessExpr
+                            (identifier))))
+                      (identifier)))))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (qualifiedAccessExpr
+              (unqualifiedAccessExpr
+                (identifier))
+              (identifier)
+              (argumentList
+                (unqualifiedAccessExpr
+                  (identifier)
+                  (argumentList
+                    (qualifiedAccessExpr
+                      (qualifiedAccessExpr
+                        (unqualifiedAccessExpr
+                          (identifier))
+                        (identifier)
+                        (argumentList
+                          (unqualifiedAccessExpr
+                            (identifier))))
+                      (identifier)))))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (qualifiedAccessExpr
+              (unqualifiedAccessExpr
+                (identifier))
+              (identifier)
+              (argumentList
+                (unqualifiedAccessExpr
+                  (identifier)
+                  (argumentList
+                    (qualifiedAccessExpr
+                      (qualifiedAccessExpr
+                        (unqualifiedAccessExpr
+                          (identifier))
+                        (identifier)
+                        (argumentList
+                          (unqualifiedAccessExpr
+                            (identifier))))
+                      (identifier)))))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (qualifiedAccessExpr
+              (unqualifiedAccessExpr
+                (identifier))
+              (identifier)
+              (argumentList
+                (unqualifiedAccessExpr
+                  (identifier)
+                  (argumentList
+                    (slStringLiteralExpr
+                      (slStringLiteralPart)))))))))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (objectBody
+          (objectProperty
+            (identifier)
+            (objectBody
+              (objectEntry
+                (unqualifiedAccessExpr
+                  (identifier))
+                (functionLiteralExpr
+                  (parameterList
+                    (typedIdentifier
+                      (identifier)))
+                  (qualifiedAccessExpr
+                    (unqualifiedAccessExpr
+                      (identifier))
+                    (identifier)
+                    (argumentList))))
+              (objectEntry
+                (unqualifiedAccessExpr
+                  (identifier))
+                (functionLiteralExpr
+                  (parameterList
+                    (typedIdentifier
+                      (identifier)))
+                  (qualifiedAccessExpr
+                    (unqualifiedAccessExpr
+                      (identifier))
+                    (identifier)
+                    (argumentList)))))))))))

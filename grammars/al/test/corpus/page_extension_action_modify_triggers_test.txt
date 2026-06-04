@@ -1,0 +1,137 @@
+================================================================================
+Page extension with action modify containing triggers
+================================================================================
+
+pageextension 50000 "AL Test Tool Ext" extends "AL Test Tool"
+{
+    actions
+    {
+        modify(GetTestCodeunits)
+        {
+            trigger OnAfterAction()
+            var
+                OnAfterAddTests: Codeunit "CDC OnAfterAddTests";
+            begin
+                OnAfterAddTests.OnAfterAddTests("Test Suite");
+            end;
+        }
+
+        modify(UpdateTests)
+        {
+            trigger OnAfterAction()
+            var
+                OnAfterAddTests: Codeunit "CDC OnAfterAddTests";
+            begin
+                OnAfterAddTests.OnAfterAddTests("Test Suite");
+            end;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pageextension_declaration
+    (pageextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (modify_action_modification
+        target: (identifier)
+        (trigger_declaration
+          (trigger_keyword)
+          name: (identifier)
+          (var_section
+            (var_keyword)
+            (variable_declaration
+              name: (identifier)
+              type: (type_specification
+                (object_reference_type
+                  object_type: (codeunit_keyword)
+                  reference: (quoted_identifier)))))
+          (code_block
+            (begin_keyword)
+            (call_expression
+              function: (member_expression
+                object: (identifier)
+                member: (identifier))
+              arguments: (argument_list
+                (quoted_identifier)))
+            (end_keyword))))
+      (modify_action_modification
+        target: (identifier)
+        (trigger_declaration
+          (trigger_keyword)
+          name: (identifier)
+          (var_section
+            (var_keyword)
+            (variable_declaration
+              name: (identifier)
+              type: (type_specification
+                (object_reference_type
+                  object_type: (codeunit_keyword)
+                  reference: (quoted_identifier)))))
+          (code_block
+            (begin_keyword)
+            (call_expression
+              function: (member_expression
+                object: (identifier)
+                member: (identifier))
+              arguments: (argument_list
+                (quoted_identifier)))
+            (end_keyword)))))))
+
+================================================================================
+Page extension action modify with mixed properties and triggers
+================================================================================
+
+pageextension 50001 "Mixed Action Ext" extends "Base Page"
+{
+    actions
+    {
+        modify(TestAction)
+        {
+            Visible = true;
+            
+            trigger OnAction()
+            begin
+                Message('Action triggered');
+            end;
+            
+            Caption = 'Modified Action';
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pageextension_declaration
+    (pageextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (modify_action_modification
+        target: (identifier)
+        (property
+          name: (property_name)
+          value: (boolean))
+        (trigger_declaration
+          (trigger_keyword)
+          name: (identifier)
+          (code_block
+            (begin_keyword)
+            (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (string_literal)))
+            (end_keyword)))
+        (property
+          name: (property_name)
+          value: (string_literal))))))

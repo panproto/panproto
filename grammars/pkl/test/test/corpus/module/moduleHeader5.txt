@@ -1,0 +1,16 @@
+================================================================================
+moduleHeader5
+================================================================================
+
+import "foo.pkl"
+import "bar.pkl"
+
+--------------------------------------------------------------------------------
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (importClause
+    (stringConstant
+      (slStringLiteralPart))))

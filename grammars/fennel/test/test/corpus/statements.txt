@@ -1,0 +1,686 @@
+===
+function call
+===
+
+(test 1 a)
+(test (test))
+
+---
+
+(program
+  (list
+    (symbol)
+    (number)
+    (symbol))
+  (list
+    (symbol)
+    (list
+      (symbol))))
+
+===
+method call
+===
+
+(test.test:method :arg)
+(test.test :method :arg)
+
+---
+
+(program
+  (list
+    (multi_symbol_method
+      (multi_symbol
+        (symbol)
+        (symbol))
+      (symbol))
+    (string))
+  (list
+    (multi_symbol
+      (symbol)
+      (symbol))
+    (string)
+    (string)))
+
+
+===
+function definition
+===
+
+(fn test [])
+(fn test [a] a)
+(fn test.test [a] a)
+(fn test [a] :docstring a)
+(fn test [a] :not-docstring)
+
+---
+
+(program
+  (fn
+    name: (symbol)
+    (parameters))
+  (fn
+    name: (symbol)
+    (parameters
+      (binding
+        (symbol)))
+    (symbol))
+  (fn
+    name: (multi_symbol
+            (symbol)
+            (symbol))
+    (parameters
+      (binding
+        (symbol)))
+    (symbol))
+  (fn
+    name: (symbol)
+    (parameters
+      (binding
+        (symbol)))
+    docstring: (string)
+    (symbol))
+  (fn
+    name: (symbol)
+    (parameters
+      (binding
+        (symbol)))
+    (string)))
+
+===
+lambda definition
+===
+
+(lambda test [a] a)
+(λ test [a] a)
+
+---
+
+(program
+  (lambda
+    name: (symbol)
+    (parameters
+      (binding
+        (symbol)))
+    (symbol))
+  (lambda
+    name: (symbol)
+    (parameters
+      (binding
+        (symbol)))
+    (symbol)))
+
+===
+hash function
+===
+
+(hashfn (+ $1 $2))
+#(+ $1 $2)
+#$3
+#[$1 $2 $3]
+#$
+#val
+#[:one :two]
+
+---
+
+(program
+  (hashfn
+    (list
+      (symbol)
+      (symbol)
+      (symbol)))
+  (hashfn
+    (list
+      (symbol)
+      (symbol)
+      (symbol)))
+  (hashfn
+    (symbol))
+  (hashfn
+    (sequential_table
+      (symbol)
+      (symbol)
+      (symbol)))
+  (hashfn
+    (symbol))
+  (hashfn
+    (symbol))
+  (hashfn
+    (sequential_table
+      (string)
+      (string))))
+
+===
+let definition
+===
+
+(let [x (+ 89 5.2)
+      f (fn [abc] (print (* 2 abc)))]
+  (f x))
+
+(let [(file-handle message code) (io.open "foo.blah")]
+  message)
+
+(let [[a b c & d]
+      [1 2 3 4 5]]
+  (print d))
+
+---
+
+(program
+  (let
+    (let_clause
+      (binding
+        (symbol))
+      (list
+        (symbol)
+        (number)
+        (number))
+      (binding
+        (symbol))
+      (fn
+        (parameters
+          (binding
+            (symbol)))
+        (list
+          (symbol)
+          (list
+            (symbol)
+            (number)
+            (symbol)))))
+    (list
+      (symbol)
+      (symbol)))
+  (let
+    (let_clause
+      (multi_value_binding
+        (binding
+          (symbol))
+        (binding
+          (symbol))
+        (binding
+          (symbol)))
+      (list
+        (multi_symbol
+          (symbol)
+          (symbol))
+        (string)))
+    (symbol))
+  (let
+    (let_clause
+      (sequential_table_binding
+        (binding
+          (symbol))
+        (binding
+          (symbol))
+        (binding
+          (symbol))
+        (binding
+          (symbol)))
+      (sequential_table
+        (number)
+        (number)
+        (number)
+        (number)
+        (number)))
+    (list
+      (symbol)
+      (symbol))))
+
+===
+local definition
+===
+
+(local tau-approx 6.28318)
+(local (_ _ z) (unpack [:a :b :c :d :e]))
+
+---
+
+(program
+  (local
+    (binding
+      (symbol))
+    (number))
+  (local
+    (multi_value_binding
+      (binding
+        (symbol))
+      (binding
+        (symbol))
+      (binding
+        (symbol)))
+    (list
+      (symbol)
+      (sequential_table
+        (string)
+        (string)
+        (string)
+        (string)
+        (string)))))
+
+===
+var definition
+===
+
+(var x 19)
+(var (a b) (values 1 2))
+
+---
+
+(program
+  (var
+    (binding
+      (symbol))
+    (number))
+  (var
+    (multi_value_binding
+      (binding
+        (symbol))
+      (binding
+        (symbol)))
+    (list
+      (symbol)
+      (number)
+      (number))))
+
+===
+global definition
+===
+
+(global add (fn [x y] (+ x y)))
+(global (x-m x-e) (math.frexp 21))
+
+---
+
+(program
+  (global
+    (binding
+      (symbol))
+    (fn
+      (parameters
+        (binding
+          (symbol))
+        (binding
+          (symbol)))
+      (list
+        (symbol)
+        (symbol)
+        (symbol))))
+  (global
+    (multi_value_binding
+      (binding
+        (symbol))
+      (binding
+        (symbol)))
+    (list
+      (multi_symbol
+        (symbol)
+        (symbol))
+      (number))))
+
+===
+set statement
+===
+
+(set x (+ x 91))
+(set (a b) (values 1 2))
+(set a.b 1)
+(set b :*)
+
+---
+
+(program
+  (set
+    (assignment
+      (symbol))
+    (list
+      (symbol)
+      (symbol)
+      (number)))
+  (set
+    (multi_value_assignment
+      (assignment
+        (symbol))
+      (assignment
+        (symbol)))
+    (list
+      (symbol)
+      (number)
+      (number)))
+  (set
+    (assignment
+      (multi_symbol
+        (symbol)
+        (symbol)))
+    (number))
+  (set
+    (assignment
+      (symbol))
+    (string)))
+
+===
+tset statement
+===
+
+(tset tbl field 19)
+(tset tbl "field" b)
+
+---
+
+(program
+  (list
+    (symbol)
+    (symbol)
+    (symbol)
+    (number))
+  (list
+    (symbol)
+    (symbol)
+    (string)
+    (symbol)))
+
+===
+each loop
+===
+
+(each [key value (pairs {"key1" 52 "key2" 99})]
+  (print key value))
+
+---
+
+(program
+  (each
+    (iter_bindings
+      (binding
+        (symbol))
+      (binding
+        (symbol))
+      iterator: (list
+                  (symbol)
+                  (table
+                    (table_pair
+                      key: (string)
+                      value: (number))
+                    (table_pair
+                      key: (string)
+                      value: (number)))))
+    (list
+      (symbol)
+      (symbol)
+      (symbol))))
+
+===
+for loop
+===
+
+(for [i 1 10]
+  (print i))
+
+(for [i 1 10 2]
+  (print i))
+
+---
+
+(program
+  (for
+    (for_clause
+      (symbol)
+      (number)
+      (number))
+    (list
+      (symbol)
+      (symbol)))
+  (for
+    (for_clause
+      (symbol)
+      (number)
+      (number)
+      (number))
+    (list
+      (symbol)
+      (symbol))))
+
+===
+while loop
+===
+
+(while (keep-looping?)
+  (do-something))
+
+---
+
+(program
+  (list
+    (symbol)
+    (list
+      (symbol))
+    (list
+      (symbol))))
+
+===
+if statement
+===
+
+(let [x (math.random 64)]
+  (if (= 0 (% x 2))
+      "even"
+      (= 0 (% x 10))
+      "multiple of ten"
+      "I dunno, something else"))
+
+---
+
+(program
+  (let
+    (let_clause
+      (binding
+        (symbol))
+      (list
+        (multi_symbol
+          (symbol)
+          (symbol))
+        (number)))
+    (list
+      (symbol)
+      (list
+        (symbol)
+        (number)
+        (list
+          (symbol)
+          (symbol)
+          (number)))
+      (string)
+      (list
+        (symbol)
+        (number)
+        (list
+          (symbol)
+          (symbol)
+          (number)))
+      (string)
+      (string))))
+
+===
+when statement
+===
+
+(when (currently-raining?)
+  (wear "boots")
+  (deploy-umbrella))
+
+---
+
+(program
+  (list
+    (symbol)
+    (list
+      (symbol))
+    (list
+      (symbol)
+      (string))
+    (list
+      (symbol))))
+
+===
+do statement
+===
+
+(do
+  (wear "boots")
+  (deploy-umbrella))
+
+---
+
+(program
+  (list
+    (symbol)
+    (list
+      (symbol)
+      (string))
+    (list
+      (symbol))))
+
+===
+match statement
+===
+
+(match a
+  1 :a-number
+  [2 3] :array-of-numbers
+  b :binding
+  [4 c] :number-and-binding
+  {:type d : name :value 5} :table
+  (h ? (= h 5)) :old-guard
+  (where (or (e f g) [e f b]) (> e 42))
+  :complex)
+
+---
+
+(program
+  (match
+    (symbol)
+    (number)
+    (string)
+    (sequential_table_pattern
+      (number)
+      (number))
+    (string)
+    (symbol)
+    (string)
+    (sequential_table_pattern
+      (number)
+      (symbol))
+    (string)
+    (table_pattern
+      (string)
+      (symbol)
+      (symbol)
+      (string)
+      (number))
+    (string)
+    (guard_pattern
+      (symbol)
+      guard: (list
+               (symbol)
+               (symbol)
+               (number)))
+    (string)
+    (where_pattern
+      (multi_value_pattern
+        (symbol)
+        (symbol)
+        (symbol))
+      (sequential_table_pattern
+        (symbol)
+        (symbol)
+        (symbol))
+      guard: (list
+               (symbol)
+               (symbol)
+               (number)))
+    (string)))
+
+===
+require statement
+===
+
+(require :module)
+(require "module")
+
+---
+
+(program
+  (list
+    (symbol)
+    (string))
+  (list
+    (symbol)
+    (string)))
+
+===
+icollect
+===
+
+(icollect [_ x (ipairs numbers)]
+  (+ x 1))
+
+---
+
+(program
+  (icollect
+    (iter_bindings
+      (binding (symbol))
+      (binding (symbol))
+      (list
+        (symbol)
+        (symbol)))
+    (list
+      (symbol)
+      (symbol)
+      (number))))
+
+===
+collect
+===
+
+(collect [_ x (ipairs numbers)]
+  (values x true))
+
+---
+
+(program
+  (collect
+    (iter_bindings
+      (binding (symbol))
+      (binding (symbol))
+      (list
+        (symbol)
+        (symbol)))
+    (list
+      (symbol)
+      (symbol)
+      (boolean))))
+
+===
+accumulate
+===
+
+(accumulate [acc 0 _ x (ipairs numbers)]
+  (+ acc x))
+
+---
+
+(program
+  (accumulate
+    (binding (symbol))
+    (number)
+    (iter_bindings
+      (binding (symbol))
+      (binding (symbol))
+      (list
+        (symbol)
+        (symbol)))
+    (list
+      (symbol)
+      (symbol)
+      (symbol))))

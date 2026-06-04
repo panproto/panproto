@@ -1,0 +1,53 @@
+==================
+Generic Capability
+==================
+
+class Array[A]
+  fun iso chop[B: (A & Any #send) = A](split_point: USize): (Array[A] iso^, Array[A] iso^) =>
+    None
+
+---
+
+(source_file
+  (class_definition
+    (identifier)
+    (generic_parameters
+      (generic_parameter
+        (identifier)))
+    (members
+      (method
+        (capability)
+        (identifier)
+        (generic_parameters
+          (generic_parameter
+            (identifier)
+            (intersection_type
+              (base_type
+                (identifier))
+              (send_type
+                (base_type
+                  (identifier))))
+            (base_type
+              (identifier))))
+        (parameters
+          (parameter
+            (identifier)
+            (base_type
+              (identifier))))
+        (tuple_type
+          (ephemeral_type
+            (iso_type
+              (base_type
+                (identifier)
+                (type_args
+                  (base_type
+                    (identifier))))))
+          (ephemeral_type
+            (iso_type
+              (base_type
+                (identifier)
+                (type_args
+                  (base_type
+                    (identifier)))))))
+        (block
+          (identifier))))))

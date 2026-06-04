@@ -1,0 +1,45 @@
+==================
+Define word
+==================
+: simple 1 + ;
+
+: fib ( n -- fib )
+  0 1 rot 0 ?do  over + swap  loop drop ;
+
+---
+
+(source_file
+  (word_definition
+    (start_definition)
+    (word)
+    (number
+      (decimal_number))
+    (builtin
+      (operator))
+    (end_definition))
+  (word_definition
+    (start_definition)
+    (word)
+    (comment
+      (stack_effect))
+    (number
+      (decimal_number))
+    (number
+      (decimal_number))
+    (builtin
+      (operator))
+    (number
+      (decimal_number))
+    (builtin
+      (control_flow))
+    (builtin
+      (operator))
+    (builtin
+      (operator))
+    (builtin
+      (operator))
+    (builtin
+      (control_flow))
+    (builtin
+      (operator))
+    (end_definition)))

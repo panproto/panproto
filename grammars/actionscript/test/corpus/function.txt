@@ -1,0 +1,276 @@
+======================
+Empty function no args
+======================
+
+function hello() {}
+
+---
+
+(program 
+    (function_declaration (identifier) (statement_block))
+)
+
+========================
+Empty function with args
+========================
+
+function Hello (args1, args2) {}
+
+---
+
+(program
+    (function_declaration
+        (identifier)
+        (function_parameters (identifier) (identifier))
+        (statement_block)
+    )
+)
+
+==============================
+Empty function with typed args
+==============================
+
+function Hello (args1: Vector.<int>, args2: String) {}
+
+---
+
+(program
+    (function_declaration
+        (identifier)
+        (function_parameters
+            (identifier) (type_hint
+                (generic_data_type (identifier) (identifier)
+                )
+            )
+            (identifier) (type_hint (identifier)
+            )
+        )
+        (statement_block)
+    )
+)
+
+===============================
+Empty function with return type
+===============================
+
+function hello(): void {}
+
+---
+
+(program
+    (function_declaration
+        (identifier)
+        (type_hint (identifier)
+        )
+        (statement_block)
+    )
+)
+
+================
+With simple body
+================
+
+function hello() {
+    var a = "Hello!";
+}
+
+---
+
+(program
+    (function_declaration 
+        (identifier)
+        (statement_block
+            (variable_declaration (identifier) (string))
+        )
+    )
+)
+
+======================
+With property attribut
+======================
+
+private function world() {
+
+}
+
+---
+
+(program
+    (function_declaration
+        (property_attribut)
+        (identifier)
+        (statement_block)
+    )
+)
+
+==============================
+With variable length parameter
+==============================
+
+function hello(...args) {
+    
+}
+
+---
+
+(program
+    (function_declaration
+        (identifier)
+        (function_parameters (rest (identifier)))
+        (statement_block)
+    )
+)
+
+===============
+Function getter
+===============
+
+function get hello() {
+    
+}
+
+---
+
+(program
+    (function_declaration
+        (accessor)
+        (identifier)
+        (statement_block)
+    )
+)
+
+===============
+Function setter
+===============
+
+function set hello() {
+    
+}
+
+---
+
+(program
+    (function_declaration
+        (accessor)
+        (identifier)
+        (statement_block)
+    )
+)
+
+=================
+default parameter
+=================
+
+function hello(w = "World", sep: String = "!") {
+
+}
+
+---
+
+
+(program
+    (function_declaration
+        (identifier)
+        (function_parameters
+            (identifier)
+            (string)
+            (identifier) (type_hint
+                (identifier)
+            )
+            (string))
+        (statement_block)
+    )
+)
+
+===============
+With annotation
+===============
+
+[Inspectable(enumeration="none,left,right,start,end")]
+public function get float() : *
+{
+   return this._float;
+}
+
+---
+
+(program
+    (function_declaration
+        (annotation
+            (identifier)
+            (assignment_expression (identifier) (string))
+        )
+        (property_attribut)
+        (accessor)
+        (identifier)
+        (type_hint (any_type))
+        (statement_block
+            (return_statement
+                (member_expression (identifier) (identifier))
+            )
+        )
+    )
+)
+
+=======================
+With another annotation
+=======================
+
+[Bindable("listChanged")]
+[Inspectable(arrayType="Object",category="General")]
+public function get float(): *
+{
+   return this._float;
+}
+
+---
+
+(program
+    (function_declaration
+        (annotation (identifier) (string))
+        (annotation
+            (identifier)
+            (assignment_expression (identifier) (string))
+            (assignment_expression (identifier) (string))
+        )
+        (property_attribut)
+        (accessor)
+        (identifier)
+        (type_hint (any_type))
+        (statement_block
+            (return_statement
+                (member_expression (identifier) (identifier))
+            )
+        )
+    )
+)
+
+===================
+function called get
+===================
+
+public function get() {}
+
+---
+
+(program
+    (function_declaration
+        (property_attribut)
+        (statement_block)
+    )
+)
+
+===================
+function called set
+===================
+
+public function set() {}
+
+---
+
+(program
+    (function_declaration
+        (property_attribut)
+        (statement_block)
+    )
+)

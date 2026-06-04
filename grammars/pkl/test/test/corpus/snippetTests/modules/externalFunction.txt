@@ -1,0 +1,14 @@
+===
+modules/externalFunction.pkl
+===
+
+external function foo()
+
+---
+
+(module
+  (classMethod
+    (methodHeader
+      (modifier)
+      (identifier)
+      (parameterList))))

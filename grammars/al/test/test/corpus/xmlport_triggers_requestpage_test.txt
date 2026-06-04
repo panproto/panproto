@@ -1,0 +1,105 @@
+==================
+XMLPort with trigger in table element
+==================
+
+xmlport 50000 "Test XMLPort"
+{
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(BCPTSuiteLine; "BCPT Line")
+            {
+                trigger OnBeforeInsertRecord()
+                var
+                    BCPTLine: Record "BCPT Line";
+                begin
+                    BCPTLine.SetAscending("Line No.", true);
+                end;
+            }
+        }
+    }
+}
+
+---
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (schema_section
+      (schema_keyword)
+      (xmlport_element
+        name: (identifier)
+        (xmlport_element
+          name: (identifier)
+          source: (quoted_identifier)
+          (trigger_declaration
+            (trigger_keyword)
+            name: (identifier)
+            (var_section
+              (var_keyword)
+              (variable_declaration
+                name: (identifier)
+                type: (type_specification
+                  (record_type
+                    reference: (quoted_identifier)))))
+            (code_block
+              (begin_keyword)
+              (call_expression
+                function: (member_expression
+                  object: (identifier)
+                  member: (identifier))
+                arguments: (argument_list
+                  (quoted_identifier)
+                  (boolean)))
+              (end_keyword))))))))
+
+==================
+XMLPort with requestpage
+==================
+
+xmlport 50001 "Import Export"
+{
+    UseRequestPage = false;
+    
+    schema
+    {
+        textelement(Root)
+        {
+        }
+    }
+    
+    requestpage
+    {
+        layout
+        {
+        }
+        
+        actions
+        {
+        }
+    }
+}
+
+---
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (boolean))
+    (schema_section
+      (schema_keyword)
+      (xmlport_element
+        name: (identifier)))
+    (requestpage_section
+      (requestpage_keyword)
+      (layout_section
+        (layout_keyword))
+      (actions_section
+        (actions_keyword)))))

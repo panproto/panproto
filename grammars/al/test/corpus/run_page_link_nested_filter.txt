@@ -1,0 +1,189 @@
+================================================================================
+RunPageLink with field(filter(...)) syntax
+================================================================================
+
+page 50100 "Test Page"
+{
+    PageType = List;
+    SourceTable = "Test Table";
+    
+    layout
+    {
+        area(content)
+        {
+            group(General)
+            {
+                field("Field1"; Rec."Field1")
+                {
+                }
+            }
+        }
+    }
+    
+    actions
+    {
+        area(processing)
+        {
+            action(ShowRelated)
+            {
+                Caption = 'Show Related';
+                RunObject = Page "Related Page";
+                RunPageLink = "Item No." = field("Item No."),
+                              "Variant Code" = field(filter("Variant Code"));
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (quoted_identifier))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (group_section
+          (group_keyword)
+          name: (identifier)
+          (page_field
+            name: (quoted_identifier)
+            source: (member_expression
+              object: (identifier)
+              member: (quoted_identifier))))))
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (object_reference_value
+              (page_keyword)
+              (quoted_identifier)))
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (quoted_identifier)
+                value: (quoted_identifier))
+              (link_value
+                field: (quoted_identifier)
+                (filter_keyword)
+                value: (quoted_identifier)))))))))
+
+================================================================================
+RunPageLink with multiple filter types
+================================================================================
+
+page 50101 "Complex RunPageLink"
+{
+    actions
+    {
+        area(navigation)
+        {
+            action(ShowFiltered)
+            {
+                RunObject = Page "Target Page";
+                RunPageLink = "Field1" = const(10),
+                              "Field2" = field("My Field"),
+                              "Field3" = filter('>0'),
+                              "Field4" = field(filter("Status"));
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (object_reference_value
+              (page_keyword)
+              (quoted_identifier)))
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (quoted_identifier)
+                value: (integer))
+              (link_value
+                field: (quoted_identifier)
+                value: (quoted_identifier))
+              (link_value
+                field: (quoted_identifier)
+                (filter_keyword)
+                value: (filter_value
+                  (string_literal)))
+              (link_value
+                field: (quoted_identifier)
+                (filter_keyword)
+                value: (quoted_identifier)))))))))
+
+================================================================================
+RunPageLink with quoted identifiers in nested filter
+================================================================================
+
+page 50102 "Quoted Filter Test"
+{
+    actions
+    {
+        area(processing)
+        {
+            action(OpenWithFilter)
+            {
+                RunPageLink = "Customer No." = field(filter("Customer No.")),
+                              "Document Type" = field(filter("Document Type"));
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (quoted_identifier)
+                (filter_keyword)
+                value: (quoted_identifier))
+              (link_value
+                field: (quoted_identifier)
+                (filter_keyword)
+                value: (quoted_identifier)))))))))

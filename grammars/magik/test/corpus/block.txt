@@ -1,0 +1,74 @@
+================================================================================
+block statements
+================================================================================
+
+_block
+  _return _unset, _unset
+_endblock
+
+_block
+  _if _true
+  _then _return _unset, _unset
+  _endif
+_endblock
+
+_block
+  >> _unset
+_endblock
+
+_block
+  _if _true _then >> _unset _endif
+_endblock
+
+_block @ label1?
+  _return
+_endblock
+$
+
+_block @ |label1?|
+  _return
+_endblock
+$
+
+_block @ |la.bel1|
+  _return
+_endblock
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (block
+      (return
+        (unset)
+        (unset))))
+  (fragment
+    (block
+      (if
+        (true)
+        (return
+          (unset)
+          (unset)))))
+  (fragment
+    (block
+      (return
+        (unset))))
+  (fragment
+    (block
+      (if
+        (true)
+        (return
+          (unset)))))
+  (fragment
+    (block
+      (label)
+      (return)))
+  (fragment
+    (block
+      (label)
+      (return)))
+  (fragment
+    (block
+      (label)
+      (return))))

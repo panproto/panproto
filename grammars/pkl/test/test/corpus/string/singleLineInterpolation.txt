@@ -1,0 +1,94 @@
+================================================================================
+singleLineInterpolation
+================================================================================
+
+res1 = "Hi there \(bob)"
+
+res2 = #"Hi there \(bob)"#
+
+res3 = #"Hi there \#(bob)"#
+
+res4 = ##"Hi there \#(bob)"##
+
+res5 = ##"Hi there \##(bob)"##
+
+res6 = ##"Hi there \##(#"Hi there \#(bob)"#)"##
+
+res7 = ###"Hi there \###(bob)"###
+
+res8 = ####"Hi there \####(bob)"####
+
+res9 = #####"Hi there \#####(bob)"#####
+
+res10 = ######"Hi there \######(bob)"######
+
+--------------------------------------------------------------------------------
+
+(module
+  (classProperty
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart)
+      (stringInterpolation
+        (unqualifiedAccessExpr
+          (identifier)))))
+  (classProperty
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart)
+      (stringInterpolation
+        (unqualifiedAccessExpr
+          (identifier)))))
+  (classProperty
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart)
+      (stringInterpolation
+        (unqualifiedAccessExpr
+          (identifier)))))
+  (classProperty
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart)
+      (stringInterpolation
+        (slStringLiteralExpr
+          (slStringLiteralPart)
+          (stringInterpolation
+            (unqualifiedAccessExpr
+              (identifier)))))))
+  (classProperty
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart)
+      (stringInterpolation
+        (unqualifiedAccessExpr
+          (identifier)))))
+  (classProperty
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart)
+      (stringInterpolation
+        (unqualifiedAccessExpr
+          (identifier)))))
+  (classProperty
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart)
+      (stringInterpolation
+        (unqualifiedAccessExpr
+          (identifier)))))
+  (classProperty
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart)
+      (stringInterpolation
+        (unqualifiedAccessExpr
+          (identifier))))))

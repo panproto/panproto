@@ -1,0 +1,126 @@
+===
+basic/propertyDefaults.pkl
+===
+
+class Person
+
+coll: Collection<Person>
+list: List<Person>
+set: Set<Person>
+map: Map<String, Person>
+listing: Listing<Person>
+mapping: Mapping<String, Person>
+obj: Person
+nullable: Person?
+union: *Person|String
+stringLiteral: "Pigeon"
+nullish: Null
+
+
+---
+
+(module
+  (clazz
+    (identifier))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (nullableType
+        (declaredType
+          (qualifiedIdentifier
+            (identifier))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (unionType
+        (defaultUnionType
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))
+        (declaredType
+          (qualifiedIdentifier
+            (identifier))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (stringLiteralType
+        (stringConstant
+          (slStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))))

@@ -1,0 +1,25 @@
+===
+basic/localPropertyAmendInAmendingModule.pkl
+===
+
+amends "baseModule.pkl"
+
+local object {
+  property = "value"
+}
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (slStringLiteralExpr
+          (slStringLiteralPart))))))

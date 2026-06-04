@@ -1,0 +1,162 @@
+================================================================================
+Discrete Choice expression
+================================================================================
+
+declare
+   type Color_Type is (Red, 'W');
+   Color : Color_Type := 'W';
+begin
+   case Color is
+      when Red => null;
+      when 'W' => null;
+   end case;
+end;
+
+--------------------------------------------------------------------------------
+(compilation
+  (compilation_unit
+    (block_statement
+      (non_empty_declarative_part
+        (full_type_declaration
+          (identifier)
+          (enumeration_type_definition
+            (identifier)
+            (character_literal)))
+        (object_declaration
+          (identifier)
+          (identifier)
+          (expression
+            (term
+              (character_literal)))))
+      (handled_sequence_of_statements
+        (case_statement
+          (expression
+            (term
+              (identifier)))
+          (case_statement_alternative
+            (discrete_choice_list
+              (discrete_choice
+                (expression
+                  (term
+                    (identifier)))))
+            (null_statement))
+          (case_statement_alternative
+            (discrete_choice_list
+              (discrete_choice
+                (expression
+                  (term
+                    (character_literal)))))
+            (null_statement)))))))
+
+================================================================================
+Discrete Choice subtype indication
+================================================================================
+
+declare
+   Value : Integer := 5;
+begin
+   case Value is
+      when Integer range 1 .. Integer'Last => null;
+      when Integer range 0 .. 0            => null;
+      when others                          => null;
+   end case;
+end;
+
+--------------------------------------------------------------------------------
+(compilation
+  (compilation_unit
+    (block_statement
+      (non_empty_declarative_part
+        (object_declaration
+          name: (identifier)
+          subtype_mark: (identifier)
+          (expression
+            (term
+              (numeric_literal)))))
+      (handled_sequence_of_statements
+        (case_statement
+          (expression
+            (term
+              name: (identifier)))
+          (case_statement_alternative
+            (discrete_choice_list
+              (discrete_choice
+                subtype_mark: (identifier)
+                (range_constraint
+                  (range_g
+                    (term
+                      (numeric_literal))
+                    (term
+                      name: (identifier)
+                      name: (tick)
+                      name: (attribute_designator
+                        (identifier)))))))
+            (null_statement))
+          (case_statement_alternative
+            (discrete_choice_list
+              (discrete_choice
+                subtype_mark: (identifier)
+                (range_constraint
+                  (range_g
+                    (term
+                      (numeric_literal))
+                    (term
+                      (numeric_literal))))))
+            (null_statement))
+          (case_statement_alternative
+            (discrete_choice_list
+              (discrete_choice))
+            (null_statement)))))))
+
+================================================================================
+Discrete Choice range
+================================================================================
+
+declare
+   Value : Character := 'A';
+begin
+   case Value is
+      when 'a' .. 'z' => null;
+      when 'A' .. 'Z' => null;
+      when others     => null;
+   end case;
+end;
+
+--------------------------------------------------------------------------------
+(compilation
+  (compilation_unit
+    (block_statement
+      (non_empty_declarative_part
+        (object_declaration
+          name: (identifier)
+          subtype_mark: (identifier)
+          (expression
+            (term
+              name: (character_literal)))))
+      (handled_sequence_of_statements
+        (case_statement
+          (expression
+            (term
+              name: (identifier)))
+          (case_statement_alternative
+            (discrete_choice_list
+              (discrete_choice
+                (range_g
+                  (term
+                    name: (character_literal))
+                  (term
+                    name: (character_literal)))))
+            (null_statement))
+          (case_statement_alternative
+            (discrete_choice_list
+              (discrete_choice
+                (range_g
+                  (term
+                    name: (character_literal))
+                  (term
+                    name: (character_literal)))))
+            (null_statement))
+            (case_statement_alternative
+              (discrete_choice_list
+                (discrete_choice))
+            (null_statement)))))))

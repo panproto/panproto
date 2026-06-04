@@ -1,0 +1,26 @@
+================================================================================
+Foreach
+================================================================================
+
+foreach a {1 2 3 4 5} {
+    put $i
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (foreach
+    (arguments
+      (simple_word))
+    (braced_word_simple
+      (simple_word)
+      (simple_word)
+      (simple_word)
+      (simple_word)
+      (simple_word))
+    (braced_word
+      (command
+        (simple_word)
+        (word_list
+          (variable_substitution
+            (id)))))))

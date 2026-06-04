@@ -1,0 +1,300 @@
+================================================================================
+Parameters block 1
+================================================================================
+
+parameters (x : Nat, y : Nat)
+  addAll : Nat -> Nat
+
+--------------------------------------------------------------------------------
+
+(idris
+  (parameters
+    (type_parens
+      (type_var
+        (loname)
+        (colon)
+        (exp_name
+          (caname)))
+      (comma)
+      (type_var
+        (loname)
+        (colon)
+        (exp_name
+          (caname))))
+    (parameters_body
+      (signature
+        (loname)
+        (colon)
+        (exp_name
+          (caname))
+        (arrow_separator)
+        (exp_name
+          (caname))))))
+
+================================================================================
+Parameters block 2
+================================================================================
+
+parameters (y : Nat, xs : Vect x a)
+  data Vects : Type -> Type where
+    MkVects : Vect y a -> Vects a
+
+  append : Vects a -> Vect (x + y) a
+
+--------------------------------------------------------------------------------
+
+(idris
+  (parameters
+    (type_parens
+      (type_var
+        (loname)
+        (colon)
+        (exp_name
+          (caname)))
+      (comma)
+      (type_var
+        (loname)
+        (colon)
+        (exp_name
+          (caname))
+        (exp_name
+          (loname))
+        (exp_name
+          (loname))))
+    (parameters_body
+      (data
+        (data_name)
+        (type_signature
+          (colon)
+          (exp_name
+            (caname))
+          (arrow_separator)
+          (exp_name
+            (caname)))
+        (where)
+        (data_body
+          (signature
+            (caname)
+            (colon)
+            (exp_name
+              (caname))
+            (exp_name
+              (loname))
+            (exp_name
+              (loname))
+            (arrow_separator)
+            (exp_name
+              (caname))
+            (exp_name
+              (loname))))))
+    (parameters_body
+      (signature
+        (loname)
+        (colon)
+        (exp_name
+          (caname))
+        (exp_name
+          (loname))
+        (arrow_separator)
+        (exp_name
+          (caname))
+        (exp_parens
+          (exp_name
+            (loname))
+          (operator)
+          (exp_name
+            (loname)))
+        (exp_name
+          (loname))))))
+
+================================================================================
+With quantitized args
+================================================================================
+
+parameters (0 f : Type -> Type)
+
+--------------------------------------------------------------------------------
+
+(idris
+  (parameters
+    (type_parens
+      (type_var
+        (quantity)
+        (loname)
+        (colon)
+        (exp_name
+          (caname))
+        (arrow_separator)
+        (exp_name
+          (caname))))))
+
+================================================================================
+With implicit args
+================================================================================
+
+parameters {auto eqTTImp : Eq TTImp}
+  _ = _
+
+--------------------------------------------------------------------------------
+
+(idris
+  (parameters
+    (type_braces
+      (auto)
+      (exp_name
+        (loname))
+      (colon)
+      (exp_name
+        (caname))
+      (exp_name
+        (caname)))
+    (parameters_body
+      (function
+        (lhs
+          (wildcard))
+        (rhs
+          (wildcard))))))
+
+================================================================================
+With line break
+================================================================================
+
+parameters {a : A} (b : B)
+  (c : C)
+  x : X
+
+--------------------------------------------------------------------------------
+
+(idris
+  (parameters
+    (type_braces
+      (exp_name
+        (loname))
+      (colon)
+      (exp_name
+        (caname)))
+    (type_parens
+      (type_var
+        (loname)
+        (colon)
+        (exp_name
+          (caname))))
+    (type_parens
+      (type_var
+        (loname)
+        (colon)
+        (exp_name
+          (caname))))
+    (parameters_body
+      (signature
+        (loname)
+        (colon)
+        (exp_name
+          (caname))))))
+
+================================================================================
+With line break and implementation
+================================================================================
+
+parameters {a : A}
+  {b : B}
+  {x : X} -> Y x where
+
+--------------------------------------------------------------------------------
+
+(idris
+  (parameters
+    (type_braces
+      (exp_name
+        (loname))
+      (colon)
+      (exp_name
+        (caname)))
+    (type_braces
+      (exp_name
+        (loname))
+      (colon)
+      (exp_name
+        (caname)))
+    (parameters_body
+      (implementation
+        (implementation_head
+          (constraints
+            (type_braces
+              (exp_name
+                (loname))
+              (colon)
+              (exp_name
+                (caname)))
+            (arrow_separator))
+          (interface_name
+            (caname))
+          (exp_name
+            (loname)))
+        (implementation_body
+          (where))))))
+
+================================================================================
+With ill-aligned args
+================================================================================
+
+parameters
+      {a : A} {b : B}
+    {c : C}
+      {d : D}
+  f : a -> b
+
+--------------------------------------------------------------------------------
+
+(idris
+  (parameters
+    (type_braces
+      (exp_name
+        (loname))
+      (colon)
+      (exp_name
+        (caname)))
+    (type_braces
+      (exp_name
+        (loname))
+      (colon)
+      (exp_name
+        (caname)))
+    (type_braces
+      (exp_name
+        (loname))
+      (colon)
+      (exp_name
+        (caname)))
+    (type_braces
+      (exp_name
+        (loname))
+      (colon)
+      (exp_name
+        (caname)))
+    (parameters_body
+      (signature
+        (loname)
+        (colon)
+        (exp_name
+          (loname))
+        (arrow_separator)
+        (exp_name
+          (loname))))))
+
+================================================================================
+Using block
+================================================================================
+
+using (k : Nat)
+
+--------------------------------------------------------------------------------
+
+(idris
+  (parameters
+    (type_parens
+      (type_var
+        (loname)
+        (colon)
+        (exp_name
+          (caname))))))

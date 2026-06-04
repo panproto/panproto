@@ -1,0 +1,15 @@
+===
+errors/intrinsifiedTypeAlias4.pkl
+===
+
+res1: Uri = 42
+---
+
+(module
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (intLiteralExpr)))

@@ -1,0 +1,361 @@
+===
+types/typeAlias2.pkl
+===
+
+import "pkl:test"
+
+typealias List2<E> = List<E>
+
+res1: List2<Int> = List(1, 2, 3)
+
+res2: List2<List2<String>> = List(List("Pigeon"), List("Barn Owl"))
+
+typealias Map2<V, K> = Map<K, V>
+
+res3: Map2<String, Int> = Map(42, "Pigeon", 21, "Barn Owl")
+
+typealias StringMap<V> = Map<String, V>
+
+res4: StringMap<Duration> = Map("Pigeon", 3.min, "Barn Owl", 5.s)
+
+typealias MMap<X> = Map<X, X>
+
+class Person { name: String }
+
+res5: MMap<Person?> = Map(null, new Person { name = "Pigeon" }, new Person { name = "Barn Owl" }, null)
+
+typealias Mixin<Object> = (Object) -> Object
+
+local mixin: Mixin<Person> = (p: Person) -> (p) { name = "Other" }
+
+res6 = mixin.apply(new Person { name = "Pigeon" })
+
+open class Foo {
+  value: Int = 42
+}
+
+typealias Bar = Foo
+
+class Baz extends Bar {}
+
+res7 = (new Baz {}).value
+
+typealias MappingOrListing = Mapping|Listing
+
+res8 = new {
+  foo = 5
+  bar = if (foo is MappingOrListing) "bar" else foo
+}
+
+---
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (typeAlias
+    (identifier)
+    (typeParameterList
+      (typeParameter
+        (identifier)))
+    (declaredType
+      (qualifiedIdentifier
+        (identifier))
+      (typeArgumentList
+        (declaredType
+          (qualifiedIdentifier
+            (identifier))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))))
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList
+        (intLiteralExpr)
+        (intLiteralExpr)
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))
+            (typeArgumentList
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier))))))))
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList
+            (slStringLiteralExpr
+              (slStringLiteralPart))))
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))))
+  (typeAlias
+    (identifier)
+    (typeParameterList
+      (typeParameter
+        (identifier))
+      (typeParameter
+        (identifier)))
+    (declaredType
+      (qualifiedIdentifier
+        (identifier))
+      (typeArgumentList
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (declaredType
+          (qualifiedIdentifier
+            (identifier))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))))
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList
+        (intLiteralExpr)
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (intLiteralExpr)
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (typeAlias
+    (identifier)
+    (typeParameterList
+      (typeParameter
+        (identifier)))
+    (declaredType
+      (qualifiedIdentifier
+        (identifier))
+      (typeArgumentList
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (declaredType
+          (qualifiedIdentifier
+            (identifier))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))))
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (qualifiedAccessExpr
+          (intLiteralExpr)
+          (identifier))
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (qualifiedAccessExpr
+          (intLiteralExpr)
+          (identifier)))))
+  (typeAlias
+    (identifier)
+    (typeParameterList
+      (typeParameter
+        (identifier)))
+    (declaredType
+      (qualifiedIdentifier
+        (identifier))
+      (typeArgumentList
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (declaredType
+          (qualifiedIdentifier
+            (identifier))))))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (nullableType
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))))))
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList
+        (nullLiteralExpr)
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (objectBody
+            (objectProperty
+              (identifier)
+              (slStringLiteralExpr
+                (slStringLiteralPart)))))
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (objectBody
+            (objectProperty
+              (identifier)
+              (slStringLiteralExpr
+                (slStringLiteralPart)))))
+        (nullLiteralExpr))))
+  (typeAlias
+    (identifier)
+    (typeParameterList
+      (typeParameter
+        (identifier)))
+    (functionLiteralType
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))))
+    (functionLiteralExpr
+      (parameterList
+        (typedIdentifier
+          (identifier)
+          (typeAnnotation
+            (declaredType
+              (qualifiedIdentifier
+                (identifier))))))
+      (amendExpr
+        (parenthesizedExpr
+          (unqualifiedAccessExpr
+            (identifier)))
+        (objectBody
+          (objectProperty
+            (identifier)
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (objectBody
+            (objectProperty
+              (identifier)
+              (slStringLiteralExpr
+                (slStringLiteralPart))))))))
+  (clazz
+    (modifier)
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))
+        (intLiteralExpr))))
+  (typeAlias
+    (identifier)
+    (declaredType
+      (qualifiedIdentifier
+        (identifier))))
+  (clazz
+    (identifier)      (classExtendsClause
+      (qualifiedIdentifier
+        (identifier)))
+    (classBody))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (parenthesizedExpr
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (objectBody)))
+      (identifier)))
+  (typeAlias
+    (identifier)
+    (unionType
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))))
+  (classProperty
+    (identifier)
+    (newExpr
+      (objectBody
+        (objectProperty
+          (identifier)
+          (intLiteralExpr))
+        (objectProperty
+          (identifier)
+          (ifExpr
+            (typeTestExpr
+              (unqualifiedAccessExpr
+                (identifier))
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier))))
+            (slStringLiteralExpr
+              (slStringLiteralPart))
+            (unqualifiedAccessExpr
+              (identifier))))))))

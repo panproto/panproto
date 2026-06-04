@@ -1,0 +1,942 @@
+================================================================================
+Simple line - indent and dedent
+================================================================================
+
+f x = let
+        y = x
+      in y
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_let_in
+        (declarations
+          (lhs
+            (pat_name
+              (loname)))
+          (rhs
+            (exp_name
+              (loname))))
+        (in
+          (exp_name
+            (loname)))))))
+
+================================================================================
+Simple line - indent only
+================================================================================
+
+f x = let
+        y = x in y
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_let_in
+        (declarations
+          (lhs
+            (pat_name
+              (loname)))
+          (rhs
+            (exp_name
+              (loname))))
+        (in
+          (exp_name
+            (loname)))))))
+
+================================================================================
+Simple line - dedent only
+================================================================================
+
+f x = let y = x
+        in y
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_let_in
+        (declarations
+          (lhs
+            (pat_name
+              (loname)))
+          (rhs
+            (exp_name
+              (loname))))
+        (in
+          (exp_name
+            (loname)))))))
+
+================================================================================
+Single line - on the same line
+================================================================================
+
+f x = let y = x in y
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_let_in
+        (declarations
+          (lhs
+            (pat_name
+              (loname)))
+          (rhs
+            (exp_name
+              (loname))))
+        (in
+          (exp_name
+            (loname)))))))
+
+================================================================================
+Single line - dangling tail
+================================================================================
+
+f x = let y = x in
+    y
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_let_in
+        (declarations
+          (lhs
+            (pat_name
+              (loname)))
+          (rhs
+            (exp_name
+              (loname))))
+        (in
+          (exp_name
+            (loname)))))))
+
+================================================================================
+Multiline - indent and dedent
+================================================================================
+
+f x = let
+          y = x
+          y = x
+      in y
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_let_in
+        (declarations
+          (lhs
+            (pat_name
+              (loname)))
+          (rhs
+            (exp_name
+              (loname)))
+          (lhs
+            (pat_name
+              (loname)))
+          (rhs
+            (exp_name
+              (loname))))
+        (in
+          (exp_name
+            (loname)))))))
+
+================================================================================
+Multiline - indent only
+================================================================================
+
+f x = let
+          y = x
+          y = x in y
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_let_in
+        (declarations
+          (lhs
+            (pat_name
+              (loname)))
+          (rhs
+            (exp_name
+              (loname)))
+          (lhs
+            (pat_name
+              (loname)))
+          (rhs
+            (exp_name
+              (loname))))
+        (in
+          (exp_name
+            (loname)))))))
+
+================================================================================
+Multiline - dedent only
+================================================================================
+
+f x = let y = x
+          y = x
+      in y
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_let_in
+        (declarations
+          (lhs
+            (pat_name
+              (loname)))
+          (rhs
+            (exp_name
+              (loname)))
+          (lhs
+            (pat_name
+              (loname)))
+          (rhs
+            (exp_name
+              (loname))))
+        (in
+          (exp_name
+            (loname)))))))
+
+================================================================================
+Multiline - dangling tail
+================================================================================
+
+f x = let y = x
+          y = x in
+    y
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_let_in
+        (declarations
+          (lhs
+            (pat_name
+              (loname)))
+          (rhs
+            (exp_name
+              (loname)))
+          (lhs
+            (pat_name
+              (loname)))
+          (rhs
+            (exp_name
+              (loname))))
+        (in
+          (exp_name
+            (loname)))))))
+
+================================================================================
+Telescope single line 1
+================================================================================
+
+f x = let y = x in let y = x in y
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_let_in
+        (declarations
+          (lhs
+            (pat_name
+              (loname)))
+          (rhs
+            (exp_name
+              (loname))))
+        (in
+          (exp_let_in
+            (declarations
+              (lhs
+                (pat_name
+                  (loname)))
+              (rhs
+                (exp_name
+                  (loname))))
+            (in
+              (exp_name
+                (loname)))))))))
+
+================================================================================
+Telescope single line 2
+================================================================================
+
+f x = let y = x in
+        let y = x in y
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_let_in
+        (declarations
+          (lhs
+            (pat_name
+              (loname)))
+          (rhs
+            (exp_name
+              (loname))))
+        (in
+          (exp_let_in
+            (declarations
+              (lhs
+                (pat_name
+                  (loname)))
+              (rhs
+                (exp_name
+                  (loname))))
+            (in
+              (exp_name
+                (loname)))))))))
+
+================================================================================
+Telescope multi line
+================================================================================
+
+f x = let y = x
+          y = x in
+     let y = x in y
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_let_in
+        (declarations
+          (lhs
+            (pat_name
+              (loname)))
+          (rhs
+            (exp_name
+              (loname)))
+          (lhs
+            (pat_name
+              (loname)))
+          (rhs
+            (exp_name
+              (loname))))
+        (in
+          (exp_let_in
+            (declarations
+              (lhs
+                (pat_name
+                  (loname)))
+              (rhs
+                (exp_name
+                  (loname))))
+            (in
+              (exp_name
+                (loname)))))))))
+
+================================================================================
+Pattern match
+================================================================================
+
+_ = let (a, b) = x in b
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (exp_let_in
+        (declarations
+          (lhs
+            (pat_parens
+              (pat_name
+                (loname))
+              (tuple_operator)
+              (pat_name
+                (loname))))
+          (rhs
+            (exp_name
+              (loname))))
+        (in
+          (exp_name
+            (loname)))))))
+
+================================================================================
+FIXME Pattern match alt
+      let X = f x | Y => Z
+      wrong   let X = ((f x | Y) => Z)
+      correct let (X = f x) (| Y => Z)
+================================================================================
+
+_=
+  let Just (l ::: ls) = List.toList1' $ mapMaybe fromColist xs
+        | Nothing => []
+  in zig (l ::: []) (fromList ls)
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (exp_let_in
+        (declarations
+          (lhs
+            (pat_name
+              (caname))
+            (pat_parens
+              (pat_name
+                (loname))
+              (pat_op)
+              (pat_name
+                (loname))))
+          (rhs
+            (exp_name
+              (qualified_loname
+                (caname)
+                (loname)))
+            (operator)
+            (exp_name
+              (loname))
+            (exp_name
+              (loname))
+            (exp_name
+              (loname))
+            (exp_bar_arg
+              (exp_name
+                (caname)))
+            (arrow_separator)
+            (exp_list)))
+        (in
+          (exp_name
+            (loname))
+          (exp_parens
+            (exp_name
+              (loname))
+            (operator)
+            (exp_list))
+          (exp_parens
+            (exp_name
+              (loname))
+            (exp_name
+              (loname))))))))
+
+================================================================================
+Single line without body
+================================================================================
+
+f x = do
+  let y = x
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_do
+        (statement
+          (let
+            (declarations
+              (lhs
+                (pat_name
+                  (loname)))
+              (rhs
+                (exp_name
+                  (loname))))))))))
+
+================================================================================
+Single line without body - indent
+================================================================================
+
+f x = do
+  let
+    y = x
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_do
+        (statement
+          (let
+            (declarations
+              (lhs
+                (pat_name
+                  (loname)))
+              (rhs
+                (exp_name
+                  (loname))))))))))
+
+================================================================================
+Multiline without body
+================================================================================
+
+f x = do let y = x
+             y = x
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_do
+        (statement
+          (let
+            (declarations
+              (lhs
+                (pat_name
+                  (loname)))
+              (rhs
+                (exp_name
+                  (loname)))
+              (lhs
+                (pat_name
+                  (loname)))
+              (rhs
+                (exp_name
+                  (loname))))))))))
+
+================================================================================
+Multiline without body - indent
+================================================================================
+
+f x = do
+        let
+          y = x
+          y = x
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_do
+        (statement
+          (let
+            (declarations
+              (lhs
+                (pat_name
+                  (loname)))
+              (rhs
+                (exp_name
+                  (loname)))
+              (lhs
+                (pat_name
+                  (loname)))
+              (rhs
+                (exp_name
+                  (loname))))))))))
+
+================================================================================
+Pattern match without body
+================================================================================
+
+_ = do
+  let
+    (a, b) = x
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (exp_do
+        (statement
+          (let
+            (declarations
+              (lhs
+                (pat_parens
+                  (pat_name
+                    (loname))
+                  (tuple_operator)
+                  (pat_name
+                    (loname))))
+              (rhs
+                (exp_name
+                  (loname))))))))))
+
+================================================================================
+Real example 1
+================================================================================
+
+mirror xs = let xs' = reverse xs in
+                xs ++ xs'
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_let_in
+        (declarations
+          (lhs
+            (pat_name
+              (loname)))
+          (rhs
+            (exp_name
+              (loname))
+            (exp_name
+              (loname))))
+        (in
+          (exp_name
+            (loname))
+          (operator)
+          (exp_name
+            (loname)))))))
+
+================================================================================
+Real example 2
+================================================================================
+
+showPerson p = let MkPerson name age = p in
+                   name ++ " is " ++ show age ++ " years old"
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_let_in
+        (declarations
+          (lhs
+            (pat_name
+              (caname))
+            (pat_name
+              (loname))
+            (pat_name
+              (loname)))
+          (rhs
+            (exp_name
+              (loname))))
+        (in
+          (exp_name
+            (loname))
+          (operator)
+          (string)
+          (operator)
+          (exp_name
+            (loname))
+          (exp_name
+            (loname))
+          (operator)
+          (string))))))
+
+================================================================================
+Real example 3
+================================================================================
+
+mirror xs = let xs' : List a = reverse xs in
+                xs ++ xs'
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_let_in
+        (declarations
+          (signature
+            (loname)
+            (colon)
+            (exp_name
+              (caname))
+            (exp_name
+              (loname))
+            (equal)
+            (exp_name
+              (loname))
+            (exp_name
+              (loname))))
+        (in
+          (exp_name
+            (loname))
+          (operator)
+          (exp_name
+            (loname)))))))
+
+================================================================================
+Real example 4
+================================================================================
+
+Diag v = let ty : Type := v = v in ty
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (caname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_let_in
+        (declarations
+          (lhs
+            (pat_name
+              (loname))
+            (colon)
+            (exp_name
+              (caname)))
+          (rhs
+            (exp_name
+              (loname))
+            (equal)
+            (exp_name
+              (loname))))
+        (in
+          (exp_name
+            (loname)))))))
+
+================================================================================
+Real example 5
+================================================================================
+
+foldMap f = let fo : m -> a -> m
+                fo ac el = ac <+> f el
+             in foldl fo neutral
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_let_in
+        (declarations
+          (signature
+            (loname)
+            (colon)
+            (exp_name
+              (loname))
+            (arrow_separator)
+            (exp_name
+              (loname))
+            (arrow_separator)
+            (exp_name
+              (loname)))
+          (lhs
+            (pat_name
+              (loname))
+            (pat_name
+              (loname))
+            (pat_name
+              (loname)))
+          (rhs
+            (exp_name
+              (loname))
+            (operator)
+            (exp_name
+              (loname))
+            (exp_name
+              (loname))))
+        (in
+          (exp_name
+            (loname))
+          (exp_name
+            (loname))
+          (exp_name
+            (loname)))))))
+
+================================================================================
+Real example 6
+================================================================================
+
+foldMap f = let fo : m -> a -> m
+                fo ac el = ac <+> f el
+                initial := neutral
+             in foldl fo initial
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_let_in
+        (declarations
+          (signature
+            (loname)
+            (colon)
+            (exp_name
+              (loname))
+            (arrow_separator)
+            (exp_name
+              (loname))
+            (arrow_separator)
+            (exp_name
+              (loname)))
+          (lhs
+            (pat_name
+              (loname))
+            (pat_name
+              (loname))
+            (pat_name
+              (loname)))
+          (rhs
+            (exp_name
+              (loname))
+            (operator)
+            (exp_name
+              (loname))
+            (exp_name
+              (loname)))
+          (lhs
+            (pat_name
+              (loname)))
+          (rhs
+            (exp_name
+              (loname))))
+        (in
+          (exp_name
+            (loname))
+          (exp_name
+            (loname))
+          (exp_name
+            (loname)))))))
+

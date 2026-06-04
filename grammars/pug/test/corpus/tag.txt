@@ -1,0 +1,433 @@
+============
+Tag
+============
+
+some-tag
+
+---
+
+(source_file
+  (tag
+    (tag_name)))
+
+
+========================
+Tag with classes
+========================
+
+some-tag.some-class.other-class
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (class)
+    (class)))
+
+========================
+Tag with id
+========================
+
+some-tag#some-id
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (id)))
+
+========================
+Tag with attributes
+========================
+
+some-tag(attr, other-attr="test")
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (attributes
+      (attribute (attribute_name))
+      (attribute (attribute_name) (quoted_attribute_value (attribute_value))))))
+
+========================
+Tag attributes with escaped quotes
+========================
+
+some-tag(attr='test\'test', other-attr="test\"test", template-attr=`test\`test`)
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (attributes
+      (attribute (attribute_name) (quoted_attribute_value (attribute_value)))
+      (attribute (attribute_name) (quoted_attribute_value (attribute_value)))
+      (attribute (attribute_name) (javascript)))))
+
+========================
+vue-attribute modifier
+========================
+
+some-tag(@click.prevent.stop="click")
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (attributes
+      (attribute (attribute_name) (attribute_modifier) (attribute_modifier) (quoted_attribute_value (attribute_value))))))
+
+========================
+Tag with content
+=========================
+
+some-tag(attr) content
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (attributes
+      (attribute (attribute_name)))
+    (content)))
+
+========================
+Tag with javascript almost interpolation content
+=========================
+
+some-tag co{n#te{nt {text} content
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (content)))
+
+========================
+Tag with javascript interpolation content
+=========================
+
+some-tag content #{text} content
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (content)
+    (javascript)
+    (content)))
+
+========================
+Wrapped Tag with content
+=========================
+
+div.card: div.card-body content
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (class)
+    (tag
+      (tag_name)
+      (class)
+      (content)
+    )
+  )
+)
+
+
+========================
+Tag with children
+========================
+
+some-tag
+  child-one content
+  child-two(attr)
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (children
+      (tag
+        (tag_name)
+        (content))
+      (tag
+        (tag_name)
+        (attributes
+          (attribute (attribute_name)))))))
+
+========================
+Doctype html
+========================
+
+doctype html
+doctype strict
+doctype xml
+doctype mobile
+doctype basic
+doctype plist
+
+---
+
+(source_file
+  (doctype (doctype_name))
+  (doctype (doctype_name))
+  (doctype (doctype_name))
+  (doctype (doctype_name))
+  (doctype (doctype_name))
+  (doctype (doctype_name))
+)
+
+========================
+Tag with ternary attribute with variables
+========================
+
+tag(attr=authenticated ? variable : variable)
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (attributes
+      (attribute
+        (attribute_name)
+        (javascript)))))
+
+========================
+Tag with ternary attribute with strings 
+========================
+
+tag(attr=authenticated ? "string" : "string")
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (attributes
+      (attribute
+        (attribute_name)
+        (javascript)))))
+
+========================
+Tag with variable attribute
+========================
+
+tag(attr=authenticated)
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (attributes
+      (attribute
+        (attribute_name)
+        (javascript)))))
+
+========================
+Tag with object attribute
+========================
+
+tag(attr={key: 'value', 'other': 2}, other=variable)
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (attributes
+      (attribute
+        (attribute_name)
+        (javascript))
+      (attribute
+        (attribute_name)
+        (javascript)))))
+
+========================
+Tag with function call attr
+========================
+
+tag(attr=true.toString() other='hello')
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (attributes
+      (attribute
+        (attribute_name)
+        (javascript))
+      (attribute
+        (attribute_name)
+        (quoted_attribute_value
+          (attribute_value))))))
+
+========================
+Tag with template string
+========================
+
+tag(attr=`hello ${variable} hello` other='hello')
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (attributes
+      (attribute
+        (attribute_name)
+        (javascript))
+      (attribute
+        (attribute_name)
+        (quoted_attribute_value
+          (attribute_value))))))
+
+========================
+Tag with array attribute
+========================
+
+tag(attr=['one', 'two', 'three'] other='hello')
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (attributes
+      (attribute
+        (attribute_name)
+        (javascript))
+      (attribute
+        (attribute_name)
+        (quoted_attribute_value
+          (attribute_value))))))
+
+========================
+Tag with multiple code attributes
+========================
+
+tag(attr=classes attr=['bing'])
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (attributes
+      (attribute
+        (attribute_name)
+        (javascript))
+      (attribute
+        (attribute_name)
+        (javascript)))))
+
+========================
+Tag with dot content same line
+========================
+
+tag.
+  text
+
+tag
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (children
+      (content)))
+  (tag
+    (tag_name)))
+
+========================
+Tag with dot content newline
+========================
+
+tag
+  .
+    text
+  tag
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (children
+      (content)))
+  (tag
+    (tag_name)))
+
+========================
+Tag with multiple levels followed by root tag
+========================
+
+tag
+  tag
+    tag
+
+tag
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (children
+      (tag
+        (tag_name)
+        (children
+          (tag
+            (tag_name))))))
+  (tag
+    (tag_name)))
+
+============
+Tag with self-closing slash
+============
+
+some-tag/
+  img(src='foo')/
+    img/
+
+img
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (self_close_slash)
+    (children
+      (tag
+        (tag_name)
+        (attributes
+          (attribute
+            (attribute_name)
+            (quoted_attribute_value
+              (attribute_value))))
+        (self_close_slash)
+        (children
+          (tag
+            (tag_name)
+            (self_close_slash))))))
+  (tag
+    (tag_name)))
+

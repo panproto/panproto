@@ -1,0 +1,133 @@
+================================================================================
+Editable Property Case Insensitive
+================================================================================
+
+page 50000 "Test Page"
+{
+    layout
+    {
+        area(content)
+        {
+            field(TestField1; TestVariable)
+            {
+                ApplicationArea = All;
+                Editable = false;  // Uppercase
+            }
+            field(TestField2; TestVariable)
+            {
+                ApplicationArea = All;
+                editable = false;  // Lowercase
+            }
+            field(TestField3; TestVariable)
+            {
+                ApplicationArea = All;
+                EDITABLE = false;  // All uppercase
+            }
+            field(TestField4; TestVariable)
+            {
+                ApplicationArea = All;
+                eDiTaBlE = false;  // Mixed case
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (boolean))
+          (comment))
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (boolean))
+          (comment))
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (boolean))
+          (comment))
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (boolean))
+          (comment))))))
+
+================================================================================
+Page Field with Mixed Case Properties
+================================================================================
+
+page 50001 "Profile Import Wizard"
+{
+    layout
+    {
+        area(content)
+        {
+            field(ApplicationNameField; ApplicationName)
+            {
+                Caption = 'Source of the profile in Business Central';
+                editable = false;
+                ApplicationArea = All;
+                ToolTip = 'For profiles that will be replaced, this indicates the origin of that profile which can be either an extension, shown by its name, or created by a user.';
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal)))))))

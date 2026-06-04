@@ -1,0 +1,299 @@
+===
+binary
+===
+
+e: a & b
+e: (a & b) | (c)
+e: len(a) >= 2
+e: ({a:1}|*{b:1}) & ({a:1}|*{b:1})
+
+---
+
+(source_file
+  (field
+	(label
+	  (identifier))
+	(value
+	  (binary_expression
+		(identifier)
+		(identifier))))
+  (field
+	(label
+	  (identifier))
+	(value
+	  (binary_expression
+		(parenthesized_expression
+		  (binary_expression
+			(identifier)
+			(identifier)))
+		(parenthesized_expression
+		  (identifier)))))
+  (field
+	(label
+	  (identifier))
+	(value
+	  (binary_expression
+		(call_expression
+		  (builtin_function)
+		  (arguments
+			(identifier)))
+		(number))))
+  (field
+	(label
+	  (identifier))
+	(value
+	  (binary_expression
+		(parenthesized_expression
+		  (binary_expression
+			(struct_lit
+			  (field
+				(label
+				  (identifier))
+				(value
+				  (number))))
+			(unary_expression
+			  (struct_lit
+				(field
+				  (label
+					(identifier))
+				  (value
+					(number)))))))
+		(parenthesized_expression
+		  (binary_expression
+			(struct_lit
+			  (field
+				(label
+				  (identifier))
+				(value
+				  (number))))
+			(unary_expression
+			  (struct_lit
+				(field
+				  (label
+					(identifier))
+				  (value
+					(number)))))))))))
+
+===
+unary
+===
+
+i: *1 | number
+r: =~ "foo"
+c: * >=5 | int
+
+---
+
+(source_file
+  (field
+	(label
+	  (identifier))
+	(value
+	  (binary_expression
+		(unary_expression
+		  (number))
+		(primitive_type))))
+  (field
+	(label
+	  (identifier))
+	(value
+	  (unary_expression
+		(string))))
+  (field
+	(label
+	  (identifier))
+	(value
+	  (binary_expression
+		(unary_expression
+		  (unary_expression
+			(number)))
+		(primitive_type)))))
+
+===
+call
+===
+
+b: base64.Encode(null, "foo")
+s: close({
+	let X = len(["a", "b", "c"])
+})
+
+---
+
+(source_file
+  (field
+	(label
+	  (identifier))
+	(value
+	  (call_expression
+		(selector_expression
+		  (identifier)
+		  (identifier))
+		(arguments
+		  (null)
+		  (string)))))
+  (field
+	(label
+	  (identifier))
+	(value
+	  (call_expression
+		(builtin_function)
+		(arguments
+		  (struct_lit
+			(let_clause
+			  (identifier)
+			  (call_expression
+				(builtin_function)
+				(arguments
+				  (list_lit
+					(string)
+					(string)
+					(string)))))))))))
+
+===
+builtin functions
+===
+
+a: matchN(1, [string, int])
+b: matchIf(true, string, int)
+c: error("invalid value")
+
+---
+
+(source_file
+  (field
+	(label
+	  (identifier))
+	(value
+	  (call_expression
+		(builtin_function)
+		(arguments
+		  (number)
+		  (list_lit
+			(primitive_type)
+			(primitive_type))))))
+  (field
+	(label
+	  (identifier))
+	(value
+	  (call_expression
+		(builtin_function)
+		(arguments
+		  (boolean)
+		  (primitive_type)
+		  (primitive_type)))))
+  (field
+	(label
+	  (identifier))
+	(value
+	  (call_expression
+		(builtin_function)
+		(arguments
+		  (string))))))
+
+===
+selector
+===
+
+a: a.b."foo"
+
+---
+
+(source_file
+  (field
+	(label
+	  (identifier))
+	(value
+	  (selector_expression
+		(selector_expression
+		  (identifier)
+		  (identifier))
+		(string)))))
+
+===
+index
+===
+
+a: b[2]
+b: a["f"][x]
+l: [1, 2][0]
+
+---
+
+(source_file
+  (field
+    (label
+      (identifier))
+    (value
+      (index_expression
+        (identifier)
+        (number))))
+  (field
+    (label
+      (identifier))
+    (value
+      (index_expression
+        (index_expression
+          (identifier)
+          (string))
+        (identifier))))
+  (field
+    (label
+      (identifier))
+    (value
+      (index_expression
+        (list_lit
+          (number)
+          (number))
+        (number)))))
+
+===
+dynamic
+===
+
+(b)?: "bar"
+(list.Slice(a.b, 0, 1)[0])!: string
+(x): (a.c[0]): "y"
+
+---
+
+(source_file
+  (field
+    (label
+      (optional
+        (dynamic
+          (identifier))))
+    (value
+      (string)))
+  (field
+    (label
+      (required
+        (dynamic
+          (index_expression
+            (call_expression
+              (selector_expression
+                (identifier)
+                (identifier))
+              (arguments
+                (selector_expression
+                  (identifier)
+                  (identifier))
+                (number)
+                (number)))
+            (number)))))
+    (value
+      (primitive_type)))
+  (field
+    (label
+      (dynamic
+        (identifier)))
+    (label
+      (dynamic
+        (index_expression
+          (selector_expression
+            (identifier)
+            (identifier))
+          (number))))
+    (value
+      (string))))
+

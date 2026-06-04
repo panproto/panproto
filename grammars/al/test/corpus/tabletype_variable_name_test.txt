@@ -1,0 +1,199 @@
+================================================================================
+TableType as variable name in page var section
+================================================================================
+
+page 50000 TestPage
+{
+    var
+        TableType: Enum "Test Enum";
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (object_reference_type
+            object_type: (enum_keyword)
+            reference: (quoted_identifier)))))))
+
+================================================================================
+TableType as variable name with multiple variables
+================================================================================
+
+page 50000 TestPage
+{
+    var
+        Test1: Enum "Test Enum";
+        TableType: Enum "Test Enum 2";
+        Test2: Integer;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (object_reference_type
+            object_type: (enum_keyword)
+            reference: (quoted_identifier))))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (object_reference_type
+            object_type: (enum_keyword)
+            reference: (quoted_identifier))))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type))))))
+
+================================================================================
+TableType as variable name with trigger
+================================================================================
+
+page 50000 TestPage
+{
+    trigger OnOpenPage()
+    begin
+    end;
+
+    var
+        PeriodType: Enum "Analysis Period Type";
+        TableType: Enum "Opportunity Table Type";
+        Periods: Integer;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (object_reference_type
+            object_type: (enum_keyword)
+            reference: (quoted_identifier))))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (object_reference_type
+            object_type: (enum_keyword)
+            reference: (quoted_identifier))))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type))))))
+
+================================================================================
+TableType property in table (should still work)
+================================================================================
+
+table 50000 TestTable
+{
+    TableType = External;
+    
+    fields
+    {
+        field(1; MyField; Integer)
+        {
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (basic_type))))))
+
+================================================================================
+TableType as variable name in table var section
+================================================================================
+
+table 50000 TestTable
+{
+    var
+        TableType: Text[100];
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))))))
+
+================================================================================
+TableType as variable name in codeunit
+================================================================================
+
+codeunit 50000 TestCodeunit
+{
+    var
+        TableType: Option Normal,External;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (option_type
+            (option_member_list
+              (option_member
+                (identifier))
+              (option_member
+                (identifier)))))))))

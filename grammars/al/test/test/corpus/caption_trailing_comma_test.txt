@@ -1,0 +1,105 @@
+================================================================================
+Caption property with trailing comma at object level
+================================================================================
+
+page 50100 "Test Page"
+{
+    Caption = 'Customer Purchase Order Reference',;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (caption_value
+        (string_literal)))))
+
+================================================================================
+Caption with parameters and trailing comma
+================================================================================
+
+table 50100 "Test Table"
+{
+    fields
+    {
+        field(1; Description; Text[100])
+        {
+            Caption = 'Description', Locked = true, Comment = 'Field comment',;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (caption_value
+            (string_literal)
+            (property_name)
+            (boolean)
+            (property_name)
+            (string_literal)))))))
+
+================================================================================
+OptionCaption with comment and trailing comma
+================================================================================
+
+table 50101 "Test Options"
+{
+    fields
+    {
+        field(1; Status; Option)
+        {
+            OptionCaption = 'Open,In Progress,Completed', Comment = 'Status options',;
+            OptionMembers = Open,"In Progress",Completed;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (option_type))
+        (property
+          name: (property_name)
+          value: (caption_value
+            (string_literal)
+            (property_name)
+            (string_literal)))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (identifier))
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (identifier))))))))

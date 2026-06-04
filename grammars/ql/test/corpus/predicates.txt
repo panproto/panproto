@@ -1,0 +1,90 @@
+=======
+no-body
+=======
+
+predicate foo();
+
+mod::Type foo(int arg, Foo arg);
+
+---
+
+(ql
+  (moduleMember (classlessPredicate (predicate) (predicateName) (empty)))
+  (moduleMember (classlessPredicate (typeExpr (moduleExpr (simpleId)) (className)) (predicateName)
+    (varDecl (typeExpr (primitiveType)) (varName (simpleId))) (varDecl (typeExpr (className)) (varName (simpleId))) (empty))))
+
+================
+simple predicate
+================
+
+predicate foo(F f){
+  f = f
+}
+
+int predicateWithResult(){
+  result = 43
+}
+
+---
+
+ (ql
+    (moduleMember (classlessPredicate (predicate) (predicateName) (varDecl (typeExpr (className)) (varName (simpleId))) (body
+      (comp_term (variable (varName (simpleId))) (compop) (variable (varName (simpleId)))))))
+    (moduleMember (classlessPredicate (typeExpr (primitiveType)) (predicateName) (body
+      (comp_term (variable (result)) (compop) (literal (integer)))))))
+
+=====================
+higher-order relation
+=====================
+
+int foo(X x, Y y) = name(pred1/1, pred2/3)(x.x(), result)
+
+---
+
+(ql (moduleMember
+  (classlessPredicate
+    (typeExpr (primitiveType))
+    (predicateName)
+    (varDecl (typeExpr (className)) (varName (simpleId)))
+    (varDecl (typeExpr (className)) (varName (simpleId)))
+    (higherOrderTerm (literalId)
+      (predicateExpr (aritylessPredicateExpr (literalId)) (integer))
+      (predicateExpr (aritylessPredicateExpr (literalId)) (integer))
+      (qualified_expr (variable (varName (simpleId))) (qualifiedRhs (predicateName)))
+      (variable (result))))))
+
+===============
+predicate alias
+===============
+
+predicate foo = somePredicate/12;
+
+---
+
+(ql (moduleMember (classlessPredicate
+  (predicate)
+  (predicateName) (predicateAliasBody (predicateExpr (aritylessPredicateExpr (literalId)) (integer))))))
+
+==========
+type union
+==========
+
+newtype T =
+  T1() or
+  T2(int x) { x = 1 or x = 2 } or
+  T3(int x) { x = 3 or x = 4 or x = 5 }
+
+class T2orT3 = T2 or T3;
+
+---
+
+(ql (moduleMember (datatype (className) (datatypeBranches
+      (datatypeBranch (className))
+      (datatypeBranch (className) (varDecl (typeExpr (primitiveType)) (varName (simpleId))) (body (disjunction
+        (comp_term (variable (varName (simpleId))) (compop) (literal (integer)))
+        (comp_term (variable (varName (simpleId))) (compop) (literal (integer))))))
+      (datatypeBranch (className) (varDecl (typeExpr (primitiveType)) (varName (simpleId))) (body (disjunction (disjunction
+        (comp_term (variable (varName (simpleId))) (compop) (literal (integer)))
+        (comp_term (variable (varName (simpleId))) (compop) (literal (integer))))
+        (comp_term (variable (varName (simpleId))) (compop) (literal (integer)))))))))
+    (moduleMember (dataclass (className) (typeUnionBody (typeExpr (className)) (typeExpr (className))))))

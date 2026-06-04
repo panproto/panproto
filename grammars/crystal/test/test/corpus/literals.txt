@@ -1,0 +1,1754 @@
+================================================================================
+nil
+================================================================================
+nil
+--------------------------------------------------------------------------------
+
+(source_file
+  (nil))
+
+================================================================================
+bools
+================================================================================
+true
+false
+--------------------------------------------------------------------------------
+
+(source_file
+  (true)
+  (false))
+
+================================================================================
+binary integers
+================================================================================
+0b0
+-0b1_
++0b_0_1_
+0b1_______u8
++0b0u16
+0b0_0_0_0u32
++0b_111u64
+-0b10_10_01_01u128
+0bi8
+-0b01010i16
++0b01101i32
+0b1001_1101i64
+-0b___i128
+--------------------------------------------------------------------------------
+
+(source_file
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer))
+
+================================================================================
+octal integers
+================================================================================
+0o0
+-0o7_
++0o_2_6_
+0o3_______u8
++0o1u16
+0o0_1_2_3u32
++0o_777u64
+-0o10_10_01_01u128
+0oi8
+-0o01_234i16
++0o01114i32
+0o7036_1205i64
+-0o___i128
+--------------------------------------------------------------------------------
+
+(source_file
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer))
+
+================================================================================
+decimal integers
+================================================================================
+0
+-0
+0_
+0_0_0
++0_1_234_0
+1
+-1
++1___0
++9__________
+9u8
++1_2_3u16
+4____2u32
++1234567890u64
+888_888_888u128
+-7i8
++3_3i16
+32i32
+-123_456_789i64
++1_000_000_000_000i128
+--------------------------------------------------------------------------------
+
+(source_file
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer))
+
+================================================================================
+hex integers
+================================================================================
+0x0
++0x1
+-0x__f__
+0xu8
+0xfFu16
++0x_dead_beef_u32
+0x0123456789u64
+0xAbC_dEfu128
+0x42i8
+-0x3f_ffi16
++0xi32
+0x12341234i64
+0xaabb_bbaa_abba_baabi128
+--------------------------------------------------------------------------------
+
+(source_file
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer)
+  (integer))
+
+================================================================================
+floats
+================================================================================
+0.0
+0.0000
++1_2.3_4
+-1.1e1
+0_2.00f64
++0.1E2f32
+0_7e-07
+3E
+52f32
+-2e+2f64
+1_e_
+--------------------------------------------------------------------------------
+
+(source_file
+  (float)
+  (float)
+  (float)
+  (float)
+  (float)
+  (float)
+  (float)
+  (float)
+  (float)
+  (float)
+  (float))
+
+================================================================================
+chars
+================================================================================
+'a'
+'あ'
+'"'
+'🎅'
+
+' '
+'
+'
+''
+'	'
+
+'\0'
+'\''
+'\\'
+'\a'
+'\b'
+'\e'
+'\f'
+'\n'
+'\r'
+'\t'
+'\v'
+'\u00aF'
+'\u{0}'
+'\u{20}'
+'\u{abcd}'
+'\u{aBcDe}'
+'\u{10FFFF}'
+--------------------------------------------------------------------------------
+
+(source_file
+  (char)
+  (char)
+  (char)
+  (char)
+  (char)
+  (char)
+  (char)
+  (char)
+  (char
+    (char_escape_sequence))
+  (char
+    (char_escape_sequence))
+  (char
+    (char_escape_sequence))
+  (char
+    (char_escape_sequence))
+  (char
+    (char_escape_sequence))
+  (char
+    (char_escape_sequence))
+  (char
+    (char_escape_sequence))
+  (char
+    (char_escape_sequence))
+  (char
+    (char_escape_sequence))
+  (char
+    (char_escape_sequence))
+  (char
+    (char_escape_sequence))
+  (char
+    (char_escape_sequence))
+  (char
+    (char_escape_sequence))
+  (char
+    (char_escape_sequence))
+  (char
+    (char_escape_sequence))
+  (char
+    (char_escape_sequence))
+  (char
+    (char_escape_sequence)))
+
+================================================================================
+strings
+================================================================================
+""
+"_"
+"# not a comment"
+"🔮"
+" 	
+"
+
+"\
+"
+"\\"
+"\""
+"\a"
+"\b"
+"\e"
+"\f"
+"\n"
+"\r"
+"\t"
+"\v"
+
+"\0"
+"\42"
+"\177"
+
+"\x69"
+"\xff"
+
+"\u26a1"
+"\u{1F52E}"
+"\u{48 45 4C 4C 4F}"
+
+"\'"
+"\c"
+"\?"
+"\#"
+--------------------------------------------------------------------------------
+
+(source_file
+  (string)
+  (string)
+  (string)
+  (string)
+  (string)
+  (string
+    (string_escape_sequence))
+  (string
+    (string_escape_sequence))
+  (string
+    (string_escape_sequence))
+  (string
+    (string_escape_sequence))
+  (string
+    (string_escape_sequence))
+  (string
+    (string_escape_sequence))
+  (string
+    (string_escape_sequence))
+  (string
+    (string_escape_sequence))
+  (string
+    (string_escape_sequence))
+  (string
+    (string_escape_sequence))
+  (string
+    (string_escape_sequence))
+  (string
+    (string_escape_sequence))
+  (string
+    (string_escape_sequence))
+  (string
+    (string_escape_sequence))
+  (string
+    (string_escape_sequence))
+  (string
+    (string_escape_sequence))
+  (string
+    (string_escape_sequence))
+  (string
+    (string_escape_sequence))
+  (string
+    (string_escape_sequence))
+  (string
+    (ignored_backslash))
+  (string
+    (ignored_backslash))
+  (string
+    (ignored_backslash))
+  (string
+    (ignored_backslash)))
+
+================================================================================
+string interpolation
+================================================================================
+"#"
+"\#{"
+"\#{}"
+
+"#{2}"
+"#{"#{"#{'a'}"}"}"
+
+"hello, #{place.to_s}"
+
+"#{a} + #{b} = #{a + b}"
+--------------------------------------------------------------------------------
+
+(source_file
+  (string)
+  (string
+    (ignored_backslash))
+  (string
+    (ignored_backslash))
+  (string
+    (interpolation
+      (integer)))
+  (string
+    (interpolation
+      (string
+        (interpolation
+          (string
+            (interpolation
+              (char)))))))
+  (string
+    (interpolation
+      (call
+        receiver: (identifier)
+        method: (identifier))))
+  (string
+    (interpolation
+      (identifier))
+    (interpolation
+      (identifier))
+    (interpolation
+      (op_call
+        receiver: (identifier)
+        operator: (operator)
+        argument: (identifier)))))
+
+================================================================================
+nested interpolation stress test
+================================================================================
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+  { {} of String => Int32, %(#{7}) }
+}) +
+%(#{
+  { {} of String => Int32, Int32 -> Int32 => %(#{8}) }
+}) +
+%(#{
+  { {} of String => Int32, %(#{
+    { {} of String => Int32, %(#{7}) }
+  })
+  }
+})
+})
+})
+})
+})
+})
+})
+})
+})
+})
+})
+})
+})
+})
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (string
+    (interpolation
+      (string
+        (interpolation
+          (string
+            (interpolation
+              (string
+                (interpolation
+                  (string
+                    (interpolation
+                      (string
+                        (interpolation
+                          (string
+                            (interpolation
+                              (string
+                                (interpolation
+                                  (string
+                                    (interpolation
+                                      (string
+                                        (interpolation
+                                          (string
+                                            (interpolation
+                                              (string
+                                                (interpolation
+                                                  (string
+                                                    (interpolation
+                                                      (op_call
+                                                        (op_call
+                                                          (string
+                                                            (interpolation
+                                                              (tuple
+                                                                (hash
+                                                                  (constant)
+                                                                  (constant))
+                                                                (string
+                                                                  (interpolation
+                                                                    (integer))))))
+                                                          (operator)
+                                                          (string
+                                                            (interpolation
+                                                              (hash
+                                                                (hash_entry
+                                                                  (hash
+                                                                    (constant)
+                                                                    (proc_type
+                                                                      (constant)
+                                                                      (constant)
+                                                                      (constant)))
+                                                                  (string
+                                                                    (interpolation
+                                                                      (integer))))))))
+                                                        (operator)
+                                                        (string
+                                                          (interpolation
+                                                            (tuple
+                                                              (hash
+                                                                (constant)
+                                                                (constant))
+                                                              (string
+                                                                (interpolation
+                                                                  (tuple
+                                                                    (hash
+                                                                      (constant)
+                                                                      (constant))
+                                                                    (string
+                                                                      (interpolation
+                                                                        (integer)))))))))))))))))))))))))))))))))))))
+
+================================================================================
+heredoc strings
+================================================================================
+puts 1, <<-C, 3
+          1
+  C
+
+a,b,c = <<-a, <<-b, <<-c, <<-'😀嚤&÷🔮'
+aaaa\na\ aa
+a
+bbbbb#{1}bbb
+  #{2}
+b
+c
+😀嚤&÷🔮
+
+<<-'Quo ted!"'
+  a\nb#{1}c
+  'Quo ted!"'
+  Quo ted!"
+--------------------------------------------------------------------------------
+
+(source_file
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (integer)
+      (heredoc_start)
+      (integer)))
+  (heredoc_body
+    (heredoc_content)
+    (heredoc_end))
+  (multi_assign
+    lhs: (identifier)
+    lhs: (identifier)
+    lhs: (identifier)
+    rhs: (heredoc_start)
+    rhs: (heredoc_start)
+    rhs: (heredoc_start)
+    rhs: (heredoc_start))
+  (heredoc_body
+    (heredoc_content)
+    (string_escape_sequence)
+    (heredoc_content)
+    (ignored_backslash)
+    (heredoc_content)
+    (heredoc_end))
+  (heredoc_body
+    (heredoc_content)
+    (interpolation
+      (integer))
+    (heredoc_content)
+    (interpolation
+      (integer))
+    (heredoc_content)
+    (heredoc_end))
+  (heredoc_body
+    (heredoc_end))
+  (heredoc_body
+    (heredoc_end))
+  (heredoc_start)
+  (heredoc_body
+    (heredoc_content)
+    (heredoc_end)))
+
+================================================================================
+nested heredoc strings
+================================================================================
+# Nested heredocs aren't actually valid in interpolations, but that restriction
+# is only on a semantic level. We can still parse this syntax just fine.
+
+<<-A
+1
+#{
+<<-E }
+2
+E
+5
+A
+
+<<-B
+1
+#{<<-F + <<-G
+2
+F
+3
+G
+}
+5
+B
+
+p <<-A
+1
+#{[<<-BB, <<-CCC].reverse.join("")}4
+3
+BB
+#{<<-E}
+  #{<<-F
+  2.5
+  F
+  }
+2
+E
+
+CCC
+5
+A
+--------------------------------------------------------------------------------
+
+(source_file
+  (comment)
+  (comment)
+  (heredoc_start)
+  (heredoc_body
+    (heredoc_content)
+    (interpolation
+      (heredoc_start))
+    (heredoc_content)
+    (heredoc_body
+      (heredoc_content)
+      (heredoc_end))
+    (heredoc_content)
+    (heredoc_end))
+  (heredoc_start)
+  (heredoc_body
+    (heredoc_content)
+    (interpolation
+      (op_call
+        (heredoc_start)
+        (operator)
+        (heredoc_start))
+      (heredoc_body
+        (heredoc_content)
+        (heredoc_end))
+      (heredoc_body
+        (heredoc_content)
+        (heredoc_end)))
+    (heredoc_content)
+    (heredoc_end))
+  (call
+    (identifier)
+    (argument_list
+      (heredoc_start)))
+  (heredoc_body
+    (heredoc_content)
+    (interpolation
+      (call
+        (call
+          (array
+            (heredoc_start)
+            (heredoc_start))
+          (identifier))
+        (identifier)
+        (argument_list
+          (string))))
+    (heredoc_content)
+    (heredoc_body
+      (heredoc_content)
+      (heredoc_end))
+    (heredoc_content)
+    (heredoc_body
+      (interpolation
+        (heredoc_start))
+      (heredoc_content)
+      (heredoc_body
+        (interpolation
+          (heredoc_start)
+          (heredoc_body
+            (heredoc_content)
+            (heredoc_end)))
+        (heredoc_content)
+        (heredoc_end))
+      (heredoc_content)
+      (heredoc_end))
+    (heredoc_content)
+    (heredoc_end)))
+
+================================================================================
+heredoc encoding stress test
+================================================================================
+# This fills up the internal heredoc buffer to its max of 512 bytes
+p <<-🍑📣👑⚖🚨🌶🕟🔤😬☄🚣🎆🐛🌖🎑🎧🕍👲💳🎷🎣🏇😠🔹🚶🎧, <<-'🐨🛡🚝💵a1;🈹☀️🖥🙉🎰🌕🌀🌷🔥🎽😮🤒🚈🏈🕋🍬↙️🐺📈🍓⚓️📚🔯😚🔂✔️🚅📆➿👚💖🚔🐮🎫😊📓🎮⚗🚦👙👹♥️🏢❤️📅👛🏳❗️🏯🏵🍁🐱🎭🤔🎚🍖', <<-🛀🚍📏🙉🍽🏰📡🙅🕰🖍🚭⛔️🌎🤔🏷🖊🔁🍮🤕🏙🛩🛍🔦👪😅🎎🐸📎😊📦🚃🎇📣⛰👒🌹👶🎄__
+Heredoc 1
+🍑📣👑⚖🚨🌶🕟🔤😬
+Heredoc 1
+🍑📣👑⚖🚨🌶🕟🔤😬☄
+Heredoc 1
+🍑📣👑⚖🚨🌶🕟🔤😬☄🚣
+Heredoc 1
+🍑📣👑⚖🚨🌶🕟🔤😬☄🚣🎆
+Heredoc 1
+🍑📣👑⚖🚨🌶🕟🔤😬☄🚣🎆🐛
+Heredoc 1
+🍑📣👑⚖🚨🌶🕟🔤😬☄🚣🎆🐛🌖
+Heredoc 1
+🍑📣👑⚖🚨🌶🕟🔤😬☄🚣🎆🐛🌖🎑
+Heredoc 1
+🍑📣👑⚖🚨🌶🕟🔤😬☄🚣🎆🐛🌖🎑🎧
+Heredoc 1
+🍑📣👑⚖🚨🌶🕟🔤😬☄🚣🎆🐛🌖🎑🎧🕍
+Heredoc 1
+🍑📣👑⚖🚨🌶🕟🔤😬☄🚣🎆🐛🌖🎑🎧🕍👲
+Heredoc 1
+🍑📣👑⚖🚨🌶🕟🔤😬☄🚣🎆🐛🌖🎑🎧🕍👲💳
+Heredoc 1
+🍑📣👑⚖🚨🌶🕟🔤😬☄🚣🎆🐛🌖🎑🎧🕍👲💳🎷
+Heredoc 1
+🍑📣👑⚖🚨🌶🕟🔤😬☄🚣🎆🐛🌖🎑🎧🕍👲💳🎷🎣
+Heredoc 1
+🍑📣👑⚖🚨🌶🕟🔤😬☄🚣🎆🐛🌖🎑🎧🕍👲💳🎷🎣🏇
+Heredoc 1
+🍑📣👑⚖🚨🌶🕟🔤😬☄🚣🎆🐛🌖🎑🎧🕍👲💳🎷🎣🏇😠
+Heredoc 1
+🍑📣👑⚖🚨🌶🕟🔤😬☄🚣🎆🐛🌖🎑🎧🕍👲💳🎷🎣🏇😠🔹
+Heredoc 1
+🍑📣👑⚖🚨🌶🕟🔤😬☄🚣🎆🐛🌖🎑🎧🕍👲💳🎷🎣🏇😠🔹🚶
+Heredoc 1
+🍑📣👑⚖🚨🌶🕟🔤😬☄🚣🎆🐛🌖🎑🎧🕍👲💳🎷🎣🏇😠🔹🚶🎧
+Heredoc 2
+🐨🛡🚝💵a1;🈹☀️🖥🙉🎰🌕🌀🌷🔥🎽😮🤒🚈🏈🕋🍬↙️🐺📈🍓⚓️📚🔯😚🔂✔️🚅📆➿👚💖🚔🐮🎫😊📓🎮⚗🚦👙👹♥️🏢❤️📅👛🏳❗️🏯🏵🍁🐱🎭🤔🎚🍖🍖🍖🍖🍖🍖🍖🍖
+Heredoc 2
+🐨🛡🚝💵a1;🈹☀️🖥🙉🎰🌕🌀🌷🔥🎽😮🤒🚈🏈🕋🍬↙️🐺📈🍓⚓️📚🔯😚🔂✔️🚅📆➿👚💖🚔🐮🎫😊📓🎮⚗🚦👙👹♥️🏢❤️📅👛🏳❗️🏯🏵🍁🐱🎭🤔🎚🍖🍖🍖🍖🍖🍖🍖
+Heredoc 2
+🐨🛡🚝💵a1;🈹☀️🖥🙉🎰🌕🌀🌷🔥🎽😮🤒🚈🏈🕋🍬↙️🐺📈🍓⚓️📚🔯😚🔂✔️🚅📆➿👚💖🚔🐮🎫😊📓🎮⚗🚦👙👹♥️🏢❤️📅👛🏳❗️🏯🏵🍁🐱🎭🤔🎚🍖🍖🍖🍖🍖🍖
+Heredoc 2
+🐨🛡🚝💵a1;🈹☀️🖥🙉🎰🌕🌀🌷🔥🎽😮🤒🚈🏈🕋🍬↙️🐺📈🍓⚓️📚🔯😚🔂✔️🚅📆➿👚💖🚔🐮🎫😊📓🎮⚗🚦👙👹♥️🏢❤️📅👛🏳❗️🏯🏵🍁🐱🎭🤔🎚🍖🍖🍖🍖🍖
+Heredoc 2
+🐨🛡🚝💵a1;🈹☀️🖥🙉🎰🌕🌀🌷🔥🎽😮🤒🚈🏈🕋🍬↙️🐺📈🍓⚓️📚🔯😚🔂✔️🚅📆➿👚💖🚔🐮🎫😊📓🎮⚗🚦👙👹♥️🏢❤️📅👛🏳❗️🏯🏵🍁🐱🎭🤔🎚🍖🍖🍖🍖
+Heredoc 2
+🐨🛡🚝💵a1;🈹☀️🖥🙉🎰🌕🌀🌷🔥🎽😮🤒🚈🏈🕋🍬↙️🐺📈🍓⚓️📚🔯😚🔂✔️🚅📆➿👚💖🚔🐮🎫😊📓🎮⚗🚦👙👹♥️🏢❤️📅👛🏳❗️🏯🏵🍁🐱🎭🤔🎚🍖🍖🍖
+Heredoc 2
+🐨🛡🚝💵a1;🈹☀️🖥🙉🎰🌕🌀🌷🔥🎽😮🤒🚈🏈🕋🍬↙️🐺📈🍓⚓️📚🔯😚🔂✔️🚅📆➿👚💖🚔🐮🎫😊📓🎮⚗🚦👙👹♥️🏢❤️📅👛🏳❗️🏯🏵🍁🐱🎭🤔🎚🍖🍖
+Heredoc 2
+🐨🛡🚝💵a1;🈹☀️🖥🙉🎰🌕🌀🌷🔥🎽😮🤒🚈🏈🕋🍬↙️🐺📈🍓⚓️📚🔯😚🔂✔️🚅📆➿👚💖🚔🐮🎫😊📓🎮⚗🚦👙👹♥️🏢❤️📅👛🏳❗️🏯🏵🍁🐱🎭🤔🎚🍖 
+Heredoc 2
+🐨🛡🚝💵a1;🈹☀️🖥🙉🎰🌕🌀🌷🔥🎽😮🤒🚈🏈🕋🍬↙️🐺📈🍓⚓️📚🔯😚🔂✔️🚅📆➿👚💖🚔🐮🎫😊📓🎮⚗🚦👙👹♥️🏢❤️📅👛🏳❗️🏯🏵🍁🐱🎭🤔🎚🍖
+Heredoc 3
+🛀🚍📏🙉🍽🏰📡🙅🕰🖍🚭⛔️🌎🤔🏷🖊🔁🍮🤕🏙🛩🛍🔦👪😅🎎🐸📎😊📦🚃🎇📣⛰👒🌹👶🎄__
+--------------------------------------------------------------------------------
+
+(source_file
+  (comment)
+  (call
+    (identifier)
+    (argument_list
+      (heredoc_start)
+      (heredoc_start)
+      (heredoc_start)))
+  (heredoc_body
+    (heredoc_content)
+    (heredoc_end))
+  (heredoc_body
+    (heredoc_content)
+    (heredoc_end))
+  (heredoc_body
+    (heredoc_content)
+    (heredoc_end)))
+
+================================================================================
+percent strings
+================================================================================
+%(abc)
+p% ()
+
+%||
+%<>
+%{{}} % %[[]]
+%<]})>
+
+%q(
+()()()(((())()))
+)
+
+%Q["|)]
+%([{<|"''"|>}])
+
+%(\n\))
+%q[\n\]
+%Q|\|\n|
+
+%q(\)
+%q(\
+)
+%Q(\\)
+%Q(\
+\\)
+
+%(1#{2}3)
+%{#{""}}
+%<# {}>
+%|#\n|
+
+%Q(##{:a})
+%Q(#)
+%Q(##)
+%Q(###)
+%Q(####{{1,}})
+
+%q(#)
+%q(#{)
+%q(#{1})
+--------------------------------------------------------------------------------
+
+(source_file
+  (string)
+  (op_call
+    (identifier)
+    (operator)
+    (nil))
+  (string)
+  (string)
+  (op_call
+    (string)
+    (operator)
+    (string))
+  (string)
+  (string)
+  (string)
+  (string)
+  (string
+    (string_escape_sequence)
+    (ignored_backslash))
+  (string)
+  (string
+    (ignored_backslash)
+    (string_escape_sequence))
+  (string)
+  (string)
+  (string
+    (string_escape_sequence))
+  (string
+    (string_escape_sequence)
+    (string_escape_sequence))
+  (string
+    (interpolation
+      (integer)))
+  (string
+    (interpolation
+      (string)))
+  (string)
+  (string
+    (string_escape_sequence))
+  (string
+    (interpolation
+      (symbol)))
+  (string)
+  (string)
+  (string)
+  (string
+    (interpolation
+      (tuple
+        (integer))))
+  (string)
+  (string)
+  (string))
+
+================================================================================
+nested percent strings
+================================================================================
+%(#{%|#{%<#{%(a)}>}|})
+--------------------------------------------------------------------------------
+
+(source_file
+  (string
+    (interpolation
+      (string
+        (interpolation
+          (string
+            (interpolation
+              (string))))))))
+
+================================================================================
+percent string arrays
+================================================================================
+%w(a b	c
+d)
+
+%w(1\ 2)
+  %w( a\	b)
+%w{a\  a }
+%w{a \ \ }
+%w((\)))
+%w|\|\)|
+
+%w| a\b c\\
+d |
+
+%w[1 2		3
+4567]
+
+# This is possibly a bug with the Crystal parser
+%w<a <b c >
+%w<a <b c>>
+--------------------------------------------------------------------------------
+
+(source_file
+  (array
+    (string)
+    (string)
+    (string)
+    (string))
+  (array
+    (string
+      (ignored_backslash)))
+  (array
+    (string
+      (ignored_backslash)))
+  (array
+    (string
+      (ignored_backslash))
+    (string))
+  (array
+    (string)
+    (string
+      (ignored_backslash)
+      (ignored_backslash)))
+  (array
+    (string
+      (ignored_backslash)))
+  (array
+    (string
+      (ignored_backslash)))
+  (array
+    (string
+      (ignored_backslash))
+    (string
+      (ignored_backslash)
+      (ignored_backslash)))
+  (array
+    (string)
+    (string)
+    (string)
+    (string)
+    (string)
+    (string)
+    (string))
+  (comment)
+  (array
+    (string)
+    (string)
+    (string))
+  (array
+    (string)
+    (string)
+    (string)))
+
+================================================================================
+percent symbol arrays
+================================================================================
+%i(a b	c
+d)
+
+%i(1\ 2)
+  %i( a\	b)
+%i{a\  a }
+%i{1\
+1 2}
+%i{a \ \ }
+%i((\)))
+%i|\|\)|
+
+%i| a\b c\d |
+
+%i[1 2		3
+4567]
+
+# This is possibly a bug with the Crystal parser
+%i<a <b c >
+%i<a <b c>>
+--------------------------------------------------------------------------------
+
+(source_file
+  (array
+    (symbol)
+    (symbol)
+    (symbol)
+    (symbol))
+  (array
+    (symbol
+      (ignored_backslash)))
+  (array
+    (symbol
+      (ignored_backslash)))
+  (array
+    (symbol
+      (ignored_backslash))
+    (symbol))
+  (array
+    (symbol
+      (ignored_backslash))
+    (symbol))
+  (array
+    (symbol)
+    (symbol
+      (ignored_backslash)
+      (ignored_backslash)))
+  (array
+    (symbol
+      (ignored_backslash)))
+  (array
+    (symbol
+      (ignored_backslash)))
+  (array
+    (symbol
+      (ignored_backslash))
+    (symbol
+      (ignored_backslash)))
+  (array
+    (symbol)
+    (symbol)
+    (symbol)
+    (symbol)
+    (symbol)
+    (symbol)
+    (symbol))
+  (comment)
+  (array
+    (symbol)
+    (symbol)
+    (symbol))
+  (array
+    (symbol)
+    (symbol)
+    (symbol)))
+
+================================================================================
+symbols
+================================================================================
+:a
+:stuff!
+:Q_Q
+:💯
+:!
+:>
+:>>
+:"'"
+:"123"
+:"\'"
+:"#{asdf}"
+
+:a ? :b : :c
+
+:"😀" ? puts :"\u{1234}" : :"
+"
+--------------------------------------------------------------------------------
+
+(source_file
+  (symbol)
+  (symbol)
+  (symbol)
+  (symbol)
+  (symbol)
+  (symbol)
+  (symbol)
+  (symbol)
+  (symbol)
+  (symbol
+    (ignored_backslash))
+  (symbol)
+  (conditional
+    cond: (symbol)
+    then: (symbol)
+    else: (symbol))
+  (conditional
+    cond: (symbol)
+    then: (call
+      method: (identifier)
+      arguments: (argument_list
+        (symbol
+          (string_escape_sequence))))
+    else: (symbol)))
+
+================================================================================
+regexes
+================================================================================
+//
+/;/
+/
+/
+/#/
+/🔎/
+
+/^#{name}$/
+
+/\//
+/\a/i
+/\e/m
+/\f/x
+/\n/
+/\r/
+/\t/ximixi
+
+/\cx/
+/\cX/
+/\c/
+/\c /
+/\c/
+
+/\11/
+/\012/
+/\177/
+/\o{6666}/
+
+/\xa/
+/\x20/
+/\x{12345}/
+
+/a#{/b/m}c/i
+--------------------------------------------------------------------------------
+
+(source_file
+  (regex)
+  (regex)
+  (regex)
+  (regex)
+  (regex)
+  (regex
+    (interpolation
+      (identifier)))
+  (regex
+    (regex_escape_sequence))
+  (regex
+    (regex_escape_sequence)
+    (regex_modifier))
+  (regex
+    (regex_escape_sequence)
+    (regex_modifier))
+  (regex
+    (regex_escape_sequence)
+    (regex_modifier))
+  (regex
+    (regex_escape_sequence))
+  (regex
+    (regex_escape_sequence))
+  (regex
+    (regex_escape_sequence)
+    (regex_modifier))
+  (regex
+    (regex_escape_sequence))
+  (regex
+    (regex_escape_sequence))
+  (regex
+    (regex_escape_sequence))
+  (regex
+    (regex_escape_sequence))
+  (regex
+    (regex_escape_sequence))
+  (regex
+    (regex_escape_sequence))
+  (regex
+    (regex_escape_sequence))
+  (regex
+    (regex_escape_sequence))
+  (regex
+    (regex_escape_sequence))
+  (regex
+    (regex_escape_sequence))
+  (regex
+    (regex_escape_sequence))
+  (regex
+    (regex_escape_sequence))
+  (regex
+    (interpolation
+      (regex
+        (regex_modifier)))
+    (regex_modifier)))
+
+================================================================================
+regex percent literals
+================================================================================
+%r|a/b|
+
+%r<#{1}\#{2})>
+%r<a\>>
+%r(a\\)im
+%r{#{%r{f#{/o/}o}m}}
+--------------------------------------------------------------------------------
+
+(source_file
+  (regex)
+  (regex
+    (interpolation
+      (integer))
+    (ignored_backslash))
+  (regex
+    (ignored_backslash))
+  (regex
+    (regex_escape_sequence)
+    (regex_modifier))
+  (regex
+    (interpolation
+      (regex
+        (interpolation
+          (regex))
+        (regex_modifier)))))
+
+================================================================================
+arrays
+================================================================================
+[] of Bool
+
+[
+1,
+2
+
+]
+
+[(),(),nil,] of Nil | Asdf
+
+[[1,2],[3,4]]
+
+[foo 1, 2, 3]
+--------------------------------------------------------------------------------
+
+(source_file
+  (array
+    of: (constant))
+  (array
+    (integer)
+    (integer))
+  (array
+    (nil)
+    (nil)
+    (nil)
+    of: (union_type
+      (constant)
+      (constant)))
+  (array
+    (array
+      (integer)
+      (integer))
+    (array
+      (integer)
+      (integer)))
+  (array
+    (call
+      method: (identifier)
+      arguments: (argument_list
+        (integer)
+        (integer)
+        (integer)))))
+
+================================================================================
+hashes
+================================================================================
+{} of
+  Int16 |
+    Int32 =>
+      Bool |
+        Char
+
+{'a'=>'b','c'=>'d'}of Char=>Char
+
+{ "one" => 1, "two" => 2, }
+
+{
+  1 + 2 => { '3' => [3.0] }
+}
+--------------------------------------------------------------------------------
+
+(source_file
+  (hash
+    of_key: (union_type
+      (constant)
+      (constant))
+    of_value: (union_type
+      (constant)
+      (constant)))
+  (hash
+    (hash_entry
+      (char)
+      (char))
+    (hash_entry
+      (char)
+      (char))
+    of_key: (constant)
+    of_value: (constant))
+  (hash
+    (hash_entry
+      (string)
+      (integer))
+    (hash_entry
+      (string)
+      (integer)))
+  (hash
+    (hash_entry
+      (op_call
+        receiver: (integer)
+        operator: (operator)
+        argument: (integer))
+      (hash
+        (hash_entry
+          (char)
+          (array
+            (float)))))))
+
+================================================================================
+ranges
+================================================================================
+a..1
+5...7
+0..
+..60
+...
+
+1..2..3
+4..5..
+..6..7
+..8...
+...(..)
+
+foo! .. 2
+foo 1...2
+
+foo 1, ...2
+
+foo .. 6 + 7
+foo .. - bar
+
+foo bar... 8
+
+puts(..)
+--------------------------------------------------------------------------------
+
+(source_file
+  (range
+    begin: (identifier)
+    operator: (operator)
+    end: (integer))
+  (range
+    begin: (integer)
+    operator: (operator)
+    end: (integer))
+  (range
+    begin: (integer)
+    operator: (operator))
+  (range
+    operator: (operator)
+    end: (integer))
+  (range
+    operator: (operator))
+  (range
+    begin: (range
+      begin: (integer)
+      operator: (operator)
+      end: (integer))
+    operator: (operator)
+    end: (integer))
+  (range
+    begin: (range
+      begin: (integer)
+      operator: (operator)
+      end: (integer))
+    operator: (operator))
+  (range
+    begin: (range
+      operator: (operator)
+      end: (integer))
+    operator: (operator)
+    end: (integer))
+  (range
+    begin: (range
+      operator: (operator)
+      end: (integer))
+    operator: (operator))
+  (range
+    operator: (operator)
+    end: (range
+      operator: (operator)))
+  (range
+    begin: (call
+      method: (identifier))
+    operator: (operator)
+    end: (integer))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (range
+        begin: (integer)
+        operator: (operator)
+        end: (integer))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (integer)
+      (range
+        operator: (operator)
+        end: (integer))))
+  (range
+    begin: (identifier)
+    operator: (operator)
+    end: (op_call
+      receiver: (integer)
+      operator: (operator)
+      argument: (integer)))
+  (range
+    begin: (identifier)
+    operator: (operator)
+    end: (op_call
+      operator: (operator)
+      receiver: (identifier)))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (range
+        begin: (identifier)
+        operator: (operator)
+        end: (integer))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (range
+        operator: (operator)))))
+
+================================================================================
+tuples
+================================================================================
+{1, "foo", 'a'}
+
+{(),}
+
+{
+{
+1
+}
+}
+
+{foo, _z}
+
+{ {} of TypeA => TypeB}
+--------------------------------------------------------------------------------
+
+(source_file
+  (tuple
+    (integer)
+    (string)
+    (char))
+  (tuple
+    (nil))
+  (tuple
+    (tuple
+      (integer)))
+  (tuple
+    (identifier)
+    (identifier))
+  (tuple
+    (hash
+      of_key: (constant)
+      of_value: (constant))))
+
+================================================================================
+named tuples
+================================================================================
+{a: 123}
+
+named_tuple = {a2: "a", "55": 'b', A: "asdf#{a}", 🥰: 7, "
+":7, fooB_r: {abc: 5.8}, %(str): "yes", %Q(q_str): "YES", nani?: {1,2}}
+
+{ self: self, true: true, nil: nil, _🎃: " " }
+--------------------------------------------------------------------------------
+
+(source_file
+  (named_tuple
+    (named_expr
+      name: (identifier)
+      (integer)))
+  (assign
+    lhs: (identifier)
+    rhs: (named_tuple
+      (named_expr
+        name: (identifier)
+        (string))
+      (named_expr
+        name: (string)
+        (char))
+      (named_expr
+        name: (identifier)
+        (string
+          (interpolation
+            (identifier))))
+      (named_expr
+        name: (identifier)
+        (integer))
+      (named_expr
+        name: (string)
+        (integer))
+      (named_expr
+        name: (identifier)
+        (named_tuple
+          (named_expr
+            name: (identifier)
+            (float))))
+      (named_expr
+        name: (string)
+        (string))
+      (named_expr
+        name: (string)
+        (string))
+      (named_expr
+        name: (identifier)
+        (tuple
+          (integer)
+          (integer)))))
+  (named_tuple
+    (named_expr
+      name: (identifier)
+      (self))
+    (named_expr
+      name: (identifier)
+      (true))
+    (named_expr
+      name: (identifier)
+      (nil))
+    (named_expr
+      name: (identifier)
+      (string))))
+
+================================================================================
+proc literals
+================================================================================
+->{}
+
+->: Int32
+do 1 end
+
+->
+(
+a
+)
+:
+String |
+->
+{
+"a"
+}
+
+->(x : Int32,y : Int32,) : Int32 do
+                                   x + y
+                                 end
+
+-> do -> {  } end
+
+-> : Gen(A, B, C, D) {  }
+-> : Gen(A, B, C -> D) {  }
+
+-> : Int32, Int32 ->  do
+  -> (a : Int32, b : Int32) {}
+end
+
+-> : -> {->} { -> { {->{}} } }
+--------------------------------------------------------------------------------
+
+(source_file
+  (proc
+    block: (block))
+  (proc
+    type: (constant)
+    block: (block
+      (integer)))
+  (proc
+    params: (param_list
+      (param
+        name: (identifier)))
+    type: (union_type
+      (constant)
+      (proc_type))
+    block: (block
+      (string)))
+  (proc
+    params: (param_list
+      (param
+        name: (identifier)
+        type: (constant))
+      (param
+        name: (identifier)
+        type: (constant)))
+    type: (constant)
+    block: (block
+      (op_call
+        receiver: (identifier)
+        operator: (operator)
+        argument: (identifier))))
+  (proc
+    block: (block
+      (proc
+        block: (block))))
+  (proc
+    type: (generic_instance_type
+      (constant)
+      params: (param_list
+        (constant)
+        (constant)
+        (constant)
+        (constant)))
+    block: (block))
+  (proc
+    type: (generic_instance_type
+      (constant)
+      params: (param_list
+        (proc_type
+          (constant)
+          (constant)
+          (constant)
+          return: (constant))))
+    block: (block))
+  (proc
+    type: (proc_type
+      (constant)
+      (constant))
+    block: (block
+      (proc
+        params: (param_list
+          (param
+            name: (identifier)
+            type: (constant))
+          (param
+            name: (identifier)
+            type: (constant)))
+        block: (block))))
+  (proc
+    type: (proc_type
+      return: (tuple_type
+        (proc_type)))
+    block: (block
+      (proc
+        block: (block
+          (tuple
+            (proc
+              block: (block))))))))
+
+================================================================================
+command literals
+================================================================================
+`tree-sitter generate`
+
+`echo "#{foo}\n"; \`echo "echo"\``
+
+puts %x[echo \t[#{foo}]\]]
+--------------------------------------------------------------------------------
+
+(source_file
+  (command)
+  (command
+    (interpolation
+      (identifier))
+    (string_escape_sequence)
+    (ignored_backslash)
+    (ignored_backslash))
+  (call
+    (identifier)
+    (argument_list
+      (command
+        (string_escape_sequence)
+        (interpolation
+          (identifier))
+        (ignored_backslash)))))
+
+================================================================================
+strings with backslash newlines
+================================================================================
+a, b, c, d, e = "1\
+2", %q(1\
+2), %Q(1\
+2), <<-D, \
+<<-'E'
+d\
+d
+D
+e\
+e
+E
+
+string_with_newline = "hello
+  world"
+
+string_with_interior_backslashes = "hello \
+  world \
+  no \
+  newlines"
+
+string_joined_with_backslashes = "hello " \
+  "world "\
+  " no " \
+  "newlines"
+
+not_chained = "str1"
+  "str2"
+--------------------------------------------------------------------------------
+
+(source_file
+  (multi_assign
+    lhs: (identifier)
+    lhs: (identifier)
+    lhs: (identifier)
+    lhs: (identifier)
+    lhs: (identifier)
+    rhs: (string
+      (string_escape_sequence))
+    rhs: (string)
+    rhs: (string
+      (string_escape_sequence))
+    rhs: (heredoc_start)
+    rhs: (heredoc_start))
+  (heredoc_body
+    (heredoc_content)
+    (string_escape_sequence)
+    (heredoc_content)
+    (heredoc_end))
+  (heredoc_body
+    (heredoc_content)
+    (heredoc_end))
+  (assign
+    lhs: (identifier)
+    rhs: (string))
+  (assign
+    lhs: (identifier)
+    rhs: (string
+      (string_escape_sequence)
+      (string_escape_sequence)
+      (string_escape_sequence)))
+  (assign
+    lhs: (identifier)
+    rhs: (chained_string
+      (string)
+      (string)
+      (string)
+      (string)))
+  (assign
+    lhs: (identifier)
+    rhs: (string))
+  (string))

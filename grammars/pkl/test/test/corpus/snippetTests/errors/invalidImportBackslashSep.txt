@@ -1,0 +1,14 @@
+===
+errors/invalidImportBackslashSep.pkl
+===
+
+res = import(#"..\basic\baseModule.pkl"#)
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (importExpr
+      (stringConstant
+        (slStringLiteralPart)))))

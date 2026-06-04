@@ -1,0 +1,25 @@
+================================================================================
+member access
+================================================================================
+void foo() {
+	bar.baz;
+	int.MAX;
+	bar.bar.baz().bar;
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method return_type: (type_void) name: (identifier) body: (block
+	(statement_expression (member_access
+		accessed: (identifier)
+		member: (identifier)))
+	(statement_expression (member_access
+		accessed: (type_int)
+		member: (identifier)))
+	(statement_expression (member_access
+		accessed: (invokation
+			instance: (member_access
+				accessed: (identifier)
+				member: (identifier))
+			invoked: (identifier)
+			(actual_parameters))
+		member: (identifier))))))
+

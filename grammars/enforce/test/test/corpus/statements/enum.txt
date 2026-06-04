@@ -1,0 +1,71 @@
+================================================================================
+empty enum
+================================================================================
+enum Foo {}
+--------------------------------------------------------------------------------
+(compilation_unit
+	(decl_enum
+		typename: (identifier)
+		body: (enum_body)))
+
+================================================================================
+simple enum
+================================================================================
+enum Foo { A, B, C, }
+--------------------------------------------------------------------------------
+(compilation_unit
+	(decl_enum
+		typename: (identifier)
+		body: (enum_body
+			(enum_member
+				name: (identifier))
+			(enum_member
+				name: (identifier))
+			(enum_member
+				name: (identifier)))))
+
+================================================================================
+simple enum with initiliazers
+================================================================================
+enum Foo { A, B = 69, C, }
+--------------------------------------------------------------------------------
+(compilation_unit
+	(decl_enum
+		typename: (identifier)
+		body: (enum_body
+			(enum_member
+				name: (identifier))
+			(enum_member
+				name: (identifier)
+				value: (literal_int))
+			(enum_member
+				name: (identifier)))))
+
+================================================================================
+extended enum
+================================================================================
+enum Foo : Bar { A, B = 69, C, }
+--------------------------------------------------------------------------------
+(compilation_unit
+	(decl_enum
+		typename: (identifier)
+		superenum: (identifier)
+		body: (enum_body
+			(enum_member
+				name: (identifier))
+			(enum_member
+				name: (identifier)
+				value: (literal_int))
+			(enum_member
+				name: (identifier)))))
+
+================================================================================
+modded enum
+================================================================================
+modded enum Foo {}
+--------------------------------------------------------------------------------
+(compilation_unit
+	(decl_enum
+		(class_modifier)
+		typename: (identifier)
+		body: (enum_body)))

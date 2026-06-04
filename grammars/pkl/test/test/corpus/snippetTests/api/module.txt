@@ -1,0 +1,77 @@
+===
+api/module.pkl
+===
+
+amends "../snippetTest.pkl"
+
+examples {
+  ["relativePathTo()"] {
+    module.relativePathTo(import("dir1/dir2/relativePathTo.pkl"))
+    module.relativePathTo(import("list.pkl"))
+    import("list.pkl").relativePathTo(import("set.pkl"))
+    module.relativePathTo(module)
+    module.catch(() -> import("dir1/dir2/relativePathTo.pkl").relativePathTo(module))
+  }
+}
+
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (qualifiedAccessExpr
+              (moduleExpr)
+              (identifier)
+              (argumentList
+                (importExpr
+                  (stringConstant
+                    (slStringLiteralPart))))))
+          (objectElement
+            (qualifiedAccessExpr
+              (moduleExpr)
+              (identifier)
+              (argumentList
+                (importExpr
+                  (stringConstant
+                    (slStringLiteralPart))))))
+          (objectElement
+            (qualifiedAccessExpr
+              (importExpr
+                (stringConstant
+                  (slStringLiteralPart)))
+              (identifier)
+              (argumentList
+                (importExpr
+                  (stringConstant
+                    (slStringLiteralPart))))))
+          (objectElement
+            (qualifiedAccessExpr
+              (moduleExpr)
+              (identifier)
+              (argumentList
+                (moduleExpr))))
+          (objectElement
+            (qualifiedAccessExpr
+              (moduleExpr)
+              (identifier)
+              (argumentList
+                (functionLiteralExpr
+                  (parameterList)
+                  (qualifiedAccessExpr
+                    (importExpr
+                      (stringConstant
+                        (slStringLiteralPart)))
+                    (identifier)
+                    (argumentList
+                      (moduleExpr))))))))))))

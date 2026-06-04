@@ -1,0 +1,250 @@
+===
+basic/read.pkl
+===
+
+amends "../snippetTest.pkl"
+
+examples {
+  ["read env variable"] {
+    read("env:NAME1")
+    read("env:NAME2")
+    module.catch(() -> read("env:OTHER"))
+
+    read?("env:NAME1")
+    read?("env:NAME2")
+    read?("env:OTHER")
+  }
+
+  ["read external property"] {
+    read("prop:name1")
+    read("prop:name2")
+    module.catch(() -> read("prop:other"))
+
+    read?("prop:name1")
+    read?("prop:name2")
+    read?("prop:other")
+  }
+
+  ["read file"] {
+    read("globtest/file1.txt")
+    module.catch(() -> read("other.txt"))
+    read?("globtest/file1.txt")
+    read?("other.txt")
+  }
+  
+  ["read triple-dot file"] {
+    read(".../input-helper/basic/read/resource.txt")
+    read?(".../input-helper/basic/read/resource.txt")
+  }
+
+  ["read non-allowed resource"] {
+    module.catch(() -> read("forbidden:resource"))
+    module.catch(() -> read?("forbidden:resource"))
+  }
+  
+  ["use read expression with non-constant resource URI"] {
+    local function doRead(uri) = read(uri)
+    doRead("globtest/file1.txt")
+    doRead("globtest/file2.txt")
+  }
+    
+  ["read different resources with same relative resource URI"] {
+    local module1 = import(".../input-helper/basic/read/module1.pkl")
+    local module2 = import(".../input-helper/basic/read/child/module2.pkl")
+    module1.normalRead
+    module2.normalRead
+  }
+}
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (readExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))))
+          (objectElement
+            (readExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))))
+          (objectElement
+            (qualifiedAccessExpr
+              (moduleExpr)
+              (identifier)
+              (argumentList
+                (functionLiteralExpr
+                  (parameterList)
+                  (readExpr
+                    (slStringLiteralExpr
+                      (slStringLiteralPart)))))))
+          (objectElement
+            (readExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))))
+          (objectElement
+            (readExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))))
+          (objectElement
+            (readExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (readExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))))
+          (objectElement
+            (readExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))))
+          (objectElement
+            (qualifiedAccessExpr
+              (moduleExpr)
+              (identifier)
+              (argumentList
+                (functionLiteralExpr
+                  (parameterList)
+                  (readExpr
+                    (slStringLiteralExpr
+                      (slStringLiteralPart)))))))
+          (objectElement
+            (readExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))))
+          (objectElement
+            (readExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))))
+          (objectElement
+            (readExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (readExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))))
+          (objectElement
+            (qualifiedAccessExpr
+              (moduleExpr)
+              (identifier)
+              (argumentList
+                (functionLiteralExpr
+                  (parameterList)
+                  (readExpr
+                    (slStringLiteralExpr
+                      (slStringLiteralPart)))))))
+          (objectElement
+            (readExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))))
+          (objectElement
+            (readExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (readExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))))
+          (objectElement
+            (readExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (qualifiedAccessExpr
+              (moduleExpr)
+              (identifier)
+              (argumentList
+                (functionLiteralExpr
+                  (parameterList)
+                  (readExpr
+                    (slStringLiteralExpr
+                      (slStringLiteralPart)))))))
+          (objectElement
+            (qualifiedAccessExpr
+              (moduleExpr)
+              (identifier)
+              (argumentList
+                (functionLiteralExpr
+                  (parameterList)
+                  (readExpr
+                    (slStringLiteralExpr
+                      (slStringLiteralPart)))))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectMethod
+            (methodHeader
+              (modifier)
+              (identifier)
+              (parameterList
+                (typedIdentifier
+                  (identifier))))
+            (readExpr
+              (unqualifiedAccessExpr
+                (identifier))))
+          (objectElement
+            (unqualifiedAccessExpr
+              (identifier)
+              (argumentList
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))))
+          (objectElement
+            (unqualifiedAccessExpr
+              (identifier)
+              (argumentList
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectProperty
+            (modifier)
+            (identifier)
+            (importExpr
+              (stringConstant
+                (slStringLiteralPart))))
+          (objectProperty
+            (modifier)
+            (identifier)
+            (importExpr
+              (stringConstant
+                (slStringLiteralPart))))
+          (objectElement
+            (qualifiedAccessExpr
+              (unqualifiedAccessExpr
+                (identifier))
+              (identifier)))
+          (objectElement
+            (qualifiedAccessExpr
+              (unqualifiedAccessExpr
+                (identifier))
+              (identifier))))))))

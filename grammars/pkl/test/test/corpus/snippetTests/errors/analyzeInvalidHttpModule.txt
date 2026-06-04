@@ -1,0 +1,26 @@
+===
+errors/analyzeInvalidHttpModule.pkl
+===
+
+import "pkl:analyze"
+
+result = analyze.importGraph(Set("http://localhost:0/foo.pkl"))
+
+---
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList
+            (slStringLiteralExpr
+              (slStringLiteralPart))))))))

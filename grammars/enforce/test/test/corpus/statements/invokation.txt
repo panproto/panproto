@@ -1,0 +1,65 @@
+================================================================================
+simple invokation
+================================================================================
+void foo() {
+	bar();
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method (type_void) (identifier) (block
+	(statement_expression (invokation (identifier) (actual_parameters))))))
+
+================================================================================
+invokation with parameters
+================================================================================
+void foo() {
+	bar(69, 420);
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method (type_void) (identifier) (block
+	(statement_expression (invokation
+		(identifier)
+		(actual_parameters
+			(actual_parameter (literal_int))
+			(actual_parameter (literal_int))))))))
+
+================================================================================
+invokation with named parameters
+================================================================================
+void foo() {
+	bar(x: 69, y: 420);
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method
+	return_type: (type_void)
+	name: (identifier)
+	body: (block
+		(statement_expression (invokation
+			invoked: (identifier)
+			(actual_parameters
+				(actual_parameter
+					name: (identifier)
+					(literal_int))
+				(actual_parameter
+					name: (identifier)
+					(literal_int))))))))
+
+================================================================================
+invokation of instance expression
+================================================================================
+void foo() {
+	foo[69].foo.foo[420].foo();
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method return_type: (type_void) name: (identifier) body: (block
+	(statement_expression (invokation
+		instance: (key_access
+			accessed: (member_access
+				accessed: (member_access
+					accessed: (key_access
+						accessed: (identifier)
+						key: (literal_int))
+					member: (identifier))
+				member: (identifier))
+			key: (literal_int))
+		invoked: (identifier)
+		(actual_parameters))))))

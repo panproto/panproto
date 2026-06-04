@@ -1,0 +1,161 @@
+===================
+increment unop postfix
+===================
+
+class main {
+  function test() {
+    x++;
+  }
+}
+
+---
+(module
+  (class_declaration (identifier)
+    (block
+      (function_declaration (identifier)
+        (block
+          (identifier) (operator)
+        )
+      )
+    )
+  )
+)
+
+===================
+increment unop prefix
+===================
+
+class main {
+  function test() {
+    ++x;
+  }
+}
+
+---
+(module
+  (class_declaration (identifier)
+    (block
+      (function_declaration (identifier)
+        (block
+          (operator) (identifier)
+        )
+      )
+    )
+  )
+)
+
+===================
+decrement_unop postfix
+===================
+
+class main {
+  function test() {
+    x--;
+  }
+}
+
+---
+(module
+  (class_declaration (identifier)
+    (block
+      (function_declaration (identifier)
+        (block
+          (identifier) (operator)
+        )
+      )
+    )
+  )
+)
+
+
+===================
+decrement_unop prefix
+===================
+
+class main {
+  function test() {
+    --x;
+  }
+}
+
+---
+(module
+  (class_declaration (identifier)
+    (block
+      (function_declaration (identifier)
+        (block
+           (operator) (identifier)
+        )
+      )
+    )
+  )
+)
+
+===================
+logical not unop
+===================
+
+class main {
+  function test() {
+    !x;
+  }
+}
+
+---
+(module
+  (class_declaration (identifier)
+    (block
+      (function_declaration (identifier)
+        (block
+           (operator) (identifier)
+        )
+      )
+    )
+  )
+)
+
+===================
+negative unop
+===================
+
+class main {
+  function test() {
+    -x;
+  }
+}
+
+---
+(module
+  (class_declaration (identifier)
+    (block
+      (function_declaration (identifier)
+        (block
+           (operator) (identifier)
+        )
+      )
+    )
+  )
+)
+
+===================
+bitwise_negative_unop
+===================
+
+class main {
+  function test() {
+    ~x;
+  }
+}
+
+---
+(module
+  (class_declaration (identifier)
+    (block
+      (function_declaration (identifier)
+        (block
+           (operator) (identifier)
+        )
+      )
+    )
+  )
+)

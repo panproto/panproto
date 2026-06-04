@@ -1,0 +1,437 @@
+================================================================================
+Dot after newline
+================================================================================
+
+bar.foo()
+   .show()
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (call_expression
+    (navigation_expression
+      (call_expression
+        (navigation_expression
+          (simple_identifier)
+          (navigation_suffix
+            (simple_identifier)))
+        (call_suffix
+          (value_arguments)))
+      (navigation_suffix
+        (simple_identifier)))
+    (call_suffix
+      (value_arguments))))
+
+================================================================================
+Eq after newline
+================================================================================
+
+fun foo()
+    = 1
+
+---
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (integer_literal))))
+
+================================================================================
+Binary operator after newline
+================================================================================
+
+
+fun foo()  {
+  val bar = x
+         && y
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (property_declaration
+          (binding_pattern_kind)
+          (variable_declaration
+            (simple_identifier))
+          (conjunction_expression
+            (simple_identifier)
+            (simple_identifier)))))))
+
+================================================================================
+Open brace after newline
+================================================================================
+
+fun foo():String
+    { return "bar"}
+
+---
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (user_type
+      (type_identifier))
+    (function_body
+      (statements
+        (jump_expression
+          (string_literal
+            (string_content)))))))
+
+================================================================================
+Colon after newline
+================================================================================
+
+class Foo
+    : Bar {
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_declaration
+    (type_identifier)
+    (delegation_specifier
+      (user_type
+        (type_identifier)))
+    (class_body)))
+
+================================================================================
+Question mark after newline
+================================================================================
+
+
+fun foo() {
+   val foo = a?.bar(true)
+             ?: x.foo()
+             ?: break
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (property_declaration
+          (binding_pattern_kind)
+          (variable_declaration
+            (simple_identifier))
+          (elvis_expression
+            (elvis_expression
+              (call_expression
+                (navigation_expression
+                  (simple_identifier)
+                  (navigation_suffix
+                    (simple_identifier)))
+                (call_suffix
+                  (value_arguments
+                    (value_argument
+                      (boolean_literal)))))
+              (call_expression
+                (navigation_expression
+                  (simple_identifier)
+                  (navigation_suffix
+                    (simple_identifier)))
+                (call_suffix
+                  (value_arguments))))
+            (jump_expression)))))))
+
+================================================================================
+get after newline
+================================================================================
+class Foo {
+     val maxMemory: Long
+     get() = bar() / 1024
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_declaration
+    (type_identifier)
+    (class_body
+      (property_declaration
+        (binding_pattern_kind)
+        (variable_declaration
+          (simple_identifier)
+          (user_type
+            (type_identifier))))
+      (getter
+        (function_body
+          (multiplicative_expression
+            (call_expression
+              (simple_identifier)
+              (call_suffix
+                (value_arguments)))
+            (integer_literal)))))))
+
+================================================================================
+Newline in function call
+================================================================================
+
+// The Kotlin grammar does not allow newlines/semicolons in function calls,
+// but tree-sitter uses context-aware lexing to overcome this.
+
+foo(1,
+    2)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (line_comment)
+  (line_comment)
+  (call_expression
+    (simple_identifier)
+    (call_suffix
+      (value_arguments
+        (value_argument
+          (integer_literal))
+        (value_argument
+          (integer_literal))))))
+
+================================================================================
+Else after newline
+================================================================================
+
+if (!foo) 3
+else boo()
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (if_expression
+    condition: (prefix_expression
+      (simple_identifier))
+    consequence: (control_structure_body
+      (integer_literal))
+    alternative: (control_structure_body
+      (call_expression
+        (simple_identifier)
+        (call_suffix
+          (value_arguments))))))
+
+================================================================================
+Else on the same line
+================================================================================
+
+if (!foo) 3 else boo()
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (if_expression
+    condition: (prefix_expression
+      (simple_identifier))
+    consequence: (control_structure_body
+      (integer_literal))
+    alternative: (control_structure_body
+      (call_expression
+        (simple_identifier)
+        (call_suffix
+          (value_arguments))))))
+
+================================================================================
+Line comment before dot in method chain
+================================================================================
+
+val x = listOf(1)
+    // comment
+    .reversed()
+
+---
+
+(source_file
+  (property_declaration
+    (binding_pattern_kind)
+    (variable_declaration
+      (simple_identifier))
+    (call_expression
+      (navigation_expression
+        (call_expression
+          (simple_identifier)
+          (call_suffix
+            (value_arguments
+              (value_argument
+                (integer_literal)))))
+        (line_comment)
+        (navigation_suffix
+          (simple_identifier)))
+      (call_suffix
+        (value_arguments)))))
+
+================================================================================
+Block comment before dot in method chain
+================================================================================
+
+val x = listOf(1)
+    /* block comment */
+    .reversed()
+
+---
+
+(source_file
+  (property_declaration
+    (binding_pattern_kind)
+    (variable_declaration
+      (simple_identifier))
+    (call_expression
+      (navigation_expression
+        (call_expression
+          (simple_identifier)
+          (call_suffix
+            (value_arguments
+              (value_argument
+                (integer_literal)))))
+        (multiline_comment)
+        (navigation_suffix
+          (simple_identifier)))
+      (call_suffix
+        (value_arguments)))))
+
+================================================================================
+Multiple comments before dot in method chain
+================================================================================
+
+val x = listOf(1)
+    // first comment
+    // second comment
+    .reversed()
+
+---
+
+(source_file
+  (property_declaration
+    (binding_pattern_kind)
+    (variable_declaration
+      (simple_identifier))
+    (call_expression
+      (navigation_expression
+        (call_expression
+          (simple_identifier)
+          (call_suffix
+            (value_arguments
+              (value_argument
+                (integer_literal)))))
+        (line_comment)
+        (line_comment)
+        (navigation_suffix
+          (simple_identifier)))
+      (call_suffix
+        (value_arguments)))))
+
+================================================================================
+Comment before safe navigation
+================================================================================
+
+val x = foo
+    // comment before safe nav
+    ?.bar()
+
+---
+
+(source_file
+  (property_declaration
+    (binding_pattern_kind)
+    (variable_declaration
+      (simple_identifier))
+    (call_expression
+      (navigation_expression
+        (simple_identifier)
+        (line_comment)
+        (navigation_suffix
+          (simple_identifier)))
+      (call_suffix
+        (value_arguments)))))
+
+================================================================================
+Mixed line and block comments before dot
+================================================================================
+
+val x = listOf(1)
+    // line comment
+    /* block comment */
+    .reversed()
+
+---
+
+(source_file
+  (property_declaration
+    (binding_pattern_kind)
+    (variable_declaration
+      (simple_identifier))
+    (call_expression
+      (navigation_expression
+        (call_expression
+          (simple_identifier)
+          (call_suffix
+            (value_arguments
+              (value_argument
+                (integer_literal)))))
+        (line_comment)
+        (multiline_comment)
+        (navigation_suffix
+          (simple_identifier)))
+      (call_suffix
+        (value_arguments)))))
+
+================================================================================
+Nested block comment before dot
+================================================================================
+
+val x = listOf(1)
+    /* outer /* inner */ still outer */
+    .reversed()
+
+---
+
+(source_file
+  (property_declaration
+    (binding_pattern_kind)
+    (variable_declaration
+      (simple_identifier))
+    (call_expression
+      (navigation_expression
+        (call_expression
+          (simple_identifier)
+          (call_suffix
+            (value_arguments
+              (value_argument
+                (integer_literal)))))
+        (multiline_comment)
+        (navigation_suffix
+          (simple_identifier)))
+      (call_suffix
+        (value_arguments)))))
+
+================================================================================
+Comment between unrelated statements (ASI should still work)
+================================================================================
+
+val x = 1
+// comment
+val y = 2
+
+---
+
+(source_file
+  (property_declaration
+    (binding_pattern_kind)
+    (variable_declaration
+      (simple_identifier))
+    (integer_literal))
+  (line_comment)
+  (property_declaration
+    (binding_pattern_kind)
+    (variable_declaration
+      (simple_identifier))
+    (integer_literal)))

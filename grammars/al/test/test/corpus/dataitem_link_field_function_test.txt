@@ -1,0 +1,183 @@
+================================================================================
+DataItemLink property with FIELD function syntax
+================================================================================
+
+report 123 "Test Report"
+{
+    dataset
+    {
+        dataitem("Purchase Header"; "Purchase Header")
+        {
+            dataitem("Purchase Line"; "Purchase Line")
+            {
+                DataItemLink = "Document No." = FIELD("No.");
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (quoted_identifier)
+        table_name: (quoted_identifier)
+        (report_dataitem
+          (dataitem_keyword)
+          name: (quoted_identifier)
+          table_name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (property_expression
+              (comparison_expression
+                left: (quoted_identifier)
+                operator: (comparison_operator)
+                right: (call_expression
+                  function: (identifier)
+                  arguments: (argument_list
+                    (quoted_identifier)))))))))))
+
+================================================================================
+DataItemLink property with traditional dot syntax
+================================================================================
+
+report 124 "Test Report 2"
+{
+    dataset
+    {
+        dataitem("Purchase Header"; "Purchase Header")
+        {
+            dataitem("Purchase Line"; "Purchase Line")
+            {
+                DataItemLink = "Document No." = "Purchase Header"."No.";
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (quoted_identifier)
+        table_name: (quoted_identifier)
+        (report_dataitem
+          (dataitem_keyword)
+          name: (quoted_identifier)
+          table_name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (property_expression
+              (comparison_expression
+                left: (quoted_identifier)
+                operator: (comparison_operator)
+                right: (member_expression
+                  object: (quoted_identifier)
+                  member: (quoted_identifier))))))))))
+
+================================================================================
+DataItemLink property with multiple fields and mixed syntax
+================================================================================
+
+report 125 "Test Report 3"
+{
+    dataset
+    {
+        dataitem("Purchase Header"; "Purchase Header")
+        {
+            dataitem("Purchase Line"; "Purchase Line")
+            {
+                DataItemLink = "Document No." = FIELD("No."),
+                               "Document Type" = Header."Document Type";
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (quoted_identifier)
+        table_name: (quoted_identifier)
+        (report_dataitem
+          (dataitem_keyword)
+          name: (quoted_identifier)
+          table_name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (quoted_identifier)
+                value: (quoted_identifier))
+              (link_value
+                field: (quoted_identifier)
+                value: (identifier)
+                value: (quoted_identifier)))))))))
+
+================================================================================
+DataItemLink property with case variations
+================================================================================
+
+report 126 "Test Report 4"
+{
+    dataset
+    {
+        dataitem("Purchase Header"; "Purchase Header")
+        {
+            dataitem("Purchase Line"; "Purchase Line")
+            {
+                DataItemLink = "Document No." = field("No.");
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (quoted_identifier)
+        table_name: (quoted_identifier)
+        (report_dataitem
+          (dataitem_keyword)
+          name: (quoted_identifier)
+          table_name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (property_expression
+              (comparison_expression
+                left: (quoted_identifier)
+                operator: (comparison_operator)
+                right: (call_expression
+                  function: (identifier)
+                  arguments: (argument_list
+                    (quoted_identifier)))))))))))

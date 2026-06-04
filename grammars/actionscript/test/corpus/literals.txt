@@ -1,0 +1,77 @@
+=================
+constant literals
+=================
+
+true;
+false;
+null;
+undefined;
+
+---
+
+(program
+  (expression_statement (true))
+  (expression_statement (false))
+  (expression_statement (null))
+  (expression_statement (undefined))
+)
+
+
+================
+numeric literals
+================
+
+NaN;
+Infinity;
+-Infinity;
+0xFF;
+0xFF_FF;
+0X00;
+23;
+100_000;
+100__000;
+3.14;
+1e10;
+1.24e10;
+1e-4;
+
+---
+
+(program
+  (expression_statement (number))
+  (expression_statement (number))
+  (expression_statement (number))
+  (expression_statement (number))
+  (expression_statement (number))
+  (expression_statement (number))
+  (expression_statement (number))
+  (expression_statement (number))
+  (expression_statement (number))
+  (expression_statement (number))
+  (expression_statement (number))
+  (expression_statement (number))
+  (expression_statement (number))
+)
+
+
+===============
+string_literals
+===============
+
+"hello";
+'world';
+"hello\"";
+'\'world\'';
+"hello 'world'";
+'hello "world"';
+
+---
+
+(program
+  (expression_statement (string))
+  (expression_statement (string))
+  (expression_statement (string))
+  (expression_statement (string))
+  (expression_statement (string))
+  (expression_statement (string))
+)

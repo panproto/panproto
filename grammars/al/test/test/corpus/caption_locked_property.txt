@@ -1,0 +1,160 @@
+================================================================================
+Caption property with Locked attribute
+================================================================================
+
+page 50000 "Test Page"
+{
+    Caption = 'Test Caption', Locked = true;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (caption_value
+        (string_literal)
+        (property_name)
+        (boolean)))))
+
+================================================================================
+Caption property with empty string and Locked
+================================================================================
+
+page 50001 "Empty Caption Page"
+{
+    Caption = '', Locked = true;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (caption_value
+        (string_literal)
+        (property_name)
+        (boolean)))))
+
+================================================================================
+Caption property with Locked false
+================================================================================
+
+page 50002 "Unlocked Caption Page"
+{
+    Caption = 'Translatable Caption', Locked = false;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (caption_value
+        (string_literal)
+        (property_name)
+        (boolean)))))
+
+================================================================================
+Caption property without Locked attribute
+================================================================================
+
+page 50003 "Regular Caption Page"
+{
+    Caption = 'Regular Caption';
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))))
+
+================================================================================
+Caption property with different case Locked attribute
+================================================================================
+
+table 50000 "Test Table"
+{
+    Caption = 'Test Table', locked = true;
+    
+    fields
+    {
+        field(1; "Field1"; Text[50])
+        {
+            Caption = 'Field Caption', LOCKED = false;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (caption_value
+        (string_literal)
+        (property_name)
+        (boolean)))
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (caption_value
+            (string_literal)
+            (property_name)
+            (boolean)))))))
+
+================================================================================
+Multiple properties with Caption and Locked
+================================================================================
+
+codeunit 50000 "Test Codeunit"
+{
+    Caption = 'Test Codeunit', Locked = true;
+    Description = 'Test Description';
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (caption_value
+        (string_literal)
+        (property_name)
+        (boolean)))
+    (property
+      name: (property_name)
+      value: (string_literal))))

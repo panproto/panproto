@@ -1,0 +1,257 @@
+================================================================================
+OptionCaption with Locked attribute
+================================================================================
+
+table 9043 "SAS Parameters"
+{
+    fields
+    {
+        field(4; SignedProtocol; Option)
+        {
+            DataClassification = SystemMetadata;
+            OptionMembers = "https&http",https;
+            OptionCaption = '"https and http",https', Locked = true;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (option_type))
+        (property
+          name: (property_name)
+          value: (identifier))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (identifier))))
+        (property
+          name: (property_name)
+          value: (caption_value
+            (string_literal)
+            (property_name)
+            (boolean)))))))
+
+================================================================================
+OptionCaption with Comment and Locked
+================================================================================
+
+table 50000 TestTable
+{
+    fields
+    {
+        field(1; Status; Option)
+        {
+            OptionMembers = Draft,Open,Released,Closed;
+            OptionCaption = 'Draft,Open,Released,Closed', Comment = 'Status values', Locked = true;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (option_type))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (identifier))
+            (option_member
+              (identifier))
+            (option_member
+              (identifier))
+            (option_member
+              (identifier))))
+        (property
+          name: (property_name)
+          value: (caption_value
+            (string_literal)
+            (property_name)
+            (string_literal)
+            (property_name)
+            (boolean)))))))
+
+================================================================================
+OptionCaption with only Locked (no Comment)
+================================================================================
+
+table 50001 TestTable2
+{
+    fields
+    {
+        field(1; Protocol; Option)
+        {
+            OptionMembers = http,https;
+            OptionCaption = 'HTTP,HTTPS', Locked = false;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (option_type))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (identifier))
+            (option_member
+              (identifier))))
+        (property
+          name: (property_name)
+          value: (caption_value
+            (string_literal)
+            (property_name)
+            (boolean)))))))
+
+================================================================================
+OptionCaptionML with Locked attribute
+================================================================================
+
+table 50002 TestTable3
+{
+    fields
+    {
+        field(1; Language; Option)
+        {
+            OptionMembers = EN,FR,DE;
+            OptionCaptionML = ENU = 'English,French,German', FRA = 'Anglais,Français,Allemand', Locked = true;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (option_type))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (identifier))
+            (option_member
+              (identifier))
+            (option_member
+              (identifier))))
+        (property
+          name: (property_name)
+          value: (ml_value_list
+            (ml_value_pair
+              language: (identifier)
+              value: (string_literal))
+            (ml_value_pair
+              language: (identifier)
+              value: (string_literal))
+            (boolean)))))))
+
+================================================================================
+OptionCaption with case variations for Locked
+================================================================================
+
+table 50003 TestTable4
+{
+    fields
+    {
+        field(1; Type1; Option)
+        {
+            OptionCaption = 'One,Two', locked = true;
+        }
+        field(2; Type2; Option)
+        {
+            OptionCaption = 'One,Two', LOCKED = true;
+        }
+        field(3; Type3; Option)
+        {
+            OptionCaption = 'One,Two', Locked = TRUE;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (option_type))
+        (property
+          name: (property_name)
+          value: (caption_value
+            (string_literal)
+            (property_name)
+            (boolean))))
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (option_type))
+        (property
+          name: (property_name)
+          value: (caption_value
+            (string_literal)
+            (property_name)
+            (boolean))))
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (option_type))
+        (property
+          name: (property_name)
+          value: (caption_value
+            (string_literal)
+            (property_name)
+            (boolean)))))))

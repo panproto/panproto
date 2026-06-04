@@ -1,0 +1,267 @@
+================================================================================
+Query with API properties
+================================================================================
+
+query 123 "Test API Query"
+{
+    QueryType = API;
+    EntityCaption = 'Test Entity';
+    EntityName = 'testEntity';
+    EntitySetName = 'testEntities';
+    APIGroup = 'testGroup';
+    APIPublisher = 'microsoft';
+    APIVersion = 'v1.0';
+    DataAccessIntent = ReadOnly;
+
+    elements
+    {
+        dataitem(TestData; "Test Table")
+        {
+            column(id; SystemId)
+            {
+                Caption = 'Id';
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          field_name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal)))))))
+
+================================================================================
+Query with mixed case API properties
+================================================================================
+
+query 456 "Mixed Case API Query"
+{
+    querytype = api;
+    entitycaption = 'Lower Case Entity';
+    ENTITYNAME = 'UPPER_CASE_ENTITY';
+    entitySetName = 'mixedCaseEntities';
+    apigroup = 'finance';
+    APIPUBLISHER = 'CONTOSO';
+    ApiVersion = 'beta';
+    
+    elements
+    {
+        dataitem(Item; Item)
+        {
+            column(no; "No.")
+            {
+                Caption = 'Number';
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          field_name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (string_literal)))))))
+
+================================================================================
+Query with all supported properties
+================================================================================
+
+namespace Microsoft.Test;
+
+using System.AI;
+
+query 30305 "Complete API Query"
+{
+    QueryType = API;
+    EntityCaption = 'General Budget Entry';
+    EntityName = 'generalLedgerBudgetEntry';
+    EntitySetName = 'generalLedgerBudgetEntries';
+    APIGroup = 'reportsFinance';
+    APIPublisher = 'microsoft';
+    APIVersion = 'beta';
+    DataAccessIntent = ReadOnly;
+    Caption = 'Budget Query';
+    QueryCategory = 'Finance';
+    AboutTitle = 'About Budget Query';
+    AboutText = 'This query provides budget information';
+    ContextSensitiveHelpPage = 'query-budget';
+
+    elements
+    {
+        dataitem(GLBudgetEntry; "G/L Budget Entry")
+        {
+            column(id; SystemId)
+            {
+                Caption = 'Id';
+            }
+            column(number; "Entry No.")
+            {
+                Caption = 'Number';
+            }
+            column(amount; Amount)
+            {
+                Caption = 'Amount';
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (namespace_declaration
+    (namespace_keyword)
+    name: (namespace_name
+      (identifier)
+      (identifier)))
+  (using_statement
+    (using_keyword)
+    namespace: (namespace_name
+      (identifier)
+      (identifier)))
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          field_name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal)))
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          field_name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (string_literal)))
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          field_name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal)))))))

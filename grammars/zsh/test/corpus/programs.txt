@@ -1,0 +1,96 @@
+
+
+abc \
+  d \
+  e
+
+f=g   \
+  h=i \
+  j   \
+  --k
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (word -)
+    argument: (word -))
+  (command -
+    (variable_assignment -
+      name: (variable_name -)
+      value: (word -))
+    (variable_assignment -
+      name: (variable_name -)
+      value: (word -))
+    name: (command_name -
+      (word -))
+    argument: (word -)))
+
+
+==================================================
+
+==================================================
+
+echo a \
+    b
+
+echo a\
+    b
+
+echo a\
+    b\
+    c
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (word -)
+    argument: (word -))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (word -)
+    argument: (word -))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (word -)
+    argument: (word -)
+    argument: (word -)))
+
+
+==================================================
+
+==================================================
+
+echo 1 \ 2 \ 3
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (number -)
+    argument: (number -)
+    argument: (number -)))
+
+
+==================================================
+
+==================================================
+
+echo hi
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (word -)))

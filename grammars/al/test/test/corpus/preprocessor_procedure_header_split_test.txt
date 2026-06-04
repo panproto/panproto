@@ -1,0 +1,68 @@
+================================================================================
+Preprocessor conditional with split procedure header
+================================================================================
+
+codeunit 50000 "Test Split Header"
+{
+#if not CLEAN26
+    local procedure GetPageID(RecRef: RecordRef) Result: Integer
+#else
+    local procedure GetPageID(RecRef: RecordRef): Integer
+#endif
+    var
+        TestVar: Integer;
+    begin
+        Result := 0;
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (preproc_split_procedure
+      (preproc_if
+        (preproc_open)
+        condition: (preproc_not_expression
+          (identifier)))
+      modifier: (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      return_value: (identifier)
+      return_type: (type_specification
+        (basic_type))
+      (preproc_else)
+      modifier: (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      return_type: (type_specification
+        (basic_type))
+      (preproc_endif
+        (preproc_close))
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (identifier)
+          right: (integer))
+        (end_keyword)))))

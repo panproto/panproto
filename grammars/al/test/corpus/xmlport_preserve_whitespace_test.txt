@@ -1,0 +1,76 @@
+==================
+XMLPort PreserveWhiteSpace Property
+==================
+
+xmlport 50100 "Test XMLPort"
+{
+    PreserveWhiteSpace = true;
+    Direction = Import;
+    Format = Xml;
+
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Customer; Customer)
+            {
+            }
+        }
+    }
+}
+
+---
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (schema_section
+      (schema_keyword)
+      (xmlport_element
+        name: (identifier)
+        (xmlport_element
+          name: (identifier)
+          source: (identifier))))))
+
+==================
+XMLPort PreserveWhiteSpace Property - Case Variations
+==================
+
+xmlport 50101 "Test XMLPort Case"
+{
+    preservewhitespace = false;
+    PRESERVEWHITESPACE = true;
+    PreserveWhiteSpace = false;
+    preserveWhiteSpace = true;
+}
+
+---
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (boolean))))

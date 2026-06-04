@@ -1,0 +1,201 @@
+================================================================================
+Enum with empty string value name
+================================================================================
+
+enum 264 "Test Enum"
+{
+    value(0; "") { Caption = ''; }
+    value(1; "Item Entry") { Caption = 'Item Entry'; }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (enum_declaration
+    (enum_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (quoted_identifier)
+      (property
+        name: (property_name)
+        value: (string_literal)))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (quoted_identifier)
+      (property
+        name: (property_name)
+        value: (string_literal)))))
+
+================================================================================
+Enum wrapped in preprocessor conditional with empty value
+================================================================================
+
+#if not CLEANSCHEMA29
+namespace Microsoft.Inventory.Intrastat;
+
+enum 264 "Intrastat Source Type"
+{
+    Extensible = true;
+    AssignmentCompatibility = true;
+    ObsoleteState = Pending;
+#pragma warning disable AS0074
+    ObsoleteTag = '26.0';
+#pragma warning restore AS0074
+    ObsoleteReason = 'Intrastat related functionalities are moved to Intrastat extensions.';
+
+    value(0; "") { Caption = ''; }
+    value(1; "Item Entry") { Caption = 'Item Entry'; }
+    value(2; "Job Entry") { Caption = 'Job Entry'; }
+}
+#endif
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (preproc_conditional_object
+    (preproc_if
+      (preproc_open)
+      condition: (preproc_not_expression
+        (identifier)))
+    (namespace_declaration
+      (namespace_keyword)
+      name: (namespace_name
+        (identifier)
+        (identifier)
+        (identifier)))
+    (enum_declaration
+      (enum_keyword)
+      object_id: (integer)
+      object_name: (quoted_identifier)
+      (property
+        name: (property_name)
+        value: (boolean))
+      (property
+        name: (property_name)
+        value: (boolean))
+      (property
+        name: (property_name)
+        value: (identifier))
+      (pragma)
+      (property
+        name: (property_name)
+        value: (string_literal))
+      (pragma)
+      (property
+        name: (property_name)
+        value: (string_literal))
+      (enum_value_declaration
+        value_id: (integer)
+        value_name: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (string_literal)))
+      (enum_value_declaration
+        value_id: (integer)
+        value_name: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (string_literal)))
+      (enum_value_declaration
+        value_id: (integer)
+        value_name: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (string_literal))))
+    (preproc_endif
+      (preproc_close))))
+
+================================================================================
+Enum with various value name formats
+================================================================================
+
+enum 100 "Value Name Formats"
+{
+    value(0; "") { Caption = 'Empty'; }
+    value(1; SimpleIdentifier) { Caption = 'Simple'; }
+    value(2; "Quoted Identifier") { Caption = 'Quoted'; }
+    value(3; "With-Special-Chars") { Caption = 'Special'; }
+    value(4; 'String Literal') { Caption = 'String'; }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (enum_declaration
+    (enum_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (quoted_identifier)
+      (property
+        name: (property_name)
+        value: (string_literal)))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier)
+      (property
+        name: (property_name)
+        value: (string_literal)))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (quoted_identifier)
+      (property
+        name: (property_name)
+        value: (string_literal)))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (quoted_identifier)
+      (property
+        name: (property_name)
+        value: (string_literal)))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (string_literal)
+      (property
+        name: (property_name)
+        value: (string_literal)))))
+
+================================================================================
+Enum with properties between values
+================================================================================
+
+enum 500 "Mixed Content"
+{
+    Extensible = false;
+    
+    value(0; "") { }
+    
+    ObsoleteState = Pending;
+    ObsoleteReason = 'Test';
+    
+    value(1; "Active") { Caption = 'Active'; }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (enum_declaration
+    (enum_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (boolean))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (quoted_identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (quoted_identifier)
+      (property
+        name: (property_name)
+        value: (string_literal)))))

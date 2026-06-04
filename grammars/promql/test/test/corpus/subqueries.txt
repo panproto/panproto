@@ -1,0 +1,60 @@
+================================================================================
+subquery - rate
+================================================================================
+
+http_requests_total[5m:]
+
+--------------------------------------------------------------------------------
+
+(query
+  (subquery
+    (instant_vector_selector
+      (metric_name))
+    (subquery_range_selection)))
+
+================================================================================
+subquery - rate
+================================================================================
+
+sum_over_time(rate(http_requests_total[5m])[30m:1m])
+
+--------------------------------------------------------------------------------
+
+(query
+  (function_call
+    (function_name)
+    (function_args
+      (subquery
+        (function_call
+          (function_name)
+          (function_args
+            (range_vector_selector
+              (metric_name)
+              (range_selection))))
+        (subquery_range_selection)))))
+
+================================================================================
+subquery - nested
+================================================================================
+
+max_over_time(deriv(rate(distance_covered_total[5s])[30s:5s])[10m:])
+
+--------------------------------------------------------------------------------
+
+(query
+  (function_call
+    (function_name)
+    (function_args
+      (subquery
+        (function_call
+          (function_name)
+          (function_args
+            (subquery
+              (function_call
+                (function_name)
+                (function_args
+                  (range_vector_selector
+                    (metric_name)
+                    (range_selection))))
+              (subquery_range_selection))))
+        (subquery_range_selection)))))

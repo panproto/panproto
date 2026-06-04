@@ -1,0 +1,60 @@
+================================================================================
+Escape Sequence - simple
+================================================================================
+
+echo \a \e \f \n \r \t \v
+echo \1 \11 \111
+echo \x \x9 \x09 \X \X9 \x09
+echo \u \u9 \u09 \u009 \u0009
+echo \U \U9 \U09 \U009 \U0009 \U00009 \U000009 \U0000009 \U00000009
+echo \c \cy \ci \cI
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (word)
+    argument: (escape_sequence)
+    argument: (escape_sequence)
+    argument: (escape_sequence)
+    argument: (escape_sequence)
+    argument: (escape_sequence)
+    argument: (escape_sequence)
+    argument: (escape_sequence))
+  (command
+    name: (word)
+    argument: (escape_sequence)
+    argument: (escape_sequence)
+    argument: (escape_sequence))
+  (command
+    name: (word)
+    argument: (escape_sequence)
+    argument: (escape_sequence)
+    argument: (escape_sequence)
+    argument: (escape_sequence)
+    argument: (escape_sequence)
+    argument: (escape_sequence))
+  (command
+    name: (word)
+    argument: (escape_sequence)
+    argument: (escape_sequence)
+    argument: (escape_sequence)
+    argument: (escape_sequence)
+    argument: (escape_sequence))
+  (command
+    name: (word)
+    argument: (escape_sequence)
+    argument: (escape_sequence)
+    argument: (escape_sequence)
+    argument: (escape_sequence)
+    argument: (escape_sequence)
+    argument: (escape_sequence)
+    argument: (escape_sequence)
+    argument: (escape_sequence)
+    argument: (escape_sequence))
+  (command
+    name: (word)
+    argument: (escape_sequence)
+    argument: (escape_sequence)
+    argument: (escape_sequence)
+    argument: (escape_sequence)))

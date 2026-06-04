@@ -1,0 +1,23 @@
+================================================================================
+Home Dir Expansion
+================================================================================
+
+echo ~
+ls ~
+$cmd ~/app
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    (word)
+    (home_dir_expansion))
+  (command
+    (word)
+    (home_dir_expansion))
+  (command
+    (variable_expansion
+      (variable_name))
+    (concatenation
+      (home_dir_expansion)
+      (word))))

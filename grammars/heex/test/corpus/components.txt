@@ -1,0 +1,154 @@
+================================================================================
+Component
+================================================================================
+
+<Root.render>
+</Root.render>
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (component
+    (start_component
+      (component_name
+        (module)
+        (function)))
+    (end_component
+      (component_name
+        (module)
+        (function)))))
+
+================================================================================
+Self-Closing Component
+================================================================================
+
+<MyApp.Components.Root.render/>
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (component
+    (self_closing_component
+      (component_name
+        (module)
+        (function)))))
+
+================================================================================
+Nested Components
+================================================================================
+
+<Root.render>
+  <Grid>
+    <Card />
+  </Card>
+</Root.render>
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (component
+    (start_component
+      (component_name
+        (module)
+        (function)))
+    (component
+      (start_component
+        (component_name
+          (module)))
+      (component
+        (self_closing_component
+          (component_name
+            (module))))
+      (end_component
+        (component_name
+          (module))))
+    (end_component
+      (component_name
+        (module)
+        (function)))))
+
+================================================================================
+Function with Module Remote Component
+================================================================================
+
+<MyComponent.btn text="Save" />
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (component
+    (self_closing_component
+      (component_name
+        (module)
+        (function))
+      (attribute
+        (attribute_name)
+        (quoted_attribute_value
+          (attribute_value))))))
+
+================================================================================
+Function without Remote Component
+================================================================================
+
+<.btn text="Save" />
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (component
+    (self_closing_component
+      (component_name
+        (function))
+      (attribute
+        (attribute_name)
+        (quoted_attribute_value
+          (attribute_value))))))
+
+================================================================================
+Simple Example
+================================================================================
+
+<div class={@class} title="My div">
+  <SomeModule.some_func_compoent attr1="some string" attr2={@some_expression} {@other_dynamic_attrs} />
+  <.some_local_func_component attr1="some string" />
+</div>
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (tag
+    (start_tag
+      (tag_name)
+      (attribute
+        (attribute_name)
+        (expression
+          (expression_value)))
+      (attribute
+        (attribute_name)
+        (quoted_attribute_value
+          (attribute_value))))
+    (component
+      (self_closing_component
+        (component_name
+          (module)
+          (function))
+        (attribute
+          (attribute_name)
+          (quoted_attribute_value
+            (attribute_value)))
+        (attribute
+          (attribute_name)
+          (expression
+            (expression_value)))
+        (expression
+          (expression_value))))
+    (component
+      (self_closing_component
+        (component_name
+          (function))
+        (attribute
+          (attribute_name)
+          (quoted_attribute_value
+            (attribute_value)))))
+    (end_tag
+      (tag_name))))

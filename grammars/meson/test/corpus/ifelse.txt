@@ -1,0 +1,212 @@
+===========
+base if
+===========
+if true
+  something()
+endif
+---
+(source_file
+  (if_condition
+    (if_command
+      (var_unit
+        (bool))
+      (normal_command
+        (identifier)))))
+
+============
+base if else
+============
+if a.enabled()
+  something()
+else
+  gammer()
+endif
+---
+(source_file
+  (if_condition
+    (if_command
+      (var_unit
+        (expression_statement
+          (identifier)
+          (normal_command
+            (identifier))))
+      (normal_command
+        (identifier)))
+    (else_command
+      (normal_command
+        (identifier)))))
+
+
+================
+base if elif else
+===============
+
+if a.enabled()
+  something()
+elif true
+  beta()
+elif c.enable and b.enabled
+else
+  gammer()
+endif
+---
+(source_file
+  (if_condition
+    (if_command
+      (var_unit
+        (expression_statement
+          (identifier)
+          (normal_command
+            (identifier))))
+      (normal_command
+        (identifier)))
+    (elseif_command
+      (var_unit
+        (bool))
+      (normal_command
+        (identifier)))
+    (elseif_command
+      (var_unit
+        (expression_statement
+          (identifier)
+          (identifier))
+        (expression_statement
+          (identifier)
+          (identifier))))
+    (else_command
+      (normal_command
+        (identifier)))))
+
+================
+complex if else
+===============
+
+if cc.has_function('memfd_create')
+  config.set('HAVE_MEMFD_CREATE', true)
+  config.set('HAVE_MEMFD', true)
+elif cc.has_function('SYS_memfd_create', prefix : '#include <sys/syscall.h>')
+  config.set('HAVE_MEMFD', true)
+endif
+---
+(source_file
+  (if_condition
+    (if_command
+      (var_unit
+        (expression_statement
+          (identifier)
+          (normal_command
+            (identifier)
+            (variableunit
+              (string)))))
+      (expression_statement
+        (identifier)
+        (normal_command
+          (identifier)
+          (variableunit
+            (string))
+          (var_unit
+            (bool))))
+      (expression_statement
+        (identifier)
+        (normal_command
+          (identifier)
+          (variableunit
+            (string))
+          (var_unit
+            (bool)))))
+    (elseif_command
+      (var_unit
+        (expression_statement
+          (identifier)
+          (normal_command
+            (identifier)
+            (variableunit
+              (string))
+            (pair
+              (identifier)
+              (string)))))
+      (expression_statement
+        (identifier)
+        (normal_command
+          (identifier)
+          (variableunit
+            (string))
+          (var_unit
+            (bool)))))))
+=================
+mutipile if else
+=================
+if buildtype != 'debug' and buildtype != 'debugoptimized'
+	c_args += '-DNDEBUG'
+endif
+
+---
+(source_file
+  (if_condition
+    (if_command
+      (var_unit
+        (identifier)
+        (string)
+        (identifier)
+        (string))
+      (operatorunit
+        (identifier)
+          (var_unit
+            (string))))))
+
+==================
+logical operations
+=================
+if a and b
+  # do something
+endif
+if c or d
+  # do something
+endif
+if not e
+  # do something
+endif
+if not (f or g)
+  # do something
+endif
+if not (f.exec or g.exec())
+  # do something
+endif
+---
+(source_file
+  (if_condition
+    (if_command
+      (var_unit
+        (identifier)
+        (identifier))
+      (comment)))
+  (if_condition
+    (if_command
+      (var_unit
+        (identifier)
+        (identifier))
+      (comment)))
+  (if_condition
+    (if_command
+      (var_unit
+        (identifier))
+      (comment)))
+  (if_condition
+    (if_command
+      (var_unit
+        (var_unit
+          (identifier)
+          (identifier)))
+      (comment)))
+  (if_condition
+    (if_command
+      (var_unit
+        (var_unit
+          (expression_statement
+            (identifier)
+            (identifier))
+          (expression_statement
+            (identifier)
+            (normal_command
+              (identifier)))))
+      (comment))))

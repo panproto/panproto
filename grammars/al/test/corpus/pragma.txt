@@ -1,0 +1,32 @@
+===================================
+Pragma directives
+===================================
+
+#pragma warning disable AL0123
+codeunit 50000 "Pragma Test"
+{
+    #pragma implicit
+    procedure Test()
+    #pragma warning restore AL0999
+    begin
+        // Normal code
+    end;
+}
+
+---
+
+(source_file
+  (pragma)
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (pragma)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (pragma)
+      (code_block
+        (begin_keyword)
+        (comment)
+        (end_keyword)))))

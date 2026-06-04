@@ -1,0 +1,23 @@
+==================
+Return statements
+==================
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+---
+
+(source_file
+  (key_value_block
+    (identifier)
+    (key_value
+      (key (identifier))
+      (value (string)))
+    (key_value
+      (key (identifier))
+      (value
+        (apply_function
+          (identifier)
+          (string))))))

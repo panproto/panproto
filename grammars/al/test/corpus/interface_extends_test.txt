@@ -1,0 +1,88 @@
+================================================================================
+Interface with extends clause
+================================================================================
+
+interface "Cost Adjustment With Params" extends "Inventory Adjustment"
+{
+    /// <summary>
+    /// The method run inventory cost adjustment codeunit. 
+    /// </summary>
+    procedure MakeMultiLevelAdjmt(var CostAdjustmentParameter: Codeunit "Cost Adjustment Params Mgt.");
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (interface_declaration
+    (interface_keyword)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    extends_interface: (quoted_identifier)
+    (comment)
+    (comment)
+    (comment)
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (object_reference_type
+              object_type: (codeunit_keyword)
+              reference: (quoted_identifier)))))
+      (interface_procedure_suffix))))
+
+================================================================================
+Interface extends with access modifier
+================================================================================
+
+interface "My Interface" extends MyBaseInterface access = Internal
+{
+    procedure DoSomething();
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (interface_declaration
+    (interface_keyword)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    extends_interface: (identifier)
+    access_value: (internal_keyword)
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix))))
+
+================================================================================
+Simple interface without extends
+================================================================================
+
+interface "Simple Interface"
+{
+    procedure Method1();
+    procedure Method2(Value: Integer);
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (interface_declaration
+    (interface_keyword)
+    object_name: (quoted_identifier)
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (interface_procedure_suffix))))

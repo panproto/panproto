@@ -1,0 +1,14 @@
+========================================
+run-shell
+========================================
+
+run -c /tmp/ 'touch -m foo.txt'
+
+---
+
+(file
+  (run_shell_directive
+    (command)
+    (command_line_option)
+    (start_directory)
+    (str_single_quotes)))

@@ -1,0 +1,446 @@
+================================================================================
+do-notation
+================================================================================
+
+_ = do
+  putStr "What is your name? "
+  name <- getLine
+  putStrLn ("Hello " ++ name)
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (exp_do
+        (statement
+          (exp_name
+            (loname))
+          (string))
+        (statement
+          (bind_pattern
+            (pat_name
+              (loname))
+            (bind_exp
+              (exp_name
+                (loname)))))
+        (statement
+          (exp_name
+            (loname))
+          (exp_parens
+            (string)
+            (operator)
+            (exp_name
+              (loname))))))))
+
+================================================================================
+Bind pattern 1
+================================================================================
+
+_ = do len <- getInt64 buf offset
+       when (len < 0) $ assert_total $ idris_crash "corrupt Nat"
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (exp_do
+        (statement
+          (bind_pattern
+            (pat_name
+              (loname))
+            (bind_exp
+              (exp_name
+                (loname))
+              (exp_name
+                (loname))
+              (exp_name
+                (loname)))))
+        (statement
+          (exp_name
+            (loname))
+          (exp_parens
+            (exp_name
+              (loname))
+            (operator)
+            (literal
+              (integer)))
+          (operator)
+          (exp_name
+            (loname))
+          (operator)
+          (exp_name
+            (loname))
+          (string))))))
+
+================================================================================
+Bind pattern 2
+================================================================================
+
+_ = do val <- readIORef ref
+       writeIORef ref (f val)
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (exp_do
+        (statement
+          (bind_pattern
+            (pat_name
+              (loname))
+            (bind_exp
+              (exp_name
+                (loname))
+              (exp_name
+                (loname)))))
+        (statement
+          (exp_name
+            (loname))
+          (exp_name
+            (loname))
+          (exp_parens
+            (exp_name
+              (loname))
+            (exp_name
+              (loname))))))))
+
+================================================================================
+Pattern matching bind 1
+================================================================================
+
+_ = do 
+  Just x_ok <- readNumber
+    | Nothing => pure Nothing
+  Just y_ok <- readNumber
+    | Nothing => pure Nothing
+  pure (Just (x_ok, y_ok))
+
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (exp_do
+        (statement
+          (bind_pattern
+            (pat_name
+              (caname))
+            (pat_name
+              (loname))
+            (bind_exp
+              (exp_name
+                (loname)))
+            (bind_alt
+              (pat_name
+                (caname))
+              (exp_name
+                (loname))
+              (exp_name
+                (caname)))))
+        (statement
+          (bind_pattern
+            (pat_name
+              (caname))
+            (pat_name
+              (loname))
+            (bind_exp
+              (exp_name
+                (loname)))
+            (bind_alt
+              (pat_name
+                (caname))
+              (exp_name
+                (loname))
+              (exp_name
+                (caname)))))
+        (statement
+          (exp_name
+            (loname))
+          (exp_parens
+            (exp_name
+              (caname))
+            (exp_tuple
+              (exp_name
+                (loname))
+              (tuple_operator)
+              (exp_name
+                (loname)))))))))
+
+================================================================================
+Pattern matching bind 2
+================================================================================
+
+_ = do
+  let Just x = f
+    | Nothing => pure Nothing
+  pure x
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (exp_do
+        (statement
+          (let
+            (declarations
+              (lhs
+                (pat_name
+                  (caname))
+                (pat_name
+                  (loname)))
+              (rhs
+                (exp_name
+                  (loname))))
+            (bind_alt
+              (pat_name
+                (caname))
+              (exp_name
+                (loname))
+              (exp_name
+                (caname)))))
+        (statement
+          (exp_name
+            (loname))
+          (exp_name
+            (loname)))))))
+
+================================================================================
+Pattern matching bind with the same indent level
+================================================================================
+
+_ = do
+  Just buffer <- newBuffer max_size
+  | Nothing => pure $ Left (-1)
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (exp_do
+        (statement
+          (bind_pattern
+            (pat_name
+              (caname))
+            (pat_name
+              (loname))
+            (bind_exp
+              (exp_name
+                (loname))
+              (exp_name
+                (loname)))
+            (bind_alt
+              (pat_name
+                (caname))
+              (exp_name
+                (loname))
+              (operator)
+              (exp_name
+                (caname))
+              (exp_parens
+                (operator)
+                (literal
+                  (integer))))))))))
+
+================================================================================
+Pattern matching bind in one line
+================================================================================
+
+MkMaybeT x <+> MkMaybeT y = MkMaybeT $ do
+  r@(Just _) <- x | Nothing => y
+  pure r
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (caname)
+        (patterns
+          (pat_name
+            (loname))
+          (pat_op)
+          (pat_name
+            (caname))
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_name
+        (caname))
+      (operator)
+      (exp_do
+        (statement
+          (bind_pattern
+            (pat_name
+              (loname))
+            (pat_at)
+            (pat_parens
+              (pat_name
+                (caname))
+              (wildcard))
+            (bind_exp
+              (exp_name
+                (loname)))
+            (bind_alt
+              (pat_name
+                (caname))
+              (exp_name
+                (loname)))))
+        (statement
+          (exp_name
+            (loname))
+          (exp_name
+            (loname)))))))
+
+================================================================================
+With rewrite statements
+================================================================================
+
+_ = do
+  rewrite chipsAsListAppend sx (x :: ys)
+  rewrite chipsAsListAppend sx [x]
+  rewrite sym $ appendAssociative (cast sx) [x] ys
+  Refl
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (exp_do
+        (statement
+          (rewrite
+            (rewrite_exp
+              (exp_name
+                (loname))
+              (exp_name
+                (loname))
+              (exp_parens
+                (exp_name
+                  (loname))
+                (operator)
+                (exp_name
+                  (loname))))))
+        (statement
+          (rewrite
+            (rewrite_exp
+              (exp_name
+                (loname))
+              (exp_name
+                (loname))
+              (exp_list
+                (exp_name
+                  (loname))))))
+        (statement
+          (rewrite
+            (rewrite_exp
+              (exp_name
+                (loname))
+              (operator)
+              (exp_name
+                (loname))
+              (exp_parens
+                (exp_name
+                  (loname))
+                (exp_name
+                  (loname)))
+              (exp_list
+                (exp_name
+                  (loname)))
+              (exp_name
+                (loname)))))
+        (statement
+          (exp_name
+            (caname)))))))
+
+================================================================================
+Bind pattern with lambda cases
+================================================================================
+
+isFreeOf x ty
+  = do isOk <- flip mapMTTImp ty $ \case
+         t@(IVar _ v) => t <$ guard (v /= x)
+         t => pure t
+       pure TrustMeFO
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname))
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_do
+        (statement
+          (bind_pattern
+            (pat_name
+              (loname))
+            (bind_exp
+              (exp_name
+                (loname))
+              (exp_name
+                (loname))
+              (exp_name
+                (loname))
+              (operator)
+              (exp_lambda_case
+                (alts
+                  (alt
+                    (pat_name
+                      (loname))
+                    (pat_at)
+                    (pat_parens
+                      (pat_name
+                        (caname))
+                      (wildcard)
+                      (pat_name
+                        (loname)))
+                    (exp_name
+                      (loname))
+                    (operator)
+                    (exp_name
+                      (loname))
+                    (exp_parens
+                      (exp_name
+                        (loname))
+                      (operator)
+                      (exp_name
+                        (loname))))
+                  (alt
+                    (pat_name
+                      (loname))
+                    (exp_name
+                      (loname))
+                    (exp_name
+                      (loname))))))))
+        (statement
+          (exp_name
+            (loname))
+          (exp_name
+            (caname)))))))

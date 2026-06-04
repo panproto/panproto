@@ -1,0 +1,150 @@
+==================
+Interfaces
+==================
+
+package local:demo;
+
+interface foo {
+  // "package of named fields"
+  record r {
+    a: u32,
+    b: string,
+  }
+
+  // values of this type will be one of the specified cases
+  variant human {
+    baby,
+    child(u32), // optional type payload
+    adult,
+  }
+
+  // similar to `variant`, but no type payloads
+  enum errno {
+    too-big,
+    too-small,
+    too-fast,
+    too-slow,
+  }
+
+  // a bitflags type
+  flags permissions {
+    read,
+    write,
+    exec,
+  }
+
+  // type aliases are allowed to primitive types and additionally here are some
+  // examples of other types
+  type t1 = u32;
+  type t2 = tuple<u32, u64>;
+  type t3 = string;
+  type t4 = option<u32>;
+  type t5 = result<_, errno>;           // no "ok" type
+  type t6 = result<string>;             // no "err" type
+  type t7 = result<char, errno>;        // both types specified
+  type t8 = result;                     // no "ok" or "err" type
+  type t9 = list<string>;
+  type t10 = t9;
+}
+
+---
+
+(source_file
+  (package_decl
+    (id)
+    (id))
+  (interface_item
+    (id)
+    (body
+      (line_comment)
+      (record_item
+        (id)
+        (body
+          (record_field
+            (id)
+            (ty))
+          (record_field
+            (id)
+            (ty))))
+      (line_comment)
+      (variant_items
+        (id)
+        (body
+          (variant_case
+            (id))
+          (variant_case
+            (id)
+            (ty))
+          (line_comment)
+          (variant_case
+            (id))))
+      (line_comment)
+      (enum_items
+        (id)
+        (body
+          (enum_case)
+          (enum_case)
+          (enum_case)
+          (enum_case)))
+      (line_comment)
+      (flags_items
+        (id)
+        (body
+          (flags_field)
+          (flags_field)
+          (flags_field)))
+      (line_comment)
+      (line_comment)
+      (type_item
+        (id)
+        (ty))
+      (type_item
+        (id)
+        (ty
+          (tuple
+            (tuple_list
+              (ty)
+              (ty)))))
+      (type_item
+        (id)
+        (ty))
+      (type_item
+        (id)
+        (ty
+          (option
+            (ty))))
+      (type_item
+        (id)
+        (ty
+          (result
+            (ty
+              (id)))))
+      (line_comment)
+      (type_item
+        (id)
+        (ty
+          (result
+            (ty))))
+      (line_comment)
+      (type_item
+        (id)
+        (ty
+          (result
+            (ty)
+            (ty
+              (id)))))
+      (line_comment)
+      (type_item
+        (id)
+        (ty
+          (result)))
+      (line_comment)
+      (type_item
+        (id)
+        (ty
+          (list
+            (ty))))
+      (type_item
+        (id)
+        (ty
+          (id))))))

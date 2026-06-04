@@ -1,0 +1,359 @@
+================================================================================
+Concatenation - two single quote strings
+================================================================================
+
+'ec''ho'
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (concatenation
+      (single_quote_string)
+      (single_quote_string))))
+
+================================================================================
+Concatenation - two double quote strings
+================================================================================
+
+"ec""ho"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (concatenation
+      (double_quote_string)
+      (double_quote_string))))
+
+================================================================================
+Concatenation - two mixed strings
+================================================================================
+
+"ec"'ho'
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (concatenation
+      (double_quote_string)
+      (single_quote_string))))
+
+================================================================================
+Concatenation - multiple mixed strings
+================================================================================
+
+"ec"'ho'"lo""cate"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (concatenation
+      (double_quote_string)
+      (single_quote_string)
+      (double_quote_string)
+      (double_quote_string))))
+
+================================================================================
+Concatenation - single quote string with escape sequence
+================================================================================
+
+'echo'\
+location
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (concatenation
+      (single_quote_string)
+      (escape_sequence)
+      (word))))
+
+================================================================================
+Concatenation - multiple single quote strings with escape sequence
+================================================================================
+
+'echo'\ 'location'\
+'procedure'
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (concatenation
+      (single_quote_string)
+      (escape_sequence)
+      (single_quote_string)
+      (escape_sequence)
+      (single_quote_string))))
+
+================================================================================
+Concatenation - double quote string with escape sequence
+================================================================================
+
+"echo"\\
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (concatenation
+      (double_quote_string)
+      (escape_sequence))))
+
+================================================================================
+Concatenation - multiple double quote strings with escape sequence
+================================================================================
+
+"echo"\ "location"\
+"procedure"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (concatenation
+      (double_quote_string)
+      (escape_sequence)
+      (double_quote_string)
+      (escape_sequence)
+      (double_quote_string))))
+
+================================================================================
+Concatenation - mixed strings with escape sequence
+================================================================================
+
+"echo"\ 'location'\
+'procedure'
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (concatenation
+      (double_quote_string)
+      (escape_sequence)
+      (single_quote_string)
+      (escape_sequence)
+      (single_quote_string))))
+
+================================================================================
+Concatenation - double quote strings with escape sequence and variable expansion
+================================================================================
+
+"cmd$CURR_CMD"\ "$CMD_SUFFIX"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (concatenation
+      (double_quote_string
+        (variable_expansion
+          (variable_name)))
+      (escape_sequence)
+      (double_quote_string
+        (variable_expansion
+          (variable_name))))))
+
+================================================================================
+Concatenation - mixed quote strings with escape sequence and variable expansion
+================================================================================
+
+'cmd$CURR_CMD'\
+"$CMD_SUFFIX"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (concatenation
+      (single_quote_string)
+      (escape_sequence)
+      (double_quote_string
+        (variable_expansion
+          (variable_name))))))
+
+================================================================================
+Concatenation - variable expansion concat
+================================================================================
+
+$PATH\ 'ological'
+$PATH\ "ological"
+$PATH\ ological
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (concatenation
+      (variable_expansion
+        (variable_name))
+      (escape_sequence)
+      (single_quote_string)))
+  (command
+    name: (concatenation
+      (variable_expansion
+        (variable_name))
+      (escape_sequence)
+      (double_quote_string)))
+  (command
+    name: (concatenation
+      (variable_expansion
+        (variable_name))
+      (escape_sequence)
+      (word))))
+
+================================================================================
+Concatenation - variable_expansion and command_substitution
+================================================================================
+
+echo $variable(echo word)
+echo $variable$(echo word)
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    (word)
+    (concatenation
+      (variable_expansion
+        (variable_name))
+      (command_substitution
+        (command
+          (word)
+          (word)))))
+  (command
+    (word)
+    (concatenation
+      (variable_expansion
+        (variable_name))
+      (command_substitution
+        (command
+          (word)
+          (word))))))
+
+================================================================================
+Concatenation - # in argument or command position
+================================================================================
+
+echo not#a#comment
+echo (echo 1)#notacomment
+command#with#hash
+echo#test
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (concatenation
+      (command_substitution
+        (command
+          name: (word)
+          argument: (integer)))
+      (word)))
+  (command
+    name: (word))
+  (command
+    name: (word)))
+
+================================================================================
+Concatenation - # as the last character of concat
+================================================================================
+
+word#
+word##
+word# word
+word#>dest
+word#<dest
+word#&<dest
+word#&>dest
+word#<&0
+word#>&-
+word#>>&1
+word#|echo
+word#;
+word#&
+word#$(1)
+word#(1)
+word#$var
+word#{1,2}
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (word))
+  (command
+    name: (word))
+  (command
+    name: (word)
+    argument: (word))
+  (command
+    name: (word)
+    redirect: (file_redirect
+      operator: (direction)
+      destination: (word)))
+  (command
+    name: (word)
+    redirect: (file_redirect
+      operator: (direction)
+      destination: (word)))
+  (command
+    name: (word)
+    redirect: (file_redirect
+      operator: (direction)
+      destination: (word)))
+  (command
+    name: (word)
+    redirect: (file_redirect
+      operator: (direction)
+      destination: (word)))
+  (command
+    name: (word)
+    redirect: (stream_redirect))
+  (command
+    name: (word)
+    redirect: (stream_redirect))
+  (command
+    name: (word)
+    redirect: (stream_redirect))
+  (pipe
+    (command
+      name: (word))
+    (command
+      name: (word)))
+  (command
+    name: (word))
+  (command
+    name: (word))
+  (command
+    name: (concatenation
+      (word)
+      (command_substitution
+        (command
+          name: (integer)))))
+  (command
+    name: (concatenation
+      (word)
+      (command_substitution
+        (command
+          name: (integer)))))
+  (command
+    name: (concatenation
+      (word)
+      (variable_expansion
+        (variable_name))))
+  (command
+    name: (concatenation
+      (word)
+      (brace_expansion
+        (integer)
+        (integer)))))

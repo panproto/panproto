@@ -1,0 +1,44 @@
+===
+errors/spreadSyntaxCannotIterateOverTyped.pkl
+===
+
+class Person {
+  name: String
+}
+
+person: Person = new { name = "Bob" }
+
+result {
+  ...person
+}
+
+---
+
+(module
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (newExpr
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart))))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectSpread
+        (unqualifiedAccessExpr
+          (identifier))))))

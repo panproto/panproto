@@ -1,0 +1,64 @@
+========================================================================
+Namespace declaration
+========================================================================
+namespace Microsoft.Sales;
+------------------------------------------------------------------------
+
+(source_file
+  (namespace_declaration
+    (namespace_keyword)
+    name: (namespace_name
+      (identifier)
+      (identifier))))
+
+========================================================================
+Using statement
+========================================================================
+using Microsoft.Foundation.Period;
+------------------------------------------------------------------------
+
+(source_file
+  (using_statement
+    (using_keyword)
+    namespace: (namespace_name
+      (identifier)
+      (identifier)
+      (identifier))))
+
+========================================================================
+Namespace with using
+========================================================================
+namespace MyApp.Core;
+
+using Microsoft.Sales;
+using System.IO;
+------------------------------------------------------------------------
+
+(source_file
+  (namespace_declaration
+    (namespace_keyword)
+    name: (namespace_name
+      (identifier)
+      (identifier)))
+  (using_statement
+    (using_keyword)
+    namespace: (namespace_name
+      (identifier)
+      (identifier)))
+  (using_statement
+    (using_keyword)
+    namespace: (namespace_name
+      (identifier)
+      (identifier))))
+
+========================================================================
+Simple namespace (single segment)
+========================================================================
+namespace MyApp;
+------------------------------------------------------------------------
+
+(source_file
+  (namespace_declaration
+    (namespace_keyword)
+    name: (namespace_name
+      (identifier))))

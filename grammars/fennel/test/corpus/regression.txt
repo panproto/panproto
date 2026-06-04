@@ -1,0 +1,23 @@
+====
+Comments within a list
+====
+
+(+ 1
+ ;
+ 2)
+(+ 1
+ ;
+ )
+
+---
+
+(program
+  (list
+    (symbol)
+    (number)
+    (comment)
+    (number))
+  (list
+    (symbol)
+    (number)
+    (comment)))

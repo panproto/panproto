@@ -1,0 +1,87 @@
+================================================================================
+null
+================================================================================
+void foo() {
+	null;
+	NULL;
+}
+--------------------------------------------------------------------------------
+(compilation_unit
+	(decl_method (type_void) (identifier) (block
+		(statement_expression (literal_null))
+		(statement_expression (literal_null)))))
+
+================================================================================
+bool
+================================================================================
+void foo() {
+	true;
+	false;
+}
+--------------------------------------------------------------------------------
+(compilation_unit
+	(decl_method (type_void) (identifier) (block
+		(statement_expression (literal_bool))
+		(statement_expression (literal_bool)))))
+
+================================================================================
+integer
+================================================================================
+void foo() {
+	0;
+	69;
+	1e+69;
+	1e-69;
+}
+--------------------------------------------------------------------------------
+(compilation_unit
+	(decl_method (type_void) (identifier) (block
+		(statement_expression (literal_int))
+		(statement_expression (literal_int))
+		(statement_expression (literal_int))
+		(statement_expression (literal_int)))))
+
+================================================================================
+float
+================================================================================
+void foo() {
+	0.0;
+	69.69;
+	1.0e+69;
+	1.0e-69;
+}
+--------------------------------------------------------------------------------
+(compilation_unit
+	(decl_method (type_void) (identifier) (block
+		(statement_expression (literal_float))
+		(statement_expression (literal_float))
+		(statement_expression (literal_float))
+		(statement_expression (literal_float)))))
+
+================================================================================
+string
+================================================================================
+void foo() {
+	"";
+	" ";
+	"hello world";
+	"\n\r\t";
+	"\\";
+	"\"";
+	"C:\some\path";
+}
+--------------------------------------------------------------------------------
+(compilation_unit
+	(decl_method (type_void) (identifier) (block
+		(statement_expression (literal_string))
+		(statement_expression (literal_string))
+		(statement_expression (literal_string))
+		(statement_expression (literal_string
+			(escape_sequence)
+			(escape_sequence)
+			(escape_sequence)))
+		(statement_expression (literal_string
+			(escape_sequence)))
+		(statement_expression (literal_string
+			(escape_sequence)))
+		(statement_expression (literal_string)))))

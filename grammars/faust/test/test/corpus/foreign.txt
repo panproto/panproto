@@ -1,0 +1,49 @@
+====
+Foreign function
+====
+
+asinh = ffunction(float asinhf|asinh|asinhl|asinfx(float), <math.h>, "");
+
+---
+(program
+  (definition
+    variable: (identifier)
+    value: (ffunction
+      (signature
+        type: (float_type)
+        (function_names
+          (function_name)
+          (function_name)
+          (function_name)
+          (function_name))
+        (parameter_types (float_type)))
+      include_file: (fstring)
+      library_file: (string))))
+
+====
+Foreign variables and constants
+====
+
+SR = min(192000.0, max(1.0, fconstant(int fSamplingFreq, <math.h>)));
+BS = fvariable(int count, "math.h");
+
+---
+(program
+  (definition
+    variable: (identifier)
+    value: (prim2
+      (arguments
+        (real)
+        (prim2
+          (arguments
+            (real)
+            (fconst
+              type: (int_type)
+              name: (identifier)
+              include_file: (fstring)))))))
+  (definition
+    variable: (identifier)
+    value: (fvariable
+      type: (int_type)
+      name: (identifier)
+      include_file: (string))))

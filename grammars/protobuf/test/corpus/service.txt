@@ -1,0 +1,108 @@
+================================================================================
+Streaming RPC
+================================================================================
+
+syntax = "proto3";
+
+service StreamService {
+  rpc ClientStream(stream Request) returns (Response);
+  rpc ServerStream(Request) returns (stream Response);
+  rpc BidiStream(stream Request) returns (stream Response);
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (syntax)
+  (service
+    (service_name
+      (identifier))
+    (rpc
+      (rpc_name
+        (identifier))
+      (message_or_enum_type
+        (identifier))
+      (message_or_enum_type
+        (identifier)))
+    (rpc
+      (rpc_name
+        (identifier))
+      (message_or_enum_type
+        (identifier))
+      (message_or_enum_type
+        (identifier)))
+    (rpc
+      (rpc_name
+        (identifier))
+      (message_or_enum_type
+        (identifier))
+      (message_or_enum_type
+        (identifier)))))
+
+================================================================================
+Service
+================================================================================
+
+syntax = "proto3";
+
+service ABitOfEverythingService {
+	option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_tag) = {
+		description: "ABitOfEverythingService description"
+		external_docs: {
+			url: "https://github.com/grpc-ecosystem/grpc-gateway";
+			description: "Find out more about EchoService";
+		}
+	};
+
+	rpc Create(ABitOfEverything) returns (ABitOfEverything) {
+		option (google.api.http) = {
+			post: "/v1/example/a_bit_of_everything/{float_value}"
+		};
+	}
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (syntax)
+  (service
+    (service_name
+      (identifier))
+    (option
+      (full_ident
+        (identifier)
+        (identifier)
+        (identifier)
+        (identifier)
+        (identifier))
+      (constant
+        (block_lit
+          (identifier)
+          (constant
+            (string))
+          (identifier)
+          (constant
+            (block_lit
+              (identifier)
+              (constant
+                (string))
+              (identifier)
+              (constant
+                (string)))))))
+    (rpc
+      (rpc_name
+        (identifier))
+      (message_or_enum_type
+        (identifier))
+      (message_or_enum_type
+        (identifier))
+      (option
+        (full_ident
+          (identifier)
+          (identifier)
+          (identifier))
+        (constant
+          (block_lit
+            (identifier)
+            (constant
+              (string))))))))

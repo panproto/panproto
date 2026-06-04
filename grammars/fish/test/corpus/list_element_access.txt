@@ -1,0 +1,248 @@
+================================================================================
+List Access - simple
+================================================================================
+
+$ENV[]
+$ENV[1 -2 +3]
+$ENV[1-2+3]
+$ENV['1''+2''-3']
+$ENV["1""+2""-3"]
+$ENV["$ONE"]
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (variable_expansion
+      (variable_name)
+      (list_element_access)))
+  (command
+    name: (variable_expansion
+      (variable_name)
+      (list_element_access
+        (index
+          (integer))
+        (index
+          (integer))
+        (index
+          (integer)))))
+  (command
+    name: (variable_expansion
+      (variable_name)
+      (list_element_access
+        (index
+          (integer))
+        (index
+          (integer))
+        (index
+          (integer)))))
+  (command
+    name: (variable_expansion
+      (variable_name)
+      (list_element_access
+        (index
+          (single_quote_string))
+        (index
+          (single_quote_string))
+        (index
+          (single_quote_string)))))
+  (command
+    name: (variable_expansion
+      (variable_name)
+      (list_element_access
+        (index
+          (double_quote_string))
+        (index
+          (double_quote_string))
+        (index
+          (double_quote_string)))))
+  (command
+    name: (variable_expansion
+      (variable_name)
+      (list_element_access
+        (index
+          (double_quote_string
+            (variable_expansion
+              (variable_name))))))))
+
+================================================================================
+List Access - range
+================================================================================
+
+$ENV[1..2]
+$ENV[-1..-2 -1..+2]
+$ENV[-1..-2-1..+2 3..4]
+$ENV['-1'.."-2"-1..+2 3..$ONE]
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (variable_expansion
+      (variable_name)
+      (list_element_access
+        (range
+          (index
+            (integer))
+          (index
+            (integer))))))
+  (command
+    name: (variable_expansion
+      (variable_name)
+      (list_element_access
+        (range
+          (index
+            (integer))
+          (index
+            (integer)))
+        (range
+          (index
+            (integer))
+          (index
+            (integer))))))
+  (command
+    name: (variable_expansion
+      (variable_name)
+      (list_element_access
+        (range
+          (index
+            (integer))
+          (index
+            (integer)))
+        (range
+          (index
+            (integer))
+          (index
+            (integer)))
+        (range
+          (index
+            (integer))
+          (index
+            (integer))))))
+  (command
+    name: (variable_expansion
+      (variable_name)
+      (list_element_access
+        (range
+          (index
+            (single_quote_string))
+          (index
+            (double_quote_string)))
+        (range
+          (index
+            (integer))
+          (index
+            (integer)))
+        (range
+          (index
+            (integer))
+          (index
+            (variable_expansion
+              (variable_name))))))))
+
+================================================================================
+List Access - variable expansion
+================================================================================
+
+$PATH[
+    -1..2
+    4
+    5..-1
+    $IDX[2]..$IDX[3]
+]
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (variable_expansion
+      (variable_name)
+      (list_element_access
+        (range
+          (index
+            (integer))
+          (index
+            (integer)))
+        (index
+          (integer))
+        (range
+          (index
+            (integer))
+          (index
+            (integer)))
+        (range
+          (index
+            (variable_expansion
+              (variable_name)
+              (list_element_access
+                (index
+                  (integer)))))
+          (index
+            (variable_expansion
+              (variable_name)
+              (list_element_access
+                (index
+                  (integer))))))))))
+
+================================================================================
+List Access - multiple list access
+================================================================================
+
+$ENV[2][1]
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (variable_expansion
+      (variable_name)
+      (list_element_access
+        (index
+          (integer)))
+      (list_element_access
+        (index
+          (integer))))))
+
+================================================================================
+List Access - inside brace expansion
+================================================================================
+
+{$ENV[2][1],}
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (brace_expansion
+      (variable_expansion
+        (variable_name)
+        (list_element_access
+          (index
+            (integer)))
+        (list_element_access
+          (index
+            (integer)))))))
+
+================================================================================
+List Access - no whitespace between variable expansion and brackets
+================================================================================
+
+$ENV [2]
+ENV[]
+ENV[1]
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (variable_expansion
+      (variable_name))
+    argument: (concatenation
+      (integer)))
+  (command
+    name: (concatenation
+      (word)))
+  (command
+    name: (concatenation
+      (word)
+      (integer))))

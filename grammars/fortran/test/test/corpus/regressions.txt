@@ -1,0 +1,283 @@
+=================
+padl
+=================
+
+program example_padl
+  use stdlib_string_type, only: string_type, assignment(=), write (formatted)
+  use stdlib_strings, only: padl
+  implicit none
+  type(string_type) :: string
+
+  string = "left pad this string"
+! string <-- "left pad this string"
+
+  print '(dt)', padl(string, 25, "$") ! "$$$$$left pad this string"
+
+  string = padl(string, 25)
+! string <-- "     left pad this string"
+
+end program example_padl
+
+---
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (use_statement
+      (module_name)
+      (included_items
+        (identifier)
+        (assignment)
+        (defined_io_procedure)))
+    (use_statement
+      (module_name)
+      (included_items
+        (identifier)))
+    (implicit_statement
+      (none))
+    (variable_declaration
+      (derived_type
+        (type_name))
+      (identifier))
+    (assignment_statement
+      (identifier)
+      (string_literal))
+    (comment)
+    (print_statement
+      (format_identifier
+        (string_literal))
+      (output_item_list
+        (call_expression
+          (identifier)
+          (argument_list
+            (identifier)
+            (number_literal)
+            (string_literal)))))
+    (comment)
+    (assignment_statement
+      (identifier)
+      (call_expression
+        (identifier)
+        (argument_list
+          (identifier)
+          (number_literal))))
+    (comment)
+    (end_program_statement
+      (name))))
+
+================
+if label
+================
+
+program foo
+
+ if_label: if (.true.) then
+    call do_something()
+ else if_label
+    call something_else()
+ endif if_label
+
+end program foo
+
+---
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (if_statement
+      (block_label_start_expression)
+      (parenthesized_expression
+        (boolean_literal))
+      (subroutine_call
+        (identifier)
+        (argument_list))
+      (else_clause
+        (block_label)
+        (subroutine_call
+          (identifier)
+          (argument_list)))
+      (end_if_statement
+        (block_label)))
+    (end_program_statement
+      (name))))
+
+================
+split if
+================
+
+program foo
+
+ if (.true.) then
+ else &
+ if (.false.) then
+ end if
+
+end program
+
+---
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (if_statement
+      (parenthesized_expression
+        (boolean_literal))
+      (elseif_clause
+        (parenthesized_expression
+          (boolean_literal)))
+      (end_if_statement))
+    (end_program_statement)))
+
+================================================================================
+Assignment/Variable modification clash
+================================================================================
+
+program test
+  integer :: len
+  len = 5
+end program test
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (variable_declaration
+      (intrinsic_type)
+      (identifier))
+    (assignment_statement
+      (identifier)
+      (number_literal))
+    (end_program_statement
+      (name))))
+
+================================================================================
+Data statement array subscripting clash
+================================================================================
+
+program test
+   data(1, 2) = data(2, 1)
+end program
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (assignment_statement
+      left: (call_expression
+        (identifier)
+        (argument_list
+          (number_literal)
+          (number_literal)))
+      right: (call_expression
+        (identifier)
+        (argument_list
+          (number_literal)
+          (number_literal))))
+    (end_program_statement)))
+
+================================================================================
+Multiple array assignments
+================================================================================
+
+  ! Too many assignment expressions and the first one gets parsed as a
+  ! statement function
+  SUBROUTINE mpi_error_handler(comm, error_code)
+    CHARACTER(LEN=29) :: errstring(0:MPI_ERR_LASTCODE)
+
+    errstring(MPI_SUCCESS                  ) = 'MPI_SUCCESS                  '
+    errstring(MPI_ERR_BUFFER               ) = 'MPI_ERR_BUFFER               '
+    errstring(MPI_ERR_COUNT                ) = 'MPI_ERR_COUNT                '
+    errstring(MPI_ERR_TYPE                 ) = 'MPI_ERR_TYPE                 '
+    errstring(MPI_ERR_TAG                  ) = 'MPI_ERR_TAG                  '
+    errstring(MPI_ERR_COMM                 ) = 'MPI_ERR_COMM                 '
+    errstring(MPI_ERR_RANK                 ) = 'MPI_ERR_RANK                 '
+    errstring(MPI_ERR_REQUEST              ) = 'MPI_ERR_REQUEST              '
+
+    print*, x
+
+  END SUBROUTINE mpi_error_handler
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (comment)
+  (comment)
+  (subroutine
+    (subroutine_statement
+      (name)
+      (parameters
+        (identifier)
+        (identifier)))
+    (variable_declaration
+      (intrinsic_type
+        (kind
+          (keyword_argument
+            (identifier)
+            (number_literal))))
+      (sized_declarator
+        (identifier)
+        (size
+          (extent_specifier
+            (number_literal)
+            (identifier)))))
+    (assignment_statement
+      (call_expression
+        (identifier)
+        (argument_list
+          (identifier)))
+      (string_literal))
+    (assignment_statement
+      (call_expression
+        (identifier)
+        (argument_list
+          (identifier)))
+      (string_literal))
+    (assignment_statement
+      (call_expression
+        (identifier)
+        (argument_list
+          (identifier)))
+      (string_literal))
+    (assignment_statement
+      (call_expression
+        (identifier)
+        (argument_list
+          (identifier)))
+      (string_literal))
+    (assignment_statement
+      (call_expression
+        (identifier)
+        (argument_list
+          (identifier)))
+      (string_literal))
+    (assignment_statement
+      (call_expression
+        (identifier)
+        (argument_list
+          (identifier)))
+      (string_literal))
+    (assignment_statement
+      (call_expression
+        (identifier)
+        (argument_list
+          (identifier)))
+      (string_literal))
+    (assignment_statement
+      (call_expression
+        (identifier)
+        (argument_list
+          (identifier)))
+      (string_literal))
+    (print_statement
+      (format_identifier)
+      (output_item_list
+        (identifier)))
+    (end_subroutine_statement
+      (name))))

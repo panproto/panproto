@@ -1,0 +1,106 @@
+=========================
+Strict graph
+=========================
+
+strict graph {
+  a -- b
+}
+
+---
+
+(source_file
+  block: (block
+    (stmt_list
+      (edge_stmt
+        (node_id
+          (id
+            (identifier)))
+        (edgeop)
+        (node_id
+          (id
+            (identifier)))))))
+
+=========================
+Strict digraph
+=========================
+
+strict digraph {
+  a -> b
+}
+
+---
+
+(source_file
+  block: (block
+    (stmt_list
+      (edge_stmt
+        (node_id
+          (id
+            (identifier)))
+        (edgeop)
+        (node_id
+          (id
+            (identifier)))))))
+
+=========================
+Case insensitive keywords
+=========================
+
+StRiCt grAPH {
+  subgrAPH { }
+  gRaph []
+  noDE []
+  EDGE []
+}
+
+---
+
+(source_file
+  block: (block
+    (stmt_list
+      (subgraph
+        block: (block))
+      (attr_stmt
+        (attr_list))
+      (attr_stmt
+        (attr_list))
+      (attr_stmt
+        (attr_list)))))
+
+=========================
+Nested subgraphs
+=========================
+
+graph {
+  subgraph {
+    subgraph {
+      { { a -- b } }
+    }
+  }
+}
+
+---
+
+(source_file
+  block: (block
+    (stmt_list
+      (subgraph
+        block: (block
+          (stmt_list
+            (subgraph
+              block: (block
+                (stmt_list
+                  (subgraph
+                    block: (block
+                      (stmt_list
+                        (subgraph
+                          block: (block
+                            (stmt_list
+                              (edge_stmt
+                                (node_id
+                                  (id
+                                    (identifier)))
+                                (edgeop)
+                                (node_id
+                                  (id
+                                    (identifier)))))))))))))))))))

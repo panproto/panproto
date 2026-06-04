@@ -1,0 +1,26 @@
+=========
+Comments
+=========
+
+( one comment )
+
+( multiline
+comment
+)
+
+(close)
+
+()
+
+(
+
+)
+
+---
+
+(program
+  (comment)
+  (comment)
+  (comment)
+  (comment)
+  (comment))

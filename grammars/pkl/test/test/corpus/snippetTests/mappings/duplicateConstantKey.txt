@@ -1,0 +1,32 @@
+===
+mappings/duplicateConstantKey.pkl
+===
+
+res1 = new Mapping {
+  ["barn owl"] = 1
+  ["pigeon"] = 2
+  ["barn owl"] = 3
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectEntry
+          (slStringLiteralExpr
+            (slStringLiteralPart))
+          (intLiteralExpr))
+        (objectEntry
+          (slStringLiteralExpr
+            (slStringLiteralPart))
+          (intLiteralExpr))
+        (objectEntry
+          (slStringLiteralExpr
+            (slStringLiteralPart))
+          (intLiteralExpr))))))

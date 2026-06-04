@@ -1,0 +1,228 @@
+================================================================================
+StyleExpr property with boolean values
+================================================================================
+
+page 123 TestPage {
+    layout {
+        area(Content) {
+            field(TestField; TestField) {
+                StyleExpr = TRUE;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (boolean)))))))
+
+================================================================================
+StyleExpr property with boolean case variations
+================================================================================
+
+page 123 TestPage {
+    layout {
+        area(Content) {
+            field(Field1; Field1) {
+                StyleExpr = TRUE;
+            }
+            field(Field2; Field2) {
+                StyleExpr = true;
+            }
+            field(Field3; Field3) {
+                StyleExpr = True;
+            }
+            field(Field4; Field4) {
+                StyleExpr = FALSE;
+            }
+            field(Field5; Field5) {
+                StyleExpr = false;
+            }
+            field(Field6; Field6) {
+                StyleExpr = False;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (boolean)))
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (boolean)))
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (boolean)))
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (boolean)))
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (boolean)))
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (boolean)))))))
+
+================================================================================
+StyleExpr property with mixed value types
+================================================================================
+
+page 123 TestPage {
+    layout {
+        area(Content) {
+            field(Field1; Field1) {
+                StyleExpr = TRUE;
+            }
+            field(Field2; Field2) {
+                StyleExpr = SomeVariable;
+            }
+            field(Field3; Field3) {
+                StyleExpr = "SomeString";
+            }
+            field(Field4; Field4) {
+                StyleExpr = SomeFunction();
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (boolean)))
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (quoted_identifier)))
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (property_expression
+              (call_expression
+                function: (identifier)
+                arguments: (argument_list)))))))))
+
+================================================================================
+StyleExpr with Style property combination
+================================================================================
+
+page 123 TestPage {
+    layout {
+        area(Content) {
+            field(MatchedQuantity; MatchedQuantity) {
+                ApplicationArea = All;
+                BlankZero = true;
+                Caption = 'Matched Quantity';
+                DecimalPlaces = 0 : 5;
+                Style = Strong;
+                StyleExpr = TRUE;
+                ToolTip = 'Specifies the quantity matched.';
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (decimal_range_value
+              min: (integer)
+              max: (integer)))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (string_literal)))))))

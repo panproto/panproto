@@ -1,0 +1,114 @@
+================================================================================
+Caption property with lowercase comment parameter
+================================================================================
+
+page 50000 "Test Page"
+{
+    layout
+    {
+        area(Content)
+        {
+            field(TestField; TestVar)
+            {
+                Caption = 'Maximum allowed difference Excl. VAT',comment = 'Translation note: Please use the Search TM function to find the right and previously used translation.';
+                ToolTip = 'Specifies the maximum allowed difference.';
+            }
+        }
+    }
+    
+    var
+        TestVar: Text[50];
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (caption_value
+              (string_literal)
+              (property_name)
+              (string_literal)))
+          (property
+            name: (property_name)
+            value: (string_literal)))))
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))))))
+
+================================================================================
+Caption with different case comment variations
+================================================================================
+
+page 50001 "Another Page"
+{
+    layout
+    {
+        area(Content)
+        {
+            field(Field1; Var1)
+            {
+                Caption = 'Test Caption',Comment = 'Upper case comment';
+            }
+            field(Field2; Var2)
+            {
+                Caption = 'Another Caption',COMMENT = 'ALL CAPS comment';
+            }
+        }
+    }
+    
+    var
+        Var1, Var2: Text;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (caption_value
+              (string_literal)
+              (property_name)
+              (string_literal))))
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (caption_value
+              (string_literal)
+              (property_name)
+              (string_literal))))))
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        name: (identifier)
+        type: (type_specification
+          (text_type))))))

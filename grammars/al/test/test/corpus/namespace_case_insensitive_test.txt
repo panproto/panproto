@@ -1,0 +1,22 @@
+================================================================================
+Namespace declaration with case variations
+================================================================================
+
+namespace Microsoft.Test;
+
+codeunit 123 TestUnit
+{
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (namespace_declaration
+    (namespace_keyword)
+    name: (namespace_name
+      (identifier)
+      (identifier)))
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)))

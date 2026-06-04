@@ -1,0 +1,871 @@
+================================================================================
+blank file
+================================================================================
+
+
+
+--------------------------------------------------------------------------------
+
+(source_file)
+
+================================================================================
+blank lines
+================================================================================
+
+
+
+
+
+
+true
+
+
+
+
+
+def foo
+
+
+
+
+end
+
+
+
+
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (true)
+  (method_def
+    name: (identifier)))
+
+================================================================================
+comments
+================================================================================
+# this is a comment
+
+a + # asdf
+2
+
+1 #
++ #
+2 #
+
+##
+##
+--------------------------------------------------------------------------------
+
+(source_file
+  (comment)
+  (op_call
+    receiver: (identifier)
+    operator: (operator)
+    (comment)
+    argument: (integer))
+  (integer)
+  (comment)
+  (op_call
+    operator: (operator)
+    (comment)
+    receiver: (integer))
+  (comment)
+  (comment)
+  (comment))
+
+================================================================================
+require
+================================================================================
+require "colorize"
+require "#{__DIR__}/relative_file"
+--------------------------------------------------------------------------------
+
+(source_file
+  (require
+    (string))
+  (require
+    (string
+      (interpolation
+        (pseudo_constant)))))
+
+================================================================================
+compound statements
+================================================================================
+;;;nil;;;
+;nil;nil;
+  ;;;;;
+
+nil
+
+nil;
+
+nil; nil
+
+nil; (nil;nil)
+
+((()))
+()
+
+(nil)
+
+(nil;)
+
+(nil; nil)
+
+(nil; (nil;nil))
+--------------------------------------------------------------------------------
+
+(source_file
+  (nil)
+  (nil)
+  (nil)
+  (nil)
+  (nil)
+  (nil)
+  (nil)
+  (nil)
+  (expressions
+    (nil)
+    (nil))
+  (nil)
+  (nil)
+  (nil)
+  (nil)
+  (expressions
+    (nil)
+    (nil))
+  (expressions
+    (nil)
+    (expressions
+      (nil)
+      (nil))))
+
+================================================================================
+aliases
+================================================================================
+alias Foo = Bar::Baz
+--------------------------------------------------------------------------------
+
+(source_file
+  (alias
+    name: (constant)
+    type: (constant)))
+
+================================================================================
+modules
+================================================================================
+module A; end
+module A
+;;;;
+end
+
+module
+M end
+
+module M2 C=2;D=3 end
+
+module ::A1::B2::C::D; end
+
+module ::Outer
+  module Inner
+    true
+    false
+  end
+end
+--------------------------------------------------------------------------------
+
+(source_file
+  (module_def
+    name: (constant))
+  (module_def
+    name: (constant))
+  (module_def
+    name: (constant))
+  (module_def
+    name: (constant)
+    (const_assign
+      lhs: (constant)
+      rhs: (integer))
+    (const_assign
+      lhs: (constant)
+      rhs: (integer)))
+  (module_def
+    name: (constant))
+  (module_def
+    name: (constant)
+    (module_def
+      name: (constant)
+      (true)
+      (false))))
+
+================================================================================
+classes
+================================================================================
+abstract class A < Super; end
+
+class B <
+A
+;;;;
+end
+
+class
+MM end
+
+class C2 C=2;D=3 end
+
+class ::A1::B2::C::D < ::E::F::G; end
+
+class ::Outer
+  module Middle
+    class Inner
+      self
+      nil
+    end
+  end
+end
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_def
+    name: (constant)
+    superclass: (constant))
+  (class_def
+    name: (constant)
+    superclass: (constant))
+  (class_def
+    name: (constant))
+  (class_def
+    name: (constant)
+    (const_assign
+      lhs: (constant)
+      rhs: (integer))
+    (const_assign
+      lhs: (constant)
+      rhs: (integer)))
+  (class_def
+    name: (constant)
+    superclass: (constant))
+  (class_def
+    name: (constant)
+    (module_def
+      name: (constant)
+      (class_def
+        name: (constant)
+        (self)
+        (nil)))))
+
+================================================================================
+structs
+================================================================================
+abstract struct X(U)
+  property x
+
+  def initialize(@x : U) end
+
+  abstract def foo ( a : String) : String
+end
+
+struct Y < X(Int32)
+  property y
+
+  def initialize(@x, @y : Int32) end
+
+  def foo ( a ) : String "a" end
+end
+--------------------------------------------------------------------------------
+
+(source_file
+  (struct_def
+    name: (generic_type
+      (constant)
+      params: (param_list
+        (constant)))
+    (call
+      method: (identifier)
+      arguments: (argument_list
+        (identifier)))
+    (method_def
+      name: (identifier)
+      params: (param_list
+        (param
+          name: (instance_var)
+          type: (constant))))
+    (abstract_method_def
+      name: (identifier)
+      params: (param_list
+        (param
+          name: (identifier)
+          type: (constant)))
+      type: (constant)))
+  (struct_def
+    name: (constant)
+    superclass: (generic_instance_type
+      (constant)
+      params: (param_list
+        (constant)))
+    (call
+      method: (identifier)
+      arguments: (argument_list
+        (identifier)))
+    (method_def
+      name: (identifier)
+      params: (param_list
+        (param
+          name: (instance_var))
+        (param
+          name: (instance_var)
+          type: (constant))))
+    (method_def
+      name: (identifier)
+      params: (param_list
+        (param
+          name: (identifier)))
+      type: (constant)
+      (string))))
+
+================================================================================
+method definitions
+================================================================================
+def foo
+  return 3
+end
+
+def bar; end
+def
+baz
+end
+
+def fizz() : Bool return true end
+
+def qux(a, b	: Bool, c : Int32 = 7, d = nil) : Stuff
+end
+
+def buzz(
+  outerx x = 2,
+  outery y = 3,
+)
+  puts x + y
+end
+
+def blam
+  (a || b) && c
+end
+--------------------------------------------------------------------------------
+
+(source_file
+  (method_def
+    name: (identifier)
+    (return
+      (integer)))
+  (method_def
+    name: (identifier))
+  (method_def
+    name: (identifier))
+  (method_def
+    name: (identifier)
+    type: (constant)
+    (return
+      (true)))
+  (method_def
+    name: (identifier)
+    params: (param_list
+      (param
+        name: (identifier))
+      (param
+        name: (identifier)
+        type: (constant))
+      (param
+        name: (identifier)
+        type: (constant)
+        default: (integer))
+      (param
+        name: (identifier)
+        default: (nil)))
+    type: (constant))
+  (method_def
+    name: (identifier)
+    params: (param_list
+      (param
+        extern_name: (identifier)
+        name: (identifier)
+        default: (integer))
+      (param
+        extern_name: (identifier)
+        name: (identifier)
+        default: (integer)))
+    (call
+      method: (identifier)
+      arguments: (argument_list
+        (op_call
+          receiver: (identifier)
+          operator: (operator)
+          argument: (identifier)))))
+  (method_def
+    name: (identifier)
+    (and
+      (or
+        (identifier)
+        (identifier))
+      (identifier))))
+
+================================================================================
+method definitions with block parameters
+================================================================================
+def foo(&);end
+
+def bar(&thingy); end
+
+def baz(&asdf : Proc(Nil))
+end
+
+def qux(& : -> String | Int32)
+end
+
+
+def worst_syntax(b, &:
+->);end
+--------------------------------------------------------------------------------
+
+(source_file
+  (method_def
+    name: (identifier)
+    params: (param_list
+      (block_param)))
+  (method_def
+    name: (identifier)
+    params: (param_list
+      (block_param
+        name: (identifier))))
+  (method_def
+    name: (identifier)
+    params: (param_list
+      (block_param
+        name: (identifier)
+        type: (generic_instance_type
+          (constant)
+          params: (param_list
+            (constant))))))
+  (method_def
+    name: (identifier)
+    params: (param_list
+      (block_param
+        type: (proc_type
+          return: (union_type
+            (constant)
+            (constant))))))
+  (method_def
+    name: (identifier)
+    params: (param_list
+      (param
+        name: (identifier))
+      (block_param
+        type: (proc_type)))))
+
+================================================================================
+method definitions with splat parameters
+================================================================================
+def foo(*); end
+
+def bar(a, *b : Int32, c, **d : Bool); end
+
+def baz(*a, **b, &c); end
+--------------------------------------------------------------------------------
+
+(source_file
+  (method_def
+    name: (identifier)
+    params: (param_list
+      (splat_param)))
+  (method_def
+    name: (identifier)
+    params: (param_list
+      (param
+        name: (identifier))
+      (splat_param
+        name: (identifier)
+        type: (constant))
+      (param
+        name: (identifier))
+      (double_splat_param
+        name: (identifier)
+        type: (constant))))
+  (method_def
+    name: (identifier)
+    params: (param_list
+      (splat_param
+        name: (identifier))
+      (double_splat_param
+        name: (identifier))
+      (block_param
+        name: (identifier)))))
+
+================================================================================
+method definitions with free variables
+================================================================================
+abstract def f(a : {T} | T) forall T
+
+def foo(x : T.class, y : U) : Array(T | U).class forall T, U
+  Array(T | U)
+end
+--------------------------------------------------------------------------------
+
+(source_file
+  (abstract_method_def
+    name: (identifier)
+    params: (param_list
+      (param
+        name: (identifier)
+        type: (union_type
+          (tuple_type
+            (constant))
+          (constant))))
+    forall: (forall
+      (constant)))
+  (method_def
+    name: (identifier)
+    params: (param_list
+      (param
+        name: (identifier)
+        type: (class_type
+          (constant)))
+      (param
+        name: (identifier)
+        type: (constant)))
+    type: (class_type
+      (generic_instance_type
+        (constant)
+        params: (param_list
+          (union_type
+            (constant)
+            (constant)))))
+    forall: (forall
+      (constant)
+      (constant))
+    (generic_instance_type
+      (constant)
+      params: (param_list
+        (union_type
+          (constant)
+          (constant))))))
+
+================================================================================
+operator method definitions
+================================================================================
+class Operators
+  def ~ : self
+  end
+
+  def self.+(other)
+  end
+
+  def ===(other)
+  false
+  end
+end
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_def
+    name: (constant)
+    (method_def
+      name: (operator)
+      type: (self))
+    (method_def
+      class: (self)
+      name: (operator)
+      params: (param_list
+        (param
+          name: (identifier))))
+    (method_def
+      name: (operator)
+      params: (param_list
+        (param
+          name: (identifier)))
+      (false))))
+
+================================================================================
+class method definitions
+================================================================================
+class A::B(U); end
+
+class D
+  def self.thing
+    "a"
+  end
+
+  def A::B . c (x)
+    puts U,x
+  end
+end
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_def
+    name: (generic_type
+      (constant)
+      params: (param_list
+        (constant))))
+  (class_def
+    name: (constant)
+    (method_def
+      class: (self)
+      name: (identifier)
+      (string))
+    (method_def
+      class: (constant)
+      name: (identifier)
+      params: (param_list
+        (param
+          name: (identifier)))
+      (call
+        method: (identifier)
+        arguments: (argument_list
+          (constant)
+          (identifier))))))
+
+================================================================================
+method definitions with rescue, else, and ensure
+================================================================================
+def foo
+rescue e1 : SpecificError | OtherError
+rescue e2 : GeneralError
+else
+ensure
+end
+--------------------------------------------------------------------------------
+
+(source_file
+  (method_def
+    name: (identifier)
+    rescue: (rescue_block
+      variable: (identifier)
+      type: (union_type
+        (constant)
+        (constant)))
+    rescue: (rescue_block
+      variable: (identifier)
+      type: (constant))
+    else: (else)
+    ensure: (ensure)))
+
+================================================================================
+annotations
+================================================================================
+annotation Thing
+end
+
+annotation Foo::Thing2;;;;end
+
+@[Thing]
+@[Thing(  )]
+@[ Foo:: Thing2 (
+  1, *baz, foo: 2,
+  "a": 3, Z: 4, %q(q): 5, _6a?: 6
+) ]
+class Asdf
+  @[Foo("on def")]
+  def c2(_, @[Foo("on param")] @[Foo2::Thing2] *arg, @[ Foo(1) ] **kwarg, @[Foo("on block")] &blk : Int32 ->)
+  end
+end
+--------------------------------------------------------------------------------
+
+(source_file
+  (annotation_def
+    name: (constant))
+  (annotation_def
+    name: (constant))
+  (annotation
+    (constant))
+  (annotation
+    (constant)
+    arguments: (argument_list))
+  (annotation
+    (constant)
+    arguments: (argument_list
+      (integer)
+      (splat
+        (identifier))
+      (named_expr
+        name: (identifier)
+        (integer))
+      (named_expr
+        name: (string)
+        (integer))
+      (named_expr
+        name: (identifier)
+        (integer))
+      (named_expr
+        name: (string)
+        (integer))
+      (named_expr
+        name: (identifier)
+        (integer))))
+  (class_def
+    name: (constant)
+    (annotation
+      (constant)
+      arguments: (argument_list
+        (string)))
+    (method_def
+      name: (identifier)
+      params: (param_list
+        (param
+          name: (identifier))
+        (splat_param
+          (annotation
+            (constant)
+            arguments: (argument_list
+              (string)))
+          (annotation
+            (constant))
+          name: (identifier))
+        (double_splat_param
+          (annotation
+            (constant)
+            arguments: (argument_list
+              (integer)))
+          name: (identifier))
+        (block_param
+          (annotation
+            (constant)
+            arguments: (argument_list
+              (string)))
+          name: (identifier)
+          type: (proc_type
+            (constant)))))))
+
+================================================================================
+method and type visibility
+================================================================================
+private def foo; end
+
+private module Foo
+  private class Bar
+    private struct Baz
+      private CONST = 1
+    end
+
+    private alias Buzz = Baz
+
+    protected def bar; end
+
+  end
+end
+--------------------------------------------------------------------------------
+
+(source_file
+  (method_def
+    name: (identifier))
+  (module_def
+    name: (constant)
+    (class_def
+      name: (constant)
+      (struct_def
+        name: (constant)
+        (const_assign
+          lhs: (constant)
+          rhs: (integer)))
+      (alias
+        name: (constant)
+        type: (constant))
+      (method_def
+        name: (identifier)))))
+
+================================================================================
+enum definitions
+================================================================================
+enum Nums
+  One
+  Two
+  Three = 3
+end
+
+alias Bar = Int8
+enum Foo:	Bar Red; Blue; Green end
+enum Foo2; Thing end
+
+@[Flags]
+enum Bar : UInt8
+  Red
+  Green
+  Blue
+
+  def thingy
+    "asdf"
+  end
+end
+--------------------------------------------------------------------------------
+
+(source_file
+  (enum_def
+    name: (constant)
+    (constant)
+    (constant)
+    (const_assign
+      lhs: (constant)
+      rhs: (integer)))
+  (alias
+    name: (constant)
+    type: (constant))
+  (enum_def
+    name: (constant)
+    type: (constant)
+    (constant)
+    (constant)
+    (constant))
+  (enum_def
+    name: (constant)
+    (constant))
+  (annotation
+    (constant))
+  (enum_def
+    name: (constant)
+    type: (constant)
+    (constant)
+    (constant)
+    (constant)
+    (method_def
+      name: (identifier)
+      (string))))
+
+================================================================================
+line continuations
+================================================================================
+a, b, \
+\
+c, d = :a, <<-B,  \
+:c,
+  b
+  B
+  "d"
+
+def\
+foo;\
+puts\
+"hello"\
+,\
+"world"\
+end
+--------------------------------------------------------------------------------
+
+(source_file
+  (multi_assign
+    lhs: (identifier)
+    lhs: (identifier)
+    lhs: (identifier)
+    lhs: (identifier)
+    rhs: (symbol)
+    rhs: (heredoc_start)
+    rhs: (symbol)
+    (heredoc_body
+      (heredoc_content)
+      (heredoc_end))
+    rhs: (string))
+  (method_def
+    name: (identifier)
+    (call
+      method: (identifier)
+      arguments: (argument_list
+        (string)
+        (string)))))

@@ -1,0 +1,153 @@
+================================================================================
+Option type with empty members (consecutive commas)
+================================================================================
+
+codeunit 50100 "Test Option Empty Members"
+{
+    var
+        DataType: Option Text,Number,Date,Boolean,,,,,Lookup;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (option_type
+            (option_member_list
+              (option_member
+                (identifier))
+              (option_member
+                (identifier))
+              (option_member
+                (identifier))
+              (option_member
+                (identifier))
+              (option_member
+                (identifier)))))))))
+
+================================================================================
+Option type with all empty members
+================================================================================
+
+table 50100 "Test All Empty"
+{
+    fields
+    {
+        field(1; Status; Option)
+        {
+            OptionMembers = ,,,;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (option_type))
+        (property
+          name: (property_name)
+          value: (option_member_list))))))
+
+================================================================================
+Option type with mixed empty and non-empty members
+================================================================================
+
+page 50100 "Test Mixed Options"
+{
+    var
+        Priority: Option ,Low,,Medium,,,High;
+        Category: Option '','Category A',,'Category B';
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (option_type
+            (option_member_list
+              (option_member
+                (identifier))
+              (option_member
+                (identifier))
+              (option_member
+                (identifier))))))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (option_type
+            (option_member_list
+              (option_member
+                (string_literal))
+              (option_member
+                (string_literal))
+              (option_member
+                (string_literal)))))))))
+
+================================================================================
+OptionMembers property with consecutive commas
+================================================================================
+
+table 50100 "Test Option Property"
+{
+    fields
+    {
+        field(1; Type; Option)
+        {
+            OptionMembers = Text,Number,Date,Boolean,,,,,Lookup;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (option_type))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (identifier))
+            (option_member
+              (identifier))
+            (option_member
+              (identifier))
+            (option_member
+              (identifier))
+            (option_member
+              (identifier))))))))

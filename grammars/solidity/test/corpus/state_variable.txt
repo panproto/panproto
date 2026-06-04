@@ -1,0 +1,90 @@
+================================================================================
+Variable Declaration
+================================================================================
+
+contract StateVariable {
+    int b;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (contract_declaration
+    name: (identifier)
+    body: (contract_body
+      (state_variable_declaration
+        type: (type_name
+          (primitive_type))
+        name: (identifier)))))
+
+================================================================================
+Variable Declaration with initial value
+================================================================================
+
+contract StateVariable {
+    int b = 1;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (contract_declaration
+    name: (identifier)
+    body: (contract_body
+      (state_variable_declaration
+        type: (type_name
+          (primitive_type))
+        name: (identifier)
+        value: (expression
+          (number_literal))))))
+
+================================================================================
+Variable Declaration
+================================================================================
+
+contract StateVariable {
+    int override(a.b) c = 3;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (contract_declaration
+    name: (identifier)
+    body: (contract_body
+      (state_variable_declaration
+        type: (type_name
+          (primitive_type))
+        (override_specifier
+          (user_defined_type
+            (identifier)
+            (identifier)))
+        name: (identifier)
+        value: (expression
+          (number_literal))))))
+
+================================================================================
+Mapping Declaration
+================================================================================
+
+contract StateVariable {
+    mapping(uint256 x => mapping(uint256 y => bool isFinalized)) test;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (contract_declaration
+    name: (identifier)
+    body: (contract_body
+      (state_variable_declaration
+        type: (type_name
+          key_type: (primitive_type)
+          key_identifier: (identifier)
+          value_type: (type_name
+            key_type: (primitive_type)
+            key_identifier: (identifier)
+            value_type: (type_name
+              (primitive_type))
+            value_identifier: (identifier)))
+        name: (identifier)))))

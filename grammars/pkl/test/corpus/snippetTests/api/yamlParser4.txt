@@ -1,0 +1,198 @@
+===
+api/yamlParser4.pkl
+===
+
+import "pkl:yaml"
+
+local parser = new yaml.Parser {
+  converters {
+    ["^invoice"] = (_) -> 99999
+    ["given"] = (_) -> "Pigeon"
+    ["^family"] = (_) -> "no match"
+    ["bill-to.family"] = (it) -> it.reverse()
+    ["address.city"] = (it) -> it.toUpperCase()
+    ["state"] = (_) -> "CA"
+    ["product[*].quantity"] = (it) -> it * 2
+    ["product[*].price"] = (it) -> it * 2
+  }
+}
+
+res1 = parser.parse("""
+  ---
+  invoice: 34843
+  date   : 2001-01-23
+  bill-to: &id001
+      given  : Chris
+      family : Dumars
+      address:
+          lines: |
+              458 Walkman Dr.
+              Suite #292
+          city    : Royal Oak
+          state   : MI
+          postal  : 48046
+  ship-to: *id001
+  product:
+      - sku         : BL394D
+        quantity    : 4
+        description : Basketball
+        price       : 450.00
+      - sku         : BL4438H
+        quantity    : 1
+        description : Super Hoop
+        price       : 2392.00
+  tax  : 251.42
+  total: 4443.52
+  comments: >
+      Late afternoon is best.
+      Backup contact is Nancy
+      Billsmer @ 338-4338.
+  """)
+
+res2 = parser.parseAll("""
+  ---
+  invoice: 34843
+  date   : 2001-01-23
+  bill-to: &id001
+      given  : Chris
+      family : Dumars
+      address:
+          lines: |
+              458 Walkman Dr.
+              Suite #292
+          city    : Royal Oak
+          state   : MI
+          postal  : 48046
+  ship-to: *id001
+  ---
+  product:
+      - sku         : BL394D
+        quantity    : 4
+        description : Basketball
+        price       : 450.00
+      - sku         : BL4438H
+        quantity    : 1
+        description : Super Hoop
+        price       : 2392.00
+  ---
+  tax  : 251.42
+  total: 4443.52
+  comments: >
+      Late afternoon is best.
+      Backup contact is Nancy
+      Billsmer @ 338-4338.
+  """)
+
+---
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (classProperty
+    (modifier)
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (objectBody
+            (objectEntry
+              (slStringLiteralExpr
+                (slStringLiteralPart))
+              (functionLiteralExpr
+                (parameterList
+                  (blankIdentifier))
+                (intLiteralExpr)))
+            (objectEntry
+              (slStringLiteralExpr
+                (slStringLiteralPart))
+              (functionLiteralExpr
+                (parameterList
+                  (blankIdentifier))
+                (slStringLiteralExpr
+                  (slStringLiteralPart))))
+            (objectEntry
+              (slStringLiteralExpr
+                (slStringLiteralPart))
+              (functionLiteralExpr
+                (parameterList
+                  (blankIdentifier))
+                (slStringLiteralExpr
+                  (slStringLiteralPart))))
+            (objectEntry
+              (slStringLiteralExpr
+                (slStringLiteralPart))
+              (functionLiteralExpr
+                (parameterList
+                  (typedIdentifier
+                    (identifier)))
+                (qualifiedAccessExpr
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (identifier)
+                  (argumentList))))
+            (objectEntry
+              (slStringLiteralExpr
+                (slStringLiteralPart))
+              (functionLiteralExpr
+                (parameterList
+                  (typedIdentifier
+                    (identifier)))
+                (qualifiedAccessExpr
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (identifier)
+                  (argumentList))))
+            (objectEntry
+              (slStringLiteralExpr
+                (slStringLiteralPart))
+              (functionLiteralExpr
+                (parameterList
+                  (blankIdentifier))
+                (slStringLiteralExpr
+                  (slStringLiteralPart))))
+            (objectEntry
+              (slStringLiteralExpr
+                (slStringLiteralPart))
+              (functionLiteralExpr
+                (parameterList
+                  (typedIdentifier
+                    (identifier)))
+                (multiplicativeExpr
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (intLiteralExpr))))
+            (objectEntry
+              (slStringLiteralExpr
+                (slStringLiteralPart))
+              (functionLiteralExpr
+                (parameterList
+                  (typedIdentifier
+                    (identifier)))
+                (multiplicativeExpr
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (intLiteralExpr)))))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (mlStringLiteralExpr
+          (mlStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (mlStringLiteralExpr
+          (mlStringLiteralPart))))))

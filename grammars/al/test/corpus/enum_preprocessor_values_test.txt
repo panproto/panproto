@@ -1,0 +1,155 @@
+================================================================================
+Enum with preprocessor conditional values
+================================================================================
+
+enum 50100 "Payment Transaction Type"
+{
+    Caption = 'Payment Transaction Type';
+    Extensible = false;
+
+    value(0; Unknown)
+    {
+        Caption = ' ';
+    }
+    value(1; Charge)
+    {
+        Caption = 'Charge';
+    }
+#if not CLEAN26
+    value(2; Dispute)
+    {
+        Caption = 'Dispute';
+        ObsoleteReason = 'Deprecated by Shopify';
+        ObsoleteState = Pending;
+        ObsoleteTag = '26.0';
+    }
+#endif
+    value(3; Adjustment)
+    {
+        Caption = 'Adjustment';
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (enum_declaration
+    (enum_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier)
+      (property
+        name: (property_name)
+        value: (string_literal)))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier)
+      (property
+        name: (property_name)
+        value: (string_literal)))
+    (preproc_conditional
+      (preproc_if
+        (preproc_open)
+        condition: (preproc_not_expression
+          (identifier)))
+      (enum_value_declaration
+        value_id: (integer)
+        value_name: (identifier)
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (identifier))
+        (property
+          name: (property_name)
+          value: (string_literal)))
+      (preproc_endif
+        (preproc_close)))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier)
+      (property
+        name: (property_name)
+        value: (string_literal)))))
+
+================================================================================
+Enum with multiple conditional blocks
+================================================================================
+
+enum 50101 "Test Enum"
+{
+    value(0; Standard)
+    {
+        Caption = 'Standard';
+    }
+#if CLEAN26
+    value(1; NewFeature)
+    {
+        Caption = 'New Feature';
+    }
+#else
+    value(1; LegacyFeature)
+    {
+        Caption = 'Legacy Feature';
+        ObsoleteState = Removed;
+    }
+#endif
+    value(2; Always)
+    {
+        Caption = 'Always';
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (enum_declaration
+    (enum_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier)
+      (property
+        name: (property_name)
+        value: (string_literal)))
+    (preproc_conditional
+      (preproc_if
+        (preproc_open)
+        condition: (identifier))
+      (enum_value_declaration
+        value_id: (integer)
+        value_name: (identifier)
+        (property
+          name: (property_name)
+          value: (string_literal)))
+      (preproc_else)
+      (enum_value_declaration
+        value_id: (integer)
+        value_name: (identifier)
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (identifier)))
+      (preproc_endif
+        (preproc_close)))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier)
+      (property
+        name: (property_name)
+        value: (string_literal)))))

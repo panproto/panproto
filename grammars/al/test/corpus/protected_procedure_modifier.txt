@@ -1,0 +1,76 @@
+==================
+Protected procedure modifier
+==================
+
+codeunit 50100 "Test Codeunit"
+{
+    protected procedure ProtectedProc() Value: Boolean
+    begin
+        exit(true);
+    end;
+
+    local procedure LocalProc() 
+    begin
+    end;
+
+    internal procedure InternalProc()
+    begin
+    end;
+
+    protected var
+        ProtectedVariable: Boolean;
+    
+    var
+        NormalVariable: Text;
+}
+
+---
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      modifier: (procedure_modifier
+        (protected_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      return_value: (identifier)
+      return_type: (type_specification
+        (basic_type))
+      (code_block
+        (begin_keyword)
+        (exit_statement
+          (exit_keyword)
+          return_value: (boolean))
+        (end_keyword)))
+    (procedure
+      modifier: (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (procedure
+      modifier: (procedure_modifier
+        (internal_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (var_section
+      (protected_keyword)
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type))))
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (text_type))))))

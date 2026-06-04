@@ -1,0 +1,132 @@
+================================================================================
+parallel_block_statement (minimum)
+================================================================================
+
+procedure P is
+begin
+   parallel do
+      Do_Something (1);
+   and
+      Do_Something (2);
+   end do;
+end P;
+
+--------------------------------------------------------------------------------
+
+(compilation
+  (compilation_unit
+    (subprogram_body
+      (procedure_specification
+        name: (identifier))
+      (handled_sequence_of_statements
+        (parallel_block_statement
+          statements:
+            (procedure_call_statement
+              name: (identifier)
+              (actual_parameter_part
+                (parameter_association
+                  (expression
+                    (term
+                      (numeric_literal))))))
+          statements:
+            (procedure_call_statement
+              name: (identifier)
+              (actual_parameter_part
+                (parameter_association
+                  (expression
+                    (term
+                      (numeric_literal))))))))
+      endname: (identifier))))
+
+================================================================================
+parallel_block_statement (3 concurrent activities)
+================================================================================
+
+procedure P is
+begin
+   parallel do
+      Do_Something (1);
+   and
+      Do_Something (2);
+   and
+      Do_Something (3);
+   end do;
+end P;
+
+--------------------------------------------------------------------------------
+
+(compilation
+  (compilation_unit
+    (subprogram_body
+      (procedure_specification
+        name: (identifier))
+      (handled_sequence_of_statements
+        (parallel_block_statement
+          statements:
+            (procedure_call_statement
+              name: (identifier)
+              (actual_parameter_part
+                (parameter_association
+                  (expression
+                    (term
+                      (numeric_literal))))))
+          statements:
+            (procedure_call_statement
+              name: (identifier)
+              (actual_parameter_part
+                (parameter_association
+                  (expression
+                    (term
+                      (numeric_literal))))))
+          statements:
+            (procedure_call_statement
+              name: (identifier)
+              (actual_parameter_part
+                (parameter_association
+                  (expression
+                    (term
+                      (numeric_literal))))))))
+      endname: (identifier))))
+
+================================================================================
+parallel_block_statement (chunk_specification)
+================================================================================
+
+procedure P is
+begin
+   parallel (2) do
+      Do_Something (1);
+   and
+      Do_Something (2);
+   end do;
+end P;
+
+--------------------------------------------------------------------------------
+
+(compilation
+  (compilation_unit
+    (subprogram_body
+      (procedure_specification
+        name: (identifier))
+      (handled_sequence_of_statements
+        (parallel_block_statement
+          (chunk_specification
+            (term
+              (numeric_literal)))
+          statements:
+            (procedure_call_statement
+              name: (identifier)
+              (actual_parameter_part
+                (parameter_association
+                  (expression
+                    (term
+                      (numeric_literal))))))
+          statements:
+            (procedure_call_statement
+              name: (identifier)
+              (actual_parameter_part
+                (parameter_association
+                  (expression
+                    (term
+                      (numeric_literal))))))))
+      endname: (identifier))))

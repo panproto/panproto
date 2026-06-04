@@ -1,0 +1,245 @@
+================================================================================
+Preprocessor directives in repeat statement
+================================================================================
+
+codeunit 50100 TestPreprocessor
+{
+    procedure TestRepeatWithPreprocessor()
+    var
+        PostedBankDepositLine: Record "Posted Bank Deposit Line";
+        GLEntry: Record "G/L Entry";
+#if not CLEAN24
+        GenJournalLine: Record "Gen. Journal Line";
+#endif
+    begin
+        PostedBankDepositLine.SetRange("Bank Deposit No.", "test");
+        PostedBankDepositLine.FindSet();
+        repeat
+            PostedBankDepositLine."Bank Account Ledger Entry No." := GLEntry."Entry No.";
+#if not CLEAN24
+            OnBeforePostedBankDepositLineModify(PostedBankDepositLine, GenJournalLine);
+#endif
+            PostedBankDepositLine.Modify();
+        until PostedBankDepositLine.Next() = 0;
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier))))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier))))
+        (preproc_conditional_var
+          (preproc_if
+            (preproc_open)
+            condition: (preproc_not_expression
+              (identifier)))
+          (variable_declaration
+            name: (identifier)
+            type: (type_specification
+              (record_type
+                reference: (quoted_identifier))))
+          (preproc_endif
+            (preproc_close))))
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (member_expression
+            object: (identifier)
+            member: (identifier))
+          arguments: (argument_list
+            (quoted_identifier)
+            (quoted_identifier)))
+        (call_expression
+          function: (member_expression
+            object: (identifier)
+            member: (identifier))
+          arguments: (argument_list))
+        (repeat_statement
+          (repeat_keyword)
+          (assignment_statement
+            left: (member_expression
+              object: (identifier)
+              member: (quoted_identifier))
+            right: (member_expression
+              object: (identifier)
+              member: (quoted_identifier)))
+          (preproc_conditional_statement
+            (preproc_if
+              (preproc_open)
+              condition: (preproc_not_expression
+                (identifier)))
+            (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (identifier)
+                (identifier)))
+            (preproc_endif
+              (preproc_close)))
+          (call_expression
+            function: (member_expression
+              object: (identifier)
+              member: (identifier))
+            arguments: (argument_list))
+          (until_keyword)
+          condition: (comparison_expression
+            left: (call_expression
+              function: (member_expression
+                object: (identifier)
+                member: (identifier))
+              arguments: (argument_list))
+            operator: (comparison_operator)
+            right: (integer)))
+        (end_keyword)))))
+
+================================================================================
+Preprocessor directives in while loop
+================================================================================
+
+codeunit 50101 TestWhilePreprocessor
+{
+    procedure TestWhileWithPreprocessor()
+    var
+        Item: Record Item;
+    begin
+        while Item.Next() <> 0 do begin
+#if CLEAN24
+            ProcessNewLogic(Item);
+#else
+            ProcessOldLogic(Item);
+#endif
+        end;
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (identifier)))))
+      (code_block
+        (begin_keyword)
+        (while_statement
+          (while_keyword)
+          condition: (comparison_expression
+            left: (call_expression
+              function: (member_expression
+                object: (identifier)
+                member: (identifier))
+              arguments: (argument_list))
+            operator: (comparison_operator)
+            right: (integer))
+          (do_keyword)
+          body: (code_block
+            (begin_keyword)
+            (preproc_conditional_statement
+              (preproc_if
+                (preproc_open)
+                condition: (identifier))
+              (call_expression
+                function: (identifier)
+                arguments: (argument_list
+                  (identifier)))
+              (preproc_else)
+              (call_expression
+                function: (identifier)
+                arguments: (argument_list
+                  (identifier)))
+              (preproc_endif
+                (preproc_close)))
+            (end_keyword)))
+        (end_keyword)))))
+
+================================================================================
+Preprocessor directives in for loop
+================================================================================
+
+codeunit 50102 TestForPreprocessor
+{
+    procedure TestForWithPreprocessor()
+    var
+        i: Integer;
+    begin
+        for i := 1 to 10 do begin
+#if not CLEAN24
+            Message('Legacy: %1', i);
+#endif
+            ProcessValue(i);
+        end;
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (for_statement
+          (for_keyword)
+          variable: (identifier)
+          start: (integer)
+          direction: (to_keyword)
+          end: (integer)
+          (do_keyword)
+          body: (code_block
+            (begin_keyword)
+            (preproc_conditional_statement
+              (preproc_if
+                (preproc_open)
+                condition: (preproc_not_expression
+                  (identifier)))
+              (call_expression
+                function: (identifier)
+                arguments: (argument_list
+                  (string_literal)
+                  (identifier)))
+              (preproc_endif
+                (preproc_close)))
+            (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (identifier)))
+            (end_keyword)))
+        (end_keyword)))))

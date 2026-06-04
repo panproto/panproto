@@ -1,0 +1,198 @@
+================================================================================
+BASELINE: ShowFilter property (boolean pattern)
+================================================================================
+
+page 50300 "ShowFilter Test"
+{
+    ShowFilter = true;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (boolean))))
+
+================================================================================
+BASELINE: DataItemTableView property (source_table_view_value pattern)
+================================================================================
+
+report 50700 "DataItemTableView Test"
+{
+    dataset
+    {
+        dataitem(Customer; Customer)
+        {
+            DataItemTableView = sorting("No.") where("Status" = filter(Active));
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (property
+          name: (property_name)
+          value: (sorting_value
+            (quoted_identifier)
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (quoted_identifier)
+                  (filter_keyword)
+                  value: (filter_value
+                    (identifier)))))))))))
+
+================================================================================
+BASELINE: SourceTableView property (source_table_view_value pattern)
+================================================================================
+
+page 50800 "SourceTableView Test"
+{
+    SourceTableView = sorting("No.") where("Active" = const(true));
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (sorting_value
+        (quoted_identifier)
+        (where_clause
+          (where_conditions
+            (where_condition
+              field: (quoted_identifier)
+              value: (boolean))))))))
+
+================================================================================
+BASELINE: filters_property simple usage (mixed pattern)
+================================================================================
+
+query 50500 "Filters Test"
+{
+    elements
+    {
+        dataitem(Customer; "Customer")
+        {
+            Filters = "No.";
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (quoted_identifier))))))
+
+================================================================================
+BASELINE: FILTER function with range (detailed pattern)
+================================================================================
+
+report 50600 "FilterRange Test"
+{
+    dataset
+    {
+        dataitem(TestData; "Integer")
+        {
+            DataItemTableView = sorting(Number) where(Number = filter(1 .. 100));
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (sorting_value
+            (identifier)
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (identifier)
+                  (filter_keyword)
+                  value: (filter_value
+                    (integer)
+                    (integer)))))))))))
+
+================================================================================
+BASELINE: FILTER function with identifier (detailed pattern)
+================================================================================
+
+report 50650 "FilterIdentifier Test"
+{
+    dataset
+    {
+        dataitem(TestData; "Customer")
+        {
+            DataItemTableView = sorting("No.") where("Status" = filter(Active));
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (sorting_value
+            (quoted_identifier)
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (quoted_identifier)
+                  (filter_keyword)
+                  value: (filter_value
+                    (identifier)))))))))))

@@ -1,0 +1,103 @@
+===
+api/xmlRendererElement.xml.pkl
+===
+
+import "pkl:xml"
+
+diskSizes = new Listing { 1200.gb; 2.tb }
+
+output {
+  renderer = new xml.Renderer {
+    rootElementName = "machine"
+    converters {
+      ["diskSizes"] = (dss) -> dss.toList().map((ds) -> (xml.Element("disk")) { (xml.Element(ds.unit)) { ds.value } })
+    }
+  }
+}
+
+---
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectElement
+          (qualifiedAccessExpr
+            (intLiteralExpr)
+            (identifier)))
+        (objectElement
+          (qualifiedAccessExpr
+            (intLiteralExpr)
+            (identifier))))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)
+              (identifier)))
+          (objectBody
+            (objectProperty
+              (identifier)
+              (slStringLiteralExpr
+                (slStringLiteralPart)))
+            (objectProperty
+              (identifier)
+              (objectBody
+                (objectEntry
+                  (slStringLiteralExpr
+                    (slStringLiteralPart))
+                  (functionLiteralExpr
+                    (parameterList
+                      (typedIdentifier
+                        (identifier)))
+                    (qualifiedAccessExpr
+                      (qualifiedAccessExpr
+                        (unqualifiedAccessExpr
+                          (identifier))
+                        (identifier)
+                        (argumentList))
+                      (identifier)
+                      (argumentList
+                        (functionLiteralExpr
+                          (parameterList
+                            (typedIdentifier
+                              (identifier)))
+                          (amendExpr
+                            (parenthesizedExpr
+                              (qualifiedAccessExpr
+                                (unqualifiedAccessExpr
+                                  (identifier))
+                                (identifier)
+                                (argumentList
+                                  (slStringLiteralExpr
+                                    (slStringLiteralPart)))))
+                            (objectBody
+                              (objectElement
+                                (amendExpr
+                                  (parenthesizedExpr
+                                    (qualifiedAccessExpr
+                                      (unqualifiedAccessExpr
+                                        (identifier))
+                                      (identifier)
+                                      (argumentList
+                                        (qualifiedAccessExpr
+                                          (unqualifiedAccessExpr
+                                            (identifier))
+                                          (identifier)))))
+                                  (objectBody
+                                    (objectElement
+                                      (qualifiedAccessExpr
+                                        (unqualifiedAccessExpr
+                                          (identifier))
+                                        (identifier)))))))))))))))))))))

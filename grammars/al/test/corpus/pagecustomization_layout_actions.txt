@@ -1,0 +1,205 @@
+================================================================================
+Page customization with layout section
+================================================================================
+
+pagecustomization "Business Manager Evaluation RC" customizes "Business Manager Role Center"
+{
+    layout
+    {
+        modify(Control9)
+        {
+            Visible = false;
+        }
+
+        modify("User Tasks Activities")
+        {
+            Visible = false;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pagecustomization_declaration
+    (pagecustomization_keyword)
+    object_name: (quoted_identifier)
+    (customizes_keyword)
+    target_page: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (modify_modification
+        target: (identifier)
+        (property
+          name: (property_name)
+          value: (boolean)))
+      (modify_modification
+        target: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (boolean))))))
+
+================================================================================
+Page customization with actions section
+================================================================================
+
+pagecustomization "My Page Customization" customizes "Customer List"
+{
+    actions
+    {
+        modify(NewSalesOrder)
+        {
+            Visible = false;
+        }
+        
+        addafter(Customer)
+        {
+            action(MyNewAction)
+            {
+                Caption = 'My Action';
+                ApplicationArea = All;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pagecustomization_declaration
+    (pagecustomization_keyword)
+    object_name: (quoted_identifier)
+    (customizes_keyword)
+    target_page: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (modify_action_modification
+        target: (identifier)
+        (property
+          name: (property_name)
+          value: (boolean)))
+      (addafter_action_modification
+        target: (identifier)
+        (action_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (identifier)))))))
+
+================================================================================
+Page customization with layout and actions sections
+================================================================================
+
+namespace Microsoft.Finance.RoleCenters;
+
+pagecustomization "Business Manager Evaluation RC" customizes "Business Manager Role Center"
+{
+    layout
+    {
+        modify(Control9)
+        {
+            Visible = false;
+        }
+
+        modify(Emails)
+        {
+            Visible = false;
+        }
+
+        modify("Favorite Accounts")
+        {
+            Visible = false;
+        }
+    }
+
+    actions
+    {
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (namespace_declaration
+    (namespace_keyword)
+    name: (namespace_name
+      (identifier)
+      (identifier)
+      (identifier)))
+  (pagecustomization_declaration
+    (pagecustomization_keyword)
+    object_name: (quoted_identifier)
+    (customizes_keyword)
+    target_page: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (modify_modification
+        target: (identifier)
+        (property
+          name: (property_name)
+          value: (boolean)))
+      (modify_modification
+        target: (identifier)
+        (property
+          name: (property_name)
+          value: (boolean)))
+      (modify_modification
+        target: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (boolean))))
+    (actions_section
+      (actions_keyword))))
+
+================================================================================
+Page customization with views section
+================================================================================
+
+pagecustomization "Sales Order Processor Views" customizes "Sales Order List"
+{
+    views
+    {
+        addfirst
+        {
+            view(PendingOrders)
+            {
+                Caption = 'Pending Orders';
+                OrderBy = ascending("Document Date");
+                Filters = where(Status = const(Open));
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pagecustomization_declaration
+    (pagecustomization_keyword)
+    object_name: (quoted_identifier)
+    (customizes_keyword)
+    target_page: (quoted_identifier)
+    (views_section
+      (views_keyword)
+      (addfirst_views_modification
+        (view_definition
+          (view_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (order_by_list
+              (order_by_item
+                (quoted_identifier))))
+          (property
+            name: (property_name)
+            value: (where_clause
+              (where_conditions
+                (where_condition
+                  field: (identifier)
+                  value: (identifier))))))))))

@@ -1,0 +1,14 @@
+===
+literal
+===
+
+package foo
+
+"Hello world!"
+
+---
+
+(source_file
+	(package_clause
+		(package_identifier))
+	(string))

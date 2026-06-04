@@ -1,0 +1,71 @@
+================================================================================
+ExtendedDatatype property with Barcode value test
+================================================================================
+
+table 50000 "Test Table"
+{
+    fields
+    {
+        field(1; "Serial Number"; Code[50])
+        {
+            Caption = 'Serial Number';
+            ExtendedDatatype = Barcode;
+        }
+        field(2; "Item Code"; Text[20])
+        {
+            Caption = 'Item Code';
+            extendeddatatype = Barcode;
+        }
+        field(3; "Package ID"; Code[30])
+        {
+            Caption = 'Package ID';
+            EXTENDEDDATATYPE = Barcode;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (code_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (identifier)))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (identifier)))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (code_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (identifier))))))

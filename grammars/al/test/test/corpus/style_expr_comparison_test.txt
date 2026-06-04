@@ -1,0 +1,61 @@
+================================================================================
+StyleExpr with comparison expressions and enum values
+================================================================================
+
+page 12345 "Test Page"
+{
+    layout
+    {
+        area(Content)
+        {
+            field("Test Field"; TestField)
+            {
+                ApplicationArea = All;
+                StyleExpr = "Value Type" = "Value Type"::TableRecordIdentifier;
+            }
+            field("Another Field"; AnotherField)
+            {
+                StyleExpr = Status <> Status::Open;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (quoted_identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (property_expression
+              (comparison_expression
+                left: (quoted_identifier)
+                operator: (comparison_operator)
+                right: (qualified_enum_value
+                  enum_type: (quoted_identifier)
+                  value: (identifier))))))
+        (page_field
+          name: (quoted_identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (property_expression
+              (comparison_expression
+                left: (identifier)
+                operator: (comparison_operator)
+                right: (qualified_enum_value
+                  enum_type: (identifier)
+                  value: (identifier))))))))))

@@ -1,0 +1,11 @@
+===
+errors/invalidTripleDotSyntax1.pkl
+===
+
+import ".../"
+---
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart))))

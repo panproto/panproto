@@ -1,0 +1,279 @@
+================================================================================
+Page action area embedding
+================================================================================
+
+page 123 "Test Page"
+{
+    actions
+    {
+        area(embedding)
+        {
+            action("Test Action")
+            {
+                ApplicationArea = All;
+                Caption = 'Test Action';
+                RunObject = Page "Some Page";
+                RunPageView = WHERE(Status = CONST(Open));
+                Visible = ShowControl;
+                ObsoleteState = Pending;
+                ObsoleteTag = '12.0';
+                ObsoleteReason = 'Deprecated with modern views';
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_declaration
+          name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (object_reference_value
+              (page_keyword)
+              (quoted_identifier)))
+          (property
+            name: (property_name)
+            value: (where_clause
+              (where_conditions
+                (where_condition
+                  field: (identifier)
+                  value: (identifier)))))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (string_literal)))))))
+
+================================================================================
+Page action area sections with groups
+================================================================================
+
+page 456 "Test Page"
+{
+    actions
+    {
+        area(sections)
+        {
+            group("Posted Documents")
+            {
+                Caption = 'Posted Documents';
+                Image = FiledPosted;
+                action("Posted Purchase Receipts")
+                {
+                    ApplicationArea = All;
+                    Caption = 'Posted Purchase Receipts';
+                    RunObject = Page "Posted Purchase Receipts";
+                }
+            }
+        }
+        area(processing)
+        {
+            group("Data Deletion")
+            {
+                Caption = 'Data Deletion';
+                action("Delete Data")
+                {
+                    ApplicationArea = All;
+                    Caption = 'Delete Data...';
+                    Image = RemoveLine;
+                    RunObject = Report "Delete Data Report";
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_group_section
+          (group_keyword)
+          name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (action_declaration
+            name: (quoted_identifier)
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (object_reference_value
+                (page_keyword)
+                (quoted_identifier))))))
+      (action_area_section
+        (area_keyword)
+        (action_group_section
+          (group_keyword)
+          name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (action_declaration
+            name: (quoted_identifier)
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (object_reference_value
+                (report_keyword)
+                (quoted_identifier)))))))))
+
+================================================================================
+Action with complex RunPageView WHERE clause
+================================================================================
+
+page 789 "Test Page"
+{
+    actions
+    {
+        area(embedding)
+        {
+            action("Filtered Action")
+            {
+                ApplicationArea = All;
+                Caption = 'Filtered Action';
+                RunObject = Page "Purchase Invoices";
+                RunPageView = WHERE(Status = CONST("Pending Approval"));
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_declaration
+          name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (object_reference_value
+              (page_keyword)
+              (quoted_identifier)))
+          (property
+            name: (property_name)
+            value: (where_clause
+              (where_conditions
+                (where_condition
+                  field: (identifier)
+                  value: (quoted_identifier))))))))))
+
+================================================================================
+Action obsolete properties
+================================================================================
+
+page 101 "Test Page"
+{
+    actions
+    {
+        area(embedding)
+        {
+            action("Obsolete Action")
+            {
+                ApplicationArea = All;
+                Caption = 'Old Action';
+                RunObject = Page "Old Page";
+                Visible = ShowControl;
+                ObsoleteState = Pending;
+                ObsoleteTag = '15.0';
+                ObsoleteReason = 'Use new modern action instead';
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_declaration
+          name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (object_reference_value
+              (page_keyword)
+              (quoted_identifier)))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (string_literal)))))))

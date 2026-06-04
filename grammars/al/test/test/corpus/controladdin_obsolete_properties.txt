@@ -1,0 +1,216 @@
+================================================================================
+ControlAddIn with all obsolete properties
+================================================================================
+
+controladdin "Test Label"
+{
+    ObsoleteState = Pending;
+    ObsoleteReason = 'Not used anymore';
+    ObsoleteTag = '1.0';
+
+    Scripts = 'script1.js', 'script2.js';
+    HorizontalStretch = false;
+    MinimumHeight = 100;
+
+    event OnReady();
+    procedure DoSomething();
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (controladdin_declaration
+    (controladdin_keyword)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (string_literal))
+        (option_member
+          (string_literal))))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (integer))
+    (event_declaration
+      (event_keyword)
+      name: (identifier))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix))))
+
+================================================================================
+ControlAddIn with ObsoleteState Removed
+================================================================================
+
+controladdin "Removed Control"
+{
+    ObsoleteState = Removed;
+    ObsoleteReason = 'Feature removed';
+
+    MaximumWidth = 500;
+    VerticalShrink = true;
+
+    event OnDispose();
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (controladdin_declaration
+    (controladdin_keyword)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (integer))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (event_declaration
+      (event_keyword)
+      name: (identifier))))
+
+================================================================================
+ControlAddIn with only ObsoleteState property
+================================================================================
+
+controladdin SimpleObsolete
+{
+    ObsoleteState = Pending;
+
+    HorizontalShrink = false;
+    RequestedHeight = 200;
+
+    procedure Initialize();
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (controladdin_declaration
+    (controladdin_keyword)
+    object_name: (identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (integer))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix))))
+
+================================================================================
+ControlAddIn with case variations of obsolete state
+================================================================================
+
+controladdin "Case Test"
+{
+    ObsoleteState = PENDING;
+    ObsoleteReason = 'Testing case sensitivity';
+
+    MinimumWidth = 50;
+
+    event OnInit();
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (controladdin_declaration
+    (controladdin_keyword)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (integer))
+    (event_declaration
+      (event_keyword)
+      name: (identifier))))
+
+================================================================================
+ControlAddIn mixing obsolete and normal properties
+================================================================================
+
+controladdin "Mixed Properties"
+{
+    Scripts = 'main.js';
+    ObsoleteState = Removed;
+    HorizontalStretch = true;
+    ObsoleteTag = '2.5';
+    RequestedWidth = 300;
+    ObsoleteReason = 'Replaced by new control';
+
+    event OnLoad(data: Text);
+    procedure SetValue(value: Integer);
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (controladdin_declaration
+    (controladdin_keyword)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (integer))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (event_declaration
+      (event_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (text_type)))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (interface_procedure_suffix))))

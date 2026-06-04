@@ -1,0 +1,89 @@
+=============================================================================
+setting key
+=============================================================================
+
+[section]
+    setting = 1
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (integer))))
+
+=============================================================================
+setting key with spaces
+=============================================================================
+
+[section]
+    setting key with spaces = 1
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (integer))))
+
+
+
+=============================================================================
+setting key with unicode
+=============================================================================
+
+[section]
+
+    çAб éბ: юㄱ = 3
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (integer))))
+
+=============================================================================
+unsupported: setting key with line return
+:skip
+=============================================================================
+
+[section]
+    set\
+    ting = 1
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key
+        (line_continuation))
+      operator: (assignment_operator)
+      value: (integer))))
+
+=============================================================================
+error: two consecutive whitespaces in key
+:error
+=============================================================================
+
+[section]
+    setting  name = 2
+
+-----------------------------------------------------------------------------
+
+(pass)

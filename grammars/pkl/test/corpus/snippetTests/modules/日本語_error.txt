@@ -1,0 +1,14 @@
+===
+modules/日本語_error.pkl
+===
+
+日本語 = throw("Error reporting should also handle unicode filenames!")
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (throwExpr
+      (slStringLiteralExpr
+        (slStringLiteralPart)))))

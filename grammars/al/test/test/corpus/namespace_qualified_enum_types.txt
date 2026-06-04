@@ -1,0 +1,215 @@
+================================================================================
+Namespace-qualified enum type in field declaration
+================================================================================
+
+table 123 TestTable
+{
+    fields
+    {
+        field(1; Status; Enum Microsoft.Manufacturing.Document."Production Order Status")
+        {
+            Caption = 'Status';
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (object_reference_type
+            object_type: (enum_keyword)
+            reference: (identifier)
+            reference: (identifier)
+            reference: (identifier)
+            reference: (quoted_identifier)))
+        (property
+          name: (property_name)
+          value: (string_literal))))))
+
+================================================================================
+Multiple namespace-qualified enum fields
+================================================================================
+
+table 124 MultiEnumTable
+{
+    fields
+    {
+        field(1; Status1; Enum Microsoft.Manufacturing.Document."Production Order Status")
+        {
+        }
+        field(2; Status2; Enum Microsoft.Inventory.Planning."Requisition Status")
+        {
+        }
+        field(3; Type; Enum Microsoft.Sales.Customer."Customer Type")
+        {
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (object_reference_type
+            object_type: (enum_keyword)
+            reference: (identifier)
+            reference: (identifier)
+            reference: (identifier)
+            reference: (quoted_identifier))))
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (object_reference_type
+            object_type: (enum_keyword)
+            reference: (identifier)
+            reference: (identifier)
+            reference: (identifier)
+            reference: (quoted_identifier))))
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (object_reference_type
+            object_type: (enum_keyword)
+            reference: (identifier)
+            reference: (identifier)
+            reference: (identifier)
+            reference: (quoted_identifier)))))))
+
+================================================================================
+Namespace-qualified enum with unquoted identifier
+================================================================================
+
+table 125 UnquotedEnum
+{
+    fields
+    {
+        field(1; OrderType; Enum Microsoft.Sales.Document.OrderType)
+        {
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (object_reference_type
+            object_type: (enum_keyword)
+            reference: (identifier)
+            reference: (identifier)
+            reference: (identifier)
+            reference: (identifier)))))))
+
+================================================================================
+Namespace-qualified enum in variable declaration
+================================================================================
+
+codeunit 126 TestCodeunit
+{
+    var
+        MyStatus: Enum Microsoft.Manufacturing.Document."Production Order Status";
+        MyType: Enum Microsoft.Sales.Customer."Customer Type";
+
+    procedure TestProcedure()
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (object_reference_type
+            object_type: (enum_keyword)
+            reference: (identifier)
+            reference: (identifier)
+            reference: (identifier)
+            reference: (quoted_identifier))))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (object_reference_type
+            object_type: (enum_keyword)
+            reference: (identifier)
+            reference: (identifier)
+            reference: (identifier)
+            reference: (quoted_identifier)))))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))
+
+================================================================================
+Namespace-qualified enum in procedure parameter
+================================================================================
+
+codeunit 127 ParamTest
+{
+    procedure TestWithEnumParam(Status: Enum Microsoft.Manufacturing.Document."Production Order Status")
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (object_reference_type
+              object_type: (enum_keyword)
+              reference: (identifier)
+              reference: (identifier)
+              reference: (identifier)
+              reference: (quoted_identifier)))))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))

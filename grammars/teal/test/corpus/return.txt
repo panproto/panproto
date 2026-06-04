@@ -1,0 +1,49 @@
+==============================
+Empty
+==============================
+
+return
+
+---
+
+(program (return_statement))
+
+==============================
+One expression
+==============================
+
+return 4
+
+---
+
+(program (return_statement (number)))
+
+==============================
+Expression list
+==============================
+
+return 4, 5, 4
+
+---
+
+(program (return_statement (number) (number) (number)))
+
+==============================
+Expression list with parens
+==============================
+
+return 4, (5), 4
+
+---
+
+(program (return_statement (number) (parenthesized_expression (number)) (number)))
+
+==============================
+Return that looks like a function call
+==============================
+
+return(4, 5, 4)
+
+---
+
+(program (return_statement (number) (number) (number)))

@@ -1,0 +1,231 @@
+================================================================================
+Interface procedure with return type and semicolon
+================================================================================
+
+interface "No. Series - Single"
+{
+    procedure PeekNextNo(NoSeriesLine: Record "No. Series Line"; UsageDate: Date): Code[20];
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (interface_declaration
+    (interface_keyword)
+    object_name: (quoted_identifier)
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier))))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (code_type
+            length: (integer)))))))
+
+================================================================================
+Interface procedure with multiple parameters and return type
+================================================================================
+
+interface "My Interface"
+{
+    procedure GetNextNo(var NoSeriesLine: Record "No. Series Line"; UsageDate: Date; HideErrorsAndWarnings: Boolean): Code[20];
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (interface_declaration
+    (interface_keyword)
+    object_name: (quoted_identifier)
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier))))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type)))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (code_type
+            length: (integer)))))))
+
+================================================================================
+Interface procedure with simple return type
+================================================================================
+
+interface "Production Interface"
+{
+    procedure MayProduceGaps(): Boolean;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (interface_declaration
+    (interface_keyword)
+    object_name: (quoted_identifier)
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (basic_type))))))
+
+================================================================================
+Interface procedure without return type
+================================================================================
+
+interface "Process Interface"
+{
+    procedure ProcessData(DataRec: Record "Data Record");
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (interface_declaration
+    (interface_keyword)
+    object_name: (quoted_identifier)
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier)))))
+      (interface_procedure_suffix))))
+
+================================================================================
+Interface with multiple procedures
+================================================================================
+
+interface "No. Series - Single"
+{
+    /// <summary>
+    /// Get the next number in the No. Series, without incrementing the number.
+    /// </summary>
+    /// <param name="NoSeriesLine">The No. Series line to use.</param>
+    /// <param name="UsageDate">The date of retrieval, this will influence which line is used.</param>
+    /// <returns>The next number in the series.</returns>
+    procedure PeekNextNo(NoSeriesLine: Record "No. Series Line"; UsageDate: Date): Code[20];
+
+    /// <summary>
+    /// Get the next number in the No. Series.
+    /// </summary>
+    procedure GetNextNo(var NoSeriesLine: Record "No. Series Line"; UsageDate: Date; HideErrorsAndWarnings: Boolean): Code[20];
+
+    /// <summary>
+    /// Get the last number used in the No. Series.
+    /// </summary>
+    procedure GetLastNoUsed(NoSeriesLine: Record "No. Series Line"): Code[20];
+
+    /// <summary>
+    /// Specifies whether the implementation may produce gaps in the No. Series.
+    /// </summary>
+    procedure MayProduceGaps(): Boolean;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (interface_declaration
+    (interface_keyword)
+    object_name: (quoted_identifier)
+    (comment)
+    (comment)
+    (comment)
+    (comment)
+    (comment)
+    (comment)
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier))))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (code_type
+            length: (integer)))))
+    (comment)
+    (comment)
+    (comment)
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier))))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type)))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (code_type
+            length: (integer)))))
+    (empty_statement)
+    (comment)
+    (comment)
+    (comment)
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier)))))
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (code_type
+            length: (integer)))))
+    (empty_statement)
+    (comment)
+    (comment)
+    (comment)
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (basic_type))))
+    (empty_statement)))

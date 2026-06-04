@@ -1,0 +1,194 @@
+================================================================================
+Page customization with addfirst views
+================================================================================
+
+pagecustomization "Test Page Customization" customizes "Target Page"
+{
+    views
+    {
+        addfirst
+        {
+            view(Open)
+            {
+                Caption = 'Open';
+                Filters = where(Status = const(Open));
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pagecustomization_declaration
+    (pagecustomization_keyword)
+    object_name: (quoted_identifier)
+    (customizes_keyword)
+    target_page: (quoted_identifier)
+    (views_section
+      (views_keyword)
+      (addfirst_views_modification
+        (view_definition
+          (view_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (where_clause
+              (where_conditions
+                (where_condition
+                  field: (identifier)
+                  value: (identifier))))))))))
+
+================================================================================
+Page customization with addlast views
+================================================================================
+
+pagecustomization "Test Customization" customizes "Base Page"
+{
+    views
+    {
+        addlast
+        {
+            view(Closed)
+            {
+                Caption = 'Closed Items';
+                Filters = where(Status = const(Closed));
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pagecustomization_declaration
+    (pagecustomization_keyword)
+    object_name: (quoted_identifier)
+    (customizes_keyword)
+    target_page: (quoted_identifier)
+    (views_section
+      (views_keyword)
+      (addlast_views_modification
+        (view_definition
+          (view_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (where_clause
+              (where_conditions
+                (where_condition
+                  field: (identifier)
+                  value: (identifier))))))))))
+
+================================================================================
+Page customization with addafter views
+================================================================================
+
+pagecustomization "Enhanced Page" customizes "Original Page"
+{
+    views
+    {
+        addafter(ExistingView)
+        {
+            view(NewView)
+            {
+                Caption = 'New View';
+                Filters = where(Type = const(Special));
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pagecustomization_declaration
+    (pagecustomization_keyword)
+    object_name: (quoted_identifier)
+    (customizes_keyword)
+    target_page: (quoted_identifier)
+    (views_section
+      (views_keyword)
+      (addafter_views_modification
+        target: (identifier)
+        (view_definition
+          (view_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (where_clause
+              (where_conditions
+                (where_condition
+                  field: (identifier)
+                  value: (identifier))))))))))
+
+================================================================================
+Page customization with multiple views
+================================================================================
+
+pagecustomization "Multi View Page" customizes "Base Page"
+{
+    views
+    {
+        addfirst
+        {
+            view(Active)
+            {
+                Caption = 'Active Records';
+                Filters = where(Status = const(Active));
+            }
+            view(Pending)
+            {
+                Caption = 'Pending Items';
+                Filters = where(Status = const(Pending));
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pagecustomization_declaration
+    (pagecustomization_keyword)
+    object_name: (quoted_identifier)
+    (customizes_keyword)
+    target_page: (quoted_identifier)
+    (views_section
+      (views_keyword)
+      (addfirst_views_modification
+        (view_definition
+          (view_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (where_clause
+              (where_conditions
+                (where_condition
+                  field: (identifier)
+                  value: (identifier))))))
+        (view_definition
+          (view_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (where_clause
+              (where_conditions
+                (where_condition
+                  field: (identifier)
+                  value: (identifier))))))))))

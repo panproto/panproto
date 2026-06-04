@@ -1,0 +1,622 @@
+==================
+github search #1
+==================
+user  nginx;
+worker_processes auto;
+worker_cpu_affinity auto;
+pcre_jit on;
+timer_resolution 100ms;
+
+error_log  /var/log/nginx/error.log warn;
+pid        /var/run/nginx.pid;
+
+events {
+    worker_connections  1024;
+    worker_aio_requests 128;
+}
+
+thread_pool metadata threads=32;
+thread_pool default threads=32;
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+
+    log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                      '$status $body_bytes_sent "$http_referer" '
+                      '"$http_user_agent" "$http_x_forwarded_for"';
+
+    access_log  /var/log/nginx/access.log  main;
+
+    sendfile           on;
+    sendfile_max_chunk 2m;
+    tcp_nopush         on;
+    aio_write          on;
+    directio           10m;
+
+    keepalive_timeout  65;
+
+    include /etc/nginx/conf.d/*.conf;
+}
+
+---
+
+    (source_file
+      (directive
+        (keyword)
+        (value))
+      (directive
+        (keyword)
+        (auto))
+      (directive
+        (keyword)
+        (auto))
+      (directive
+        (keyword)
+        (boolean
+          (on)))
+      (directive
+        (keyword)
+        (time))
+      (directive
+        (keyword)
+        (file)
+        (level))
+      (directive
+        (keyword)
+        (file))
+      (directive
+        (keyword)
+        (block
+          (directive
+            (keyword)
+            (numeric_literal))
+          (directive
+            (keyword)
+            (numeric_literal))))
+      (directive
+        (keyword)
+        (value)
+        (variable
+          (keyword)
+          (numeric_literal)))
+      (directive
+        (keyword)
+        (value)
+        (variable
+          (keyword)
+          (numeric_literal)))
+      (attribute
+        (keyword)
+        (block
+          (directive
+            (keyword)
+            (file))
+          (attribute
+            (keyword)
+            (value))
+          (attribute
+            (keyword)
+            (value)
+            (quoted_string_literal)
+            (quoted_string_literal)
+            (quoted_string_literal))
+          (attribute
+            (keyword)
+            (value)
+            (value))
+          (attribute
+            (keyword)
+            (boolean
+              (on)))
+          (attribute
+            (keyword)
+            (time))
+          (attribute
+            (keyword)
+            (boolean
+              (on)))
+          (attribute
+            (keyword)
+            (boolean
+              (on)))
+          (attribute
+            (keyword)
+            (time))
+          (attribute
+            (keyword)
+            (numeric_literal))
+          (directive
+            (keyword)
+            (mask)))))
+
+
+==================
+github search #2
+==================
+events {
+   worker_connections 32768; #
+   multi_accept off; # this comment causes the closing bracket below to be an (ERROR); putting just "#" with no content causes it to be parsed as a (comment)
+
+    http {
+       include /etc/nginx/mime.types;
+       access_log off;
+       server_tokens off;
+       msie_padding off;
+
+       # errors here
+       sendfile off; #default
+       tcp_nopush off; #default
+       tcp_nodelay on; #default
+       keepalive_timeout 65;
+       keepalive_disable none; #default msie6
+       keepalive_requests 300000; #default 100
+
+       js_path "/etc/nginx/njs/";
+
+       #js_import utils.js;
+       js_import main from /njs/hello.js;
+
+       server {
+          listen 8080 default_server reuseport deferred fastopen=4096;
+          # 8080 default_server reuseport deferred backlog=65535 fastopen=4096;
+
+          location = /plaintext {
+             js_content main.hello;
+          }
+
+          location = /json {
+             js_content main.json;
+          }
+
+          #location = /version {
+          #   js_content utils.version;
+          #}
+       }
+    }
+}
+
+---
+
+    (source_file
+      (directive
+        (keyword)
+        (block
+          (directive
+            (keyword)
+            (numeric_literal)
+            (comment))
+          (directive
+            (keyword)
+            (boolean
+              (off))
+            (comment))
+          (attribute
+            (keyword)
+            (block
+              (directive
+                (keyword)
+                (file))
+              (attribute
+                (keyword)
+                (boolean
+                  (off)))
+              (attribute
+                (keyword)
+                (boolean
+                  (off)))
+              (attribute
+                (keyword)
+                (boolean
+                  (off)))
+              (comment)
+              (attribute
+                (keyword)
+                (boolean
+                  (off))
+                (comment))
+              (attribute
+                (keyword)
+                (boolean
+                  (off))
+                (comment))
+              (attribute
+                (keyword)
+                (boolean
+                  (on))
+                (comment))
+              (attribute
+                (keyword)
+                (numeric_literal))
+              (attribute
+                (keyword)
+                (value)
+                (comment))
+              (attribute
+                (keyword)
+                (numeric_literal)
+                (comment))
+              (attribute
+                (keyword)
+                (string_literal))
+              (comment)
+              (attribute
+                (keyword)
+                (value)
+                (value)
+                (value))
+              (attribute
+                (keyword)
+                (block
+                  (attribute
+                    (keyword)
+                    (numeric_literal)
+                    (value)
+                    (value)
+                    (value)
+                    (value))
+                  (comment)
+                  (location
+                    (location_modifier)
+                    (location_route)
+                    (block
+                      (attribute
+                        (keyword)
+                        (value))))
+                  (location
+                    (location_modifier)
+                    (location_route)
+                    (block
+                      (attribute
+                        (keyword)
+                        (value))))
+                  (comment)
+                  (comment)
+                  (comment))))))))
+
+==================
+github search #3
+==================
+worker_processes  5;  ## Default: 1
+pid        /var/run/nginx.pid;
+
+daemon off;
+
+worker_rlimit_nofile 8192;
+
+events {
+    worker_aio_requests 32;
+    worker_connections 4096;
+    multi_accept on;
+    use epoll;
+}
+
+http {
+
+    # Remove meta server config
+    server_name_in_redirect off;
+    server_tokens off;
+
+    access_log /var/log/nginx/access.log combined buffer=256k flush=5m;
+    error_log /var/log/nginx/error.log;
+
+    log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                      '$status $body_bytes_sent "$http_referer" '
+                      '"$http_user_agent" "$http_x_forwarded_for"';
+
+    # Add protection headers
+    add_header X-Frame-Options SAMEORIGIN;
+    add_header X-Content-Type-Options nosniff;
+    add_header X-XSS-Protection "1; mode=block";
+
+    server_names_hash_bucket_size 128;
+
+    # Add tcp nopush and nodelay
+    tcp_nopush on;
+    tcp_nodelay on;
+
+    # General tuning
+    keepalive_timeout 20;
+    client_body_timeout 20;
+    client_body_buffer_size 256k;
+    client_header_timeout 20;
+    client_header_buffer_size 128;
+    client_max_body_size  200M;
+    reset_timedout_connection on;
+    send_timeout 20;
+
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+    sendfile        on;
+
+    # Gzip
+    gzip on;
+    gzip_http_version  1.0;
+    gzip_proxied any;
+    gzip_min_length 256;
+    gzip_comp_level 5;
+    gzip_types text/plain text/css application/javascript application/json application/x-javascript text/xml application/xml application/xml+rss text/javascript;
+    gzip_vary on;
+    gzip_buffers 64 16k;
+    gzip_disable      "MSIE [1-6]\.(?!.*SV1)";
+
+    # Gunzip
+    gunzip on;
+
+    # Open file cache
+    open_file_cache max=32768 inactive=60s;
+    open_file_cache_valid 40s;
+    open_file_cache_min_uses 2;
+    open_file_cache_errors on;
+
+    # If we receive X-Forwarded-Proto, pass it through; otherwise, pass along the
+    # scheme used to connect to this server
+    map $http_x_forwarded_proto $proxy_x_forwarded_proto {
+      default $http_x_forwarded_proto;
+      '' $scheme;
+    }
+
+    # If we receive Upgrade, set Connection to "upgrade"; otherwise, delete any
+    # Connection header that may have been passed to this server
+    map $http_upgrade $proxy_connection {
+      default upgrade;
+      '' close;
+    }
+
+    proxy_http_version 1.1;
+    proxy_send_timeout 120;
+    proxy_read_timeout 300;
+    proxy_buffering    off;
+    proxy_set_header Host $http_host;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $proxy_connection;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $proxy_x_forwarded_proto;
+
+    include /etc/nginx/conf.d/*.conf;
+}
+
+---
+    (source_file
+      (directive
+        (keyword)
+        (numeric_literal)
+        (comment))
+      (directive
+        (keyword)
+        (file))
+      (directive
+        (keyword)
+        (boolean
+          (off)))
+      (directive
+        (keyword)
+        (numeric_literal))
+      (directive
+        (keyword)
+        (block
+          (directive
+            (keyword)
+            (numeric_literal))
+          (directive
+            (keyword)
+            (numeric_literal))
+          (directive
+            (keyword)
+            (boolean
+              (on)))
+          (directive
+            (keyword)
+            (constant))))
+      (attribute
+        (keyword)
+        (block
+          (comment)
+          (attribute
+            (keyword)
+            (boolean
+              (off)))
+          (attribute
+            (keyword)
+            (boolean
+              (off)))
+          (attribute
+            (keyword)
+            (value)
+            (value)
+            (value)
+            (value))
+          (directive
+            (keyword)
+            (file))
+          (attribute
+            (keyword)
+            (value)
+            (quoted_string_literal)
+            (quoted_string_literal)
+            (quoted_string_literal))
+          (comment)
+          (attribute
+            (keyword)
+            (value)
+            (value))
+          (attribute
+            (keyword)
+            (value)
+            (value))
+          (attribute
+            (keyword)
+            (value)
+            (string_literal))
+          (attribute
+            (keyword)
+            (numeric_literal))
+          (comment)
+          (attribute
+            (keyword)
+            (boolean
+              (on)))
+          (attribute
+            (keyword)
+            (boolean
+              (on)))
+          (comment)
+          (attribute
+            (keyword)
+            (numeric_literal))
+          (attribute
+            (keyword)
+            (numeric_literal))
+          (attribute
+            (keyword)
+            (size))
+          (attribute
+            (keyword)
+            (numeric_literal))
+          (attribute
+            (keyword)
+            (numeric_literal))
+          (attribute
+            (keyword)
+            (time))
+          (attribute
+            (keyword)
+            (boolean
+              (on)))
+          (attribute
+            (keyword)
+            (numeric_literal))
+          (directive
+            (keyword)
+            (file))
+          (attribute
+            (keyword)
+            (value))
+          (attribute
+            (keyword)
+            (boolean
+              (on)))
+          (comment)
+          (attribute
+            (keyword)
+            (boolean
+              (on)))
+          (attribute
+            (keyword)
+            (numeric_literal))
+          (attribute
+            (keyword)
+            (value))
+          (attribute
+            (keyword)
+            (numeric_literal))
+          (attribute
+            (keyword)
+            (numeric_literal))
+          (attribute
+            (keyword)
+            (value)
+            (value)
+            (value)
+            (value)
+            (value)
+            (value)
+            (value)
+            (value)
+            (value))
+          (attribute
+            (keyword)
+            (boolean
+              (on)))
+          (attribute
+            (keyword)
+            (numeric_literal)
+            (size))
+          (attribute
+            (keyword)
+            (string_literal))
+          (comment)
+          (attribute
+            (keyword)
+            (boolean
+              (on)))
+          (comment)
+          (attribute
+            (keyword)
+            (value)
+            (value))
+          (attribute
+            (keyword)
+            (time))
+          (attribute
+            (keyword)
+            (numeric_literal))
+          (attribute
+            (keyword)
+            (boolean
+              (on)))
+          (comment)
+          (comment)
+          (map
+            (var)
+            (var)
+            (block
+              (attribute
+                (keyword)
+                (value))
+              (attribute
+                (keyword)
+                (value))))
+          (comment)
+          (comment)
+          (map
+            (var)
+            (var)
+            (block
+              (attribute
+                (keyword)
+                (value))
+              (attribute
+                (keyword)
+                (value))))
+          (attribute
+            (keyword)
+            (numeric_literal))
+          (attribute
+            (keyword)
+            (numeric_literal))
+          (attribute
+            (keyword)
+            (numeric_literal))
+          (attribute
+            (keyword)
+            (boolean
+              (off)))
+          (attribute
+            (keyword)
+            (value)
+            (value))
+          (attribute
+            (keyword)
+            (value)
+            (value))
+          (attribute
+            (keyword)
+            (value)
+            (value))
+          (attribute
+            (keyword)
+            (value)
+            (value))
+          (attribute
+            (keyword)
+            (value)
+            (value))
+          (attribute
+            (keyword)
+            (value)
+            (value))
+          (directive
+            (keyword)
+            (mask)))))

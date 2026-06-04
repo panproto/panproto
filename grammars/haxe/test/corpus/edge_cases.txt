@@ -1,0 +1,48 @@
+===================
+function with array passed in.
+===================
+
+function stuff(y:Array<String> = null) {
+}
+
+---
+
+(module
+  (function_declaration (identifier)
+    (function_arg
+      (identifier)
+      (type (identifier)
+        (type_params (type (identifier)))
+      )
+      (null)
+    )
+    (block)
+  )
+)
+
+===================
+function with array passed in, assigning multiple strings.
+===================
+
+function stuff(y:Array<String> = null) {
+  y = ["a", "b"];
+}
+
+---
+
+(module
+  (function_declaration (identifier)
+    (function_arg
+      (identifier)
+      (type (identifier)
+        (type_params (type (identifier)))
+      )
+      (null)
+    )
+    (block
+      (identifier)
+      (operator)
+      (array (string) (string))
+    )
+  )
+)

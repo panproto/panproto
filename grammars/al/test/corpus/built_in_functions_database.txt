@@ -1,0 +1,90 @@
+==================
+Built-in Functions Database
+==================
+
+codeunit 50100 "Built-in Functions Test"
+{
+    local procedure TestDatabaseFunctions()
+    var
+        Customer: Record Customer;
+        Count: Integer;
+        MinValue: Code[20];
+        MaxValue: Code[20];
+        Filters: Text;
+    begin
+        Count := Customer.COUNT();
+        MinValue := GetRangeMin(Customer."No.");
+        MaxValue := GetRangeMax(Customer."No.");
+        Filters := GetFilters(Customer);
+    end;
+}
+
+---
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (quoted_identifier)
+    (procedure
+      (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (record_type
+              (identifier))))
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (basic_type)))
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (code_type
+              (integer))))
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (code_type
+              (integer))))
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (text_type))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          (identifier)
+          (call_expression
+            (member_expression
+              (identifier)
+              (identifier))
+            (argument_list)))
+        (assignment_statement
+          (identifier)
+          (call_expression
+            (identifier)
+            (argument_list
+              (member_expression
+                (identifier)
+                (quoted_identifier)))))
+        (assignment_statement
+          (identifier)
+          (call_expression
+            (identifier)
+            (argument_list
+              (member_expression
+                (identifier)
+                (quoted_identifier)))))
+        (assignment_statement
+          (identifier)
+          (call_expression
+            (identifier)
+            (argument_list
+              (identifier))))
+        (end_keyword)))))

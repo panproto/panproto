@@ -1,0 +1,41 @@
+===
+api/jsonRenderer1.json.pkl
+===
+
+pigeon {
+  name = "pigeon"
+  age = 30
+}
+
+output {
+  value = pigeon
+  renderer = new JsonRenderer {}
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (slStringLiteralExpr
+          (slStringLiteralPart)))
+      (objectProperty
+        (identifier)
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectProperty
+        (identifier)
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (objectBody))))))

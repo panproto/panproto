@@ -1,0 +1,23 @@
+===========
+Transitions
+===========
+
+****
+
+^^^^^
+
+||||||
+
+~~~~~~~~~
+
+~~~~~~~~~~~~~
+I'm not valid
+
+---
+
+(document
+  (transition)
+  (transition)
+  (transition)
+  (transition)
+  (paragraph))

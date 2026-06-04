@@ -1,0 +1,113 @@
+================================================================================
+Long algebraic notation
+================================================================================
+
+[Event "?"]
+
+1. g1-f3 g8-f6 2. b1-c3 b8-c6 3. d2-d3 d7-d6 4. c1-e3 c8-e6
+5. f3-h4 c6-a5 6. e3-f4 e6-d5 7. e2-e3 h7-h6 8. f1-e2 d5xg2
+9. h1-g1 g2-h3 10. d1-d2 d8-d7 11. o-o-o h8-h7 12. d3-d4 c7-c6
+13. e2-d3 f6-g4 14. h4-f5 g4xf2 15. d2xf2 d7xf5 16. d3xf5 a8-d8
+17. f5xh3 a5-c4 18. b2-b3 c4-a3 19. c3-e2 d8-d7 20. c1-b2 a3xc2
+21. b2xc2 e7-e5 22. d4xe5 d6xe5 23. f4xe5 d7-e7 24. e5-b8 h6-h5
+25. b8xa7 h7-h6 26. e2-c3 f7-f5 27. h3xf5 h6-g6 28. f5xg6+
+*
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (move_number)
+      (lan_move)
+      (lan_move)
+      (move_number)
+      (lan_move)
+      (lan_move)
+      (move_number)
+      (lan_move)
+      (lan_move)
+      (move_number)
+      (lan_move)
+      (lan_move)
+      (move_number)
+      (lan_move)
+      (lan_move)
+      (move_number)
+      (lan_move)
+      (lan_move)
+      (move_number)
+      (lan_move)
+      (lan_move)
+      (move_number)
+      (lan_move)
+      (san_move)
+      (move_number)
+      (lan_move)
+      (lan_move)
+      (move_number)
+      (lan_move)
+      (lan_move)
+      (move_number)
+      (san_move)
+      (lan_move)
+      (move_number)
+      (lan_move)
+      (lan_move)
+      (move_number)
+      (lan_move)
+      (lan_move)
+      (move_number)
+      (lan_move)
+      (san_move)
+      (move_number)
+      (san_move)
+      (san_move)
+      (move_number)
+      (san_move)
+      (lan_move)
+      (move_number)
+      (san_move)
+      (lan_move)
+      (move_number)
+      (lan_move)
+      (lan_move)
+      (move_number)
+      (lan_move)
+      (lan_move)
+      (move_number)
+      (lan_move)
+      (san_move)
+      (move_number)
+      (san_move)
+      (lan_move)
+      (move_number)
+      (san_move)
+      (san_move)
+      (move_number)
+      (san_move)
+      (lan_move)
+      (move_number)
+      (lan_move)
+      (lan_move)
+      (move_number)
+      (san_move)
+      (lan_move)
+      (move_number)
+      (lan_move)
+      (lan_move)
+      (move_number)
+      (san_move)
+      (lan_move)
+      (move_number)
+      (san_move
+        (check_or_mate_condition)))
+    (result_code)))

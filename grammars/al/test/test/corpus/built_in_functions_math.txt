@@ -1,0 +1,75 @@
+==================
+Built-in Functions Math
+==================
+
+codeunit 50100 "Built-in Functions Test"
+{
+    local procedure TestMathFunctions()
+    var
+        X: Integer;
+        Y: Decimal;
+    begin
+        X := Random(100);
+        Randomize(42);
+        Y := Round(3.14159, 0.01);
+        Y := Abs(-42);
+        Y := Power(2, 3);
+    end;
+}
+
+---
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (quoted_identifier)
+    (procedure
+      (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (basic_type)))
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          (identifier)
+          (call_expression
+            (identifier)
+            (argument_list
+              (integer))))
+        (call_expression
+          (identifier)
+          (argument_list
+            (integer)))
+        (assignment_statement
+          (identifier)
+          (call_expression
+            (identifier)
+            (argument_list
+              (decimal)
+              (decimal))))
+        (assignment_statement
+          (identifier)
+          (call_expression
+            (identifier)
+            (argument_list
+              (unary_expression
+                (integer)))))
+        (assignment_statement
+          (identifier)
+          (call_expression
+            (identifier)
+            (argument_list
+              (integer)
+              (integer))))
+        (end_keyword)))))

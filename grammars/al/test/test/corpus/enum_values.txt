@@ -1,0 +1,81 @@
+========================================================================
+Enum with values
+========================================================================
+enum 50100 MyEnum
+{
+    value(0; "None") { }
+    value(1; Active) { }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (enum_declaration
+    (enum_keyword)
+    (integer)
+    (identifier)
+    (enum_value_declaration
+      (integer)
+      (quoted_identifier))
+    (enum_value_declaration
+      (integer)
+      (identifier))))
+
+========================================================================
+Enum values with properties
+========================================================================
+enum 50100 Status
+{
+    value(0; "None")
+    {
+        Caption = 'None';
+    }
+    value(1; Active)
+    {
+        Caption = 'Active';
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (enum_declaration
+    (enum_keyword)
+    (integer)
+    (identifier)
+    (enum_value_declaration
+      (integer)
+      (quoted_identifier)
+      (property
+        (property_name)
+        (string_literal)))
+    (enum_value_declaration
+      (integer)
+      (identifier)
+      (property
+        (property_name)
+        (string_literal)))))
+
+========================================================================
+Enum extension with values
+========================================================================
+enumextension 50100 StatusExt extends Status
+{
+    value(10; Custom)
+    {
+        Caption = 'Custom';
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (enumextension_declaration
+    (enumextension_keyword)
+    (integer)
+    (identifier)
+    (extends_keyword)
+    (identifier)
+    (enum_value_declaration
+      (integer)
+      (identifier)
+      (property
+        (property_name)
+        (string_literal)))))

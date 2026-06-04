@@ -1,0 +1,45 @@
+================================================================================
+AccessByPermission property with System objects test
+================================================================================
+
+page 50001 "System Permission Test"
+{
+    AccessByPermission = System "Allow Action Export To Excel" = X;
+    
+    actions
+    {
+        area(Processing)
+        {
+            action(TestAction)
+            {
+                AccessByPermission = System "Allow Action Export To Excel" = X;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (tabledata_permission_list
+        (tabledata_permission
+          table_name: (quoted_identifier)
+          permission: (permission_type))))
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (tabledata_permission_list
+              (tabledata_permission
+                table_name: (quoted_identifier)
+                permission: (permission_type)))))))))

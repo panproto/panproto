@@ -1,0 +1,37 @@
+================================================================================
+Spaceless entities
+================================================================================
+
+@[bookDate]
+    ~[monthNames] ~[monthDays]
+    ~[monthDays] of ~[monthNames]
+    ~[monthDayNumbers]/~[monthNumbers]
+    today
+    tomorrow
+    next ~[weekDays]
+
+--------------------------------------------------------------------------------
+
+(source
+  (slot_def
+    (slot)
+    (slot_body
+      (alias_ref
+        (alias))
+      (alias_ref
+        (alias))
+      (alias_ref
+        (alias))
+      (word)
+      (alias_ref
+        (alias))
+      (alias_ref
+        (alias))
+      (word)
+      (alias_ref
+        (alias))
+      (word)
+      (word)
+      (word)
+      (alias_ref
+        (alias)))))

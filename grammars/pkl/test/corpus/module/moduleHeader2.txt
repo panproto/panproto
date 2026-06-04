@@ -1,0 +1,29 @@
+================================================================================
+moduleHeader2
+================================================================================
+
+@ModuleInfo { minPklVersion = "0.21.1" }
+module com.apple.foo
+
+amends "foo.pkl"
+
+--------------------------------------------------------------------------------
+
+(module
+  (moduleHeader
+    (annotation
+      (qualifiedIdentifier
+        (identifier))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart)))))
+    (moduleClause
+      (qualifiedIdentifier
+        (identifier)
+        (identifier)
+        (identifier)))
+    (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart)))))

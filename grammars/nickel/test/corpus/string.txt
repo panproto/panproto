@@ -1,0 +1,368 @@
+================================================================================
+string (simple)
+================================================================================
+
+"abc"
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (str_chunks
+              (str_chunks_single
+                (chunk_literal_single
+                  (str_literal))))))))))
+
+================================================================================
+string (interpolation)
+================================================================================
+
+"a%{b}c"
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (str_chunks
+              (str_chunks_single
+                (chunk_literal_single
+                  (str_literal))
+                (chunk_expr
+                  (interpolation_start)
+                  (term
+                    (uni_term
+                      (infix_expr
+                        (applicative
+                          (record_operand
+                            (atom
+                              (ident)))))))
+                  (interpolation_end))
+                (chunk_literal_single
+                  (str_literal))))))))))
+
+================================================================================
+multistring
+================================================================================
+
+m%"abc"%
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (str_chunks
+              (str_chunks_multi
+                (multstr_start)
+                (chunk_literal_multi
+                  (mult_str_literal))
+                (multstr_end)))))))))
+
+================================================================================
+multistring (multiline)
+================================================================================
+
+m%"a
+b
+c"%
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (str_chunks
+              (str_chunks_multi
+                (multstr_start)
+                (chunk_literal_multi
+                  (mult_str_literal))
+                (multstr_end)))))))))
+
+================================================================================
+multistring (indent)
+================================================================================
+
+m%"
+  a
+  b
+  c
+"%
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (str_chunks
+              (str_chunks_multi
+                (multstr_start)
+                (chunk_literal_multi
+                  (mult_str_literal))
+                (multstr_end)))))))))
+
+================================================================================
+multistring (indent) (interpolation)
+================================================================================
+
+m%"
+  a
+  %{b}
+  c
+"%
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (str_chunks
+              (str_chunks_multi
+                (multstr_start)
+                (chunk_literal_multi
+                  (mult_str_literal))
+                (chunk_expr
+                  (interpolation_start)
+                  (term
+                    (uni_term
+                      (infix_expr
+                        (applicative
+                          (record_operand
+                            (atom
+                              (ident)))))))
+                  (interpolation_end))
+                (chunk_literal_multi
+                  (mult_str_literal))
+                (multstr_end)))))))))
+
+================================================================================
+multistring (level 4)
+================================================================================
+
+m%%%%"a%%%%{b}c"%%%%
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (str_chunks
+              (str_chunks_multi
+                (multstr_start)
+                (chunk_literal_multi
+                  (mult_str_literal))
+                (chunk_expr
+                  (interpolation_start)
+                  (term
+                    (uni_term
+                      (infix_expr
+                        (applicative
+                          (record_operand
+                            (atom
+                              (ident)))))))
+                  (interpolation_end))
+                (chunk_literal_multi
+                  (mult_str_literal))
+                (multstr_end)))))))))
+
+================================================================================
+multistring (level 4) (extra % before expr)
+================================================================================
+
+m%%%%"%%%%%{"Hello "} world"%%%%
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (str_chunks
+              (str_chunks_multi
+                (multstr_start)
+                (chunk_literal_multi
+                  (percent))
+                (chunk_expr
+                  (interpolation_start)
+                  (term
+                    (uni_term
+                      (infix_expr
+                        (applicative
+                          (record_operand
+                            (atom
+                              (str_chunks
+                                (str_chunks_single
+                                  (chunk_literal_single
+                                    (str_literal))))))))))
+                  (interpolation_end))
+                (chunk_literal_multi
+                  (mult_str_literal))
+                (multstr_end)))))))))
+
+================================================================================
+quote in multistring
+================================================================================
+
+m%"""%
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (str_chunks
+              (str_chunks_multi
+                (multstr_start)
+                (chunk_literal_multi
+                  (double_quote))
+                (multstr_end)))))))))
+
+================================================================================
+# in string
+================================================================================
+
+# ett
+"#två"
+m%"#tre"%
+#fyra
+
+
+--------------------------------------------------------------------------------
+
+(term
+  (comment)
+  (uni_term
+    (infix_expr
+      (applicative
+        (applicative
+          (record_operand
+            (atom
+              (str_chunks
+                (str_chunks_single
+                  (chunk_literal_single
+                    (str_literal)))))))
+        (record_operand
+          (atom
+            (str_chunks
+              (str_chunks_multi
+                (multstr_start)
+                (chunk_literal_multi
+                  (mult_str_literal))
+                (multstr_end))))))))
+  (comment))
+
+================================================================================
+symbolic string with interpolation
+================================================================================
+
+nix-s%"%{foo}"%
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (str_chunks
+              (str_chunks_multi
+                (multstr_start)
+                (chunk_expr
+                  (interpolation_start)
+                  (term
+                    (uni_term
+                      (infix_expr
+                        (applicative
+                          (record_operand
+                            (atom
+                              (ident)))))))
+                  (interpolation_end))
+                (multstr_end)))))))))
+
+================================================================================
+symbolic string with weird prefix
+================================================================================
+
+mix-s-s%%""%%
+
+--------------------------------------------------------------------------------
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (str_chunks
+              (str_chunks_multi
+                (multstr_start)
+                (multstr_end)))))))))
+
+================================================================================
+ambiguous interpolation
+================================================================================
+
+
+nix-s%"
+export PATH="%{inputs.coreutils}/bin:$PATH"
+"%
+
+--------------------------------------------------------------------------------
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (str_chunks
+              (str_chunks_multi
+                (multstr_start)
+                (chunk_literal_multi
+                  (mult_str_literal))
+                (chunk_literal_multi
+                  (double_quote))
+                (chunk_expr
+                  (interpolation_start)
+                  (term
+                    (uni_term
+                      (infix_expr
+                        (applicative
+                          (record_operand
+                            (record_operation_chain
+                              (record_operand
+                                (atom
+                                  (ident)))
+                              (ident)))))))
+                  (interpolation_end))
+                (chunk_literal_multi
+                  (mult_str_literal))
+                (chunk_literal_multi
+                  (double_quote))
+                (multstr_end)))))))))

@@ -1,0 +1,201 @@
+================================================================================
+Empty variables section
+================================================================================
+
+*** Variables ***
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (variables_section
+      (section_header))))
+
+================================================================================
+Simple variable definitions
+================================================================================
+
+*** Variables ***
+
+${FOO} =                    I am a string!    I am another string!
+${name-with-dashes} =       I am a string!    I am another string!
+${Name with spaces} =       I am a string!    I am another string!
+${Name / with $ symbols} =  I am a string!    I am another string!
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (variables_section
+      (section_header)
+      (variable_definition
+        (scalar_variable
+          (variable_name))
+        (arguments
+          (argument
+            (text_chunk))
+          (argument
+            (text_chunk))))
+      (variable_definition
+        (scalar_variable
+          (variable_name))
+        (arguments
+          (argument
+            (text_chunk))
+          (argument
+            (text_chunk))))
+      (variable_definition
+        (scalar_variable
+          (variable_name))
+        (arguments
+          (argument
+            (text_chunk))
+          (argument
+            (text_chunk))))
+      (variable_definition
+        (scalar_variable
+          (variable_name))
+        (arguments
+          (argument
+            (text_chunk))
+          (argument
+            (text_chunk)))))))
+
+================================================================================
+Multi-line variable definitions
+================================================================================
+
+*** Variables ***
+
+${FOO} =    I am a very long text string
+...         that has to be split into
+...         multiple lines
+...
+...         Empty continuation lines are fine and even indented continuation
+   ...      lines should technically work. This is to support line
+      ...   continuations inside user defined keywords, but unfortunately Robot
+...         accepts them anywhere.
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (variables_section
+      (section_header)
+      (variable_definition
+        (scalar_variable
+          (variable_name))
+        (arguments
+          (argument
+            (text_chunk))
+          (continuation
+            (ellipses)
+            (argument
+              (text_chunk)))
+          (continuation
+            (ellipses)
+            (argument
+              (text_chunk)))
+          (continuation
+            (ellipses))
+          (continuation
+            (ellipses)
+            (argument
+              (text_chunk)))
+          (continuation
+            (ellipses)
+            (argument
+              (text_chunk)))
+          (continuation
+            (ellipses)
+            (argument
+              (text_chunk)))
+          (continuation
+            (ellipses)
+            (argument
+              (text_chunk))))))))
+
+================================================================================
+All types variable definitions
+================================================================================
+
+*** Variables ***
+
+${SCALAR} =    I'm a scalar variable
+@{LIST} =      first element    second element
+&{DICT} =      key1=value1    key2=value2
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (variables_section
+      (section_header)
+      (variable_definition
+        (scalar_variable
+          (variable_name))
+        (arguments
+          (argument
+            (text_chunk))))
+      (variable_definition
+        (list_variable
+          (variable_name))
+        (arguments
+          (argument
+            (text_chunk))
+          (argument
+            (text_chunk))))
+      (variable_definition
+        (dictionary_variable
+          (variable_name))
+        (arguments
+          (argument
+            (text_chunk))
+          (argument
+            (text_chunk)))))))
+
+================================================================================
+Variable values with curly braces
+================================================================================
+
+*** Variables ***
+
+${JSON} =    {"key": "value"}
+${NESTED} =    {"outer": {"inner": 1}}
+@{LIST} =    {item1}    {item2}
+&{DICT} =    key={"a": 1}    key2={"b": 2}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (variables_section
+      (section_header)
+      (variable_definition
+        (scalar_variable
+          (variable_name))
+        (arguments
+          (argument
+            (text_chunk))))
+      (variable_definition
+        (scalar_variable
+          (variable_name))
+        (arguments
+          (argument
+            (text_chunk))))
+      (variable_definition
+        (list_variable
+          (variable_name))
+        (arguments
+          (argument
+            (text_chunk))
+          (argument
+            (text_chunk))))
+      (variable_definition
+        (dictionary_variable
+          (variable_name))
+        (arguments
+          (argument
+            (text_chunk))
+          (argument
+            (text_chunk)))))))

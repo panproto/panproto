@@ -1,0 +1,127 @@
+================================================================================
+Comprehensive report with dataitem properties and column expressions
+================================================================================
+
+report 30 "Check Value Posting"
+{
+    DefaultLayout = RDLC;
+    RDLCLayout = './Finance/Dimension/CheckValuePosting.rdlc';
+    Caption = 'Dimension Check Value Posting';
+    
+    dataset
+    {
+        dataitem("Integer"; "Integer")
+        {
+            DataItemTableView = sorting(Number) where(Number = const(1));
+            PrintOnlyIfDetail = true;
+            
+            column(CompanyName; COMPANYPROPERTY.DisplayName())
+            {
+            }
+            column(TodayFormatted; Format(Today, 0, 4))
+            {
+            }
+            
+            dataitem(DefaultDim1; "Default Dimension")
+            {
+                DataItemLink = "Table ID" = field("Table ID"), "Dimension Code" = field("Dimension Code");
+                DataItemLinkReference = DefaultDim1;
+                DataItemTableView = sorting("Table ID", "No.", "Dimension Code") where("No." = filter(<> ''));
+                
+                column(ValuePosting_DefaultDim1Caption; DefaultDim1.FieldCaption("Value Posting"))
+                {
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (quoted_identifier)
+        table_name: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (sorting_value
+            (identifier)
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (identifier)
+                  value: (integer))))))
+        (property
+          name: (property_name)
+          value: (boolean))
+        (report_column
+          (column_keyword)
+          name: (identifier)
+          source: (call_expression
+            function: (member_expression
+              object: (identifier)
+              member: (identifier))
+            arguments: (argument_list)))
+        (report_column
+          (column_keyword)
+          name: (identifier)
+          source: (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (identifier)
+              (integer)
+              (integer))))
+        (report_dataitem
+          (dataitem_keyword)
+          name: (identifier)
+          table_name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (quoted_identifier)
+                value: (quoted_identifier))
+              (link_value
+                field: (quoted_identifier)
+                value: (quoted_identifier))))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (sorting_value
+              (quoted_identifier)
+              (quoted_identifier)
+              (quoted_identifier)
+              (where_clause
+                (where_conditions
+                  (where_condition
+                    field: (quoted_identifier)
+                    (filter_keyword)
+                    value: (filter_value
+                      (string_literal)))))))
+          (report_column
+            (column_keyword)
+            name: (identifier)
+            source: (call_expression
+              function: (member_expression
+                object: (identifier)
+                member: (identifier))
+              arguments: (argument_list
+                (quoted_identifier)))))))))

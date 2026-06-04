@@ -1,0 +1,87 @@
+================================================================================
+arithmetic
+================================================================================
+void foo() {
+	a ^ b;
+	a * b;
+	a / b;
+	a % b;
+	a + b;
+	a - b;
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method (type_void) (identifier) (block
+	(statement_expression (expression_binary (identifier) (identifier)))
+	(statement_expression (expression_binary (identifier) (identifier)))
+	(statement_expression (expression_binary (identifier) (identifier)))
+	(statement_expression (expression_binary (identifier) (identifier)))
+	(statement_expression (expression_binary (identifier) (identifier)))
+	(statement_expression (expression_binary (identifier) (identifier))))))
+
+================================================================================
+relational
+================================================================================
+void foo() {
+	a < b;
+	a <= b;
+	a >= b;
+	a > b;
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method (type_void) (identifier) (block
+	(statement_expression (expression_binary (identifier) (identifier)))
+	(statement_expression (expression_binary (identifier) (identifier)))
+	(statement_expression (expression_binary (identifier) (identifier)))
+	(statement_expression (expression_binary (identifier) (identifier))))))
+
+================================================================================
+equality
+================================================================================
+void foo() {
+	a == b;
+	a != b;
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method (type_void) (identifier) (block
+	(statement_expression (expression_binary (identifier) (identifier)))
+	(statement_expression (expression_binary (identifier) (identifier))))))
+
+================================================================================
+boolean
+================================================================================
+void foo() {
+	a && b;
+	a || b;
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method (type_void) (identifier) (block
+	(statement_expression (expression_binary (identifier) (identifier)))
+	(statement_expression (expression_binary (identifier) (identifier))))))
+
+================================================================================
+nested binary expression
+================================================================================
+void foo() {
+	a + b + c;
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method return_type: (type_void) name: (identifier) body: (block
+	(statement_expression (expression_binary
+		lhs: (expression_binary
+			lhs: (identifier)
+			rhs: (identifier))
+		rhs: (identifier))))))
+
+================================================================================
+parenthesized binary expression
+================================================================================
+void foo() {
+	(a + b) + c;
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method return_type: (type_void) name: (identifier) body: (block
+	(statement_expression (expression_binary
+		lhs: (expression_binary
+			lhs: (identifier)
+			rhs: (identifier))
+		rhs: (identifier))))))

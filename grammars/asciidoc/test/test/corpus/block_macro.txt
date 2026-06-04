@@ -1,0 +1,137 @@
+===========
+block_macro
+===========
+
+= Document Title
+include::attributes-settings.adoc[]
+include::attributes-urls.adoc[]
+:url-example: https://example.org
+
+Document body.
+
+include::partial.adoc[]
+
+include::target[leveloffset=offset,lines=ranges,tag(s)=name(s),indent=depth,encoding=encoding,opts=optional]
+
+include::{includedir}/fragment1.adoc[]
+
+[source,java]
+----
+include::{sourcedir}/org/asciidoctor/asciidoctor.java[]
+----
+
+image::sunset.jpg[Sunset]
+
+-----
+
+(document
+  (block_element
+    (document_title
+      (title_h0_marker)
+      (line)
+      (block_macro
+        (block_macro_name)
+        (target))
+      (block_macro
+        (block_macro_name)
+        (target))
+      (document_attr
+        (document_attr_marker)
+        (attr_name)
+        (document_attr_marker)
+        (line))))
+  (block_element
+    (section_block
+      (paragraph
+        (line))))
+  (block_element
+    (section_block
+      (block_macro
+        (block_macro_name)
+        (target))))
+  (block_element
+    (section_block
+      (block_macro
+        (block_macro_name)
+        (target)
+        (block_macro_attr
+          (attribute_name)
+          (attribute_value))
+        (block_macro_attr
+          (attribute_name)
+          (attribute_value))
+        (block_macro_attr
+          (attribute_name)
+          (attribute_value))
+        (block_macro_attr
+          (attribute_name)
+          (attribute_value))
+        (block_macro_attr
+          (attribute_name)
+          (attribute_value))
+        (block_macro_attr
+          (attribute_name)
+          (attribute_value)))))
+  (block_element
+    (section_block
+      (block_macro
+        (block_macro_name)
+        (target))))
+  (block_element
+    (section_block
+      (element_attr
+        (element_attr_marker)
+        (attr_value)
+        (element_attr_marker))
+      (listing_block
+        (listing_block_start_marker)
+        (listing_block_body
+          (block_macro
+            (block_macro_name)
+            (target)))
+        (listing_block_end_marker))))
+  (block_element
+    (section_block
+      (block_macro
+        (block_macro_name)
+        (target)
+        (block_macro_attr
+          (attribute_name))))))
+
+==================
+list_continuation
+==================
+
+block1
++
+block2
+
+---------
+
+(document
+  (block_element
+    (section_block
+      (paragraph
+        (line))))
+  (block_element
+    (section_block
+      (paragraph
+        (line))))
+  (block_element
+    (section_block
+      (paragraph
+        (line)))))
+
+==================
+anchor
+==================
+
+[[id]]xxxxxxxxxxx
+
+----
+
+(document
+  (block_element
+    (section_block
+      (paragraph
+        (line)))))

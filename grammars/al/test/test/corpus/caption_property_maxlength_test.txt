@@ -1,0 +1,22 @@
+================================================================================
+Caption property with MaxLength parameter
+================================================================================
+
+permissionset 8001 "Sub. Billing Objects"
+{
+    Caption = 'Subscription Billing Objects', MaxLength = 30;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (permissionset_declaration
+    (permissionset_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (caption_value
+        (string_literal)
+        (property_name)
+        (integer)))))

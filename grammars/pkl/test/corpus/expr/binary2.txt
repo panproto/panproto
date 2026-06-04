@@ -1,0 +1,18 @@
+===
+binary2
+===
+
+res = 1.h + 3.h
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (additiveExpr
+      (qualifiedAccessExpr
+        (intLiteralExpr)
+        (identifier))
+      (qualifiedAccessExpr
+        (intLiteralExpr)
+        (identifier)))))

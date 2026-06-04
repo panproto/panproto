@@ -1,0 +1,203 @@
+============
+Unbuffered code
+============
+
+- var x = 12
+tag
+
+---
+
+(source_file
+  (unbuffered_code
+    (javascript))
+  (tag
+    (tag_name)))
+
+
+============
+Unbuffered code single line with element
+============
+
+- for (var x = 0; x < 3; x++)
+  li item
+tag
+
+---
+
+(source_file
+  (unbuffered_code
+    (javascript)
+    (tag
+      (tag_name)
+      (content)))
+  (tag
+    (tag_name)))
+
+
+============
+Unbuffered code multi line blank first
+============
+
+- 
+  for (var x = 0; x < 3; x++)
+  li item
+tag
+
+---
+
+(source_file
+  (unbuffered_code
+    (javascript))
+  (tag
+    (tag_name)))
+
+
+============
+Buffered code single line in tag
+============
+
+tag= 'buf' + 'fered'
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (buffered_code
+      (javascript))))
+
+============
+Buffered code multi line in tag
+============
+
+tag
+  = 'buf' + 'fered'
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (children
+    (buffered_code
+      (javascript)))))
+
+============
+Buffered code single line without tag
+===========
+
+= 'buf' + 'fered'
+
+---
+
+(source_file
+  (buffered_code
+      (javascript)))
+
+============
+Regular text that looks like buffered code inside a tag
+============
+
+p = 'buf' + 'fered'
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (content)))
+
+============
+Unescaped buffered code single line in tag
+============
+
+tag!= 'buf' + 'fered'
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (unescaped_buffered_code
+      (javascript))))
+
+============
+Unescaped buffered code multi line in tag
+============
+
+tag
+  != 'buf' + 'fered'
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (children
+    (unescaped_buffered_code
+      (javascript)))))
+
+============
+Unescaped buffered code single line without tag
+===========
+
+!= 'buf' + 'fered'
+
+---
+
+(source_file
+  (unescaped_buffered_code
+      (javascript)))
+
+============
+Regular text that looks like buffered code inside a tag
+============
+
+p != 'buf' + 'fered'
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (content)))
+
+============
+Script tag with code
+============
+
+script.
+  if (usingPug)
+    console.log('you are awesome')
+  else
+    console.log('use pug')
+tag
+
+---
+
+(source_file
+  (script_block
+    (javascript))
+  (tag
+    (tag_name)))
+
+============
+Script tag with code and blank lines
+============
+
+script.
+  if (usingPug)
+    console.log('you are awesome')
+
+  else
+    console.log('use pug')
+
+tag
+
+---
+
+(source_file
+  (script_block
+    (javascript))
+  (tag
+    (tag_name)))

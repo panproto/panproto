@@ -1,0 +1,432 @@
+================================================================================
+List comprehensions
+================================================================================
+
+pythag n = [ (x, y, z) | z <- [1..n], y <- [1..z], x <- [1..y],
+                         x*x + y*y == z*z ]
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_list_comprehension
+        (exp_tuple
+          (exp_name
+            (loname))
+          (tuple_operator)
+          (exp_name
+            (loname))
+          (tuple_operator)
+          (exp_name
+            (loname)))
+        (exp_list
+          (literal
+            (integer))
+          (operator)
+          (exp_name
+            (loname)))
+        (comma)
+        (exp_list
+          (literal
+            (integer))
+          (operator)
+          (exp_name
+            (loname)))
+        (comma)
+        (exp_list
+          (literal
+            (integer))
+          (operator)
+          (exp_name
+            (loname)))
+        (comma)
+        (exp_name
+          (loname))
+        (operator)
+        (exp_name
+          (loname))
+        (operator)
+        (exp_name
+          (loname))
+        (operator)
+        (exp_name
+          (loname))
+        (operator)
+        (exp_name
+          (loname))
+        (operator)
+        (exp_name
+          (loname))))))
+
+================================================================================
+Idiom brackets
+================================================================================
+
+fun <*> x = [| fun <*> x |]
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_op)
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_idiom
+        (exp_name
+          (loname))
+        (operator)
+        (exp_name
+          (loname))))))
+
+================================================================================
+!-notation 1
+================================================================================
+
+m_add x y = pure (!x + !y)
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname))
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_name
+        (loname))
+      (exp_parens
+        (operator)
+        (exp_name
+          (loname))
+        (operator)
+        (operator)
+        (exp_name
+          (loname))))))
+
+================================================================================
+!-notation 2
+================================================================================
+
+_ = let y = 94 in f !(g !(print y) !x)
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (exp_let_in
+        (declarations
+          (lhs
+            (pat_name
+              (loname)))
+          (rhs
+            (literal
+              (integer))))
+        (in
+          (exp_name
+            (loname))
+          (operator)
+          (exp_parens
+            (exp_name
+              (loname))
+            (operator)
+            (exp_parens
+              (exp_name
+                (loname))
+              (exp_name
+                (loname)))
+            (operator)
+            (exp_name
+              (loname))))))))
+
+================================================================================
+Quasiquotations 1
+================================================================================
+
+_ = F x `{X.A} <|> F x `{X.B}
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (exp_name
+        (caname))
+      (exp_name
+        (loname))
+      (exp_quasiquotation
+        (qualified_caname
+          (caname)
+          (caname)))
+      (operator)
+      (exp_name
+        (caname))
+      (exp_name
+        (loname))
+      (exp_quasiquotation
+        (qualified_caname
+          (caname)
+          (caname))))))
+
+================================================================================
+Quasiquotations 2
+================================================================================
+
+_ = `(Monoid ~(vb) => (~(va) -> ~(vb)) -> ~(t) ~(va) -> ~(vb))
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (exp_quasiquotation
+        (exp_name
+          (caname))
+        (operator)
+        (exp_parens
+          (exp_name
+            (loname)))
+        (arrow_separator)
+        (type_parens
+          (operator)
+          (exp_parens
+            (exp_name
+              (loname)))
+          (arrow_separator)
+          (operator)
+          (exp_parens
+            (exp_name
+              (loname))))
+        (arrow_separator)
+        (operator)
+        (exp_parens
+          (exp_name
+            (loname)))
+        (operator)
+        (exp_parens
+          (exp_name
+            (loname)))
+        (arrow_separator)
+        (operator)
+        (exp_parens
+          (exp_name
+            (loname)))))))
+
+================================================================================
+Quasiquotations 3
+================================================================================
+
+_ = f `{Prelude.(::)} `(Prelude.Nil)
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (exp_name
+        (loname))
+      (exp_quasiquotation
+        (qualified_operator
+          (caname)))
+      (exp_quasiquotation
+        (exp_name
+          (qualified_caname
+            (caname)
+            (caname)))))))
+
+================================================================================
+Leading literal 1 (not a quantity)
+================================================================================
+
+bit = (1 `shiftL`)
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)))
+    (rhs
+      (exp_parens
+        (literal
+          (integer))
+        (exp_ticked
+          (exp_name
+            (loname)))))))
+
+================================================================================
+Function call with bar argument
+================================================================================
+
+ltrim str with (asList str)
+  ltrim ""  | [] = ""
+  ltrim str@_ | x :: xs = if isSpace x then ltrim _ | xs else str
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (with
+      (with_arg
+        (exp_name
+          (loname))
+        (exp_name
+          (loname)))
+      (function
+        (lhs
+          (funvar
+            (loname)
+            (patterns
+              (pat_string))))
+        (with_pat
+          (pat_list))
+        (rhs
+          (string)))
+      (function
+        (lhs
+          (funvar
+            (loname)
+            (patterns
+              (pat_name
+                (loname))
+              (pat_at)
+              (wildcard))))
+        (with_pat
+          (pat_name
+            (loname))
+          (pat_op)
+          (pat_name
+            (loname)))
+        (rhs
+          (exp_if
+            (exp_name
+              (loname))
+            (exp_name
+              (loname))
+            (exp_then
+              (exp_name
+                (loname))
+              (wildcard)
+              (exp_bar_arg
+                (exp_name
+                  (loname))))
+            (exp_else
+              (exp_name
+                (loname)))))))))
+
+================================================================================
+Disambiguation with - single
+================================================================================
+
+_ = with BTree.insert (insert x empty)
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (exp_with
+        (qualified_loname
+          (caname)
+          (loname))
+        (exp_parens
+          (exp_name
+            (loname))
+          (exp_name
+            (loname))
+          (exp_name
+            (loname)))))))
+
+================================================================================
+Disambiguation with - multiple
+================================================================================
+
+_ = with [BTree.insert, BTree.empty] (insert x empty)
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (exp_with
+        (qualified_loname
+          (caname)
+          (loname))
+        (comma)
+        (qualified_loname
+          (caname)
+          (loname))
+        (exp_parens
+          (exp_name
+            (loname))
+          (exp_name
+            (loname))
+          (exp_name
+            (loname)))))))
+
+================================================================================
+Rewrite rule
+================================================================================
+
+helpEven j p = rewrite plusSuccRightSucc j j in p
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname))
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_rewrite_in
+        (rewrite_exp
+          (exp_name
+            (loname))
+          (exp_name
+            (loname))
+          (exp_name
+            (loname)))
+        (in
+          (exp_name
+            (loname)))))))

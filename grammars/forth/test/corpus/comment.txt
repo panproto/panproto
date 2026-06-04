@@ -1,0 +1,139 @@
+==================
+Line comment
+==================
+
+\ This is a line comment
+5 10 +
+
+---
+
+(source_file
+  (comment
+    (line_comment))
+  (number
+    (decimal_number))
+  (number
+    (decimal_number))
+  (builtin
+    (operator)))
+
+==================
+Block comment
+==================
+
+( This is a block comment )
+5 10 +
+
+---
+
+(source_file
+  (comment
+    (block_comment))
+  (number
+    (decimal_number))
+  (number
+    (decimal_number))
+  (builtin
+    (operator)))
+
+==================
+Stack effect comment
+==================
+
+( n1 n2 -- sum )
+5 10 +
+
+---
+
+(source_file
+  (comment
+    (stack_effect))
+  (number
+    (decimal_number))
+  (number
+    (decimal_number))
+  (builtin
+    (operator)))
+
+==================
+Multiple comments on same line
+==================
+
+( com1 ) 5 + ( com2 )
+
+---
+
+(source_file
+  (comment
+    (block_comment))
+  (number
+    (decimal_number))
+  (builtin
+    (operator))
+  (comment
+    (block_comment)))
+
+==================
+Stack effect with complex notation
+==================
+
+( n1 n2 -- n3 n4 )
+
+---
+
+(source_file
+  (comment
+    (stack_effect)))
+
+==================
+Empty block comment
+==================
+
+(  )
+
+---
+
+(source_file
+  (comment
+    (block_comment)))
+
+==================
+Line comment at end of line
+==================
+
+5 10 + \ add two numbers
+
+---
+
+(source_file
+  (number
+    (decimal_number))
+  (number
+    (decimal_number))
+  (builtin
+    (operator))
+  (comment
+    (line_comment)))
+
+==================
+Mixed comment types
+==================
+
+\ Line comment first
+( block comment ) 5 + ( n -- n+5 ) drop
+
+---
+
+(source_file
+  (comment
+    (line_comment))
+  (comment
+    (block_comment))
+  (number
+    (decimal_number))
+  (builtin
+    (operator))
+  (comment
+    (stack_effect))
+  (builtin
+    (operator)))

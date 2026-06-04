@@ -1,0 +1,75 @@
+===
+errors/mappingTypeCheckError6.pkl
+===
+
+a = new Listing { "hi" }
+
+b = (a) {
+  "hihih"
+}
+
+bar = new Mapping {
+  [b] = "foo"
+}
+
+res: Mapping<Listing<String(length == 5)>, String> = bar
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectElement
+          (slStringLiteralExpr
+            (slStringLiteralPart))))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (objectElement
+          (slStringLiteralExpr
+            (slStringLiteralPart))))))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectEntry
+          (unqualifiedAccessExpr
+            (identifier))
+          (slStringLiteralExpr
+            (slStringLiteralPart))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))
+            (typeArgumentList
+              (constrainedType
+                (declaredType
+                  (qualifiedIdentifier
+                    (identifier)))
+                (equalityExpr
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (intLiteralExpr)))))
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))))
+    (unqualifiedAccessExpr
+      (identifier))))

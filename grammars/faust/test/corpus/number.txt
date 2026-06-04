@@ -1,0 +1,58 @@
+====
+Int
+====
+
+ints = waveform{1,+10,-100};
+
+---
+(program
+  (definition (identifier)
+    (waveform
+      (values (int) (int) (int)))))
+
+====
+Real
+====
+
+reals = waveform{0.5,.5,5.,+1.,-1.f,500.5e4,-500e40f};
+
+---
+(program
+  (definition (identifier)
+    (waveform
+      (values
+        (real)
+        (real)
+        (real)
+        (real)
+        (real)
+        (real)
+        (real)))))
+
+====
+Unary Numbers
+====
+
+num1=-   5 + 3 - (- 4e6) * + 4.0 * - 2.1e4f;
+
+---
+(program
+  (definition
+    (identifier)
+    (infix
+      (infix
+        (unary_number 
+          (int))
+         (add)
+         (int))
+       (sub)
+       (infix 
+         (infix 
+           (unary_number 
+             (real))
+           (mult)
+           (unary_number 
+             (real)))
+         (mult)
+         (unary_number
+          (real))))))

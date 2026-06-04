@@ -1,0 +1,309 @@
+===
+Comments
+:language(lilypond-scheme)
+===
+
+;
+
+#|
+comment
+|#
+
+#|
+nested
+#|
+comment
+|#
+|#
+
+---
+
+(scheme_program
+  (scheme_comment)
+  (scheme_comment)
+  (scheme_comment))
+
+
+===
+Booleans
+:language(lilypond-scheme)
+===
+
+#t
+#T
+#tRuE
+#TrUe
+
+#f
+#F
+#fAlSe
+#FaLsE
+
+---
+
+(scheme_program
+  (scheme_boolean)
+  (scheme_boolean)
+  (scheme_boolean)
+  (scheme_boolean)
+  (scheme_boolean)
+  (scheme_boolean)
+  (scheme_boolean)
+  (scheme_boolean))
+
+
+===
+Characters
+:language(lilypond-scheme)
+===
+
+#\nUl
+#\aLaRm
+#\bAcKsPaCe
+#\tAb
+#\lInEfEeD
+#\NeWlInE
+#\vTaB
+#\pAgE
+#\rEtUrN
+#\eSc
+#\sPaCe
+#\dElEtE
+
+#\sOh
+#\StX
+#\eTx
+#\EoT
+#\eNq
+#\aCk
+#\bEl
+#\Bs
+#\hT
+#\Lf
+#\Vt
+#\fF
+#\cR
+#\sO
+#\Si
+#\dLe
+#\Dc1
+#\dC2
+#\dc3
+#\DC4
+#\nAk
+#\sYn
+#\eTb
+#\CaN
+#\eM
+#\SuB
+#\fS
+#\gS
+#\rS
+#\uS
+#\Sp
+
+#\nl
+#\np
+#\null
+
+#\.
+#\17
+#\x123abc
+#\X789def
+#\)
+
+---
+
+(scheme_program
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character)
+  (scheme_character))
+
+
+===
+Strings
+:language(lilypond-scheme)
+===
+
+""
+";x\n;y"
+"shc\neme\""
+
+---
+
+(scheme_program
+  (scheme_string)
+  (scheme_string
+    (scheme_string_fragment)
+    (scheme_escape_sequence)
+    (scheme_string_fragment))
+  (scheme_string
+    (scheme_string_fragment)
+    (scheme_escape_sequence)
+    (scheme_string_fragment)
+    (scheme_escape_sequence)))
+
+
+===
+Embedded LilyPond
+:language(lilypond-scheme)
+===
+
+#{ \pointAndClickOff #}
+#{ #}
+#{#}
+#{
+  % #}
+#}
+#{ "#}\"" #}
+(define foo (define-event-function (music)(ly:music?)
+  #{
+    % comment
+    bar = #(define-event-function (more-music)(ly:music?)
+      ; #}
+      #{ \tweak something ##t $more-music #})
+    \tweak something-else "baz" $music
+  #}))
+
+---
+
+(scheme_program
+  (scheme_embedded_lilypond
+    (scheme_embedded_lilypond_text
+      (escaped_word)))
+  (scheme_embedded_lilypond)
+  (scheme_embedded_lilypond)
+  (scheme_embedded_lilypond
+    (scheme_embedded_lilypond_text
+      (comment)))
+  (scheme_embedded_lilypond
+    (scheme_embedded_lilypond_text
+      (string
+        (string_fragment)
+        (escape_sequence))))
+  (scheme_list
+    (scheme_symbol)
+    (scheme_symbol)
+    (scheme_list
+      (scheme_symbol)
+      (scheme_list
+        (scheme_symbol))
+      (scheme_list
+        (scheme_symbol))
+      (scheme_embedded_lilypond
+        (scheme_embedded_lilypond_text
+          (comment)
+          (assignment_lhs
+            (symbol))
+          (punctuation)
+          (embedded_scheme
+            (embedded_scheme_prefix)
+            (embedded_scheme_text
+              (scheme_list
+                (scheme_symbol)
+                (scheme_list
+                  (scheme_symbol))
+                (scheme_list
+                  (scheme_symbol))
+                (scheme_comment)
+                (scheme_embedded_lilypond
+                  (scheme_embedded_lilypond_text
+                    (escaped_word)
+                    (symbol)
+                    (embedded_scheme
+                      (embedded_scheme_prefix)
+                      (embedded_scheme_text
+                        (scheme_boolean)))
+                    (embedded_scheme
+                      (embedded_scheme_prefix)
+                      (embedded_scheme_text
+                        (scheme_symbol))))))))
+          (escaped_word)
+          (symbol)
+          (string
+            (string_fragment))
+          (embedded_scheme
+            (embedded_scheme_prefix)
+            (embedded_scheme_text
+              (scheme_symbol))))))))
+
+
+===
+Lists
+:language(lilypond-scheme)
+===
+
+()
+(1 2 3)
+("foo" bar 3.1415)
+(car '(1))
+
+---
+
+(scheme_program
+  (scheme_list)
+  (scheme_list
+    (scheme_number)
+    (scheme_number)
+    (scheme_number))
+  (scheme_list
+    (scheme_string
+      (scheme_string_fragment))
+    (scheme_symbol)
+    (scheme_number))
+  (scheme_list
+    (scheme_symbol)
+    (scheme_quote
+      (scheme_list
+        (scheme_number)))))

@@ -1,0 +1,23 @@
+========================================
+compound statement
+========================================
+
+unbind-key -T copy-mode-vi v ; bind-key -T copy-mode-vi v send-keys -X begin-selection
+
+---
+
+(file
+  (unbind_key_directive
+    (command)
+    (command_line_option)
+    (key_table)
+    (key))
+  (bind_key_directive
+    (command)
+    (command_line_option)
+    (key_table)
+    (key)
+    (send_keys_directive
+      (command)
+      (command_line_option)
+      (key))))

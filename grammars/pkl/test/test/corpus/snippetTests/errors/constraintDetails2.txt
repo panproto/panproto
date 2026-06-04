@@ -1,0 +1,77 @@
+===
+errors/constraintDetails2.pkl
+===
+
+birds: Listing(
+    let (myself: Listing<Bird> = this)
+      myself[0].name == "Sandy"
+  ) =
+  new {
+    new Bird { name = "Bob" }
+    new Bird { name = "Bob" }
+  }
+
+class Bird { name: String }
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (constrainedType
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (letExpr
+          (typedIdentifier
+            (identifier)
+            (typeAnnotation
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier))
+                (typeArgumentList
+                  (declaredType
+                    (qualifiedIdentifier
+                      (identifier)))))))
+          (thisExpr)
+          (equalityExpr
+            (qualifiedAccessExpr
+              (subscriptExpr
+                (unqualifiedAccessExpr
+                  (identifier))
+                (intLiteralExpr))
+              (identifier))
+            (slStringLiteralExpr
+              (slStringLiteralPart))))))
+    (newExpr
+      (objectBody
+        (objectElement
+          (newExpr
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (objectBody
+              (objectProperty
+                (identifier)
+                (slStringLiteralExpr
+                  (slStringLiteralPart))))))
+        (objectElement
+          (newExpr
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (objectBody
+              (objectProperty
+                (identifier)
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))))))))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))))))

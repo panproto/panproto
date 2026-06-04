@@ -1,0 +1,50 @@
+================================================================================
+Label variable declaration with Locked attribute
+================================================================================
+
+codeunit 50000 "Test Label"
+{
+    var
+        LinkLbl: Label 'View terms & conditions';
+        UrlTxt: Label 'http://go.microsoft.com/fwlink/?LinkId=828977', Locked = true;
+        Content1Lbl: Label 'Use the setups that we provide.', Comment = 'Instruction text';
+        MultiAttrLbl: Label 'Text', Locked = true, Comment = 'Multi attribute test';
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        (identifier)
+        (basic_type)
+        (string_literal))
+      (variable_declaration
+        (identifier)
+        (basic_type)
+        (string_literal)
+        (label_attribute
+          (identifier)
+          (boolean)))
+      (variable_declaration
+        (identifier)
+        (basic_type)
+        (string_literal)
+        (label_attribute
+          (identifier)
+          (string_literal)))
+      (variable_declaration
+        (identifier)
+        (basic_type)
+        (string_literal)
+        (label_attribute
+          (identifier)
+          (boolean))
+        (label_attribute
+          (identifier)
+          (string_literal))))))

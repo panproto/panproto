@@ -1,0 +1,343 @@
+========================================
+new-session: simple
+========================================
+new-session
+new
+
+---
+
+(file
+  (new_session_directive
+    (command))
+  (new_session_directive
+    (command)))
+
+========================================
+new-session: flags
+========================================
+new-session -d
+new -d
+new-session -A
+new -A
+new-session -D
+new -D
+new-session -E
+new -E
+new-session -P
+new -P
+new-session -X
+new -X
+new-session -dP
+new -dP
+
+---
+
+(file
+  (new_session_directive
+    (command)
+    (command_line_option))
+  (new_session_directive
+    (command)
+    (command_line_option))
+  (new_session_directive
+    (command)
+    (command_line_option))
+  (new_session_directive
+    (command)
+    (command_line_option))
+  (new_session_directive
+    (command)
+    (command_line_option))
+  (new_session_directive
+    (command)
+    (command_line_option))
+  (new_session_directive
+    (command)
+    (command_line_option))
+  (new_session_directive
+    (command)
+    (command_line_option))
+  (new_session_directive
+    (command)
+    (command_line_option))
+  (new_session_directive
+    (command)
+    (command_line_option))
+  (new_session_directive
+    (command)
+    (command_line_option))
+  (new_session_directive
+    (command)
+    (command_line_option))
+  (new_session_directive
+    (command)
+    (command_line_option))
+  (new_session_directive
+    (command)
+    (command_line_option)))
+
+========================================
+new-session: flags + shell
+========================================
+new-session -d "top"
+new -d "top"
+new-session -P -F '#{session_name}:#{session_attached}'
+new -P -F '#{session_name}:#{session_attached}'
+
+---
+
+(file
+  (new_session_directive
+    (command)
+    (command_line_option)
+    (str_double_quotes))
+  (new_session_directive
+    (command)
+    (command_line_option)
+    (str_double_quotes))
+  (new_session_directive
+    (command)
+    (command_line_option)
+    (command_line_option)
+    (format
+      (str_single_quotes
+        (expr_single_quotes
+          (name))
+        (expr_single_quotes
+          (name)))))
+  (new_session_directive
+    (command)
+    (command_line_option)
+    (command_line_option)
+    (format
+      (str_single_quotes
+        (expr_single_quotes
+          (name))
+        (expr_single_quotes
+          (name))))))
+
+========================================
+new-session: options
+========================================
+new-session -s dev
+new -s dev
+new-session -n editor
+new -n editor
+new-session -c ~/proj
+new -c ~/proj
+new-session -e PATH=/usr/local/bin -e MODE=dev
+new -e PATH=/usr/local/bin -e MODE=dev
+new-session -F '#{session_name}:'
+new -F '#{session_name}:'
+new-session -x 180 -y 48
+new -x 180 -y 48
+
+---
+
+(file
+  (new_session_directive
+    (command)
+    (command_line_option)
+    (session_name))
+  (new_session_directive
+    (command)
+    (command_line_option)
+    (session_name))
+  (new_session_directive
+    (command)
+    (command_line_option)
+    (window_name))
+  (new_session_directive
+    (command)
+    (command_line_option)
+    (window_name))
+  (new_session_directive
+    (command)
+    (command_line_option)
+    (start_directory))
+  (new_session_directive
+    (command)
+    (command_line_option)
+    (start_directory))
+  (new_session_directive
+    (command)
+    (command_line_option)
+    (environment)
+    (command_line_option)
+    (environment))
+  (new_session_directive
+    (command)
+    (command_line_option)
+    (environment)
+    (command_line_option)
+    (environment))
+  (new_session_directive
+    (command)
+    (command_line_option)
+    (format
+      (str_single_quotes
+        (expr_single_quotes
+          (name)))))
+  (new_session_directive
+    (command)
+    (command_line_option)
+    (format
+      (str_single_quotes
+        (expr_single_quotes
+          (name)))))
+  (new_session_directive
+    (command)
+    (command_line_option)
+    (width)
+    (command_line_option)
+    (height))
+  (new_session_directive
+    (command)
+    (command_line_option)
+    (width)
+    (command_line_option)
+    (height)))
+
+========================================
+new-session: options + shell
+========================================
+new-session -s build -n logs -c ~/proj "npm run start"
+new -s build -n logs -c ~/proj "npm run start"
+new-session -e LANG=en_US.UTF-8 -e MODE=prod "bash -lc 'echo hello'"
+new -e LANG=en_US.UTF-8 -e MODE=prod "bash -lc 'echo hello'"
+
+---
+
+(file
+  (new_session_directive
+    (command)
+    (command_line_option)
+    (session_name)
+    (command_line_option)
+    (window_name)
+    (command_line_option)
+    (start_directory)
+    (str_double_quotes))
+  (new_session_directive
+    (command)
+    (command_line_option)
+    (session_name)
+    (command_line_option)
+    (window_name)
+    (command_line_option)
+    (start_directory)
+    (str_double_quotes))
+  (new_session_directive
+    (command)
+    (command_line_option)
+    (environment)
+    (command_line_option)
+    (environment)
+    (str_double_quotes))
+  (new_session_directive
+    (command)
+    (command_line_option)
+    (environment)
+    (command_line_option)
+    (environment)
+    (str_double_quotes)))
+
+========================================
+new-session: group (–t)
+========================================
+new-session -t mygroup
+new -t mygroup
+new-session -t existing:session
+new -t existing:session
+
+---
+
+(file
+  (new_session_directive
+    (command)
+    (command_line_option)
+    (group_name))
+  (new_session_directive
+    (command)
+    (command_line_option)
+    (group_name))
+  (new_session_directive
+    (command)
+    (command_line_option)
+    (group_name))
+  (new_session_directive
+    (command)
+    (command_line_option)
+    (group_name)))
+
+========================================
+new-session: complex
+========================================
+# line continuations, many options, and a trailing comment
+new-session -d -P -F '#{session_name}:#{session_windows}' -s \
+ci -n "workers" -c ~/proj \
+-e MODE=ci -e COLOR=1 -x 160 -y 40 "bash -lc 'make test'"  # detached CI session
+new -d -P -F '#{session_name}:#{session_windows}' -s \
+ci -n "workers" -c ~/proj \
+-e MODE=ci -e COLOR=1 -x 160 -y 40 "bash -lc 'make test'"  # detached CI session
+
+---
+
+(file
+  (comment)
+  (new_session_directive
+    (command)
+    (command_line_option)
+    (command_line_option)
+    (command_line_option)
+    (format
+      (str_single_quotes
+        (expr_single_quotes
+          (name))
+        (expr_single_quotes
+          (name))))
+    (command_line_option)
+    (session_name)
+    (command_line_option)
+    (window_name
+      (str_double_quotes))
+    (command_line_option)
+    (start_directory)
+    (command_line_option)
+    (environment)
+    (command_line_option)
+    (environment)
+    (command_line_option)
+    (width)
+    (command_line_option)
+    (height)
+    (str_double_quotes))
+  (comment)
+  (new_session_directive
+    (command)
+    (command_line_option)
+    (command_line_option)
+    (command_line_option)
+    (format
+      (str_single_quotes
+        (expr_single_quotes
+          (name))
+        (expr_single_quotes
+          (name))))
+    (command_line_option)
+    (session_name)
+    (command_line_option)
+    (window_name
+      (str_double_quotes))
+    (command_line_option)
+    (start_directory)
+    (command_line_option)
+    (environment)
+    (command_line_option)
+    (environment)
+    (command_line_option)
+    (width)
+    (command_line_option)
+    (height)
+    (str_double_quotes))
+  (comment))

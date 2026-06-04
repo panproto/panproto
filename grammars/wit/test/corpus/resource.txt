@@ -1,0 +1,69 @@
+==================
+Streams and Async
+==================
+interface filesystem {
+  resource file {
+    constructor();
+    is-closed: func() -> bool;
+    read: async func(num-bytes: u32) -> result<list<u8>>;
+    from-bytes: static func(bytes: list<u8>) -> file;
+    from-stream: static async func(bytes: stream<u8>) -> file;
+  }
+}
+
+---
+
+(source_file
+  (interface_item
+    (id)
+    (body
+      (resource_item
+        (id)
+        (body
+          (resource_method
+            (param_list))
+          (resource_method
+            (func_item
+              (id)
+              (func_type
+                (param_list)
+                (result_list
+                  (ty)))))
+          (resource_method
+            (func_item
+              (id)
+              (func_type
+                (param_list
+                  (named_type
+                    (id)
+                    (ty)))
+                (result_list
+                  (ty
+                    (result
+                      (ty
+                        (list
+                          (ty)))))))))
+          (resource_method
+            (id)
+            (func_type
+              (param_list
+                (named_type
+                  (id)
+                  (ty
+                    (list
+                      (ty)))))
+              (result_list
+                (ty
+                  (id)))))
+          (resource_method
+            (id)
+            (func_type
+              (param_list
+                (named_type
+                  (id)
+                  (ty
+                    (stream
+                      (ty)))))
+              (result_list
+                (ty
+                  (id))))))))))

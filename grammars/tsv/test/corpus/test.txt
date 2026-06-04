@@ -1,0 +1,108 @@
+================================
+Blank document
+================================
+--------------------------------
+
+(document)
+
+
+================================
+Field types
+================================
+foo,123,12.34,true
+--------------------------------
+
+(document
+	(row
+	  (field (text))
+		(field (number))
+		(field (float))
+		(field (boolean))))
+
+
+================================
+Multiple rows
+================================
+foo,bar
+baz,qux
+--------------------------------
+(document
+	(row
+		(field (text))
+		(field (text)))
+	(row
+		(field (text))
+		(field (text))))
+
+
+================================
+Empty fields
+================================
+,,
+foo,,bar
+--------------------------------
+(document
+	(row
+		(field (text))
+		(field (text))
+		(field (text)))
+	(row
+		(field (text))
+		(field (text))
+		(field (text))))
+
+
+================================
+Single letter
+================================
+a
+--------------------------------
+(document
+	(row
+		(field (text))))
+
+
+================================
+Numbers at the beginning of text
+================================
+123abc
+--------------------------------
+(document
+	(row
+		(field (text))))
+
+
+================================
+TSV
+:language(tsv)
+================================
+foo	bar	baz
+123	0.5	true
+--------------------------------
+(document
+	(row
+		(field (text))
+		(field (text))
+		(field (text)))
+	(row
+		(field (number))
+		(field (float))
+		(field (boolean))))
+
+
+================================
+PSV
+:language(psv)
+================================
+foo|bar|baz
+123|0.5|true
+--------------------------------
+(document
+	(row
+		(field (text))
+		(field (text))
+		(field (text)))
+	(row
+		(field (number))
+		(field (float))
+		(field (boolean))))

@@ -1,0 +1,77 @@
+================================================================================
+Simple scissor
+================================================================================
+This is a simple subject
+
+# This is a simple body
+# ------------------------ >8 ------------------------
+# Ne touchez pas à la ligne ci-dessus.
+# Tout ce qui suit sera éliminé.
+diff --git a/lua/usr/git.lua b/lua/usr/git.lua
+index 457a414..94b9036 100644
+--- a/lua/usr/git.lua
++++ b/lua/usr/git.lua
+@@ -6,18 +6,6 @@ function git.plugins(use)
+   use("lewis6991/gitsigns.nvim")
+   use("sindrets/diffview.nvim")
+--------------------------------------------------------------------------------
+
+(source
+  (subject)
+  (message
+    (comment))
+  (scissor)
+  (diff
+    (generated_comment)
+    (generated_comment)))
+
+================================================================================
+Simple empty scissor
+================================================================================
+This is a simple subject
+
+# This is a simple body
+# ------------------------ >8 ------------------------
+# Ne touchez pas à la ligne ci-dessus.
+# Tout ce qui suit sera éliminé.
+--------------------------------------------------------------------------------
+
+(source
+  (subject)
+  (message
+    (comment))
+  (scissor)
+  (diff
+    (generated_comment)
+    (generated_comment)))
+
+================================================================================
+Scissor in commit verbose
+================================================================================
+update credits
+
+# ------------------------ >8 ------------------------
+# Do not modify or remove the line above.
+# Everything below it will be ignored.
+#
+# Changes to be committed:
+diff --git c/README.md i/README.md
+index 9443e24..d8f88db 100644
+# --------------------------------------------------
+# Modifications qui ne seront pas validées :
+diff --git c/README.md i/README.md
+index 9443e24..d8f88db 100644
+--------------------------------------------------------------------------------
+
+(source
+  (subject)
+  (scissor)
+  (diff
+    (generated_comment)
+    (generated_comment)
+    (generated_comment)
+    (generated_comment
+      (title))
+    (generated_comment)
+    (generated_comment
+      (title))))

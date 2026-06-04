@@ -1,0 +1,293 @@
+==============================
+Brief description
+==============================
+
+//! \brief Brief description.
+//!        Multiline brief not supported for single line comments.
+//!
+//! Detailed description not supported for single line comments.
+
+---
+
+(document
+  (brief_header
+    (tag_name)
+    (brief_description
+      (brief_text)))
+  (description))
+
+========================================
+Brief description ending with dot
+========================================
+
+//! Brief description which ends at this dot. Details follow
+//! here.
+
+---
+
+(document
+  (brief_header
+    (brief_description))
+  (description))
+
+========================================
+Function docs with \ (param 1)
+========================================
+
+//! \param a an integer argument.
+
+---
+
+(document
+  (tag
+    (tag_name)
+    (identifier)
+    (description)))
+
+========================================
+Function docs with \ (param 2)
+========================================
+
+//! \param s a constant character pointer.
+
+---
+
+(document
+  (tag
+    (tag_name)
+    (identifier)
+    (description)))
+
+========================================
+Function docs with \ (return)
+========================================
+
+//! \return The test results
+
+---
+
+(document
+  (tag
+    (tag_name)
+    (description)))
+
+========================================
+Function docs with \ (function_link)
+========================================
+
+//! \sa QTstyle_Test(), ~QTstyle_Test(), testMeToo() and publicVar()
+
+---
+
+(document
+  (tag
+    (tag_name)
+    (function_link)
+    (function_link)
+    (function_link)
+    (function_link)))
+
+========================================
+Function docs with @ (brief)
+========================================
+
+//! A pure virtual member.
+
+---
+
+(document
+  (brief_header
+    (brief_description)))
+
+========================================
+Function docs with @ (see)
+========================================
+
+//! @see testMe()
+
+---
+
+(document
+  (tag
+    (tag_name)
+    (description
+      (function_link))))
+
+========================================
+Function docs with @ (param 1)
+========================================
+
+//! @param c1 the first argument.
+
+---
+
+(document
+  (tag
+    (tag_name)
+    (identifier)
+    (description)))
+
+========================================
+Function docs with @ (param 2)
+========================================
+
+//! @param c2 the second argument.
+
+---
+
+(document
+  (tag
+    (tag_name)
+    (identifier)
+    (description)))
+
+========================================
+Storageclass
+========================================
+
+//!< [in] docs for input parameter v.
+
+---
+
+(document
+  (tag
+    (storageclass)
+    (description)))
+
+=======================================
+Param with Storageclass (out)
+=======================================
+
+//! @param[out] dest The memory area to copy to.
+
+---
+
+(document
+  (tag
+    (tag_name)
+    (storageclass)
+    (identifier)
+    (description)))
+
+=======================================
+Param with Storageclass (in)
+=======================================
+
+//! @param[in]  src  The memory area to copy from.
+
+---
+
+(document
+  (tag
+    (tag_name)
+    (storageclass)
+    (identifier)
+    (description)))
+
+=======================================
+Multiple Params
+=======================================
+
+//! @param x,y,z Coordinates of the position in 3D space.
+
+---
+
+(document
+  (tag
+    (tag_name)
+    (identifier)
+    (identifier)
+    (identifier)
+    (description)))
+
+=======================================
+Function Links (foo)
+=======================================
+
+//! @see foo()
+
+---
+
+(document
+  (tag
+    (tag_name)
+    (description
+      (function_link))))
+
+=======================================
+Function Links(::bar)
+=======================================
+
+//! @see ::bar
+
+---
+
+(document
+  (tag
+    (tag_name)
+    (description
+      (function_link))))
+
+=======================================
+Function Links (bax::qux)
+=======================================
+
+//! @see baz::qux(int quux)
+
+---
+
+(document
+  (tag
+    (tag_name)
+    (description
+      (function_link))))
+
+=======================================
+URL Links
+=======================================
+
+//! <a href="http://www.example.com">Example</a>
+
+---
+
+(document
+  (description
+    (link
+      (text))))
+
+=======================================
+Param
+=======================================
+
+//! \param foo foo
+
+---
+
+(document (tag (tag_name) (identifier) (description)))
+
+=======================================
+Code Word
+=======================================
+
+//! It returns \c void
+
+---
+
+(document
+  (description
+    (code_word
+      (code))))
+
+=======================================
+Storageclass in brief
+=======================================
+
+//! \brief blah blah blah in blah blah blah
+
+---
+
+(document
+  (brief_header
+    (tag_name)
+    (brief_description
+      (brief_text))))

@@ -1,0 +1,224 @@
+================================================================================
+DataClassification property in field declarations
+================================================================================
+
+table 5700 "Tax Area Buffer"
+{
+    fields
+    {
+        field(1; "Code"; Code[20])
+        {
+            Caption = 'Code';
+            DataClassification = SystemMetadata;
+            NotBlank = true;
+        }
+        field(2; Description; Text[100])
+        {
+            Caption = 'Description';
+            DataClassification = SystemMetadata;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (code_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (identifier))
+        (property
+          name: (property_name)
+          value: (boolean)))
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (identifier))))))
+
+================================================================================
+DataClassification with all possible values
+================================================================================
+
+table 50100 "Test Data Classification"
+{
+    fields
+    {
+        field(1; Field1; Integer)
+        {
+            DataClassification = CustomerContent;
+        }
+        field(2; Field2; Text[50])
+        {
+            DataClassification = EndUserIdentifiableInformation;
+        }
+        field(3; Field3; Code[10])
+        {
+            DataClassification = AccountData;
+        }
+        field(4; Field4; Decimal)
+        {
+            DataClassification = EndUserPseudonymousIdentifiers;
+        }
+        field(5; Field5; Boolean)
+        {
+            DataClassification = OrganizationIdentifiableInformation;
+        }
+        field(6; Field6; Date)
+        {
+            DataClassification = SystemMetadata;
+        }
+        field(7; Field7; Time)
+        {
+            DataClassification = ToBeClassified;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (identifier)))
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (identifier)))
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (code_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (identifier)))
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (identifier)))
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (identifier)))
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (identifier)))
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (identifier))))))
+
+================================================================================
+DataClassification with case variations
+================================================================================
+
+table 50200 "Case Test"
+{
+    fields
+    {
+        field(1; Field1; Integer)
+        {
+            dataclassification = systemmetadata;
+        }
+        field(2; Field2; Text[10])
+        {
+            DATACLASSIFICATION = CUSTOMERCONTENT;
+        }
+        field(3; Field3; Code[5])
+        {
+            DataClassification = AccountData;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (identifier)))
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (identifier)))
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (code_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (identifier))))))

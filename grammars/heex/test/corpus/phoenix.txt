@@ -1,0 +1,557 @@
+================================================================================
+root.html.heex
+================================================================================
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8"/>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <%= csrf_meta_tag() %>
+    <%= live_title_tag assigns[:page_title] || "HeexApp", suffix: " · Phoenix Framework" %>
+    <link phx-track-static rel="stylesheet" href={Routes.static_path(@conn, "/assets/app.css")}/>
+    <script defer phx-track-static type="text/javascript" src={Routes.static_path(@conn, "/assets/app.js")}></script>
+  </head>
+  <body>
+    <header>
+      <section class="container">
+        <nav>
+          <ul>
+            <li><a href="https://hexdocs.pm/phoenix/overview.html">Get Started</a></li>
+            
+          </ul>
+        </nav>
+        <a href="https://phoenixframework.org/" class="phx-logo">
+          <img src={Routes.static_path(@conn, "/images/phoenix.png")} alt="Phoenix Framework Logo"/>
+        </a>
+      </section>
+    </header>
+    <%= @inner_content %>
+  </body>
+</html>
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (doctype)
+  (tag
+    (start_tag
+      (tag_name)
+      (attribute
+        (attribute_name)
+        (quoted_attribute_value
+          (attribute_value))))
+    (tag
+      (start_tag
+        (tag_name))
+      (tag
+        (self_closing_tag
+          (tag_name)
+          (attribute
+            (attribute_name)
+            (quoted_attribute_value
+              (attribute_value)))))
+      (tag
+        (self_closing_tag
+          (tag_name)
+          (attribute
+            (attribute_name)
+            (quoted_attribute_value
+              (attribute_value)))
+          (attribute
+            (attribute_name)
+            (quoted_attribute_value
+              (attribute_value)))))
+      (tag
+        (self_closing_tag
+          (tag_name)
+          (attribute
+            (attribute_name)
+            (quoted_attribute_value
+              (attribute_value)))
+          (attribute
+            (attribute_name)
+            (quoted_attribute_value
+              (attribute_value)))))
+      (directive
+        (expression_value))
+      (directive
+        (expression_value))
+      (tag
+        (self_closing_tag
+          (tag_name)
+          (attribute
+            (attribute_name))
+          (attribute
+            (attribute_name)
+            (quoted_attribute_value
+              (attribute_value)))
+          (attribute
+            (attribute_name)
+            (expression
+              (expression_value)))))
+      (tag
+        (start_tag
+          (tag_name)
+          (attribute
+            (attribute_name))
+          (attribute
+            (attribute_name))
+          (attribute
+            (attribute_name)
+            (quoted_attribute_value
+              (attribute_value)))
+          (attribute
+            (attribute_name)
+            (expression
+              (expression_value))))
+        (end_tag
+          (tag_name)))
+      (end_tag
+        (tag_name)))
+    (tag
+      (start_tag
+        (tag_name))
+      (tag
+        (start_tag
+          (tag_name))
+        (tag
+          (start_tag
+            (tag_name)
+            (attribute
+              (attribute_name)
+              (quoted_attribute_value
+                (attribute_value))))
+          (tag
+            (start_tag
+              (tag_name))
+            (tag
+              (start_tag
+                (tag_name))
+              (tag
+                (start_tag
+                  (tag_name))
+                (tag
+                  (start_tag
+                    (tag_name)
+                    (attribute
+                      (attribute_name)
+                      (quoted_attribute_value
+                        (attribute_value))))
+                  (text)
+                  (end_tag
+                    (tag_name)))
+                (end_tag
+                  (tag_name)))
+              (end_tag
+                (tag_name)))
+            (end_tag
+              (tag_name)))
+          (tag
+            (start_tag
+              (tag_name)
+              (attribute
+                (attribute_name)
+                (quoted_attribute_value
+                  (attribute_value)))
+              (attribute
+                (attribute_name)
+                (quoted_attribute_value
+                  (attribute_value))))
+            (tag
+              (self_closing_tag
+                (tag_name)
+                (attribute
+                  (attribute_name)
+                  (expression
+                    (expression_value)))
+                (attribute
+                  (attribute_name)
+                  (quoted_attribute_value
+                    (attribute_value)))))
+            (end_tag
+              (tag_name)))
+          (end_tag
+            (tag_name)))
+        (end_tag
+          (tag_name)))
+      (directive
+        (expression_value))
+      (end_tag
+        (tag_name)))
+    (end_tag
+      (tag_name))))
+
+================================================================================
+app.html.heex
+================================================================================
+
+<main class="container">
+  <p class="alert alert-info" role="alert"><%= get_flash(@conn, :info) %></p>
+  <p class="alert alert-danger" role="alert"><%= get_flash(@conn, :error) %></p>
+  <%= @inner_content %>
+</main>
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (tag
+    (start_tag
+      (tag_name)
+      (attribute
+        (attribute_name)
+        (quoted_attribute_value
+          (attribute_value))))
+    (tag
+      (start_tag
+        (tag_name)
+        (attribute
+          (attribute_name)
+          (quoted_attribute_value
+            (attribute_value)))
+        (attribute
+          (attribute_name)
+          (quoted_attribute_value
+            (attribute_value))))
+      (directive
+        (expression_value))
+      (end_tag
+        (tag_name)))
+    (tag
+      (start_tag
+        (tag_name)
+        (attribute
+          (attribute_name)
+          (quoted_attribute_value
+            (attribute_value)))
+        (attribute
+          (attribute_name)
+          (quoted_attribute_value
+            (attribute_value))))
+      (directive
+        (expression_value))
+      (end_tag
+        (tag_name)))
+    (directive
+      (expression_value))
+    (end_tag
+      (tag_name))))
+
+================================================================================
+live.html.heex
+================================================================================
+
+<main class="container">
+  <p class="alert alert-info" role="alert"
+    phx-click="lv:clear-flash"
+    phx-value-key="info"><%= live_flash(@flash, :info) %></p>
+
+  <p class="alert alert-danger" role="alert"
+    phx-click="lv:clear-flash"
+    phx-value-key="error"><%= live_flash(@flash, :error) %></p>
+
+  <%= @inner_content %>
+</main>
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (tag
+    (start_tag
+      (tag_name)
+      (attribute
+        (attribute_name)
+        (quoted_attribute_value
+          (attribute_value))))
+    (tag
+      (start_tag
+        (tag_name)
+        (attribute
+          (attribute_name)
+          (quoted_attribute_value
+            (attribute_value)))
+        (attribute
+          (attribute_name)
+          (quoted_attribute_value
+            (attribute_value)))
+        (attribute
+          (attribute_name)
+          (quoted_attribute_value
+            (attribute_value)))
+        (attribute
+          (attribute_name)
+          (quoted_attribute_value
+            (attribute_value))))
+      (directive
+        (expression_value))
+      (end_tag
+        (tag_name)))
+    (tag
+      (start_tag
+        (tag_name)
+        (attribute
+          (attribute_name)
+          (quoted_attribute_value
+            (attribute_value)))
+        (attribute
+          (attribute_name)
+          (quoted_attribute_value
+            (attribute_value)))
+        (attribute
+          (attribute_name)
+          (quoted_attribute_value
+            (attribute_value)))
+        (attribute
+          (attribute_name)
+          (quoted_attribute_value
+            (attribute_value))))
+      (directive
+        (expression_value))
+      (end_tag
+        (tag_name)))
+    (directive
+      (expression_value))
+    (end_tag
+      (tag_name))))
+
+================================================================================
+index.html.heex
+================================================================================
+
+<section class="phx-hero">
+  <h1>Welcome to Phoenix!</h1>
+  <p>Peace of mind from prototype to production</p>
+</section>
+
+<section class="row">
+  <article class="column">
+    <h2>Resources</h2>
+    <ul>
+      <li>
+        <a href="https://hexdocs.pm/phoenix/overview.html">Guides &amp; Docs</a>
+      </li>
+      <li>
+        <a href="https://github.com/phoenixframework/phoenix">Source</a>
+      </li>
+      <li>
+        <a href="https://github.com/phoenixframework/phoenix/blob/v1.6/CHANGELOG.md">v1.6 Changelog</a>
+      </li>
+    </ul>
+  </article>
+  <article class="column">
+    <h2>Help</h2>
+    <ul>
+      <li>
+        <a href="https://elixirforum.com/c/phoenix-forum">Forum</a>
+      </li>
+      <li>
+        <a href="https://web.libera.chat/#elixir">#elixir on Libera Chat (IRC)</a>
+      </li>
+      <li>
+        <a href="https://twitter.com/elixirphoenix">Twitter @elixirphoenix</a>
+      </li>
+      <li>
+        <a href="https://elixir-slackin.herokuapp.com/">Elixir on Slack</a>
+      </li>
+      <li>
+        <a href="https://discord.gg/elixir">Elixir on Discord</a>
+      </li>
+    </ul>
+  </article>
+</section>
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (tag
+    (start_tag
+      (tag_name)
+      (attribute
+        (attribute_name)
+        (quoted_attribute_value
+          (attribute_value))))
+    (tag
+      (start_tag
+        (tag_name))
+      (text)
+      (end_tag
+        (tag_name)))
+    (tag
+      (start_tag
+        (tag_name))
+      (text)
+      (end_tag
+        (tag_name)))
+    (end_tag
+      (tag_name)))
+  (tag
+    (start_tag
+      (tag_name)
+      (attribute
+        (attribute_name)
+        (quoted_attribute_value
+          (attribute_value))))
+    (tag
+      (start_tag
+        (tag_name)
+        (attribute
+          (attribute_name)
+          (quoted_attribute_value
+            (attribute_value))))
+      (tag
+        (start_tag
+          (tag_name))
+        (text)
+        (end_tag
+          (tag_name)))
+      (tag
+        (start_tag
+          (tag_name))
+        (tag
+          (start_tag
+            (tag_name))
+          (tag
+            (start_tag
+              (tag_name)
+              (attribute
+                (attribute_name)
+                (quoted_attribute_value
+                  (attribute_value))))
+            (text)
+            (entity)
+            (text)
+            (end_tag
+              (tag_name)))
+          (end_tag
+            (tag_name)))
+        (tag
+          (start_tag
+            (tag_name))
+          (tag
+            (start_tag
+              (tag_name)
+              (attribute
+                (attribute_name)
+                (quoted_attribute_value
+                  (attribute_value))))
+            (text)
+            (end_tag
+              (tag_name)))
+          (end_tag
+            (tag_name)))
+        (tag
+          (start_tag
+            (tag_name))
+          (tag
+            (start_tag
+              (tag_name)
+              (attribute
+                (attribute_name)
+                (quoted_attribute_value
+                  (attribute_value))))
+            (text)
+            (end_tag
+              (tag_name)))
+          (end_tag
+            (tag_name)))
+        (end_tag
+          (tag_name)))
+      (end_tag
+        (tag_name)))
+    (tag
+      (start_tag
+        (tag_name)
+        (attribute
+          (attribute_name)
+          (quoted_attribute_value
+            (attribute_value))))
+      (tag
+        (start_tag
+          (tag_name))
+        (text)
+        (end_tag
+          (tag_name)))
+      (tag
+        (start_tag
+          (tag_name))
+        (tag
+          (start_tag
+            (tag_name))
+          (tag
+            (start_tag
+              (tag_name)
+              (attribute
+                (attribute_name)
+                (quoted_attribute_value
+                  (attribute_value))))
+            (text)
+            (end_tag
+              (tag_name)))
+          (end_tag
+            (tag_name)))
+        (tag
+          (start_tag
+            (tag_name))
+          (tag
+            (start_tag
+              (tag_name)
+              (attribute
+                (attribute_name)
+                (quoted_attribute_value
+                  (attribute_value))))
+            (text)
+            (end_tag
+              (tag_name)))
+          (end_tag
+            (tag_name)))
+        (tag
+          (start_tag
+            (tag_name))
+          (tag
+            (start_tag
+              (tag_name)
+              (attribute
+                (attribute_name)
+                (quoted_attribute_value
+                  (attribute_value))))
+            (text)
+            (end_tag
+              (tag_name)))
+          (end_tag
+            (tag_name)))
+        (tag
+          (start_tag
+            (tag_name))
+          (tag
+            (start_tag
+              (tag_name)
+              (attribute
+                (attribute_name)
+                (quoted_attribute_value
+                  (attribute_value))))
+            (text)
+            (end_tag
+              (tag_name)))
+          (end_tag
+            (tag_name)))
+        (tag
+          (start_tag
+            (tag_name))
+          (tag
+            (start_tag
+              (tag_name)
+              (attribute
+                (attribute_name)
+                (quoted_attribute_value
+                  (attribute_value))))
+            (text)
+            (end_tag
+              (tag_name)))
+          (end_tag
+            (tag_name)))
+        (end_tag
+          (tag_name)))
+      (end_tag
+        (tag_name)))
+    (end_tag
+      (tag_name))))

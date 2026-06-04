@@ -1,0 +1,45 @@
+================================================================================
+@switch
+================================================================================
+
+@switch($i)
+    @case(1)
+        First case...
+        @break
+
+    @case(2)
+        Second case...
+        @break
+
+    @case(3)
+    @case(4)
+        Third and fourth case...
+        @break
+
+    @default
+        Default case...
+@endswitch
+
+--------------------------------------------------------------------------------
+
+(document
+  (switch
+    (directive_start)
+    (parameter)
+    (directive)
+    (parameter)
+    (text)
+    (directive)
+    (directive)
+    (parameter)
+    (text)
+    (directive)
+    (directive)
+    (parameter)
+    (directive)
+    (parameter)
+    (text)
+    (directive)
+    (directive)
+    (text)
+    (directive_end)))

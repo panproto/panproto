@@ -1,0 +1,201 @@
+===
+classes/class5.pkl
+===
+
+class A<T, U,>
+class B<T,>
+class C<
+  T,
+>
+class D<
+  T,
+  U,
+> {
+  function foo<V, W,>(x: V, y: W,) = x.toString() + y.toString()
+  function bar<V,>(x: V,) = null
+  function baz<
+    V,
+  >(
+    x,
+  ) = null
+  function quz<
+    V,
+    W,
+  >(
+    x: V,
+    y: W,
+  ) = x.toString() + y.toString()
+}
+
+a: A<String, String,>
+b: B<String,>
+c: C<
+  String,
+>
+d: D<
+  Int,
+  Int,
+>
+
+---
+
+(module
+  (clazz
+    (identifier)
+    (typeParameterList
+      (typeParameter
+        (identifier))
+      (typeParameter
+        (identifier))))
+  (clazz
+    (identifier)
+    (typeParameterList
+      (typeParameter
+        (identifier))))
+  (clazz
+    (identifier)
+    (typeParameterList
+      (typeParameter
+        (identifier))))
+  (clazz
+    (identifier)
+    (typeParameterList
+      (typeParameter
+        (identifier))
+      (typeParameter
+        (identifier)))
+    (classBody
+      (classMethod
+        (methodHeader
+          (identifier)
+          (typeParameterList
+            (typeParameter
+              (identifier))
+            (typeParameter
+              (identifier)))
+          (parameterList
+            (typedIdentifier
+              (identifier)
+              (typeAnnotation
+                (declaredType
+                  (qualifiedIdentifier
+                    (identifier)))))
+            (typedIdentifier
+              (identifier)
+              (typeAnnotation
+                (declaredType
+                  (qualifiedIdentifier
+                    (identifier)))))))
+        (additiveExpr
+          (qualifiedAccessExpr
+            (unqualifiedAccessExpr
+              (identifier))
+            (identifier)
+            (argumentList))
+          (qualifiedAccessExpr
+            (unqualifiedAccessExpr
+              (identifier))
+            (identifier)
+            (argumentList))))
+      (classMethod
+        (methodHeader
+          (identifier)
+          (typeParameterList
+            (typeParameter
+              (identifier)))
+          (parameterList
+            (typedIdentifier
+              (identifier)
+              (typeAnnotation
+                (declaredType
+                  (qualifiedIdentifier
+                    (identifier)))))))
+        (nullLiteralExpr))
+      (classMethod
+        (methodHeader
+          (identifier)
+          (typeParameterList
+            (typeParameter
+              (identifier)))
+          (parameterList
+            (typedIdentifier
+              (identifier))))
+        (nullLiteralExpr))
+      (classMethod
+        (methodHeader
+          (identifier)
+          (typeParameterList
+            (typeParameter
+              (identifier))
+            (typeParameter
+              (identifier)))
+          (parameterList
+            (typedIdentifier
+              (identifier)
+              (typeAnnotation
+                (declaredType
+                  (qualifiedIdentifier
+                    (identifier)))))
+            (typedIdentifier
+              (identifier)
+              (typeAnnotation
+                (declaredType
+                  (qualifiedIdentifier
+                    (identifier)))))))
+        (additiveExpr
+          (qualifiedAccessExpr
+            (unqualifiedAccessExpr
+              (identifier))
+            (identifier)
+            (argumentList))
+          (qualifiedAccessExpr
+            (unqualifiedAccessExpr
+              (identifier))
+            (identifier)
+            (argumentList))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))))))

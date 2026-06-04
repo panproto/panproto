@@ -1,0 +1,173 @@
+===
+listings/inequality.pkl
+===
+
+local x = new Listing {
+  "one"
+  "two"
+}
+
+res1 = x != x
+res2 = x != new Listing {
+  "one"
+  "two"
+}
+res3 = x != new Listing {
+  "two"
+}
+res4 = x != new Listing {
+  "two"
+  "one"
+}
+res5 = x != (x) {}
+res6 = x != (x) { "one" }
+res8 = x != (x) { default = 9 }
+res9 = (x) { default = 9 } != (x) { default = 10 }
+res10 = new Listing { "one" } != new Listing { "one"; default = 9 }
+
+---
+
+(module
+  (classProperty
+    (modifier)
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectElement
+          (slStringLiteralExpr
+            (slStringLiteralPart)))
+        (objectElement
+          (slStringLiteralExpr
+            (slStringLiteralPart))))))
+  (classProperty
+    (identifier)
+    (equalityExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (unqualifiedAccessExpr
+        (identifier))))
+  (classProperty
+    (identifier)
+    (equalityExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody
+          (objectElement
+            (slStringLiteralExpr
+              (slStringLiteralPart)))
+          (objectElement
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))))
+  (classProperty
+    (identifier)
+    (equalityExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody
+          (objectElement
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))))
+  (classProperty
+    (identifier)
+    (equalityExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody
+          (objectElement
+            (slStringLiteralExpr
+              (slStringLiteralPart)))
+          (objectElement
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))))
+  (classProperty
+    (identifier)
+    (equalityExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (amendExpr
+        (parenthesizedExpr
+          (unqualifiedAccessExpr
+            (identifier)))
+        (objectBody))))
+  (classProperty
+    (identifier)
+    (equalityExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (amendExpr
+        (parenthesizedExpr
+          (unqualifiedAccessExpr
+            (identifier)))
+        (objectBody
+          (objectElement
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))))
+  (classProperty
+    (identifier)
+    (equalityExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (amendExpr
+        (parenthesizedExpr
+          (unqualifiedAccessExpr
+            (identifier)))
+        (objectBody
+          (objectProperty
+            (identifier)
+            (intLiteralExpr))))))
+  (classProperty
+    (identifier)
+    (equalityExpr
+      (amendExpr
+        (parenthesizedExpr
+          (unqualifiedAccessExpr
+            (identifier)))
+        (objectBody
+          (objectProperty
+            (identifier)
+            (intLiteralExpr))))
+      (amendExpr
+        (parenthesizedExpr
+          (unqualifiedAccessExpr
+            (identifier)))
+        (objectBody
+          (objectProperty
+            (identifier)
+            (intLiteralExpr))))))
+  (classProperty
+    (identifier)
+    (equalityExpr
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody
+          (objectElement
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody
+          (objectElement
+            (slStringLiteralExpr
+              (slStringLiteralPart)))
+          (objectProperty
+            (identifier)
+            (intLiteralExpr)))))))

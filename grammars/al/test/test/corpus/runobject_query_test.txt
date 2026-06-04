@@ -1,0 +1,262 @@
+================================================================================
+RunObject with Query type
+================================================================================
+
+pageextension 5890 ServiceLedgerEntries extends "Service Ledger Entries"
+{
+    actions
+    {
+        addlast(Reporting)
+        {
+            action(ServicesAnalysis)
+            {
+                ApplicationArea = Basic, Suite;
+                Caption = 'Analyze Services';
+                Image = ServiceAgreement;
+                RunObject = Query "Service Analysis";
+                ToolTip = 'Analyze your Service Ledger Entries.';
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pageextension_declaration
+    (pageextension_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (addlast_action_modification
+        target: (identifier)
+        (action_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (option_member_list
+              (option_member
+                (identifier))
+              (option_member
+                (identifier))))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (object_reference_value
+              (query_keyword)
+              (quoted_identifier)))
+          (property
+            name: (property_name)
+            value: (string_literal)))))))
+
+================================================================================
+RunObject with various Query references
+================================================================================
+
+page 50100 "Test Page"
+{
+    actions
+    {
+        area(processing)
+        {
+            action(QueryById)
+            {
+                ApplicationArea = All;
+                RunObject = Query 5890;
+            }
+            action(QueryByName)
+            {
+                ApplicationArea = All;
+                RunObject = Query ServiceAnalysis;
+            }
+            action(QueryByQuotedName)
+            {
+                ApplicationArea = All;
+                RunObject = Query "Customer Sales Statistics";
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (object_reference_value
+              (query_keyword)
+              (integer))))
+        (action_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (object_reference_value
+              (query_keyword)
+              (identifier))))
+        (action_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (object_reference_value
+              (query_keyword)
+              (quoted_identifier))))))))
+
+================================================================================
+RunObject with all supported object types
+================================================================================
+
+codeunit 50100 "RunObject Examples"
+{
+    trigger OnRun()
+    begin
+    end;
+
+    procedure CreateActions()
+    var
+        ActionConfig: Record "Action Configuration";
+    begin
+        // Page example
+        ActionConfig.RunObjectType := 'Page';
+        ActionConfig.RunObjectID := 21;
+        
+        // Report example  
+        ActionConfig.RunObjectType := 'Report';
+        ActionConfig.RunObjectID := 1305;
+        
+        // Codeunit example
+        ActionConfig.RunObjectType := 'Codeunit';
+        ActionConfig.RunObjectID := 1;
+        
+        // Table example
+        ActionConfig.RunObjectType := 'Table';
+        ActionConfig.RunObjectID := 18;
+        
+        // XMLPort example
+        ActionConfig.RunObjectType := 'XMLPort';
+        ActionConfig.RunObjectID := 9000;
+        
+        // Query example
+        ActionConfig.RunObjectType := 'Query';
+        ActionConfig.RunObjectID := 5890;
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier)))))
+      (code_block
+        (begin_keyword)
+        (comment)
+        (assignment_statement
+          left: (member_expression
+            object: (identifier)
+            member: (identifier))
+          right: (string_literal))
+        (assignment_statement
+          left: (member_expression
+            object: (identifier)
+            member: (identifier))
+          right: (integer))
+        (comment)
+        (assignment_statement
+          left: (member_expression
+            object: (identifier)
+            member: (identifier))
+          right: (string_literal))
+        (assignment_statement
+          left: (member_expression
+            object: (identifier)
+            member: (identifier))
+          right: (integer))
+        (comment)
+        (assignment_statement
+          left: (member_expression
+            object: (identifier)
+            member: (identifier))
+          right: (string_literal))
+        (assignment_statement
+          left: (member_expression
+            object: (identifier)
+            member: (identifier))
+          right: (integer))
+        (comment)
+        (assignment_statement
+          left: (member_expression
+            object: (identifier)
+            member: (identifier))
+          right: (string_literal))
+        (assignment_statement
+          left: (member_expression
+            object: (identifier)
+            member: (identifier))
+          right: (integer))
+        (comment)
+        (assignment_statement
+          left: (member_expression
+            object: (identifier)
+            member: (identifier))
+          right: (string_literal))
+        (assignment_statement
+          left: (member_expression
+            object: (identifier)
+            member: (identifier))
+          right: (integer))
+        (comment)
+        (assignment_statement
+          left: (member_expression
+            object: (identifier)
+            member: (identifier))
+          right: (string_literal))
+        (assignment_statement
+          left: (member_expression
+            object: (identifier)
+            member: (identifier))
+          right: (integer))
+        (end_keyword)))))

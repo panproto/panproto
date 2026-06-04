@@ -1,0 +1,38 @@
+====================
+Variable Declaration
+====================
+
+int x; // declare x
+int y,z; // declare y and z
+int *q, *p = &x; // declare ptrs q and p, p = address of x
+int a=1,b; // declare a and b, initialize a to 1 
+
+---
+
+(translation_unit
+  (declaration
+    (primitive_type)
+    (identifier))
+  (comment)
+  (declaration
+    (primitive_type)
+    (identifier)
+    (identifier))
+  (comment)
+  (declaration
+    (primitive_type)
+    (pointer_declarator
+      (identifier))
+    (init_declarator
+      (pointer_declarator
+        (identifier))
+      (pointer_expression
+        (identifier))))
+  (comment)
+  (declaration
+    (primitive_type)
+    (init_declarator
+      (identifier)
+      (number_literal))
+    (identifier))
+  (comment))

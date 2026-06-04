@@ -1,0 +1,36 @@
+================================================================================
+Preprocessor-wrapped codeunit
+================================================================================
+
+#if not CLEAN26
+codeunit 50000 "Test Codeunit"
+{
+    ObsoleteTag = '26.0';
+    ObsoleteState = Pending;
+    ObsoleteReason = 'Obsolete in 26.0';
+}
+#endif
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (preproc_conditional_object
+    (preproc_if
+      (preproc_open)
+      (preproc_not_expression
+        (identifier)))
+    (codeunit_declaration
+      (codeunit_keyword)
+      (integer)
+      (quoted_identifier)
+      (property
+        (property_name)
+        (string_literal))
+      (property
+        (property_name)
+        (identifier))
+      (property
+        (property_name)
+        (string_literal)))
+    (preproc_endif
+      (preproc_close))))

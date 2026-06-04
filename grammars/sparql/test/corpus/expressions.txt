@@ -1,0 +1,126 @@
+=================
+Unary expression
+=================
+
+SELECT ( -?a AS $x ) {}
+
+---
+
+(unit
+  (select_query
+    (select_clause
+      (unary_expression
+        (var))
+      (var))
+    (where_clause
+      (group_graph_pattern))))
+
+==================
+Binary expression
+==================
+
+SELECT ( ?a + ?b AS $x ) {}
+
+---
+
+(unit
+  (select_query
+    (select_clause
+      (binary_expression
+        (var)
+        (var))
+      (var))
+    (where_clause
+      (group_graph_pattern))))
+
+
+==================
+Binary relational expression
+==================
+
+SELECT * {
+  FILTER ( 1 = 2 )
+  FILTER ( 1 != 2 )
+  FILTER ( 1 < 2 )
+  FILTER ( 1 <= 2 )
+  FILTER ( 1 > 2 )
+  FILTER ( 1 >= 2 )
+}
+
+---
+
+(unit
+  (select_query
+    (select_clause)
+    (where_clause
+      (group_graph_pattern
+        (filter
+          (bracketted_expression
+            (binary_expression
+              (integer)
+              (integer))))
+        (filter
+          (bracketted_expression
+            (binary_expression
+              (integer)
+              (integer))))
+        (filter
+          (bracketted_expression
+            (binary_expression
+              (integer)
+              (integer))))
+        (filter
+          (bracketted_expression
+            (binary_expression
+              (integer)
+              (integer))))
+        (filter
+          (bracketted_expression
+            (binary_expression
+              (integer)
+              (integer))))
+        (filter
+          (bracketted_expression
+            (binary_expression
+              (integer)
+              (integer))))))))
+
+==================
+Precedence levels
+==================
+
+SELECT ( ?a + ?b * 1 AS $x ) {}
+
+---
+
+(unit
+  (select_query
+    (select_clause
+      (binary_expression
+        (var)
+        (binary_expression
+          (var)
+          (integer)))
+      (var))
+    (where_clause
+      (group_graph_pattern))))
+
+===================
+Extension function
+===================
+
+SELECT ( foo:bar(?a, 1)  AS ?x ) {}
+
+---
+
+(unit (select_query
+  (select_clause
+    (function_call
+      identifier: (prefixed_name
+        (namespace (pn_prefix))
+        (pn_local))
+      (arg_list
+        (var)
+        (integer)))
+    bound_variable: (var))
+  (where_clause (group_graph_pattern))))

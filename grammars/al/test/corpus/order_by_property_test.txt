@@ -1,0 +1,109 @@
+==================
+Query with OrderBy property
+==================
+
+query 50000 "Test Query"
+{
+    Caption = 'Test Query';
+    OrderBy = ascending(Country_Region_Code), ascending(VAT_Registration_No);
+    
+    elements
+    {
+        dataitem(TestData; "Test Table")
+        {
+        }
+    }
+}
+
+---
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (order_by_list
+        (order_by_item
+          (identifier))
+        (order_by_item
+          (identifier))))
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)))))
+
+==================
+Query with single OrderBy item
+==================
+
+query 50001 "Simple Query"
+{
+    OrderBy = descending(EntryNo);
+    
+    elements
+    {
+        dataitem(Entry; "Entry Table") { }
+    }
+}
+
+---
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (order_by_list
+        (order_by_item
+          (identifier))))
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)))))
+
+==================
+Query with mixed case OrderBy
+==================
+
+query 50002 "Mixed Case Query"
+{
+    orderby = ASCENDING(Field1), Descending(Field2);
+    
+    elements
+    {
+        dataitem(Data; Table) { }
+    }
+}
+
+---
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (order_by_list
+        (order_by_item
+          (identifier))
+        (order_by_item
+          (identifier))))
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier
+          (table_keyword))))))

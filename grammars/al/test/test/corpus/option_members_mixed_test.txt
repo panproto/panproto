@@ -1,0 +1,235 @@
+================================================================================
+OptionMembers with string literal space as first member
+================================================================================
+
+table 352 "Default Dimension"
+{
+    fields
+    {
+        field(7; "Multi Selection Action"; Option)
+        {
+            Caption = 'Multi Selection Action';
+            OptionCaption = ' ,Change,Delete';
+            OptionMembers = " ",Change,Delete;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (option_type))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (identifier))
+            (option_member
+              (identifier))))))))
+
+================================================================================
+OptionMembers with all string literals
+================================================================================
+
+table 50001 "Test Options"
+{
+    fields
+    {
+        field(1; Status; Option)
+        {
+            OptionMembers = " ","Active","Inactive";
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (option_type))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (quoted_identifier))))))))
+
+================================================================================
+OptionMembers with mixed string literals and identifiers
+================================================================================
+
+enum 50100 "Document Status"
+{
+    value(0; " ") { Caption = 'Blank'; }
+    value(1; Open) { Caption = 'Open'; }
+    value(2; Released) { Caption = 'Released'; }
+}
+
+table 50100 "Test Document"
+{
+    fields
+    {
+        field(1; DocType; Option)
+        {
+            OptionMembers = "Quote",Order,"Posted Order";
+        }
+        field(2; Status; Option)  
+        {
+            OptionMembers = " ",Open,Released;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (enum_declaration
+    (enum_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (quoted_identifier)
+      (property
+        name: (property_name)
+        value: (string_literal)))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier)
+      (property
+        name: (property_name)
+        value: (string_literal)))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier)
+      (property
+        name: (property_name)
+        value: (string_literal))))
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (option_type))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (identifier))
+            (option_member
+              (quoted_identifier)))))
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (option_type))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (identifier))
+            (option_member
+              (identifier))))))))
+
+================================================================================
+OptionMembers with quoted identifiers
+================================================================================
+
+page 50100 "Test Options Page"
+{
+    var
+        MyOption: Option " ","My Option","Another-Option";
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (option_type
+            (option_member_list
+              (option_member
+                (quoted_identifier))
+              (option_member
+                (quoted_identifier))
+              (option_member
+                (quoted_identifier)))))))))
+
+================================================================================
+OptionMembers single string literal edge case
+================================================================================
+
+table 50200 "Single Option"
+{
+    fields
+    {
+        field(1; SingleOpt; Option)
+        {
+            OptionMembers = "Single Value";
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (option_type))
+        (property
+          name: (property_name)
+          value: (quoted_identifier))))))

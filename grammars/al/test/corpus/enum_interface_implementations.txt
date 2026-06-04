@@ -1,0 +1,209 @@
+================================================================================
+Enum with interface implementations - basic case
+================================================================================
+
+enum 50200 SendTo implements IAddressProvider
+{
+    Extensible = true;
+
+    value(0; Company)
+    {
+        Implementation = IAddressProvider = CompanyAddressProvider;
+    }
+
+    value(1; Private)
+    {
+        Implementation = IAddressProvider = PrivateAddressProvider;
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (enum_declaration
+    (enum_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (implements_clause
+      (implements_keyword)
+      interface: (identifier))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier)
+      (property
+        name: (property_name)
+        value: (property_expression
+          (comparison_expression
+            left: (identifier)
+            operator: (comparison_operator)
+            right: (identifier)))))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier)
+      (property
+        name: (property_name)
+        value: (property_expression
+          (comparison_expression
+            left: (identifier)
+            operator: (comparison_operator)
+            right: (identifier)))))))
+
+================================================================================
+Enum with quoted identifier implementations
+================================================================================
+
+enum 50201 "Communication Method" implements "IMessageProvider"
+{
+    value(0; Email)
+    {
+        Implementation = "IMessageProvider" = "EmailProvider";
+    }
+
+    value(1; SMS)
+    {
+        Implementation = "IMessageProvider" = "SMSProvider";
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (enum_declaration
+    (enum_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (implements_clause
+      (implements_keyword)
+      interface: (quoted_identifier))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier)
+      (property
+        name: (property_name)
+        value: (property_expression
+          (comparison_expression
+            left: (quoted_identifier)
+            operator: (comparison_operator)
+            right: (quoted_identifier)))))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier)
+      (property
+        name: (property_name)
+        value: (property_expression
+          (comparison_expression
+            left: (quoted_identifier)
+            operator: (comparison_operator)
+            right: (quoted_identifier)))))))
+
+================================================================================
+Enum with mixed quoted and unquoted implementations
+================================================================================
+
+enum 50202 PaymentMethod implements IPaymentProcessor
+{
+    value(0; CreditCard)
+    {
+        Implementation = "IPaymentProcessor" = CreditCardProcessor;
+    }
+
+    value(1; BankTransfer)
+    {
+        Implementation = IPaymentProcessor = "Bank Transfer Handler";
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (enum_declaration
+    (enum_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (implements_clause
+      (implements_keyword)
+      interface: (identifier))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier)
+      (property
+        name: (property_name)
+        value: (property_expression
+          (comparison_expression
+            left: (quoted_identifier)
+            operator: (comparison_operator)
+            right: (identifier)))))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier)
+      (property
+        name: (property_name)
+        value: (property_expression
+          (comparison_expression
+            left: (identifier)
+            operator: (comparison_operator)
+            right: (quoted_identifier)))))))
+
+================================================================================
+Enum with multiple properties including implementation
+================================================================================
+
+enum 50203 DocumentType implements IDocumentHandler
+{
+    Extensible = false;
+
+    value(0; Invoice)
+    {
+        Caption = 'Invoice Document';
+        Implementation = IDocumentHandler = InvoiceHandler;
+    }
+
+    value(1; Order)
+    {
+        Implementation = IDocumentHandler = OrderHandler;
+        Caption = 'Sales Order';
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (enum_declaration
+    (enum_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (implements_clause
+      (implements_keyword)
+      interface: (identifier))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier)
+      (property
+        name: (property_name)
+        value: (string_literal))
+      (property
+        name: (property_name)
+        value: (property_expression
+          (comparison_expression
+            left: (identifier)
+            operator: (comparison_operator)
+            right: (identifier)))))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier)
+      (property
+        name: (property_name)
+        value: (property_expression
+          (comparison_expression
+            left: (identifier)
+            operator: (comparison_operator)
+            right: (identifier))))
+      (property
+        name: (property_name)
+        value: (string_literal)))))

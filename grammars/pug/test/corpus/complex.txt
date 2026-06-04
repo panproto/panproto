@@ -1,0 +1,34 @@
+========================
+Mixed example
+========================
+
+// some comment
+some-tag.class-one(attr) the content
+  sub-tag.some-slass
+    sub-sub-tag content
+  other-subtag#with-id.and-class(and-attr)
+
+---
+
+(source_file
+  (comment)
+  (tag
+    (tag_name)
+    (class)
+    (attributes
+      (attribute (attribute_name)))
+    (content)
+    (children
+      (tag
+        (tag_name)
+        (class)
+        (children
+          (tag
+            (tag_name)
+            (content))))
+      (tag
+        (tag_name)
+        (id)
+        (class)
+        (attributes
+          (attribute (attribute_name)))))))

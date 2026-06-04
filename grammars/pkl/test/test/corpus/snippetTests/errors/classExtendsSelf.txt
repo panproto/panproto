@@ -1,0 +1,27 @@
+===
+errors/classExtendsSelf.pkl
+===
+
+open class Recurring extends Recurring {
+
+}
+
+f: Recurring = new {}
+
+---
+
+(module
+  (clazz
+    (modifier)
+    (identifier)      (classExtendsClause
+      (qualifiedIdentifier
+        (identifier)))
+    (classBody))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (newExpr
+      (objectBody))))

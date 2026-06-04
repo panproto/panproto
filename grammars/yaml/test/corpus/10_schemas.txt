@@ -1,0 +1,508 @@
+================================================================================
+!!map Examples
+================================================================================
+Block style: !!map
+  Clark : Evans
+  Ingy  : döt Net
+  Oren  : Ben-Kiki
+
+Flow style: !!map { Clark: Evans, Ingy: döt Net, Oren: Ben-Kiki }
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (block_node
+   (block_mapping
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (block_node
+      (tag)
+      (block_mapping
+       (block_mapping_pair
+        (flow_node
+         (plain_scalar
+          (string_scalar)))
+        (flow_node
+         (plain_scalar
+          (string_scalar))))
+       (block_mapping_pair
+        (flow_node
+         (plain_scalar
+          (string_scalar)))
+        (flow_node
+         (plain_scalar
+          (string_scalar))))
+       (block_mapping_pair
+        (flow_node
+         (plain_scalar
+          (string_scalar)))
+        (flow_node
+         (plain_scalar
+          (string_scalar)))))))
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (tag)
+      (flow_mapping
+       (flow_pair
+        (flow_node
+         (plain_scalar
+          (string_scalar)))
+        (flow_node
+         (plain_scalar
+          (string_scalar))))
+       (flow_pair
+        (flow_node
+         (plain_scalar
+          (string_scalar)))
+        (flow_node
+         (plain_scalar
+          (string_scalar))))
+       (flow_pair
+        (flow_node
+         (plain_scalar
+          (string_scalar)))
+        (flow_node
+         (plain_scalar
+          (string_scalar)))))))))))
+
+================================================================================
+!!seq Examples
+================================================================================
+Block style: !!seq
+- Clark Evans
+- Ingy döt Net
+- Oren Ben-Kiki
+
+Flow style: !!seq [ Clark Evans, Ingy döt Net, Oren Ben-Kiki ]
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (block_node
+   (block_mapping
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (block_node
+      (tag)
+      (block_sequence
+       (block_sequence_item
+        (flow_node
+         (plain_scalar
+          (string_scalar))))
+       (block_sequence_item
+        (flow_node
+         (plain_scalar
+          (string_scalar))))
+       (block_sequence_item
+        (flow_node
+         (plain_scalar
+          (string_scalar)))))))
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (tag)
+      (flow_sequence
+       (flow_node
+        (plain_scalar
+         (string_scalar)))
+       (flow_node
+        (plain_scalar
+         (string_scalar)))
+       (flow_node
+        (plain_scalar
+         (string_scalar))))))))))
+
+================================================================================
+!!str Examples
+================================================================================
+Block style: !!str |-
+  String: just a theory.
+
+Flow style: !!str "String: just a theory."
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (block_node
+   (block_mapping
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (block_node
+      (tag)
+      (block_scalar)))
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (tag)
+      (double_quote_scalar)))))))
+
+================================================================================
+!!null Examples
+================================================================================
+!!null null: value for null key
+key with null value: !!null null
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (block_node
+   (block_mapping
+    (block_mapping_pair
+     (flow_node
+      (tag)
+      (plain_scalar
+       (null_scalar)))
+     (flow_node
+      (plain_scalar
+       (string_scalar))))
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (tag)
+      (plain_scalar
+       (null_scalar))))))))
+
+================================================================================
+!!bool Examples
+================================================================================
+YAML is a superset of JSON: !!bool true
+Pluto is a planet: !!bool false
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (block_node
+   (block_mapping
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (tag)
+      (plain_scalar
+       (boolean_scalar))))
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (tag)
+      (plain_scalar
+       (boolean_scalar))))))))
+
+================================================================================
+!!int Examples
+================================================================================
+negative: !!int -12
+zero: !!int 0
+positive: !!int 34
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (block_node
+   (block_mapping
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (tag)
+      (plain_scalar
+       (integer_scalar))))
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (tag)
+      (plain_scalar
+       (integer_scalar))))
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (tag)
+      (plain_scalar
+       (integer_scalar))))))))
+
+================================================================================
+!!float Examples
+================================================================================
+negative: !!float -1
+zero: !!float 0
+positive: !!float 2.3e4
+infinity: !!float .inf
+not a number: !!float .nan
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (block_node
+   (block_mapping
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (tag)
+      (plain_scalar
+       (integer_scalar))))
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (tag)
+      (plain_scalar
+       (integer_scalar))))
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (tag)
+      (plain_scalar
+       (float_scalar))))
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (tag)
+      (plain_scalar
+       (float_scalar))))
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (tag)
+      (plain_scalar
+       (float_scalar))))))))
+
+================================================================================
+JSON Tag Resolution
+================================================================================
+A null: null
+Booleans: [ true, false ]
+Integers: [ 0, -0, 3, -19 ]
+Floats: [ 0., -0.0, 12e03, -2E+05 ]
+Invalid: [ True, Null, 0o7, 0x3A, +12.3 ]
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (block_node
+   (block_mapping
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (plain_scalar
+       (null_scalar))))
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (flow_sequence
+       (flow_node
+        (plain_scalar
+         (boolean_scalar)))
+       (flow_node
+        (plain_scalar
+         (boolean_scalar))))))
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (flow_sequence
+       (flow_node
+        (plain_scalar
+         (integer_scalar)))
+       (flow_node
+        (plain_scalar
+         (integer_scalar)))
+       (flow_node
+        (plain_scalar
+         (integer_scalar)))
+       (flow_node
+        (plain_scalar
+         (integer_scalar))))))
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (flow_sequence
+       (flow_node
+        (plain_scalar
+         (float_scalar)))
+       (flow_node
+        (plain_scalar
+         (float_scalar)))
+       (flow_node
+        (plain_scalar
+         (float_scalar)))
+       (flow_node
+        (plain_scalar
+         (float_scalar))))))
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (flow_sequence
+       (flow_node
+        (plain_scalar
+         (boolean_scalar)))
+       (flow_node
+        (plain_scalar
+         (null_scalar)))
+       (flow_node
+        (plain_scalar
+         (integer_scalar)))
+       (flow_node
+        (plain_scalar
+         (integer_scalar)))
+       (flow_node
+        (plain_scalar
+         (float_scalar))))))))))
+
+================================================================================
+Core Tag Resolution
+================================================================================
+A null: null
+Also a null: # Empty
+Not a null: ""
+Booleans: [ true, True, false, FALSE ]
+Integers: [ 0, 0o7, 0x3A, -19 ]
+Floats: [ 0., -0.0, .5, +12e03, -2E+05 ]
+Also floats: [ .inf, -.Inf, +.INF, .NAN ]
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (block_node
+   (block_mapping
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (plain_scalar
+       (null_scalar))))
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar))))
+    (comment)
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (double_quote_scalar)))
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (flow_sequence
+       (flow_node
+        (plain_scalar
+         (boolean_scalar)))
+       (flow_node
+        (plain_scalar
+         (boolean_scalar)))
+       (flow_node
+        (plain_scalar
+         (boolean_scalar)))
+       (flow_node
+        (plain_scalar
+         (boolean_scalar))))))
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (flow_sequence
+       (flow_node
+        (plain_scalar
+         (integer_scalar)))
+       (flow_node
+        (plain_scalar
+         (integer_scalar)))
+       (flow_node
+        (plain_scalar
+         (integer_scalar)))
+       (flow_node
+        (plain_scalar
+         (integer_scalar))))))
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (flow_sequence
+       (flow_node
+        (plain_scalar
+         (float_scalar)))
+       (flow_node
+        (plain_scalar
+         (float_scalar)))
+       (flow_node
+        (plain_scalar
+         (float_scalar)))
+       (flow_node
+        (plain_scalar
+         (float_scalar)))
+       (flow_node
+        (plain_scalar
+         (float_scalar))))))
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (flow_sequence
+       (flow_node
+        (plain_scalar
+         (float_scalar)))
+       (flow_node
+        (plain_scalar
+         (float_scalar)))
+       (flow_node
+        (plain_scalar
+         (float_scalar)))
+       (flow_node
+        (plain_scalar
+         (float_scalar))))))))))

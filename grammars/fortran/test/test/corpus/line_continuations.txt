@@ -1,0 +1,326 @@
+================================================================================
+Comment followed by line continuation
+================================================================================
+
+program test
+    write(*, "('Testing line continuation')", &
+       &  advance='no', &  ! Comment after line continuation
+       &  iostat=istat)
+end program
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (write_statement
+      (unit_identifier)
+      (format_identifier
+        (string_literal))
+      (keyword_argument
+        (identifier)
+        (string_literal))
+      (comment)
+      (keyword_argument
+        (identifier)
+        (identifier)))
+    (end_program_statement)))
+
+================================================================================
+Line continuations with comment and blank lines
+================================================================================
+
+program test
+    write(*, "('Testing line continuation')", &
+       ! comment
+       &  advance='no', &
+
+
+       &  iostat=istat  &
+
+
+       )
+end program
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (write_statement
+      (unit_identifier)
+      (format_identifier
+        (string_literal))
+      (comment)
+      (keyword_argument
+        (identifier)
+        (string_literal))
+      (keyword_argument
+        (identifier)
+        (identifier)))
+    (end_program_statement)))
+
+================================================================================
+Line continuation before comma
+================================================================================
+
+program test
+  integer :: foo & ! comment
+    , bar
+end program test
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (variable_declaration
+      (intrinsic_type)
+      (identifier)
+      (comment)
+      (identifier))
+    (end_program_statement
+      (name))))
+
+================================================================================
+Line continuation before function suffix
+================================================================================
+
+program test
+contains
+  function foo( &
+    bar) &  ! comment
+  result(res)
+    integer :: bar
+  end function foo
+end program test
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (internal_procedures
+      (contains_statement)
+      (function
+        (function_statement
+          (name)
+          (parameters
+            (identifier))
+          (comment)
+          (function_result
+            (identifier)))
+        (variable_declaration
+          (intrinsic_type)
+          (identifier))
+        (end_function_statement
+          (name))))
+    (end_program_statement
+      (name))))
+
+================================================================================
+Empty Write with FMT
+================================================================================
+
+program test
+    write(*, 1)
+
+1  format('hello')
+end program
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (write_statement
+      (unit_identifier)
+      (format_identifier
+        (statement_label_reference)))
+    (statement_label)
+    (format_statement
+      (transfer_items
+        (string_literal)))
+    (end_program_statement)))
+
+================================================================================
+Inline comments
+================================================================================
+
+!comment
+PROGRAM TEST
+    int_val = 1     ! comment
+    int_val = 1_SZ1 ! comment
+contains ! comment
+   subroutine foo() ! comment
+   end subroutine foo ! comment
+end program ! comment
+! comment
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (comment)
+  (program
+    (program_statement
+      (name))
+    (assignment_statement
+      (identifier)
+      (number_literal))
+    (comment)
+    (assignment_statement
+      (identifier)
+      (number_literal
+        (identifier)))
+    (comment)
+    (internal_procedures
+      (contains_statement)
+      (comment)
+      (subroutine
+        (subroutine_statement
+          (name))
+        (comment)
+        (end_subroutine_statement
+          (name))))
+    (comment)
+    (end_program_statement))
+  (comment)
+  (comment))
+
+================================================================================
+Line continuation in concat string
+================================================================================
+
+program test
+  print*, "12&bar"
+  print*, "&
+    &hello"
+  print*, "this is "&
+    &"one string"
+  print*, "this is "&
+    & // "two strings"
+  print*, "this is "&
+    , "two strings"
+end program
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (print_statement
+      (format_identifier)
+      (output_item_list
+        (string_literal)))
+    (print_statement
+      (format_identifier)
+      (output_item_list
+        (string_literal)))
+    (print_statement
+      (format_identifier)
+      (output_item_list
+        (string_literal)))
+    (print_statement
+      (format_identifier)
+      (output_item_list
+        (concatenation_expression
+          (string_literal)
+          (string_literal))))
+    (print_statement
+      (format_identifier)
+      (output_item_list
+        (string_literal)
+        (string_literal)))
+    (end_program_statement)))
+
+================================================================================
+Line continuation in hollerith constants
+================================================================================
+program test
+1 format(6x, 10habcdef,&
+    &ghi)
+2 format(6x, 1&
+    &0habcdefghik)
+3 format(6x, 10&
+    &habcdefghik)
+end program
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (statement_label)
+    (format_statement
+      (transfer_items
+        (edit_descriptor)
+        (hollerith_constant)))
+    (statement_label)
+    (format_statement
+      (transfer_items
+        (edit_descriptor)
+        (hollerith_constant)))
+    (statement_label)
+    (format_statement
+      (transfer_items
+        (edit_descriptor)
+        (hollerith_constant)))
+    (end_program_statement)))
+
+================================================================================
+Line continuation immediately after number literal
+================================================================================
+program test
+  integer :: b(3) = (/&
+  1, &
+  2, &
+  3&
+  /)
+end program test
+--------------------------------------------------------------------------------
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (variable_declaration
+      (intrinsic_type)
+      (init_declarator
+        (sized_declarator
+          (identifier)
+          (size
+            (number_literal)))
+        (array_literal
+          (number_literal)
+          (number_literal)
+          (number_literal))))
+    (end_program_statement
+      (name))))
+
+================================================================================
+Line continuation as part of string
+================================================================================
+program main
+  ! This should print "I like fish&chips"
+  print *, "I like fish&&
+    &chips"
+end program main
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (comment)
+    (print_statement
+      (format_identifier)
+      (output_item_list
+        (string_literal)))
+    (end_program_statement
+      (name))))

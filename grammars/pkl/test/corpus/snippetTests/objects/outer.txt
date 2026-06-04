@@ -1,0 +1,91 @@
+===
+objects/outer.pkl
+===
+
+res1 {
+  x = 1
+  y {
+    z = outer.x
+  }
+}
+
+res2 = (res1) {
+  x = 2
+}
+
+res3 {
+  x = 1
+  y {
+    x = 3
+    z = outer.x
+  }
+}
+
+res4 = (res3) {
+  x = 2
+  y {
+    x = 4
+  }
+}
+
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (intLiteralExpr))
+      (objectProperty
+        (identifier)
+        (objectBody
+          (objectProperty
+            (identifier)
+            (qualifiedAccessExpr
+              (outerExpr)
+              (identifier)))))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (intLiteralExpr)))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (intLiteralExpr))
+      (objectProperty
+        (identifier)
+        (objectBody
+          (objectProperty
+            (identifier)
+            (intLiteralExpr))
+          (objectProperty
+            (identifier)
+            (qualifiedAccessExpr
+              (outerExpr)
+              (identifier)))))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (intLiteralExpr))
+        (objectProperty
+          (identifier)
+          (objectBody
+            (objectProperty
+              (identifier)
+              (intLiteralExpr))))))))

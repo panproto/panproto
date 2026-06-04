@@ -1,0 +1,563 @@
+================================================================================
+Comment: End Of Line
+================================================================================
+
+1 % after a line comment, nothing else matters;% 'fda' ...
+a = 1 % a comment
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (number)
+  (comment)
+  (assignment
+    (identifier)
+    (number))
+  (comment))
+
+================================================================================
+Comment: Multiline
+================================================================================
+
+%{
+%}
+
+%{
+A proper
+  multiline
+    % comment
+%}
+
+%{
+% A proper
+% multiline
+% comment
+%}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (comment)
+  (comment)
+  (comment))
+
+================================================================================
+Comment: Group Of Comments As Single Comment
+================================================================================
+
+% An improper
+% multiline
+% comment
+% grouped together
+
+% again
+        % but now
+        % indented
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (comment)
+  (comment))
+
+================================================================================
+Comment: Comment Before Statement
+================================================================================
+
+% do something
+a = b
+%
+a(1)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (comment)
+  (assignment
+    (identifier)
+    (identifier))
+  (comment)
+  (function_call
+    (identifier)
+    (arguments
+      (number))))
+
+================================================================================
+Comment: Line Continuation
+================================================================================
+
+A = ...
+    ...
+    1;
+
+A = 1 + ... a comment
+    2
+
+A = [a b; ... not really necessary
+     c d]
+
+A = "Some " + ... multiline concatenation
+    "string"
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (assignment
+    (identifier)
+    (line_continuation)
+    (line_continuation)
+    (number))
+  (assignment
+    (identifier)
+    (binary_operator
+      (number)
+      (line_continuation)
+      (number)))
+  (assignment
+    (identifier)
+    (matrix
+      (row
+        (identifier)
+        (identifier))
+      (line_continuation)
+      (row
+        (identifier)
+        (identifier))))
+  (assignment
+    (identifier)
+    (binary_operator
+      (string
+        (string_content))
+      (line_continuation)
+      (string
+        (string_content)))))
+
+================================================================================
+Comment: inline with %{
+================================================================================
+
+myVar = 1 %{single line comment %} + 1;
+
+%{ this is also a single line comment
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (assignment
+    (identifier)
+    (number))
+  (comment)
+  (comment))
+
+================================================================================
+Comment: Line Continuation in Function
+================================================================================
+
+classdef attributeDemo
+   methods (Access = protected)
+      function out = method1(obj,inputArg)
+         ...
+      end
+   end
+   methods (Access = private)
+      function out = method2(obj,inputArg)
+          ...
+      end
+   end
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_definition
+    (identifier)
+    (methods
+      (attributes
+        (attribute
+          (identifier)
+          (identifier)))
+      (function_definition
+        (function_output
+          (identifier))
+        (identifier)
+        (function_arguments
+          (identifier)
+          (identifier))
+        (line_continuation)))
+    (methods
+      (attributes
+        (attribute
+          (identifier)
+          (identifier)))
+      (function_definition
+        (function_output
+          (identifier))
+        (identifier)
+        (function_arguments
+          (identifier)
+          (identifier))
+        (line_continuation)))))
+
+================================================================================
+Comment: Line Continuation In Many Places
+================================================================================
+
+function [ ...
+          out1, ... comment for out1
+          out2  ... comment for out2
+         ] = cont_issue2( ...
+                         in1, ... comment for in1
+                         in2  ... comment for in2
+                        )
+    out1 = in1;
+    out2 = in2;
+end
+
+function...
+        ...
+        g2
+    disp('in g2')
+end
+
+function issue_fcn_in_args( ...
+                           in ...
+                          )
+    disp(num2str(in));
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    (function_output
+      (multioutput_variable
+        (line_continuation)
+        (identifier)
+        (line_continuation)
+        (identifier)
+        (line_continuation)))
+    (identifier)
+    (function_arguments
+      (line_continuation)
+      (identifier)
+      (line_continuation)
+      (identifier)
+      (line_continuation))
+    (block
+      (assignment
+        (identifier)
+        (identifier))
+      (assignment
+        (identifier)
+        (identifier))))
+  (function_definition
+    (line_continuation)
+    (line_continuation)
+    (identifier)
+    (block
+      (function_call
+        (identifier)
+        (arguments
+          (string
+            (string_content))))))
+  (function_definition
+    (identifier)
+    (function_arguments
+      (line_continuation)
+      (identifier)
+      (line_continuation))
+    (block
+      (function_call
+        (identifier)
+        (arguments
+          (function_call
+            (identifier)
+            (arguments
+              (identifier))))))))
+
+================================================================================
+Comment: Line Continuation In Many Places More
+================================================================================
+
+% -*- matlab-ts -*-
+function issue_indent_if_continued(condition1, condition2)
+
+    arg1 = 1;
+    arg2 = 2;
+
+    if condition1 || ...
+       condition1 || ...
+       fcn_call(arg1, ...
+                arg2)
+
+        % NOTE tree-sitter parser seems to think if in the following function is a node?
+        line_in_if('here1');
+
+    elseif condition1 + condition2 == ...
+           2770000 ...
+        fcn_call(arg1, ...
+                 arg2)
+        line_in_if('here2');
+    elseif (condition2 || ...
+            (condition3 && ...
+             condition4))
+        disp('hello')
+    elseif ...
+        condition2 || ...
+        (~condition1 && ...
+         ~condition2)
+
+        disp('hello')
+    else ...
+
+    end
+
+                a = condition1 ...
+                    || ...
+                    condition2;
+    if  a
+
+    end
+
+    foo = 1;
+    bar = 0;
+    if    ...
+        foo + ...
+        bar
+
+    end
+
+end
+
+function a=fcn1(arg1,arg2)
+    a = arg1 + arg2;
+end
+
+function line_in_if(in1)
+    disp(in1);
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (comment)
+  (function_definition
+    (identifier)
+    (function_arguments
+      (identifier)
+      (identifier))
+    (block
+      (assignment
+        (identifier)
+        (number))
+      (assignment
+        (identifier)
+        (number))
+      (if_statement
+        (boolean_operator
+          (boolean_operator
+            (identifier)
+            (line_continuation)
+            (identifier))
+          (line_continuation)
+          (function_call
+            (identifier)
+            (arguments
+              (identifier)
+              (line_continuation)
+              (identifier))))
+        (comment)
+        (block
+          (function_call
+            (identifier)
+            (arguments
+              (string
+                (string_content)))))
+        (elseif_clause
+          (comparison_operator
+            (binary_operator
+              (identifier)
+              (identifier))
+            (line_continuation)
+            (number))
+          (line_continuation)
+          (block
+            (function_call
+              (identifier)
+              (arguments
+                (identifier)
+                (line_continuation)
+                (identifier)))
+            (function_call
+              (identifier)
+              (arguments
+                (string
+                  (string_content))))))
+        (elseif_clause
+          (parenthesis
+            (boolean_operator
+              (identifier)
+              (line_continuation)
+              (parenthesis
+                (boolean_operator
+                  (identifier)
+                  (line_continuation)
+                  (identifier)))))
+          (block
+            (function_call
+              (identifier)
+              (arguments
+                (string
+                  (string_content))))))
+        (elseif_clause
+          (line_continuation)
+          (boolean_operator
+            (identifier)
+            (line_continuation)
+            (parenthesis
+              (boolean_operator
+                (not_operator
+                  (identifier))
+                (line_continuation)
+                (not_operator
+                  (identifier)))))
+          (block
+            (function_call
+              (identifier)
+              (arguments
+                (string
+                  (string_content))))))
+        (else_clause
+          (line_continuation)))
+      (assignment
+        (identifier)
+        (boolean_operator
+          (identifier)
+          (line_continuation)
+          (line_continuation)
+          (identifier)))
+      (if_statement
+        (identifier))
+      (assignment
+        (identifier)
+        (number))
+      (assignment
+        (identifier)
+        (number))
+      (if_statement
+        (line_continuation)
+        (binary_operator
+          (identifier)
+          (line_continuation)
+          (identifier)))))
+  (function_definition
+    (function_output
+      (identifier))
+    (identifier)
+    (function_arguments
+      (identifier)
+      (identifier))
+    (block
+      (assignment
+        (identifier)
+        (binary_operator
+          (identifier)
+          (identifier)))))
+  (function_definition
+    (identifier)
+    (function_arguments
+      (identifier))
+    (block
+      (function_call
+        (identifier)
+        (arguments
+          (identifier))))))
+
+================================================================================
+Comment: Nested blocks
+================================================================================
+
+%{
+  nested
+  %{
+    block
+  %}
+%}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (comment))
+
+================================================================================
+Comment: Comment placement in class
+================================================================================
+
+% -*- matlab-ts -*-
+
+classdef simple_class < handle
+
+  % comment1
+  properties
+    foo;
+    bar;
+    % comment2
+  end
+
+  % comment3
+  events
+    goo;
+    % comment4
+  end
+
+  % comment5
+  methods
+    function something() end
+    % comment6
+  end
+
+  enumeration
+    enum1
+    enum2
+    % comment7
+  end
+
+  %comment8
+end
+
+% comment9
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (comment)
+  (class_definition
+    (identifier)
+    (superclasses
+      (property_name
+        (identifier)))
+    (comment)
+    (properties
+      (property
+        (identifier))
+      (property
+        (identifier))
+      (comment))
+    (comment)
+    (events
+      (identifier)
+      (comment))
+    (comment)
+    (methods
+      (function_definition
+        (identifier)
+        (function_arguments))
+      (comment))
+    (enumeration
+      (enum
+        (identifier))
+      (enum
+        (identifier))
+      (comment))
+    (comment))
+  (comment))

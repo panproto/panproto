@@ -1,0 +1,88 @@
+=======================================
+Usages of braces outside of inline tags
+=======================================
+
+/** This is {something} that should not {error}. */
+
+---
+
+(document (description))
+
+=======================================
+Unmarked code example
+=======================================
+
+/**
+ *  @alias Apple.Core
+ *  @event module:foo/bar.event:MyEvent
+ *  @fires Hurl#snowball
+ *  @exports hello/world
+ *  @example apple.core({ foo: 'x', bar: true });
+ */
+
+---
+
+(document
+  (tag
+    (tag_name)
+    (member_expression (identifier) (identifier)))
+  (tag
+    (tag_name)
+    (member_expression
+      (qualified_expression
+        (identifier)
+        (path_expression (identifier) (identifier)))
+      (qualified_expression (identifier) (identifier))))
+  (tag
+    (tag_name)
+    (member_expression (identifier) (identifier)))
+  (tag
+    (tag_name)
+    (path_expression (identifier) (identifier)))
+  (tag
+    (tag_name) (description))
+)
+
+=======================================
+Complex types
+=======================================
+
+/**
+ * @type {{a: number, b: string, c}}
+ * @param {[a: number, b:string]} foo A parameter.
+ * @param {[a: number, { b: string, c: boolean}]} foo A parameter.
+ * @type { {a: number, b: {c: string, d: {e: boolean}}} }
+ */
+
+---
+
+(document
+  (tag
+    (tag_name)
+    (type))
+  (tag
+    (tag_name)
+    (type)
+    (identifier)
+    (description))
+  (tag
+    (tag_name)
+    (type)
+    (identifier)
+    (description))
+  (tag
+    (tag_name)
+    (type)))
+
+=======================================
+EOF before balanced braces
+=======================================
+
+/**
+ * Here we're testing that the scanner doesn't get stuck in an infinite loop.
+ * @type {{a: number, b: string, c}
+---
+
+(ERROR
+  (description)
+  (tag_name))

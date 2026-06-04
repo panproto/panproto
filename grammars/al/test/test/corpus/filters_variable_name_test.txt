@@ -1,0 +1,334 @@
+================================================================================
+Filters as variable name in page var section
+================================================================================
+
+page 50000 TestPage
+{
+    var
+        Filters: Text;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    (integer)
+    (identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        (identifier)
+        (type_specification
+          (text_type))))))
+
+================================================================================
+filters (lowercase) as variable name
+================================================================================
+
+page 50001 TestPage
+{
+    var
+        filters: Text[100];
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    (integer)
+    (identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        (identifier)
+        (type_specification
+          (text_type
+            (integer)))))))
+
+================================================================================
+FILTERS (uppercase) as variable name
+================================================================================
+
+page 50002 TestPage
+{
+    var
+        FILTERS: Record Customer;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    (integer)
+    (identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        (identifier)
+        (type_specification
+          (record_type
+            (identifier)))))))
+
+================================================================================
+Filters property in page repeater control
+================================================================================
+
+page 50003 TestPage
+{
+    layout
+    {
+        area(content)
+        {
+            repeater(Group)
+            {
+                field(Name; Rec.Name)
+                {
+                    ApplicationArea = All;
+                }
+                field(Filters; Filters)
+                {
+                    Caption = 'Conditions';
+                    Editable = false;
+                }
+            }
+        }
+    }
+    
+    var
+        Filters: Text;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    (integer)
+    (identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (repeater_section
+          (repeater_keyword)
+          (identifier)
+          (page_field
+            (identifier)
+            (member_expression
+              (identifier)
+              (identifier))
+            (property
+              (property_name)
+              (identifier)))
+          (page_field
+            (identifier)
+            (identifier)
+            (property
+              (property_name)
+              (string_literal))
+            (property
+              (property_name)
+              (boolean))))))
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        (identifier)
+        (type_specification
+          (text_type))))))
+
+================================================================================
+Filters property in query dataitem
+================================================================================
+
+query 50000 TestQuery
+{
+    elements
+    {
+        dataitem(Customer; Customer)
+        {
+            Filters = 'Balance (LCY)=FILTER(>0)';
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    (integer)
+    (identifier)
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        (identifier)
+        (identifier)
+        (property
+          (property_name)
+          (string_literal))))))
+
+================================================================================
+Complex page with Filters as field and variable (from MyNotifications.Page.al)
+================================================================================
+
+page 1518 "My Notifications"
+{
+    PageType = List;
+    
+    layout
+    {
+        area(content)
+        {
+            repeater(Group)
+            {
+                field(Enabled; Rec.Enabled)
+                {
+                    trigger OnValidate()
+                    begin
+                        if Rec.Enabled <> xRec.Enabled then begin
+                            Filters := Rec.GetFiltersAsDisplayText();
+                            CurrPage.Update();
+                        end;
+                    end;
+                }
+                field(Filters; Filters)
+                {
+                    Caption = 'Conditions';
+                    Editable = false;
+                    
+                    trigger OnDrillDown()
+                    begin
+                        if Rec.OpenFilterSettings() then begin
+                            Filters := Rec.GetFiltersAsDisplayText();
+                            CurrPage.Update();
+                        end;
+                    end;
+                }
+            }
+        }
+    }
+    
+    trigger OnAfterGetRecord()
+    begin
+        Filters := Rec.GetFiltersAsDisplayText();
+    end;
+    
+    var
+        Filters: Text;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    (integer)
+    (quoted_identifier)
+    (property
+      (property_name)
+      (identifier))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (repeater_section
+          (repeater_keyword)
+          (identifier)
+          (page_field
+            (identifier)
+            (member_expression
+              (identifier)
+              (identifier))
+            (trigger_declaration
+              (trigger_keyword)
+              (identifier)
+              (code_block
+                (begin_keyword)
+                (if_statement
+                  (if_keyword)
+                  (comparison_expression
+                    (member_expression
+                      (identifier)
+                      (identifier))
+                    (comparison_operator)
+                    (member_expression
+                      (identifier)
+                      (identifier)))
+                  (then_keyword)
+                  (code_block
+                    (begin_keyword)
+                    (assignment_statement
+                      (identifier)
+                      (call_expression
+                        (member_expression
+                          (identifier)
+                          (identifier))
+                        (argument_list)))
+                    (call_expression
+                      (member_expression
+                        (identifier)
+                        (identifier))
+                      (argument_list))
+                    (end_keyword)))
+                (end_keyword))))
+          (page_field
+            (identifier)
+            (identifier)
+            (property
+              (property_name)
+              (string_literal))
+            (property
+              (property_name)
+              (boolean))
+            (trigger_declaration
+              (trigger_keyword)
+              (identifier)
+              (code_block
+                (begin_keyword)
+                (if_statement
+                  (if_keyword)
+                  (call_expression
+                    (member_expression
+                      (identifier)
+                      (identifier))
+                    (argument_list))
+                  (then_keyword)
+                  (code_block
+                    (begin_keyword)
+                    (assignment_statement
+                      (identifier)
+                      (call_expression
+                        (member_expression
+                          (identifier)
+                          (identifier))
+                        (argument_list)))
+                    (call_expression
+                      (member_expression
+                        (identifier)
+                        (identifier))
+                      (argument_list))
+                    (end_keyword)))
+                (end_keyword)))))))
+    (trigger_declaration
+      (trigger_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          (identifier)
+          (call_expression
+            (member_expression
+              (identifier)
+              (identifier))
+            (argument_list)))
+        (end_keyword)))
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        (identifier)
+        (type_specification
+          (text_type))))))

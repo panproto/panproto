@@ -1,0 +1,135 @@
+================================================================================
+Codeunit with multiple interface implementations
+================================================================================
+
+codeunit 123 "Multi Interface Provider" implements IInterface1, IInterface2, IInterface3
+{
+    Access = Internal;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (implements_clause
+      (implements_keyword)
+      interface: (identifier)
+      interface: (identifier)
+      interface: (identifier))
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (internal_keyword))))))
+
+================================================================================
+Codeunit with single interface implementation
+================================================================================
+
+codeunit 124 "Single Interface Provider" implements ISingleInterface
+{
+    Access = Public;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (implements_clause
+      (implements_keyword)
+      interface: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))))
+
+================================================================================
+Codeunit with quoted interface names
+================================================================================
+
+codeunit 125 "Quoted Interface Provider" implements "IQuoted Interface", IRegular, "Another Quoted"
+{
+    Access = Internal;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (implements_clause
+      (implements_keyword)
+      interface: (quoted_identifier)
+      interface: (identifier)
+      interface: (quoted_identifier))
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (internal_keyword))))))
+
+================================================================================
+Codeunit with many interfaces (5 interfaces)
+================================================================================
+
+codeunit 126 TestProvider implements IPurchaseLineProvider, IUnitOfMeasureProvider, IVendorProvider, IPurchaseOrderProvider, IDocumentProvider
+{
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (implements_clause
+      (implements_keyword)
+      interface: (identifier)
+      interface: (identifier)
+      interface: (identifier)
+      interface: (identifier)
+      interface: (identifier))))
+
+================================================================================
+Codeunit with interfaces and procedures
+================================================================================
+
+codeunit 127 "Full Provider" implements IInterface1, IInterface2
+{
+    Access = Internal;
+
+    procedure TestProcedure()
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (implements_clause
+      (implements_keyword)
+      interface: (identifier)
+      interface: (identifier))
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (internal_keyword))))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))

@@ -1,0 +1,81 @@
+================================================================================
+settings
+================================================================================
+
+[section]
+    end = 100
+    room = 100b
+    script = print('Hello, World!')
+    script_file = {{ script_file }}
+    script_file = {{ script_file }}.txt
+    start = 0
+    start_with_whitespaces = 0   
+    is_verbose = True
+    is_verbose_with_whitespaces = True   
+    datetime = 20241130T0000Z
+    datetime_whitespace = 20241130T0000Z   
+    void =
+    veritas = False#comment
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (integer))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (unquoted_string
+        (string_content)))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (unquoted_string
+        (string_content)))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      (jinja2_expression))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      (jinja2_expression)
+      value: (unquoted_string
+        (string_content)))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (integer))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (integer))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (boolean))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (boolean))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (datetime))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (datetime))
+    (setting
+      key: (key)
+      operator: (assignment_operator))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (boolean)
+      (comment))))

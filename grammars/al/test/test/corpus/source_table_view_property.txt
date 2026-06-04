@@ -1,0 +1,119 @@
+===========
+SourceTableView Property Test
+===========
+
+page 50000 "Test Page"
+{
+    SourceTableView = SORTING("Source Document", "Source No.")
+                     WHERE("Source Document" = CONST("Sales Order"));
+
+    layout
+    {
+        area(Content)
+        {
+            field(Field1; "Field 1")
+            {
+                Caption = 'Test Field 1';
+            }
+        }
+    }
+}
+
+page 50001 "Test Page 2"
+{
+    SourceTableView = SORTING("Document No.") ORDER(Descending);
+
+    layout
+    {
+        area(Content)
+        {
+            field(Field1; "Field 1")
+            {
+                Caption = 'Test Field 1';
+            }
+        }
+    }
+}
+
+page 50002 "Test Page 3"
+{
+    SourceTableView = WHERE("Type" = CONST(Item));
+
+    layout
+    {
+        area(Content)
+        {
+            field(Field1; "Field 1")
+            {
+                Caption = 'Test Field 1';
+            }
+        }
+    }
+}
+
+---
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (sorting_value
+        (quoted_identifier)
+        (quoted_identifier)
+        (where_clause
+          (where_conditions
+            (where_condition
+              field: (quoted_identifier)
+              value: (quoted_identifier))))))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))))))
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (sorting_value
+        (quoted_identifier)))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))))))
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (where_clause
+        (where_conditions
+          (where_condition
+            field: (quoted_identifier)
+            value: (identifier)))))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (string_literal)))))))

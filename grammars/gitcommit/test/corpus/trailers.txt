@@ -1,0 +1,134 @@
+================================================================================
+Not a trailer
+================================================================================
+This is a simple subject
+
+:This is a simple body.
+: Fake
+With a: second line.
+
+An:d a paragraph.
+test(trailer): test
+--------------------------------------------------------------------------------
+
+(source
+  (subject)
+  (message
+    (message_line)
+    (message_line)
+    (message_line)
+    (message_line)
+    (message_line)))
+
+================================================================================
+Simple trailer
+================================================================================
+This is a simple subject
+
+Signed-by: gbprod <contact@gb-prod.fr>
+--------------------------------------------------------------------------------
+
+(source
+  (subject)
+  (message
+    (trailer
+      (token)
+      (value))))
+
+================================================================================
+Multiple trailers
+================================================================================
+This is a simple subject
+
+Signed-by : gbprod <contact@gb-prod.fr>
+Signed-off-by: Bob <bob@example.com>
+Acked-by: Alice <alice@example.com>
+Ref: #1234
+Suggested-by: Toto
+
+--------------------------------------------------------------------------------
+
+(source
+  (subject)
+  (message
+    (trailer
+      (token)
+      (value))
+    (trailer
+      (token)
+      (value))
+    (trailer
+      (token)
+      (value))
+    (trailer
+      (token)
+      (value))
+    (trailer
+      (token)
+      (value))))
+
+================================================================================
+Multiline trailers
+================================================================================
+This is a simple subject
+
+key: This is a very long value, with spaces and
+  newlines in it.
+  it should be parsed as a single value.
+
+--------------------------------------------------------------------------------
+
+(source
+  (subject)
+  (message
+    (trailer
+      (token)
+      (value))))
+
+================================================================================
+Mixed
+================================================================================
+This is a simple subject
+
+With a message
+Signed-by : gbprod <contact@gb-prod.fr>
+
+Not conventional but why not
+Ref: #1234
+Suggested-by: Toto
+
+And go on
+
+--------------------------------------------------------------------------------
+
+(source
+  (subject)
+  (message
+    (message_line)
+    (trailer
+      (token)
+      (value))
+    (message_line)
+    (trailer
+      (token)
+      (value))
+    (trailer
+      (token)
+      (value))
+    (message_line)))
+
+================================================================================
+Overflowed trailers
+================================================================================
+This is a simple subject
+
+key: This is a very long value, with spaces and that will overflow the line size.
+
+--------------------------------------------------------------------------------
+
+(source
+  (subject)
+  (message
+    (trailer
+      (token)
+      (value))))

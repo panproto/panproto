@@ -1,0 +1,175 @@
+================================================================================
+Complex identifiers with quotes and underscores
+================================================================================
+
+page 50101 "My Page Name"
+{
+    var
+        MyLocalVar: Integer;
+        "Variable With Space": Text;
+        _underscoreVar: Boolean;
+}
+
+interface "My Interface"
+{
+    procedure "Method With Space"(param1: Integer; "param with space": Text);
+    procedure _underscoreMethod();
+}
+
+enum 50102 "Status Enum"
+{
+    value(0; "Open") { }
+    value(1; "In Progress") { }
+    value(2; Closed) { }
+}
+
+query 50103 "My Query"
+{
+    elements
+    {
+        dataitem(Customer; Customer)
+        {
+            column(Name; Name) { }
+            column("Address 2"; "Address 2") { }
+        }
+    }
+}
+
+codeunit 50104 "Business Logic"
+{
+    local procedure HandleRecord(rec: Record Customer)
+    var
+        TempRec: Record "Sales Header" temporary;
+        ResultText: Text;
+    begin
+        ResultText := ProcessData(TempRec);
+    end;
+
+    procedure ProcessData(var SalesHeader: Record "Sales Header"): Text
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    (integer)
+    (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        (identifier)
+        (type_specification
+          (basic_type)))
+      (variable_declaration
+        (quoted_identifier)
+        (type_specification
+          (text_type)))
+      (variable_declaration
+        (identifier)
+        (type_specification
+          (basic_type)))))
+  (interface_declaration
+    (interface_keyword)
+    (quoted_identifier)
+    (interface_procedure
+      (procedure_keyword)
+      (quoted_identifier)
+      (parameter_list
+        (parameter
+          (identifier)
+          (type_specification
+            (basic_type)))
+        (parameter
+          (quoted_identifier)
+          (type_specification
+            (text_type))))
+      (interface_procedure_suffix))
+    (interface_procedure
+      (procedure_keyword)
+      (identifier)
+      (interface_procedure_suffix)))
+  (enum_declaration
+    (enum_keyword)
+    (integer)
+    (quoted_identifier)
+    (enum_value_declaration
+      (integer)
+      (quoted_identifier))
+    (enum_value_declaration
+      (integer)
+      (quoted_identifier))
+    (enum_value_declaration
+      (integer)
+      (identifier)))
+  (query_declaration
+    (query_keyword)
+    (integer)
+    (quoted_identifier)
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        (identifier)
+        (identifier)
+        (query_column
+          (column_keyword)
+          (identifier)
+          (identifier))
+        (query_column
+          (column_keyword)
+          (quoted_identifier)
+          (quoted_identifier)))))
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (quoted_identifier)
+    (procedure
+      (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      (identifier)
+      (parameter_list
+        (parameter
+          (identifier)
+          (type_specification
+            (record_type
+              (identifier)))))
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (record_type
+              (quoted_identifier)
+              (temporary_keyword))))
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (text_type))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          (identifier)
+          (call_expression
+            (identifier)
+            (argument_list
+              (identifier))))
+        (end_keyword)))
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (parameter_list
+        (parameter
+          (var_keyword)
+          (identifier)
+          (type_specification
+            (record_type
+              (quoted_identifier)))))
+      (type_specification
+        (text_type))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))

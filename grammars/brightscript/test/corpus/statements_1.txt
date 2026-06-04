@@ -1,0 +1,105 @@
+==================
+assignment statement
+==================
+
+sub init()
+    x = "bruh"
+end sub
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (assignment_statement
+        (variable_declarator
+          (identifier))
+        (literal
+          (string
+            (string_contents)))))
+    (end_statement
+      (end_sub))))
+
+==================
+property_access_expression
+==================
+
+sub init()
+    m.b = "y"
+end sub
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (assignment_statement
+        (variable_declarator
+          (prefix_exp
+            (identifier))
+          (identifier))
+        (literal
+          (string
+            (string_contents)))))
+    (end_statement
+      (end_sub))))
+
+==================
+property_access_expression recursive
+==================
+
+sub init()
+    m.b.c = "y"
+end sub
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (assignment_statement
+        (variable_declarator
+          (prefix_exp
+            (prefix_exp
+              (identifier))
+            (identifier))
+          (identifier))
+        (literal
+          (string
+            (string_contents)))))
+    (end_statement
+      (end_sub))))
+
+==================
+Multiplicitive expression
+==================
+
+sub init()
+    test = 5 \ 4
+end sub
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (assignment_statement
+        (variable_declarator
+          (identifier))
+        (binary_expression
+          (arithmetic_expression
+            (multiplicative_expression
+              (literal
+               (number))
+              (literal
+               (number)))))))
+    (end_statement
+      (end_sub))))

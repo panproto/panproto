@@ -1,0 +1,44 @@
+===
+Builtin directive
+===
+
+%builtins abc
+
+---
+
+(program
+  (cairo_0_file
+    (builtin_directive
+      (identifier))))
+
+===
+Lang directive
+===
+
+%lang abc
+
+---
+
+(program
+  (cairo_0_file
+    (lang_directive
+      (identifier))))
+
+===
+Mix directive
+===
+
+%lang abc
+%builtins def
+%lang ghi
+
+---
+
+(program
+  (cairo_0_file
+    (lang_directive
+      (identifier))
+    (builtin_directive
+      (identifier))
+    (lang_directive
+      (identifier))))

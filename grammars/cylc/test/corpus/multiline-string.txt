@@ -1,0 +1,271 @@
+================================================================================
+multiline string (1)
+================================================================================
+
+[some-section]
+    key = '''
+        This line
+        is written
+        over multiple lines
+    '''
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (multiline_string
+        (string_content)))))
+
+================================================================================
+multiline string (2)
+================================================================================
+
+[some-section]
+    key = """
+        This line
+        is written
+        over multiple lines
+    """
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (multiline_string
+        (string_content)))))
+
+================================================================================
+multiline string on a single line (1)
+================================================================================
+
+[some-section]
+    another-key = '''What is the point then?!'''
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (multiline_string
+        (string_content)))))
+
+================================================================================
+multiline string on a single line (2)
+================================================================================
+
+[some-section]
+    another-key = """What is the point then?!"""
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (multiline_string
+        (string_content)))))
+
+================================================================================
+multiline string with lonely quotes (1)
+================================================================================
+
+[runtime_]
+    [[root]]
+        env-script = '''
+            $(eval rose task-env)
+            if [ '${CYLC_TASK_CYCLE_POINT}' != '0' ]; then
+                mkdir -p '${ROSE_DATAC}/dataflow'
+                mkdir -p '${ROSE_DATAC}/qc'
+            fi
+        '''
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (sub_section_1
+      name: (section_name
+        (nametag))
+      (setting
+        key: (key)
+        operator: (assignment_operator)
+        value: (multiline_string
+          (string_content))))))
+
+================================================================================
+multiline string with lonely quotes (2)
+================================================================================
+
+[runtime_]
+    [[root]]
+        env-script = """
+            $(eval rose task-env)
+            if [ "${CYLC_TASK_CYCLE_POINT}" != "0" ]; then
+                mkdir -p "${ROSE_DATAC}/dataflow"
+                mkdir -p "${ROSE_DATAC}/qc"
+            fi
+        """
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (sub_section_1
+      name: (section_name
+        (nametag))
+      (setting
+        key: (key)
+        operator: (assignment_operator)
+        value: (multiline_string
+          (string_content))))))
+
+================================================================================
+multiline string with coupled quotes <3 (1)
+================================================================================
+
+
+[other-root]
+    just a key = '''
+        'with a ''
+        'value
+    '''
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (multiline_string
+        (string_content)))))
+
+================================================================================
+multiline string with coupled quotes <3 (2)
+================================================================================
+
+
+[other-root]
+    just a key = """
+        "with a ""
+        "''value
+    """
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (multiline_string
+        (string_content)))))
+
+================================================================================
+multiline string with "comment" inside
+================================================================================
+
+
+[other-root]
+    just a key = """
+        I'm a beautiful string #not a comment either
+        Rest of the string
+    """ # this is one though
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (multiline_string
+        (string_content))
+      (comment))))
+
+================================================================================
+multiline string with "line continuation"
+================================================================================
+
+# treated as simply text of the string
+[runtime_]
+    [[convert_raw]]
+        script = """
+            thermorawfileparser
+                --format=${format} \
+                --input=${input} \
+                --output=${output} \
+                --metadata=${metadata}
+        """
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (comment)
+  (top_section
+    name: (section_name
+      (nametag))
+    (sub_section_1
+      name: (section_name
+        (nametag))
+      (setting
+        key: (key)
+        operator: (assignment_operator)
+        value: (multiline_string
+          (string_content))))))
+
+================================================================================
+multiline string with "line continuation" with another \ just before
+================================================================================
+
+[runtime_]
+    [[convert_raw]]
+        script = '''
+            thermorawfileparser
+                --format=${format} \\
+                --input=${input} \\\
+                --output=${output} \\
+                --metadata=${metadata}
+        '''
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (sub_section_1
+      name: (section_name
+        (nametag))
+      (setting
+        key: (key)
+        operator: (assignment_operator)
+        value: (multiline_string
+          (string_content))))))

@@ -1,0 +1,71 @@
+==========================================
+IncludeCaption property variations in report columns
+==========================================
+
+report 123 "Caption Test"
+{
+    dataset
+    {
+        dataitem(TestTable; "Test Table")
+        {
+            column(Col1; Field1)
+            {
+                IncludeCaption = true;
+            }
+            column(Col2; Field2)
+            {
+                IncludeCaption = false;
+            }
+            column(Col3; Field3)
+            {
+                includecaption = true;
+            }
+            column(Col4; Field4)
+            {
+                INCLUDECAPTION = false;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)
+        (report_column
+          (column_keyword)
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (boolean)))
+        (report_column
+          (column_keyword)
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (boolean)))
+        (report_column
+          (column_keyword)
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (boolean)))
+        (report_column
+          (column_keyword)
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (boolean)))))))

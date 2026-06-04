@@ -1,0 +1,128 @@
+================================================================================
+unary operator -
+================================================================================
+
+foo = -3
+
+--------------------------------------------------------------------------------
+
+(config_file
+  (body
+    (attribute
+      (identifier)
+      (expression
+        (operation
+          (unary_operation
+            (literal_value
+              (numeric_lit))))))))
+
+================================================================================
+unary operator !
+================================================================================
+
+foo = !true
+
+--------------------------------------------------------------------------------
+
+(config_file
+  (body
+    (attribute
+      (identifier)
+      (expression
+        (operation
+          (unary_operation
+            (literal_value
+              (bool_lit))))))))
+
+================================================================================
+binary operators +
+================================================================================
+
+foo = 1+2
+
+--------------------------------------------------------------------------------
+
+(config_file
+  (body
+    (attribute
+      (identifier)
+      (expression
+        (operation
+          (binary_operation
+            (literal_value
+              (numeric_lit))
+            (literal_value
+              (numeric_lit))))))))
+
+================================================================================
+precedence in binary operators
+================================================================================
+
+foo = a != b && c == d
+
+--------------------------------------------------------------------------------
+
+(config_file
+  (body
+    (attribute
+      (identifier)
+      (expression
+        (operation
+          (binary_operation
+            (operation
+              (binary_operation
+                (variable_expr
+                  (identifier))
+                (variable_expr
+                  (identifier))))
+            (operation
+              (binary_operation
+                (variable_expr
+                  (identifier))
+                (variable_expr
+                  (identifier))))))))))
+
+================================================================================
+precedence in binary operators 2
+================================================================================
+
+foo = a.foo != "" && b.foo == "" ? 1 : 0
+
+
+--------------------------------------------------------------------------------
+
+(config_file
+  (body
+    (attribute
+      (identifier)
+      (expression
+        (conditional
+          (expression
+            (operation
+              (binary_operation
+                (operation
+                  (binary_operation
+                    (variable_expr
+                      (identifier))
+                    (get_attr
+                      (identifier))
+                    (literal_value
+                      (string_lit
+                        (quoted_template_start)
+                        (quoted_template_end)))))
+                (operation
+                  (binary_operation
+                    (variable_expr
+                      (identifier))
+                    (get_attr
+                      (identifier))
+                    (literal_value
+                      (string_lit
+                        (quoted_template_start)
+                        (quoted_template_end))))))))
+          (expression
+            (literal_value
+              (numeric_lit)))
+          (expression
+            (literal_value
+              (numeric_lit))))))))

@@ -1,0 +1,251 @@
+===========
+unordered
+===========
+
+* Edgar Allan Poe
+* Sheri S. Tepper
+* Bill Bryson
+
+- Edgar Allan Poe
+- Sheri S. Tepper
+- Bill Bryson
+
+* Level 1 list item
+- Level 2 list item
+* Level 1 list item
+
+* West wood maze
+** Maze heart
+*** Reflection pool
+** Secret exit
+* Untracked file in git repository
+
+-----
+
+(document
+  (block_element
+    (section_block
+      (list
+        (unordered_list
+          (unordered_list_item
+            (unordered_list_marker
+              (list_marker_star))
+            (line))
+          (unordered_list_item
+            (unordered_list_marker
+              (list_marker_star))
+            (line))
+          (unordered_list_item
+            (unordered_list_marker
+              (list_marker_star))
+            (line))
+          (unordered_list_item
+            (unordered_list_marker
+              (list_marker_hyphen))
+            (line))
+          (unordered_list_item
+            (unordered_list_marker
+              (list_marker_hyphen))
+            (line))
+          (unordered_list_item
+            (unordered_list_marker
+              (list_marker_hyphen))
+            (line))
+          (unordered_list_item
+            (unordered_list_marker
+              (list_marker_star))
+            (line))
+          (unordered_list_item
+            (unordered_list_marker
+              (list_marker_hyphen))
+            (line))
+          (unordered_list_item
+            (unordered_list_marker
+              (list_marker_star))
+            (line))
+          (unordered_list_item
+            (unordered_list_marker
+              (list_marker_star))
+            (line))
+          (unordered_list_item
+            (unordered_list_marker
+              (list_marker_star))
+            (line))
+          (unordered_list_item
+            (unordered_list_marker
+              (list_marker_star))
+            (line))
+          (unordered_list_item
+            (unordered_list_marker
+              (list_marker_star))
+            (line))
+          (unordered_list_item
+            (unordered_list_marker
+              (list_marker_star))
+            (line)))))))
+
+==============
+list continuation
+==============
+
+* The header in asciidoc must start with a document title.
++
+The header is optional.
+
+* The header in asciidoc must start with a document title.
++
+----
+= Document Title
+----
++
+Keep in mind that the header is optional.
+
+* Optional author and revision information lines immediately follow the document title.
++
+----
+= Document Title
+Doc Writer <doc.writer@asciidoc.org>
+v1.0, 2022-01-01
+----
+
+* The header in asciidoc must start with a document title.
++
+--
+Here's an example of a document title:
+
+----
+= Document Title
+----
+
+NOTE: The header is optional.
+--
+
+* list item
++
+--
+include::shared-content.adoc[]
+--
+
+. {empty}
++
+----
+print("one")
+----
+. {empty}
++
+----
+print("one")
+----
+
+-------------
+
+(document
+  (block_element
+    (section_block
+      (list
+        (unordered_list
+          (unordered_list_item
+            (unordered_list_marker
+              (list_marker_star))
+            (line)
+            (list_continuation)
+            (block_element
+              (section_block
+                (paragraph
+                  (line)))))
+          (unordered_list_item
+            (unordered_list_marker
+              (list_marker_star))
+            (line)
+            (list_continuation)
+            (block_element
+              (section_block
+                (listing_block
+                  (listing_block_start_marker)
+                  (listing_block_body)
+                  (listing_block_end_marker)))))))))
+  (block_element
+    (section_block
+      (paragraph
+        (line))))
+  (block_element
+    (section_block
+      (paragraph
+        (line))))
+  (block_element
+    (section_block
+      (list
+        (unordered_list
+          (unordered_list_item
+            (unordered_list_marker
+              (list_marker_star))
+            (line)
+            (list_continuation)
+            (block_element
+              (section_block
+                (listing_block
+                  (listing_block_start_marker)
+                  (listing_block_body)
+                  (listing_block_end_marker)))))
+          (unordered_list_item
+            (unordered_list_marker
+              (list_marker_star))
+            (line)
+            (list_continuation)
+            (block_element
+              (section_block
+                (open_block
+                  (open_block_marker)
+                  (section_block
+                    (paragraph
+                      (line)))
+                  (section_block
+                    (listing_block
+                      (listing_block_start_marker)
+                      (listing_block_body)
+                      (listing_block_end_marker)))
+                  (section_block
+                    (admonition
+                      (admonition_note)
+                      (line)))
+                  (open_block_marker)))))
+          (unordered_list_item
+            (unordered_list_marker
+              (list_marker_star))
+            (line)
+            (list_continuation)
+            (block_element
+              (section_block
+                (open_block
+                  (open_block_marker)
+                  (section_block
+                    (block_macro
+                      (block_macro_name)
+                      (target)))
+                  (open_block_marker)))))))))
+  (block_element
+    (section_block
+      (list
+        (ordered_list
+          (ordered_list_item
+            (ordered_list_marker
+              (list_marker_dot))
+            (line)
+            (list_continuation)
+            (block_element
+              (section_block
+                (listing_block
+                  (listing_block_start_marker)
+                  (listing_block_body)
+                  (listing_block_end_marker)))))
+          (ordered_list_item
+            (ordered_list_marker
+              (list_marker_dot))
+            (line)
+            (list_continuation)
+            (block_element
+              (section_block
+                (listing_block
+                  (listing_block_start_marker)
+                  (listing_block_body)
+                  (listing_block_end_marker))))))))))

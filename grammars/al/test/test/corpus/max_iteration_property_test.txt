@@ -1,0 +1,108 @@
+================================================================================
+MaxIteration property in report dataitem
+================================================================================
+
+report 50003 TestReport
+{
+    dataset
+    {
+        dataitem("Business Unit"; "Business Unit")
+        {
+            DataItemTableView = sorting(Code);
+            MaxIteration = 1;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (quoted_identifier)
+        table_name: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (sorting_value
+            (identifier)))
+        (property
+          name: (property_name)
+          value: (integer))))))
+
+================================================================================
+MaxIteration property with different case variations
+================================================================================
+
+report 50004 TestReport
+{
+    dataset
+    {
+        dataitem(Customer; Customer)
+        {
+            maxiteration = 100;
+            MAXITERATION = 500;
+            MaxIteration = 0;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (property
+          name: (property_name)
+          value: (integer))
+        (property
+          name: (property_name)
+          value: (integer))
+        (property
+          name: (property_name)
+          value: (integer))))))
+
+================================================================================
+MaxIteration property with large integer values
+================================================================================
+
+report 50005 TestReport
+{
+    dataset
+    {
+        dataitem(Item; Item)
+        {
+            MaxIteration = 2147483647;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (property
+          name: (property_name)
+          value: (integer))))))

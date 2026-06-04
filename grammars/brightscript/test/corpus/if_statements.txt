@@ -1,0 +1,475 @@
+==================
+basic if statement
+==================
+
+sub init()
+    if 5=5 then
+        y=5
+    end if
+end sub
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (if_statement
+        (multi_line_if
+          (if_start)
+          (binary_expression
+            (comparison_expression
+              (literal
+                (number))
+              (literal
+                (number))))
+          (then)
+          (if_block
+            (assignment_statement
+              (variable_declarator
+                (identifier))
+              (literal
+                (number)))
+            (end_statement
+              (end_if))))))
+    (end_statement
+      (end_sub))))
+
+==================
+complex if statement
+==================
+
+sub init()
+    if 5=5 and 4+5 >= 10 then
+        y=5
+    end if
+end sub
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (if_statement
+        (multi_line_if
+          (if_start)
+          (binary_expression
+            (logical_expression
+              (binary_expression
+                (comparison_expression
+                  (literal
+                    (number))
+                  (literal
+                    (number))))
+              (and)
+              (binary_expression
+                (comparison_expression
+                  (binary_expression
+                    (arithmetic_expression
+                      (additive_expression
+                        (literal
+                          (number))
+                        (literal
+                          (number)))))
+                  (literal
+                    (number))))))
+          (then)
+          (if_block
+            (assignment_statement
+              (variable_declarator
+                (identifier))
+              (literal
+                (number)))
+            (end_statement
+              (end_if))))))
+    (end_statement
+      (end_sub))))
+
+==================
+if statement with else clause
+==================
+
+sub init()
+    if 5 = 6 then
+        x = 10
+    else
+        x = 20
+    end if
+end sub
+
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (if_statement
+        (multi_line_if
+          (if_start)
+          (binary_expression
+            (comparison_expression
+              (literal
+                (number))
+              (literal
+                (number))))
+          (then)
+          (if_block
+            (assignment_statement
+              (variable_declarator
+                (identifier))
+              (literal
+                (number)))
+            (else_clause
+              (else)
+              (assignment_statement
+                (variable_declarator
+                  (identifier))
+                (literal
+                  (number))))
+            (end_statement
+              (end_if))))))
+    (end_statement
+      (end_sub))))
+
+==================
+if statement with else if clause
+==================
+
+sub init()
+    if x > 10 then
+        print "Greater than 10"
+    else if x > 5 then
+        print "Greater than 5"
+    else
+        print "Less than or equal to 5"
+    end if
+end sub
+
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (if_statement
+        (multi_line_if
+          (if_start)
+          (binary_expression
+            (comparison_expression
+              (prefix_exp
+                (identifier))
+              (literal
+                (number))))
+          (then)
+          (if_block
+            (print_statement
+              (print)
+              (literal
+                (string
+                  (string_contents))))
+            (else_if_clause
+              (else_if)
+              (binary_expression
+                (comparison_expression
+                  (prefix_exp
+                    (identifier))
+                  (literal
+                    (number))))
+              (then)
+              (print_statement
+                (print)
+                (literal
+                  (string
+                    (string_contents)))))
+            (else_clause
+              (else)
+              (print_statement
+                (print)
+                (literal
+                  (string
+                    (string_contents)))))
+            (end_statement
+              (end_if))))))
+    (end_statement
+      (end_sub))))
+
+==================
+if statement with nested if
+==================
+
+sub init()
+    if x > 10 then
+        if y > 5 then
+            print "x > 10 and y > 5"
+        else
+            print "x > 10 and y <= 5"
+        end if
+    else
+        print "x <= 10"
+    end if
+end sub
+
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (if_statement
+        (multi_line_if
+          (if_start)
+          (binary_expression
+            (comparison_expression
+              (prefix_exp
+                (identifier))
+              (literal
+                (number))))
+          (then)
+          (if_block
+            (if_statement
+              (multi_line_if
+                (if_start)
+                (binary_expression
+                  (comparison_expression
+                    (prefix_exp
+                      (identifier))
+                    (literal
+                      (number))))
+                (then)
+                (if_block
+                  (print_statement
+                    (print)
+                    (literal
+                      (string
+                        (string_contents))))
+                  (else_clause
+                    (else)
+                    (print_statement
+                      (print)
+                      (literal
+                        (string
+                          (string_contents)))))
+                  (end_statement
+                    (end_if)))))
+            (else_clause
+              (else)
+              (print_statement
+                (print)
+                (literal
+                  (string
+                    (string_contents)))))
+            (end_statement
+              (end_if))))))
+    (end_statement
+      (end_sub))))
+
+===============
+nested if statements mix between block and no block
+===============
+
+sub init()
+    if true then
+        if true then return true else return true
+    else if false
+        print("hi")
+    else
+        print("hi")
+    end if
+end sub
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (if_statement
+        (multi_line_if
+          (if_start)
+          (literal
+            (boolean))
+          (then)
+          (if_block
+            (if_statement
+              (single_line_if
+                (if_start)
+                (literal
+                  (boolean))
+                (then)
+                (return_statement
+                  (return)
+                  (literal
+                    (boolean)))
+                (else)
+                (return_statement
+                  (return)
+                  (literal
+                    (boolean)))))
+            (else_if_clause
+              (else_if)
+              (literal
+                (boolean))
+              (print_statement
+                (print)
+                (prefix_exp
+                  (left_paren)
+                  (literal
+                    (string
+                      (string_contents)))
+                  (right_paren))))
+            (else_clause
+              (else)
+              (print_statement
+                (print)
+                (prefix_exp
+                  (left_paren)
+                  (literal
+                    (string
+                      (string_contents)))
+                  (right_paren))))
+            (end_statement
+              (end_if))))))
+    (end_statement
+      (end_sub))))
+
+===================
+single line if with multiple property access
+===================
+sub init()
+    if m.sessiontoken <> "" then m.addheader()
+end sub
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (if_statement
+        (single_line_if
+          (if_start)
+          (binary_expression
+            (comparison_expression
+              (prefix_exp
+                (prefix_exp
+                  (identifier))
+                (identifier))
+              (literal
+                (string))))
+          (then)
+          (function_call
+            (prefix_exp
+              (prefix_exp
+                (identifier))
+              (identifier))
+            (parenthesized_expression)))))
+    (end_statement
+      (end_sub))))
+
+===================
+single line if simple
+===================
+sub init()
+    if true then return true
+end sub
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (if_statement
+        (single_line_if
+          (if_start)
+          (literal
+            (boolean))
+          (then)
+          (return_statement
+            (return)
+            (literal
+              (boolean))))))
+    (end_statement
+      (end_sub))))
+
+===================
+conditional compl
+===================
+#const someFlag = true
+
+sub bruh()
+	#if someFlag
+		print("hi")
+	#else if not someFlag
+		print("no")
+	#else
+		print("maybe")
+	#end if
+end sub
+---
+
+(source_file
+  (constant
+    (assignment_statement
+      (variable_declarator
+        (identifier))
+      (literal
+        (boolean))))
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (conditional_compl
+        (if_start)
+        (prefix_exp
+          (identifier))
+        (print_statement
+          (print)
+          (prefix_exp
+            (left_paren)
+            (literal
+              (string
+                (string_contents)))
+            (right_paren)))
+        (conditional_compl_else_if_clause
+          (else_if)
+          (unary_expression
+            (logical_not_expression
+              (not)
+              (prefix_exp
+                (identifier))))
+          (print_statement
+            (print)
+            (prefix_exp
+              (left_paren)
+              (literal
+                (string
+                  (string_contents)))
+              (right_paren))))
+        (conditional_compl_else_clause
+          (else)
+          (print_statement
+            (print)
+            (prefix_exp
+              (left_paren)
+              (literal
+                (string
+                  (string_contents)))
+              (right_paren))))
+        (end_statement
+          (conditional_compl_end_if))))
+    (end_statement
+      (end_sub))))

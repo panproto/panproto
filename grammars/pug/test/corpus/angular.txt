@@ -1,0 +1,135 @@
+============
+Angular attribute
+============
+
+some-tag([attr]='hello')
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (attributes
+      (attribute
+        (attribute_name)
+        (quoted_javascript
+          (javascript))))))
+
+============
+Angular output
+============
+
+some-tag((attr)='hello')
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (attributes
+      (attribute
+        (attribute_name)
+        (quoted_javascript
+          (javascript))))))
+
+============
+Angular output javascript
+============
+
+some-tag((attr)='console.log("test")')
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (attributes
+      (attribute
+        (attribute_name)
+        (quoted_javascript
+          (javascript))))))
+
+============
+Angular banana box
+============
+
+some-tag([(attr)]='hello')
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (attributes
+      (attribute
+        (attribute_name)
+        (quoted_javascript
+          (javascript))))))
+
+============
+Angular directive
+============
+
+some-tag(*ngIf='enabled')
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (attributes
+      (attribute
+        (attribute_name)
+        (quoted_javascript
+          (javascript))))))
+
+============
+Angular templates
+============
+
+ng-template([ngTemplateOutlet]="tplTemplate", [ngTemplateOutletContext]="{$implicit: 'name'}")
+some-tag(#tplTemplate, let-name)
+  span {{name}}
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (attributes
+      (attribute
+        (attribute_name)
+        (quoted_javascript
+          (javascript)))
+      (attribute
+        (attribute_name)
+        (quoted_javascript
+          (javascript)))))
+  (tag
+    (tag_name)
+    (attributes
+      (attribute
+        (attribute_name))
+      (attribute
+        (attribute_name)))
+    (children
+      (tag
+        (tag_name)
+        (javascript)))))
+
+============
+Angular attributes with dots in their names
+============
+
+some-tag([style.padding-right]='true')
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (attributes
+      (attribute
+        (attribute_name)
+        (quoted_javascript
+          (javascript))))))

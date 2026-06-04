@@ -1,0 +1,22 @@
+===
+modules/invalidAmend6.pkl
+===
+
+resource = new Resource {
+  foo = "bar"
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart)))))))

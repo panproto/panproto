@@ -1,0 +1,129 @@
+==================
+list of string lits
+==================
+
+{{ ['a','bc','def'] }}
+
+---
+
+(source_file
+  (list
+    (lit_string)
+    (lit_string)
+    (lit_string)
+  )
+)
+
+==================
+empty list
+==================
+
+{{ [] }}
+
+---
+
+(source_file
+  (list)
+)
+
+==================
+list with trailing comma
+==================
+
+{{ ['a','bc','def',] }}
+
+---
+
+(source_file
+  (list
+    (lit_string)
+    (lit_string)
+    (lit_string)
+  )
+)
+
+==================
+config with list of string lits
+==================
+
+{{
+  config(
+    k='v',
+    k2='v2',
+    list=['a','bc','def']
+  )
+}}
+
+---
+
+(source_file
+  (fn_call
+    (identifier)
+    (argument_list
+      (kwarg
+        (identifier)
+        (lit_string)
+      )
+      (kwarg
+        (identifier)
+        (lit_string)
+      )
+      (kwarg
+        (identifier)
+        (list
+          (lit_string)
+          (lit_string)
+          (lit_string)
+        )
+      )
+    )
+  )
+)
+
+==================
+deeply nested lists and dicts
+==================
+
+"{{ [{'k':['v', {'x': 'y'}]}, ['a', 'b', 'c']] }}"
+
+---
+
+(source_file
+  (list
+    (dict
+      (pair
+        (lit_string)
+        (list
+          (lit_string)
+          (dict 
+            (pair
+              (lit_string)
+              (lit_string)
+            )
+          )
+        )
+      )
+    ) 
+    (list 
+      (lit_string)
+      (lit_string)
+      (lit_string)
+    )
+  )
+)
+
+==================
+list with booleans
+==================
+
+{{ [True, False, 'string'] }}
+
+---
+
+(source_file
+  (list
+    (bool)
+    (bool)
+    (lit_string)
+  )
+)

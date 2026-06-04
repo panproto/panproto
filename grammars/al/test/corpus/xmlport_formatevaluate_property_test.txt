@@ -1,0 +1,62 @@
+================================================================================
+XMLPort with FormatEvaluate property
+================================================================================
+
+xmlport 12 "IC Outbox Imp/Exp"
+{
+    FormatEvaluate = Xml;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))))
+
+================================================================================
+XMLPort with lowercase formatevaluate
+================================================================================
+
+xmlport 50100 "Test XMLPort"
+{
+    formatevaluate = xml;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))))
+
+================================================================================
+XMLPort with C/SIDE format evaluate
+================================================================================
+
+xmlport 50101 "Another Test"
+{
+    FormatEvaluate = C/SIDE;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (property_expression
+        (multiplicative_expression
+          left: (identifier)
+          right: (identifier))))))

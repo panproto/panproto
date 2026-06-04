@@ -1,0 +1,249 @@
+================================================================================
+kleenean literals
+================================================================================
+
+_true
+_True
+_false
+_maybe
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (true))
+  (fragment
+    (true))
+  (fragment
+    (false))
+  (fragment
+    (maybe)))
+
+================================================================================
+unset literal
+================================================================================
+
+_unset
+_UnseT
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (unset))
+  (fragment
+    (unset)))
+
+================================================================================
+number literal
+================================================================================
+
+0
+65535
+4294967295
+18446744073709551617
+-65535
+0.0
+655.35
+-655.35
+2e2
+2e+2
+2E+2
+2e-2
+2E-2
+2.2e+10
+2.2E+10
+2.2e-10
+2.2E-10
+2&3
+2&-3
+2r0
+2R11
+8r0
+8R757
+16r0123456789abcdef
+16R0123456789abcdef
+16raBcDeF0123456789
+16RaBcDeF0123456789
+36rz
+-36rZ
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (number))
+  (fragment
+    (number))
+  (fragment
+    (number))
+  (fragment
+    (number))
+  (fragment
+    (unary_operator
+      (number)))
+  (fragment
+    (number))
+  (fragment
+    (number))
+  (fragment
+    (unary_operator
+      (number)))
+  (fragment
+    (number))
+  (fragment
+    (number))
+  (fragment
+    (number))
+  (fragment
+    (number))
+  (fragment
+    (number))
+  (fragment
+    (number))
+  (fragment
+    (number))
+  (fragment
+    (number))
+  (fragment
+    (number))
+  (fragment
+    (number))
+  (fragment
+    (number))
+  (fragment
+    (number))
+  (fragment
+    (number))
+  (fragment
+    (number))
+  (fragment
+    (number))
+  (fragment
+    (number))
+  (fragment
+    (number))
+  (fragment
+    (number))
+  (fragment
+    (number))
+  (fragment
+    (number))
+  (fragment
+    (unary_operator
+      (number))))
+
+================================================================================
+symbol
+================================================================================
+
+:symbol
+:boolean?
+:kleenean??
+:int!internal
+:|piped|
+:int|!|internal
+:new|()|
+:|A|b|c ||()|
+:_new
+:|=|
+:|new world|
+:||
+:|ABC|\||def|
+:||\D|D|
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (symbol))
+  (fragment
+    (symbol))
+  (fragment
+    (symbol))
+  (fragment
+    (symbol))
+  (fragment
+    (symbol))
+  (fragment
+    (symbol))
+  (fragment
+    (symbol))
+  (fragment
+    (symbol))
+  (fragment
+    (symbol))
+  (fragment
+    (symbol))
+  (fragment
+    (symbol))
+  (fragment
+    (symbol))
+  (fragment
+    (symbol))
+  (fragment
+    (symbol)))
+
+================================================================================
+vector
+================================================================================
+
+{}
+
+{1,2,3}
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (vector))
+  (fragment
+    (vector
+      (number)
+      (number)
+      (number))))
+
+================================================================================
+regular expression
+================================================================================
+
+/Hello\,\s\w+!/
+
+/Hello\,\s\w+!/i
+
+/[a-t]-[1-4]/
+
+//
+
+/a\/b/i
+
+/abc\d{2,4}/i
+
+/Foo(bAr)?/i
+
+/[aB]*c,/im
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (regex_literal))
+  (fragment
+    (regex_literal))
+  (fragment
+    (regex_literal))
+  (fragment
+    (regex_literal))
+  (fragment
+    (regex_literal))
+  (fragment
+    (regex_literal))
+  (fragment
+    (regex_literal))
+  (fragment
+    (regex_literal)))

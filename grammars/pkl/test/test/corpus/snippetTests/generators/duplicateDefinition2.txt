@@ -1,0 +1,30 @@
+===
+generators/duplicateDefinition2.pkl
+===
+
+x {
+  ["y"] = 123
+  for (i in List(1)) { ["y"] = 456 }
+}
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (intLiteralExpr))
+      (forGenerator
+        (typedIdentifier
+          (identifier))
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList
+            (intLiteralExpr)))
+        (objectBody
+          (objectEntry
+            (slStringLiteralExpr
+              (slStringLiteralPart))
+            (intLiteralExpr)))))))

@@ -1,0 +1,103 @@
+================================================================================
+Basic mixin declaration
+================================================================================
+
+mixin name
+  tag
+    tag
+    tag
+
+tag
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (mixin_definition
+    (keyword)
+    (mixin_name)
+    (children
+      (tag
+        (tag_name)
+        (children
+          (tag
+            (tag_name))
+          (tag
+            (tag_name))))))
+  (tag
+    (tag_name)))
+
+================================================================================
+Mixin declaration with attributes
+================================================================================
+
+mixin name(attr, attr, attr)
+  tag
+    tag
+    tag
+
+tag
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (mixin_definition
+    (keyword)
+    (mixin_name)
+    (mixin_attributes
+      (attribute_name)
+      (attribute_name)
+      (attribute_name))
+    (children
+      (tag
+        (tag_name)
+        (children
+          (tag
+            (tag_name))
+          (tag
+            (tag_name))))))
+  (tag
+    (tag_name)))
+
+================================================================================
+Mixin use with attributes
+================================================================================
+
++mixin('attr')
+
+
+tag
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (mixin_use
+    (mixin_name)
+    (attribute
+      (quoted_attribute_value
+        (attribute_value))))
+  (tag
+    (tag_name)))
+
+================================================================================
+Mixin use with complex attributes
+================================================================================
+
++mixin('attr', 2, ['fdsa'])
+
+
+tag
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (mixin_use
+    (mixin_name)
+    (attribute
+      (quoted_attribute_value
+        (attribute_value)))
+    (attribute
+      (javascript))
+    (attribute
+      (javascript)))
+  (tag
+    (tag_name)))

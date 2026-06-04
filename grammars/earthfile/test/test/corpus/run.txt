@@ -1,0 +1,172 @@
+==================
+run
+==================
+
+foo:
+    RUN echo foo
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (run_command
+            command: (shell_fragment)))))
+
+
+==================
+run with options
+==================
+
+foo:
+    RUN --push --secret api_key --secret foo=bar echo foo
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (run_command
+            options: (options
+              (push)
+              (secret
+                id: (string
+                  (unquoted_string)))
+              (secret
+                var: (variable)
+                id: (string
+                  (unquoted_string))))
+            command: (shell_fragment)))))
+
+
+==================
+run with options and separator
+==================
+
+foo:
+    RUN --push -- --hop echo foo
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (run_command
+            options: (options
+              (push))
+            command: (shell_fragment)))))
+
+
+==================
+run with expanded secret
+==================
+
+foo:
+    RUN --secret ${secret_arg} \
+        --secret foo=${bar} \
+        echo foo
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (run_command
+            options: (options
+              (secret
+                id: (string
+                  (unquoted_string
+                    (expansion
+                      (variable)))))
+              (line_continuation)
+              (secret
+                var: (variable)
+                id: (string
+                  (unquoted_string
+                    (expansion
+                      (variable))))))
+            (line_continuation)
+            command: (shell_fragment)))))
+
+
+==================
+run array
+==================
+
+foo:
+    RUN ["echo", "foo"]
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (run_command
+            command: (string_array
+              (double_quoted_string)
+              (double_quoted_string))))))
+
+
+==================
+run with comments
+==================
+
+foo:
+    RUN echo \
+    # some comments
+    # some more comments
+    # and again more comments
+    foo
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (run_command
+            command: (shell_fragment
+              (line_continuation_comment))))))
+
+
+==================
+run with quotes
+==================
+
+server:
+    RUN echo -e "#!/bin/sh\\ntouch /i-was-run" > /run-this \
+      && chmod +x /run-this \
+      && /run-this
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (run_command
+            command: (shell_fragment
+              (line_continuation)
+              (line_continuation))))))
+
+
+==================
+run with test shell fragment
+==================
+
+foo:
+    RUN [ -f /foo.txt ] echo foo
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (run_command
+            command: (shell_fragment)))))

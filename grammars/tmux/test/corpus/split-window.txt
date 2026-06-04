@@ -1,0 +1,357 @@
+========================================
+split-window: simple
+========================================
+split-window
+splitw
+
+---
+
+(file
+  (split_window_directive
+    (command))
+  (split_window_directive
+    (command)))
+
+========================================
+split-window: flags
+========================================
+split-window -h
+splitw -h
+split-window -v
+splitw -v
+split-window -b
+splitw -b
+split-window -f
+splitw -f
+split-window -d
+splitw -d
+split-window -Z
+splitw -Z
+split-window -P
+splitw -P
+split-window -I
+splitw -I
+
+---
+
+(file
+  (split_window_directive
+    (command)
+    (command_line_option))
+  (split_window_directive
+    (command)
+    (command_line_option))
+  (split_window_directive
+    (command)
+    (command_line_option))
+  (split_window_directive
+    (command)
+    (command_line_option))
+  (split_window_directive
+    (command)
+    (command_line_option))
+  (split_window_directive
+    (command)
+    (command_line_option))
+  (split_window_directive
+    (command)
+    (command_line_option))
+  (split_window_directive
+    (command)
+    (command_line_option))
+  (split_window_directive
+    (command)
+    (command_line_option))
+  (split_window_directive
+    (command)
+    (command_line_option))
+  (split_window_directive
+    (command)
+    (command_line_option))
+  (split_window_directive
+    (command)
+    (command_line_option))
+  (split_window_directive
+    (command)
+    (command_line_option))
+  (split_window_directive
+    (command)
+    (command_line_option))
+  (split_window_directive
+    (command)
+    (command_line_option))
+  (split_window_directive
+    (command)
+    (command_line_option)))
+
+========================================
+split-window: options
+========================================
+split-window -l 10
+splitw -l 10
+split-window -l 50%
+splitw -l 50%
+split-window -t %3
+splitw -t %3
+split-window -t :1.2
+splitw -t :1.2
+split-window -c ~/proj
+splitw -c ~/proj
+split-window -e PATH=/usr/local/bin -e MODE=dev
+splitw -e PATH=/usr/local/bin -e MODE=dev
+split-window -F '#{pane_id}'
+splitw -F '#{pane_id}'
+
+---
+
+(file
+  (split_window_directive
+    (command)
+    (command_line_option)
+    (size))
+  (split_window_directive
+    (command)
+    (command_line_option)
+    (size))
+  (split_window_directive
+    (command)
+    (command_line_option)
+    (size))
+  (split_window_directive
+    (command)
+    (command_line_option)
+    (size))
+  (split_window_directive
+    (command)
+    (command_line_option)
+    (pane))
+  (split_window_directive
+    (command)
+    (command_line_option)
+    (pane))
+  (split_window_directive
+    (command)
+    (command_line_option)
+    (pane))
+  (split_window_directive
+    (command)
+    (command_line_option)
+    (pane))
+  (split_window_directive
+    (command)
+    (command_line_option)
+    (start_directory))
+  (split_window_directive
+    (command)
+    (command_line_option)
+    (start_directory))
+  (split_window_directive
+    (command)
+    (command_line_option)
+    (environment)
+    (command_line_option)
+    (environment))
+  (split_window_directive
+    (command)
+    (command_line_option)
+    (environment)
+    (command_line_option)
+    (environment))
+  (split_window_directive
+    (command)
+    (command_line_option)
+    (format
+      (str_single_quotes
+        (expr_single_quotes
+          (name)))))
+  (split_window_directive
+    (command)
+    (command_line_option)
+    (format
+      (str_single_quotes
+        (expr_single_quotes
+          (name))))))
+
+========================================
+split-window: options + shell
+========================================
+split-window -c ~/proj "bash -lc 'echo hi'"
+splitw -c ~/proj "bash -lc 'echo hi'"
+split-window -e LANG=en_US.UTF-8 "top"
+splitw -e LANG=en_US.UTF-8 "top"
+split-window -l 30% -t %1 "printf hello"
+splitw -l 30% -t %1 "printf hello"
+
+---
+
+(file
+  (split_window_directive
+    (command)
+    (command_line_option)
+    (start_directory)
+    (str_double_quotes))
+  (split_window_directive
+    (command)
+    (command_line_option)
+    (start_directory)
+    (str_double_quotes))
+  (split_window_directive
+    (command)
+    (command_line_option)
+    (environment)
+    (str_double_quotes))
+  (split_window_directive
+    (command)
+    (command_line_option)
+    (environment)
+    (str_double_quotes))
+  (split_window_directive
+    (command)
+    (command_line_option)
+    (size)
+    (command_line_option)
+    (pane)
+    (str_double_quotes))
+  (split_window_directive
+    (command)
+    (command_line_option)
+    (size)
+    (command_line_option)
+    (pane)
+    (str_double_quotes)))
+
+========================================
+split-window: flags + options
+========================================
+split-window -h -b -l 40% -t :2.0
+splitw -h -b -l 40% -t :2.0
+split-window -v -f -Z -t %5
+splitw -v -f -Z -t %5
+split-window -P -F '#{pane_index}:#{pane_active}' -t %1
+splitw -P -F '#{pane_index}:#{pane_active}' -t %1
+
+---
+
+(file
+  (split_window_directive
+    (command)
+    (command_line_option)
+    (command_line_option)
+    (command_line_option)
+    (size)
+    (command_line_option)
+    (pane))
+  (split_window_directive
+    (command)
+    (command_line_option)
+    (command_line_option)
+    (command_line_option)
+    (size)
+    (command_line_option)
+    (pane))
+  (split_window_directive
+    (command)
+    (command_line_option)
+    (command_line_option)
+    (command_line_option)
+    (command_line_option)
+    (pane))
+  (split_window_directive
+    (command)
+    (command_line_option)
+    (command_line_option)
+    (command_line_option)
+    (command_line_option)
+    (pane))
+  (split_window_directive
+    (command)
+    (command_line_option)
+    (command_line_option)
+    (format
+      (str_single_quotes
+        (expr_single_quotes
+          (name))
+        (expr_single_quotes
+          (name))))
+    (command_line_option)
+    (pane))
+  (split_window_directive
+    (command)
+    (command_line_option)
+    (command_line_option)
+    (format
+      (str_single_quotes
+        (expr_single_quotes
+          (name))
+        (expr_single_quotes
+          (name))))
+    (command_line_option)
+    (pane)))
+
+========================================
+split-window: empty shell and stdin
+========================================
+split-window ''
+splitw ''
+split-window -dI
+splitw -dI
+
+---
+
+(file
+  (split_window_directive
+    (command)
+    (str_single_quotes))
+  (split_window_directive
+    (command)
+    (str_single_quotes))
+  (split_window_directive
+    (command)
+    (command_line_option))
+  (split_window_directive
+    (command)
+    (command_line_option)))
+
+========================================
+split-window: complex
+========================================
+split-window -Z -h -b -l 60% -e MODE=ci -e COLOR=1 -t \
+:3.1 -c ~/proj "bash -lc 'make 2>&1 | tee /tmp/build.log'"
+splitw -Z -h -b -l 60% -e MODE=ci -e COLOR=1 -t \
+:3.1 -c ~/proj "bash -lc 'make 2>&1 | tee /tmp/build.log'"
+
+---
+
+(file
+  (split_window_directive
+    (command)
+    (command_line_option)
+    (command_line_option)
+    (command_line_option)
+    (command_line_option)
+    (size)
+    (command_line_option)
+    (environment)
+    (command_line_option)
+    (environment)
+    (command_line_option)
+    (pane)
+    (command_line_option)
+    (start_directory)
+    (str_double_quotes))
+  (split_window_directive
+    (command)
+    (command_line_option)
+    (command_line_option)
+    (command_line_option)
+    (command_line_option)
+    (size)
+    (command_line_option)
+    (environment)
+    (command_line_option)
+    (environment)
+    (command_line_option)
+    (pane)
+    (command_line_option)
+    (start_directory)
+    (str_double_quotes)))

@@ -1,0 +1,26 @@
+========================================================================
+Views section with view definition
+========================================================================
+
+page 50100 MyPage
+{
+    views
+    {
+        view(MyView)
+        {
+        }
+    }
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (views_section
+      (views_keyword)
+      (view_definition
+        (view_keyword)
+        name: (identifier)))))

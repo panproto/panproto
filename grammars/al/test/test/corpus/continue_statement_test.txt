@@ -1,0 +1,107 @@
+========================================================================
+Continue statement in for loop
+========================================================================
+codeunit 50100 Test
+{
+    procedure Test()
+    var
+        i: Integer;
+    begin
+        for i := 1 to 10 do
+            if i = 5 then
+                continue;
+    end;
+}
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (for_statement
+          (for_keyword)
+          variable: (identifier)
+          start: (integer)
+          direction: (to_keyword)
+          end: (integer)
+          (do_keyword)
+          body: (if_statement
+            (if_keyword)
+            condition: (comparison_expression
+              left: (identifier)
+              operator: (comparison_operator)
+              right: (integer))
+            (then_keyword)
+            then_branch: (continue_statement
+              (continue_keyword))))
+        (end_keyword)))))
+
+========================================================================
+Continue statement in repeat loop
+========================================================================
+codeunit 50100 Test
+{
+    procedure Test()
+    begin
+        repeat
+            continue;
+        until true;
+    end;
+}
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (repeat_statement
+          (repeat_keyword)
+          (continue_statement
+            (continue_keyword))
+          (until_keyword)
+          condition: (boolean))
+        (end_keyword)))))
+
+========================================================================
+Continue statement case-insensitive (CONTINUE)
+========================================================================
+codeunit 50100 Test
+{
+    procedure Test()
+    begin
+        CONTINUE;
+    end;
+}
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (continue_statement
+          (continue_keyword))
+        (end_keyword)))))

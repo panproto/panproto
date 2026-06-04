@@ -1,0 +1,253 @@
+================================================================================
+Range: Positive Numbers
+================================================================================
+
+1:2
+1:2:3
+1:0.1:2
+0:1e-3:1
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (range
+    (number)
+    (number))
+  (range
+    (number)
+    (number)
+    (number))
+  (range
+    (number)
+    (number)
+    (number))
+  (range
+    (number)
+    (number)
+    (number)))
+
+================================================================================
+Range: Negative Numbers
+================================================================================
+
+-1:1
+1:-.1:0
+10:-1:-10
+1:-1e-3:-1
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (range
+    (unary_operator
+      (number))
+    (number))
+  (range
+    (number)
+    (unary_operator
+      (number))
+    (number))
+  (range
+    (number)
+    (unary_operator
+      (number))
+    (unary_operator
+      (number)))
+  (range
+    (number)
+    (unary_operator
+      (number))
+    (unary_operator
+      (number))))
+
+================================================================================
+Range: Variables
+================================================================================
+
+a:b
+a:b:c
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (range
+    (identifier)
+    (identifier))
+  (range
+    (identifier)
+    (identifier)
+    (identifier)))
+
+================================================================================
+Range: Postfix and Unary Operators
+================================================================================
+
+a':b
+a:-b:c
+a:+b:~c'
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (range
+    (postfix_operator
+      (identifier))
+    (identifier))
+  (range
+    (identifier)
+    (unary_operator
+      (identifier))
+    (identifier))
+  (range
+    (identifier)
+    (unary_operator
+      (identifier))
+    (not_operator
+      (postfix_operator
+        (identifier)))))
+
+================================================================================
+Range: Binary Operators
+================================================================================
+
+a:b+2
+a:1-b:c
+1+2:10
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (range
+    (identifier)
+    (binary_operator
+      (identifier)
+      (number)))
+  (range
+    (identifier)
+    (binary_operator
+      (number)
+      (identifier))
+    (identifier))
+  (range
+    (binary_operator
+      (number)
+      (number))
+    (number)))
+
+================================================================================
+Range: Parenthesized Expressions
+================================================================================
+
+a:(b+2)
+a:(1:2):c
+(1+2):10
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (range
+    (identifier)
+    (parenthesis
+      (binary_operator
+        (identifier)
+        (number))))
+  (range
+    (identifier)
+    (parenthesis
+      (range
+        (number)
+        (number)))
+    (identifier))
+  (range
+    (parenthesis
+      (binary_operator
+        (number)
+        (number)))
+    (number)))
+
+================================================================================
+Range: Function Call
+================================================================================
+
+1:a(1):2
+b():a(1):c()
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (range
+    (number)
+    (function_call
+      (identifier)
+      (arguments
+        (number)))
+    (number))
+  (range
+    (function_call
+      (identifier))
+    (function_call
+      (identifier)
+      (arguments
+        (number)))
+    (function_call
+      (identifier))))
+
+================================================================================
+Range: Matrix Definition
+================================================================================
+
+1:[1 2]:3
+[1 2]:3
+1:[1 2]
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (range
+    (number)
+    (matrix
+      (row
+        (number)
+        (number)))
+    (number))
+  (range
+    (matrix
+      (row
+        (number)
+        (number)))
+    (number))
+  (range
+    (number)
+    (matrix
+      (row
+        (number)
+        (number)))))
+
+================================================================================
+Range: Struct
+================================================================================
+
+a.b.c:d.e
+a.b:c.d:e.f
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (range
+    (field_expression
+      (identifier)
+      (identifier)
+      (identifier))
+    (field_expression
+      (identifier)
+      (identifier)))
+  (range
+    (field_expression
+      (identifier)
+      (identifier))
+    (field_expression
+      (identifier)
+      (identifier))
+    (field_expression
+      (identifier)
+      (identifier))))

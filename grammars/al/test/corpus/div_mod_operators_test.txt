@@ -1,0 +1,404 @@
+================================================================================
+Basic div operator
+================================================================================
+
+codeunit 50100 TestDiv
+{
+    procedure TestDiv()
+    var
+        Result: Integer;
+    begin
+        Result := 10 div 2;
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (identifier)
+          right: (multiplicative_expression
+            left: (integer)
+            right: (integer)))
+        (end_keyword)))))
+
+================================================================================
+Basic mod operator
+================================================================================
+
+codeunit 50100 TestMod
+{
+    procedure TestMod()
+    var
+        Remainder: Integer;
+    begin
+        Remainder := 10 mod 3;
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (identifier)
+          right: (multiplicative_expression
+            left: (integer)
+            right: (integer)))
+        (end_keyword)))))
+
+================================================================================
+Div with case variations
+================================================================================
+
+codeunit 50100 TestDivCases
+{
+    procedure TestDivCases()
+    var
+        A, B, C: Integer;
+    begin
+        A := 20 div 4;
+        B := 20 DIV 4;
+        C := 20 Div 4;
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          name: (identifier)
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (identifier)
+          right: (multiplicative_expression
+            left: (integer)
+            right: (integer)))
+        (assignment_statement
+          left: (identifier)
+          right: (multiplicative_expression
+            left: (integer)
+            right: (integer)))
+        (assignment_statement
+          left: (identifier)
+          right: (multiplicative_expression
+            left: (integer)
+            right: (integer)))
+        (end_keyword)))))
+
+================================================================================
+Mod with case variations
+================================================================================
+
+codeunit 50100 TestModCases
+{
+    procedure TestModCases()
+    var
+        A, B, C: Integer;
+    begin
+        A := 20 mod 6;
+        B := 20 MOD 6;
+        C := 20 Mod 6;
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          name: (identifier)
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (identifier)
+          right: (multiplicative_expression
+            left: (integer)
+            right: (integer)))
+        (assignment_statement
+          left: (identifier)
+          right: (multiplicative_expression
+            left: (integer)
+            right: (integer)))
+        (assignment_statement
+          left: (identifier)
+          right: (multiplicative_expression
+            left: (integer)
+            right: (integer)))
+        (end_keyword)))))
+
+================================================================================
+Div in case statement
+================================================================================
+
+codeunit 50100 TestDivInCase
+{
+    procedure TestDivInCase()
+    var
+        Value: Integer;
+    begin
+        case true of
+            true:
+                Value := 100 div 5;
+        end;
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (case_statement
+          (case_keyword)
+          expression: (boolean)
+          (of_keyword)
+          (case_branch
+            pattern: (boolean)
+            body: (assignment_statement
+              left: (identifier)
+              right: (multiplicative_expression
+                left: (integer)
+                right: (integer)))))
+        (end_keyword)))))
+
+================================================================================
+Complex expressions with div and mod
+================================================================================
+
+codeunit 50100 TestComplexDivMod
+{
+    procedure TestComplex()
+    var
+        Result: Integer;
+    begin
+        Result := (100 div 3) * 2 + (50 mod 7);
+        Result := 100 div 3 * 2;
+        Result := 100 mod 10 div 2;
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (identifier)
+          right: (additive_expression
+            left: (multiplicative_expression
+              left: (parenthesized_expression
+                (multiplicative_expression
+                  left: (integer)
+                  right: (integer)))
+              right: (integer))
+            right: (parenthesized_expression
+              (multiplicative_expression
+                left: (integer)
+                right: (integer)))))
+        (assignment_statement
+          left: (identifier)
+          right: (multiplicative_expression
+            left: (multiplicative_expression
+              left: (integer)
+              right: (integer))
+            right: (integer)))
+        (assignment_statement
+          left: (identifier)
+          right: (multiplicative_expression
+            left: (multiplicative_expression
+              left: (integer)
+              right: (integer))
+            right: (integer)))
+        (end_keyword)))))
+
+================================================================================
+Case true with div in assignment
+================================================================================
+
+table 50100 TestTable
+{
+    fields
+    {
+        field(1; ID; Integer) { }
+    }
+    
+    procedure CalcPresentation()
+    var
+        ItemCategoryPrev: Record "Item Category";
+        ItemCategoryNext: Record "Item Category";
+    begin
+        case true of
+            not ItemCategoryPrev.IsEmpty() and ItemCategoryNext.IsEmpty():
+                Rec."Presentation Order" := ItemCategoryNext."Presentation Order" div 2;
+            ItemCategoryPrev.IsEmpty() and ItemCategoryNext.IsEmpty():
+                Rec."Presentation Order" := (ItemCategoryPrev."Presentation Order" + ItemCategoryNext."Presentation Order") div 2;
+        end;
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (basic_type))))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier))))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier)))))
+      (code_block
+        (begin_keyword)
+        (case_statement
+          (case_keyword)
+          expression: (boolean)
+          (of_keyword)
+          (case_branch
+            pattern: (logical_expression
+              left: (unary_expression
+                operand: (call_expression
+                  function: (member_expression
+                    object: (identifier)
+                    member: (identifier))
+                  arguments: (argument_list)))
+              right: (call_expression
+                function: (member_expression
+                  object: (identifier)
+                  member: (identifier))
+                arguments: (argument_list)))
+            body: (assignment_statement
+              left: (member_expression
+                object: (identifier)
+                member: (quoted_identifier))
+              right: (multiplicative_expression
+                left: (member_expression
+                  object: (identifier)
+                  member: (quoted_identifier))
+                right: (integer))))
+          (case_branch
+            pattern: (logical_expression
+              left: (call_expression
+                function: (member_expression
+                  object: (identifier)
+                  member: (identifier))
+                arguments: (argument_list))
+              right: (call_expression
+                function: (member_expression
+                  object: (identifier)
+                  member: (identifier))
+                arguments: (argument_list)))
+            body: (assignment_statement
+              left: (member_expression
+                object: (identifier)
+                member: (quoted_identifier))
+              right: (multiplicative_expression
+                left: (parenthesized_expression
+                  (additive_expression
+                    left: (member_expression
+                      object: (identifier)
+                      member: (quoted_identifier))
+                    right: (member_expression
+                      object: (identifier)
+                      member: (quoted_identifier))))
+                right: (integer)))))
+        (end_keyword)))))

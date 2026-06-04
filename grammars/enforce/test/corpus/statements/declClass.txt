@@ -1,0 +1,130 @@
+================================================================================
+class declaration
+================================================================================
+class Foo {}
+--------------------------------------------------------------------------------
+(compilation_unit
+	(decl_class
+		typename: (identifier)
+		body: (class_body)))
+
+
+================================================================================
+class declaration with inheritance
+================================================================================
+class Foo : Bar {}
+--------------------------------------------------------------------------------
+(compilation_unit
+	(decl_class
+		typename: (identifier)
+		superclass: (superclass
+			typename: (identifier))
+		body: (class_body)))
+
+================================================================================
+modded class declaration
+================================================================================
+modded class Foo {}
+--------------------------------------------------------------------------------
+(compilation_unit
+	(decl_class
+		(class_modifier)
+		typename: (identifier)
+		body: (class_body)))
+
+
+================================================================================
+modded class declaration with inheritance
+================================================================================
+modded class Foo : Bar {}
+--------------------------------------------------------------------------------
+(compilation_unit
+	(decl_class
+		(class_modifier)
+		typename: (identifier)
+		superclass: (superclass
+			typename: (identifier))
+		body: (class_body)))
+
+
+================================================================================
+class declaration with fields and methods
+================================================================================
+class Foo : Bar {
+	int foo;
+	int foo[];
+	int foo[69];
+	void Foo() {}
+	void ~Foo() {}
+	void foo() {}
+}
+--------------------------------------------------------------------------------
+(compilation_unit
+	(decl_class
+		typename: (identifier)
+		superclass: (superclass
+			typename: (identifier))
+		body: (class_body
+			(decl_field
+				type: (type_int)
+				name: (identifier))
+			(decl_field
+				type: (type_int)
+				name: (identifier))
+			(decl_field
+				type: (type_int)
+				name: (identifier)
+				init_size: (literal_int))
+			(decl_method
+				return_type: (type_void)
+				name: (identifier)
+				body: (block))
+			(decl_method
+				return_type: (type_void)
+				name: (identifier)
+				body: (block))
+			(decl_method
+				return_type: (type_void)
+				name: (identifier)
+				body: (block)))))
+
+
+================================================================================
+class declaration if you want to see the world burn
+:skip
+================================================================================
+class Foo {
+	int foo, foo[], foo[69], foo;
+}
+--------------------------------------------------------------------------------
+(compilation_unit
+	(decl_class
+		typename: (identifier)
+		(decl_method
+			return_type: (type_int)
+			name: (identifier)
+			body: (block))))
+
+
+================================================================================
+generic class declaration
+================================================================================
+class Foo<Class T> {}
+class Bar : Foo<int> {}
+--------------------------------------------------------------------------------
+(compilation_unit
+	(decl_class
+		typename: (identifier)
+		type_parameters: (type_parameters
+			(type_parameter
+				bound: (type_identifier (identifier))
+				name: (identifier)))
+		body: (class_body))
+	(decl_class
+		typename: (identifier)
+		superclass: (superclass
+			typename: (identifier)
+			types: (types
+				(type_int)))
+		body: (class_body)))
+

@@ -1,0 +1,98 @@
+================
+open_block
+================
+
+--
+--
+
+.title
+--
+line
+--
+
+[, js]
+--
+function createElement(node) {
+    if (typeof node == "string") { <.>
+        return document.createTextNode(node)
+    }
+
+    const $el = document.createElement(node.type) <.>
+
+    node.children <.>
+        .map(createElement)
+        .forEach($el.appendChild.bind($el));
+
+    return $el;
+}
+--
+
+-------------------
+
+(document
+  (block_element
+    (section_block
+      (open_block
+        (open_block_marker)
+        (open_block_marker))))
+  (block_element
+    (section_block
+      (block_title
+        (block_title_marker)
+        (line))
+      (open_block
+        (open_block_marker)
+        (section_block
+          (paragraph
+            (line)))
+        (open_block_marker))))
+  (block_element
+    (section_block
+      (element_attr
+        (element_attr_marker)
+        (attr_value)
+        (element_attr_marker))
+      (open_block
+        (open_block_marker)
+        (section_block
+          (paragraph
+            (line)))
+        (section_block
+          (ident_block
+            (ident_block_line
+              (ident_marker)
+              (callout_marker))))
+        (section_block
+          (ident_block
+            (ident_block_line
+              (ident_marker))))
+        (section_block
+          (ident_block
+            (ident_block_line
+              (ident_marker))))
+        (section_block
+          (ident_block
+            (ident_block_line
+              (ident_marker)
+              (callout_marker))))
+        (section_block
+          (ident_block
+            (ident_block_line
+              (ident_marker)
+              (callout_marker))))
+        (section_block
+          (ident_block
+            (ident_block_line
+              (ident_marker))))
+        (section_block
+          (ident_block
+            (ident_block_line
+              (ident_marker))))
+        (section_block
+          (ident_block
+            (ident_block_line
+              (ident_marker))))
+        (section_block
+          (paragraph
+            (line)))
+        (open_block_marker)))))

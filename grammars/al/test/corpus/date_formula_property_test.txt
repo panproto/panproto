@@ -1,0 +1,108 @@
+==================
+Field with DateFormula property in report
+==================
+
+report 50000 "Test Report"
+{
+    dataset
+    {
+        dataitem(DataItemName; "Table Name")
+        {
+            column(TestColumn; SourceExpression) { }
+        }
+    }
+    
+    requestpage
+    {
+        layout
+        {
+            area(Content)
+            {
+                field(DateFormulaField; DateFormulaVar)
+                {
+                    Caption = 'Date Formula Field';
+                    DateFormula = true;
+                }
+            }
+        }
+    }
+}
+
+---
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)
+        (report_column
+          (column_keyword)
+          name: (identifier)
+          source: (identifier))))
+    (requestpage_section
+      (requestpage_keyword)
+      (layout_section
+        (layout_keyword)
+        (area_section
+          (area_keyword)
+          (page_field
+            name: (identifier)
+            source: (identifier)
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (boolean))))))))
+
+==================
+Field with DateFormula mixed case
+==================
+
+page 50000 "Test Page"
+{
+    layout
+    {
+        area(Content)
+        {
+            field(TestField; TestVar)
+            {
+                dateformula = true;
+            }
+            field(TestField2; TestVar2)
+            {
+                DATEFORMULA = false;
+            }
+        }
+    }
+}
+
+---
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (boolean)))
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (boolean)))))))

@@ -1,0 +1,160 @@
+================================================================================
+Style property with None value
+================================================================================
+
+page 50100 "Test Page"
+{
+    layout
+    {
+        area(content)
+        {
+            field(ImportantDisclaimer; ImportantDisclaimerLbl)
+            {
+                ShowCaption = false;
+                Editable = false;
+                MultiLine = true;
+                Style = None;
+                ToolTip = 'Installing applications may require dependencies to be installed.';
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal)))))))
+
+================================================================================
+Style property with various values including None
+================================================================================
+
+page 50101 "Test Styles"
+{
+    layout
+    {
+        area(content)
+        {
+            field(Field1; Field1)
+            {
+                Style = None;
+            }
+            field(Field2; Field2)
+            {
+                Style = Standard;
+            }
+            field(Field3; Field3)
+            {
+                Style = "None";
+            }
+            field(Field4; Field4)
+            {
+                Style = "Standard";
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (quoted_identifier)))
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (quoted_identifier)))))))
+
+================================================================================
+Style = None in label field
+================================================================================
+
+page 50102 "Label Style Test"
+{
+    layout
+    {
+        area(content)
+        {
+            label(MessageLbl)
+            {
+                Caption = 'Important message';
+                Style = None;
+                MultiLine = true;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (label_section
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (boolean)))))))

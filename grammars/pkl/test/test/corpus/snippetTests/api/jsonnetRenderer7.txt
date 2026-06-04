@@ -1,0 +1,36 @@
+===
+api/jsonnetRenderer7.pkl
+===
+
+import "pkl:jsonnet"
+
+m = new Mixin {}
+
+output {
+  renderer = new jsonnet.Renderer {}
+}
+
+---
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody)))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)
+              (identifier)))
+          (objectBody))))))

@@ -1,0 +1,172 @@
+===========
+author_line
+===========
+
+= Document Title
+firstname middlename lastname <email@xxx.com>
+
+= The Intrepid Chronicles
+Kismet R. Lee <kismet@asciidoctor.org>
+
+= The Intrepid Chronicles
+Kismet R. Lee <kismet@asciidoctor.org>; B. Steppenwolf; Pax Draeke <pax@asciidoctor.org>
+
+= The Intrepid Chronicles
+:author: Kismet R. Lee
+:email: kismet@asciidoctor.org
+
+= The Intrepid Chronicles
+Kismet R. Lee <kismet@asciidoctor.org>; B. Steppenwolf; Pax Draeke <pax@asciidoctor.org>
+
+.About {author_2}
+Mr. {lastname_2} lives in the Rocky Mountains.
+
+.About {author_3}
+{firstname_3}, also known as {authorinitials_3}, loves to surf.
+
+.About {author}
+You can contact {firstname} at {email}.
+
+= Drum and Bass Breakbeats
+Ann_Marie Jenson; Tomás López_del_Toro
+
+The first author's first name is {firstname}.
+
+The second author's last name is {lastname_2}.
+
+= Quantum Networks
+:author: Mara_Moss Wirribi
+
+== About {author}
+
+{firstname} lives on the Bellarine Peninsula near Geelong, Australia.
+
+-----
+
+(document
+  (block_element
+    (document_title
+      (title_h0_marker)
+      (line)
+      (author_line
+        (author
+          (firstname)
+          (middlename)
+          (lastname)
+          (email)))))
+  (block_element
+    (document_title
+      (title_h0_marker)
+      (line)
+      (author_line
+        (author
+          (firstname)
+          (middlename)
+          (lastname)
+          (email)))))
+  (block_element
+    (document_title
+      (title_h0_marker)
+      (line)
+      (author_line
+        (author
+          (firstname)
+          (middlename)
+          (lastname)
+          (email))
+        (author
+          (firstname)
+          (lastname))
+        (author
+          (firstname)
+          (lastname)
+          (email)))))
+  (block_element
+    (document_title
+      (title_h0_marker)
+      (line)
+      (document_attr
+        (document_attr_marker)
+        (attr_name)
+        (document_attr_marker)
+        (line))
+      (document_attr
+        (document_attr_marker)
+        (attr_name)
+        (document_attr_marker)
+        (line))))
+  (block_element
+    (document_title
+      (title_h0_marker)
+      (line)
+      (author_line
+        (author
+          (firstname)
+          (middlename)
+          (lastname)
+          (email))
+        (author
+          (firstname)
+          (lastname))
+        (author
+          (firstname)
+          (lastname)
+          (email)))))
+  (block_element
+    (section_block
+      (block_title
+        (block_title_marker)
+        (line))
+      (paragraph
+        (line))))
+  (block_element
+    (section_block
+      (block_title
+        (block_title_marker)
+        (line))
+      (paragraph
+        (line))))
+  (block_element
+    (section_block
+      (block_title
+        (block_title_marker)
+        (line))
+      (paragraph
+        (line))))
+  (block_element
+    (document_title
+      (title_h0_marker)
+      (line)
+      (author_line
+        (author
+          (firstname)
+          (lastname))
+        (author
+          (firstname)
+          (lastname)))))
+  (block_element
+    (section_block
+      (paragraph
+        (line))))
+  (block_element
+    (section_block
+      (paragraph
+        (line))))
+  (block_element
+    (document_title
+      (title_h0_marker)
+      (line)
+      (document_attr
+        (document_attr_marker)
+        (attr_name)
+        (document_attr_marker)
+        (line))))
+  (block_element
+    (section_block
+      (title1
+        (title_h1_marker)
+        (line))))
+  (block_element
+    (section_block
+      (paragraph
+        (line)))))

@@ -1,0 +1,132 @@
+================================================================================
+Codeunit with TableNo property using quoted identifier
+================================================================================
+
+codeunit 50000 "Test Codeunit"
+{
+    TableNo = "Test Table";
+
+    trigger OnRun()
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (quoted_identifier))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))
+
+================================================================================
+Codeunit with TableNo property using identifier
+================================================================================
+
+codeunit 50001 "Test Codeunit 2"
+{
+    TableNo = Customer;
+
+    trigger OnRun()
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))
+
+================================================================================
+Codeunit with TableNo property using integer table ID
+================================================================================
+
+codeunit 50002 "Test Codeunit 3"
+{
+    TableNo = 18;
+
+    trigger OnRun()
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (integer))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))
+
+================================================================================
+Codeunit with multiple properties including TableNo
+================================================================================
+
+codeunit 50003 "Multi Property Codeunit"
+{
+    TableNo = "Sales Header";
+    SingleInstance = true;
+
+    var
+        TestVar: Integer;
+
+    trigger OnRun()
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (quoted_identifier))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type))))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))

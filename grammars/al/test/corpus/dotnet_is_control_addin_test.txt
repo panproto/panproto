@@ -1,0 +1,99 @@
+================================================================================
+DotNet type with IsControlAddIn property
+================================================================================
+
+codeunit 50100 "Control AddIn Manager"
+{
+    var
+        MyControl: DotNet MyCustomControl;
+
+    trigger OnRun()
+    begin
+        Message('Control loaded');
+    end;
+
+    procedure InitializeControl()
+    var
+        [RunOnClient]
+        ClientControl: DotNet MyClientControl;
+    begin
+        // Initialize control
+    end;
+}
+
+dotnet
+{
+    assembly("MyCustomAssembly")
+    {
+        type("MyNamespace.MyCustomControl"; "MyCustomControl")
+        {
+            IsControlAddIn = true;
+        }
+        
+        type("MyNamespace.MyClientControl"; "MyClientControl")
+        {
+            IsControlAddIn = false;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (dotnet_type
+            (dotnet_keyword)
+            reference: (identifier)))))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list
+            (string_literal)))
+        (end_keyword)))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (var_attribute_item
+          (var_attribute_open)
+          attribute: (attribute_content
+            name: (identifier)))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (dotnet_type
+              (dotnet_keyword)
+              reference: (identifier)))))
+      (code_block
+        (begin_keyword)
+        (comment)
+        (end_keyword))))
+  (dotnet_declaration
+    (dotnet_keyword)
+    (assembly_declaration
+      name: (quoted_identifier)
+      (type_declaration
+        dotnet_type: (quoted_identifier)
+        al_name: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (boolean)))
+      (type_declaration
+        dotnet_type: (quoted_identifier)
+        al_name: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (boolean))))))

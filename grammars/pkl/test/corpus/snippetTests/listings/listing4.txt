@@ -1,0 +1,156 @@
+===
+listings/listing4.pkl
+===
+
+amends "../snippetTest.pkl"
+
+examples {
+  ["listings are lazy"] {
+    local listing = new Listing<String> {
+      "foo"
+      throw("uh oh")
+    }
+    listing[0]
+    module.catch(() -> listing[1])
+  }
+  ["listings are lazy with generator entries"] {
+    local listing = new Listing<String> {
+      when (false) {
+        "uh oh"
+      }
+      "foo"
+      throw("uh oh")
+    }
+    listing[0]
+  }
+  ["nested listings are also lazy"] {
+    local listing = new Listing<Listing<String>> {
+      new {
+        "bar"
+        throw("uh oh")
+      }
+    }
+    listing[0][0]
+  }
+}
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectProperty
+            (modifier)
+            (identifier)
+            (newExpr
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier))
+                (typeArgumentList
+                  (declaredType
+                    (qualifiedIdentifier
+                      (identifier)))))
+              (objectBody
+                (objectElement
+                  (slStringLiteralExpr
+                    (slStringLiteralPart)))
+                (objectElement
+                  (throwExpr
+                    (slStringLiteralExpr
+                      (slStringLiteralPart)))))))
+          (objectElement
+            (subscriptExpr
+              (unqualifiedAccessExpr
+                (identifier))
+              (intLiteralExpr)))
+          (objectElement
+            (qualifiedAccessExpr
+              (moduleExpr)
+              (identifier)
+              (argumentList
+                (functionLiteralExpr
+                  (parameterList)
+                  (subscriptExpr
+                    (unqualifiedAccessExpr
+                      (identifier))
+                    (intLiteralExpr))))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectProperty
+            (modifier)
+            (identifier)
+            (newExpr
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier))
+                (typeArgumentList
+                  (declaredType
+                    (qualifiedIdentifier
+                      (identifier)))))
+              (objectBody
+                (whenGenerator
+                  (falseLiteralExpr)
+                  (objectBody
+                    (objectElement
+                      (slStringLiteralExpr
+                        (slStringLiteralPart)))))
+                (objectElement
+                  (slStringLiteralExpr
+                    (slStringLiteralPart)))
+                (objectElement
+                  (throwExpr
+                    (slStringLiteralExpr
+                      (slStringLiteralPart)))))))
+          (objectElement
+            (subscriptExpr
+              (unqualifiedAccessExpr
+                (identifier))
+              (intLiteralExpr)))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectProperty
+            (modifier)
+            (identifier)
+            (newExpr
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier))
+                (typeArgumentList
+                  (declaredType
+                    (qualifiedIdentifier
+                      (identifier))
+                    (typeArgumentList
+                      (declaredType
+                        (qualifiedIdentifier
+                          (identifier)))))))
+              (objectBody
+                (objectElement
+                  (newExpr
+                    (objectBody
+                      (objectElement
+                        (slStringLiteralExpr
+                          (slStringLiteralPart)))
+                      (objectElement
+                        (throwExpr
+                          (slStringLiteralExpr
+                            (slStringLiteralPart))))))))))
+          (objectElement
+            (subscriptExpr
+              (subscriptExpr
+                (unqualifiedAccessExpr
+                  (identifier))
+                (intLiteralExpr))
+              (intLiteralExpr))))))))

@@ -1,0 +1,341 @@
+===
+listings/equality.pkl
+===
+
+local x = new Listing {
+  "one"
+  "two"
+}
+
+res1 = x == x
+res2 = x == new Listing {
+  "one"
+  "two"
+}
+res3 = x == new Listing {
+  "two"
+}
+res4 = x == new Listing {
+  "two"
+  "one"
+}
+res5 = x == (x) {}
+res6 = x == (x) { "one" }
+res8 = x == (x) { default = 9 }
+res9 = (x) { default = 9 } == (x) { default = 10 }
+res10 = new Listing { "one" } == new Listing { "one"; default = 9 }
+res11 = new Listing { x; local x = "one" } == new Listing { "one" }
+res12 = new Listing { x; local x = "one"; local `_` = "two" } == new Listing { "one"; default = 9 }
+res13 = new Listing { x; local x = "one" } { y; local y = "two" } == new Listing { "one"; "two" }
+
+local class Bird { name: String }
+
+local l1: Listing<Bird> = new {
+  new { name = "Pigeon" }
+  new { name = "Stork" }
+}
+
+local l2: Listing<Bird|Int> = l1
+
+res14 = l1 == l2
+
+---
+
+(module
+  (classProperty
+    (modifier)
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectElement
+          (slStringLiteralExpr
+            (slStringLiteralPart)))
+        (objectElement
+          (slStringLiteralExpr
+            (slStringLiteralPart))))))
+  (classProperty
+    (identifier)
+    (equalityExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (unqualifiedAccessExpr
+        (identifier))))
+  (classProperty
+    (identifier)
+    (equalityExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody
+          (objectElement
+            (slStringLiteralExpr
+              (slStringLiteralPart)))
+          (objectElement
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))))
+  (classProperty
+    (identifier)
+    (equalityExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody
+          (objectElement
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))))
+  (classProperty
+    (identifier)
+    (equalityExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody
+          (objectElement
+            (slStringLiteralExpr
+              (slStringLiteralPart)))
+          (objectElement
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))))
+  (classProperty
+    (identifier)
+    (equalityExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (amendExpr
+        (parenthesizedExpr
+          (unqualifiedAccessExpr
+            (identifier)))
+        (objectBody))))
+  (classProperty
+    (identifier)
+    (equalityExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (amendExpr
+        (parenthesizedExpr
+          (unqualifiedAccessExpr
+            (identifier)))
+        (objectBody
+          (objectElement
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))))
+  (classProperty
+    (identifier)
+    (equalityExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (amendExpr
+        (parenthesizedExpr
+          (unqualifiedAccessExpr
+            (identifier)))
+        (objectBody
+          (objectProperty
+            (identifier)
+            (intLiteralExpr))))))
+  (classProperty
+    (identifier)
+    (equalityExpr
+      (amendExpr
+        (parenthesizedExpr
+          (unqualifiedAccessExpr
+            (identifier)))
+        (objectBody
+          (objectProperty
+            (identifier)
+            (intLiteralExpr))))
+      (amendExpr
+        (parenthesizedExpr
+          (unqualifiedAccessExpr
+            (identifier)))
+        (objectBody
+          (objectProperty
+            (identifier)
+            (intLiteralExpr))))))
+  (classProperty
+    (identifier)
+    (equalityExpr
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody
+          (objectElement
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody
+          (objectElement
+            (slStringLiteralExpr
+              (slStringLiteralPart)))
+          (objectProperty
+            (identifier)
+            (intLiteralExpr))))))
+  (classProperty
+    (identifier)
+    (equalityExpr
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody
+          (objectElement
+            (unqualifiedAccessExpr
+              (identifier)))
+          (objectProperty
+            (modifier)
+            (identifier)
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody
+          (objectElement
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))))
+  (classProperty
+    (identifier)
+    (equalityExpr
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody
+          (objectElement
+            (unqualifiedAccessExpr
+              (identifier)))
+          (objectProperty
+            (modifier)
+            (identifier)
+            (slStringLiteralExpr
+              (slStringLiteralPart)))
+          (objectProperty
+            (modifier)
+            (identifier)
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody
+          (objectElement
+            (slStringLiteralExpr
+              (slStringLiteralPart)))
+          (objectProperty
+            (identifier)
+            (intLiteralExpr))))))
+  (classProperty
+    (identifier)
+    (equalityExpr
+      (amendExpr
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (objectBody
+            (objectElement
+              (unqualifiedAccessExpr
+                (identifier)))
+            (objectProperty
+              (modifier)
+              (identifier)
+              (slStringLiteralExpr
+                (slStringLiteralPart)))))
+        (objectBody
+          (objectElement
+            (unqualifiedAccessExpr
+              (identifier)))
+          (objectProperty
+            (modifier)
+            (identifier)
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody
+          (objectElement
+            (slStringLiteralExpr
+              (slStringLiteralPart)))
+          (objectElement
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))))
+  (clazz
+    (modifier)
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))))
+    (newExpr
+      (objectBody
+        (objectElement
+          (newExpr
+            (objectBody
+              (objectProperty
+                (identifier)
+                (slStringLiteralExpr
+                  (slStringLiteralPart))))))
+        (objectElement
+          (newExpr
+            (objectBody
+              (objectProperty
+                (identifier)
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))))))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (unionType
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))))))
+    (unqualifiedAccessExpr
+      (identifier)))
+  (classProperty
+    (identifier)
+    (equalityExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (unqualifiedAccessExpr
+        (identifier)))))

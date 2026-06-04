@@ -1,0 +1,193 @@
+==================
+If-then-else
+==================
+
+: test-if
+  5 > if ." greater" else ." not greater" then ;
+
+---
+
+(source_file
+  (word_definition
+    (start_definition)
+    (word)
+    (number
+      (decimal_number))
+    (builtin
+      (operator))
+    (builtin
+      (control_flow))
+    (string)
+    (builtin
+      (control_flow))
+    (string)
+    (builtin
+      (control_flow))
+    (end_definition)))
+
+==================
+Begin-until loop
+==================
+
+: countdown
+  begin dup . 1- dup 0= until drop ;
+
+---
+
+(source_file
+  (word_definition
+    (start_definition)
+    (word)
+    (builtin
+      (control_flow))
+    (builtin
+      (operator))
+    (builtin
+      (io))
+    (builtin
+      (operator))
+    (builtin
+      (operator))
+    (builtin
+      (operator))
+    (builtin
+      (control_flow))
+    (builtin
+      (operator))
+    (end_definition)))
+
+==================
+Do-loop
+==================
+
+: sum-to-n
+  0 swap 0 do i + loop ;
+
+---
+
+(source_file
+  (word_definition
+    (start_definition)
+    (word)
+    (number
+      (decimal_number))
+    (builtin
+      (operator))
+    (number
+      (decimal_number))
+    (builtin
+      (control_flow))
+    (builtin
+      (core))
+    (builtin
+      (operator))
+    (builtin
+      (control_flow))
+    (end_definition)))
+
+==================
+Case statement
+==================
+
+: describe-number
+  case
+    0 of ." zero" endof
+    1 of ." one" endof
+    ." other"
+  endcase ;
+
+---
+
+(source_file
+  (word_definition
+    (start_definition)
+    (word)
+    (builtin
+      (control_flow))
+    (number
+      (decimal_number))
+    (builtin
+      (control_flow))
+    (string)
+    (builtin
+      (control_flow))
+    (number
+      (decimal_number))
+    (builtin
+      (control_flow))
+    (string)
+    (builtin
+      (control_flow))
+    (string)
+    (builtin
+      (control_flow))
+    (end_definition)))
+
+==================
+Exit and recurse
+==================
+
+: find-first
+  begin
+    dup @ 0= if drop exit then
+    cell+
+  again ;
+
+: factorial
+  dup 1 > if dup 1- recurse * else drop 1 then ;
+
+---
+
+(source_file
+  (word_definition
+    (start_definition)
+    (word)
+    (builtin
+      (control_flow))
+    (builtin
+      (operator))
+    (builtin
+      (core))
+    (builtin
+      (operator))
+    (builtin
+      (control_flow))
+    (builtin
+      (operator))
+    (builtin
+      (control_flow))
+    (builtin
+      (control_flow))
+    (builtin
+      (core))
+    (builtin
+      (control_flow))
+    (end_definition))
+  (word_definition
+    (start_definition)
+    (word)
+    (builtin
+      (operator))
+    (number
+      (decimal_number))
+    (builtin
+      (operator))
+    (builtin
+      (control_flow))
+    (builtin
+      (operator))
+    (builtin
+      (operator))
+    (builtin
+      (control_flow))
+    (builtin
+      (operator))
+    (builtin
+      (control_flow))
+    (builtin
+      (operator))
+    (number
+      (decimal_number))
+    (builtin
+      (control_flow))
+    (end_definition)))

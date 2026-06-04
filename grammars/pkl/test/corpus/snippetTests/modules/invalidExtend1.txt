@@ -1,0 +1,18 @@
+===
+modules/invalidExtend1.pkl
+===
+
+extends "library.pkl"
+
+name = 42
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (classProperty
+    (identifier)
+    (intLiteralExpr)))

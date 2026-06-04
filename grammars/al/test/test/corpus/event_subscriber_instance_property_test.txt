@@ -1,0 +1,65 @@
+================================================================================
+EventSubscriberInstance property with StaticAutomatic value
+================================================================================
+
+codeunit 6225225 "CDC PC Workflow Event Handling"
+{
+    Access = Internal;
+    EventSubscriberInstance = StaticAutomatic;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (internal_keyword))))
+    (property
+      name: (property_name)
+      value: (identifier))))
+
+================================================================================
+EventSubscriberInstance property with Static value
+================================================================================
+
+codeunit 12345 "Test Codeunit"
+{
+    EventSubscriberInstance = Static;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))))
+
+================================================================================
+EventSubscriberInstance property with Manual value
+================================================================================
+
+codeunit 54321 "Manual Test Codeunit"
+{
+    EventSubscriberInstance = Manual;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))))

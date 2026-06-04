@@ -1,0 +1,43 @@
+====================
+Arrays
+====================
+
+int my_array[3];
+
+
+void main() {
+  my_array[0] = 123; // set first element to 123
+
+  my_array[1] = my_array[2]; // copy third into second 
+}
+
+---
+
+(translation_unit
+  (declaration
+    (primitive_type)
+    (array_declarator
+      (identifier)
+      (number_literal)))
+  (function_definition
+    (primitive_type)
+    (function_declarator
+      (identifier)
+      (parameter_list))
+    (compound_statement
+      (expression_statement
+        (assignment_expression
+          (subscript_expression
+            (identifier)
+            (number_literal))
+          (number_literal)))
+      (comment)
+      (expression_statement
+        (assignment_expression
+          (subscript_expression
+            (identifier)
+            (number_literal))
+          (subscript_expression
+            (identifier)
+            (number_literal))))
+      (comment))))

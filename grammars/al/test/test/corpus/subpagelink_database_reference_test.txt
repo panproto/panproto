@@ -1,0 +1,156 @@
+================================================================================
+SubPageLink with Database reference in const
+================================================================================
+
+page 50000 TestPage
+{
+    layout
+    {
+        area(factboxes)
+        {
+            part(DocumentAttachments; "Document Attachment Factbox")
+            {
+                ApplicationArea = All;
+                Caption = 'Documents';
+                UpdatePropagation = Both;
+                SubPageLink = "Table ID" = const(Database::Opportunity),
+                              "No." = field("No.");
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (part_section
+          (part_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (quoted_identifier)
+                value: (database_reference
+                  keyword: (object_type_keyword)
+                  table_name: (identifier)))
+              (link_value
+                field: (quoted_identifier)
+                value: (quoted_identifier)))))))))
+
+================================================================================
+Action group with ShowAs property
+================================================================================
+
+page 50001 TestPage
+{
+    actions
+    {
+        area(processing)
+        {
+            group(Category_Coupling)
+            {
+                Caption = 'Coupling';
+                ShowAs = SplitButton;
+                
+                actionref(PromotedAction; MyAction)
+                {
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_group_section
+          (group_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (actionref_declaration
+            promoted_name: (identifier)
+            action_name: (identifier)))))))
+
+================================================================================
+SubPageLink with multiple Database references
+================================================================================
+
+page 50002 TestPage
+{
+    layout
+    {
+        area(content)
+        {
+            part(Lines; "My Subpage")
+            {
+                SubPageLink = "Table ID" = const(Database::"Sales Header"),
+                              "Document Type" = field("Document Type"),
+                              "Related Table ID" = const(Database::Customer);
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (part_section
+          (part_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (quoted_identifier)
+                value: (database_reference
+                  keyword: (object_type_keyword)
+                  table_name: (quoted_identifier)))
+              (link_value
+                field: (quoted_identifier)
+                value: (quoted_identifier))
+              (link_value
+                field: (quoted_identifier)
+                value: (database_reference
+                  keyword: (object_type_keyword)
+                  table_name: (identifier))))))))))

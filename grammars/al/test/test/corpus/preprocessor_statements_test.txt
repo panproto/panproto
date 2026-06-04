@@ -1,0 +1,89 @@
+================================================================================
+Preprocessor directives within statement blocks
+================================================================================
+
+codeunit 50100 TestUnit
+{
+    procedure TestPreprocessorStatements()
+    var
+        AllocationAccount: Record "Allocation Account";
+    begin
+        case true of
+            true:
+                begin
+#if BC24
+                    AllocationAccount.SetRange("Account Type", AllocationAccount."Account Type"::Fixed);
+#endif
+                    if PAGE.RunModal(0, AllocationAccount) = ACTION::LookupOK then
+                        message("Success");
+                end;
+        end;
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier)))))
+      (code_block
+        (begin_keyword)
+        (case_statement
+          (case_keyword)
+          expression: (boolean)
+          (of_keyword)
+          (case_branch
+            pattern: (boolean)
+            body: (code_block
+              (begin_keyword)
+              (preproc_conditional_statement
+                (preproc_if
+                  (preproc_open)
+                  condition: (identifier))
+                (call_expression
+                  function: (member_expression
+                    object: (identifier)
+                    member: (identifier))
+                  arguments: (argument_list
+                    (quoted_identifier)
+                    (qualified_enum_value
+                      enum_type: (member_expression
+                        object: (identifier)
+                        member: (quoted_identifier))
+                      value: (identifier))))
+                (preproc_endif
+                  (preproc_close)))
+              (if_statement
+                (if_keyword)
+                condition: (comparison_expression
+                  left: (call_expression
+                    function: (member_expression
+                      object: (keyword_identifier
+                        (page_keyword))
+                      member: (identifier))
+                    arguments: (argument_list
+                      (integer)
+                      (identifier)))
+                  operator: (comparison_operator)
+                  right: (qualified_enum_value
+                    enum_type: (keyword_identifier)
+                    value: (identifier)))
+                (then_keyword)
+                then_branch: (call_expression
+                  function: (identifier)
+                  arguments: (argument_list
+                    (quoted_identifier))))
+              (end_keyword))))
+        (end_keyword)))))

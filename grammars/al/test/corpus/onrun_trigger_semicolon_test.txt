@@ -1,0 +1,96 @@
+==================
+OnRun trigger with semicolon
+==================
+
+codeunit 50000 "Test Codeunit"
+{
+    trigger OnRun();
+    begin
+        Message('Hello');
+    end;
+}
+
+---
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list
+            (string_literal)))
+        (end_keyword)))))
+
+==================
+OnRun trigger without semicolon (backward compatibility)
+==================
+
+codeunit 50001 "Test Codeunit 2"
+{
+    trigger OnRun()
+    begin
+        Message('World');
+    end;
+}
+
+---
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list
+            (string_literal)))
+        (end_keyword)))))
+
+==================
+OnRun trigger with var section and semicolon
+==================
+
+codeunit 50002 "Test Codeunit 3"
+{
+    trigger OnRun();
+    var
+        Text: Text;
+    begin
+        Text := 'Test';
+    end;
+}
+
+---
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (text_type))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (identifier)
+          right: (string_literal))
+        (end_keyword)))))

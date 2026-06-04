@@ -1,0 +1,169 @@
+===
+types/typeAliasUnion.pkl
+===
+
+typealias Bar = "foo"|*"bar"
+
+bar: Bar
+
+bar2: *Bar|"baz"
+
+baz: Bar|*"baz"
+
+b: *("a"|*"b")|"c"
+
+c: ("a"|*"b")|*"c"
+
+class Foo { name: String = "foo" }
+class Baz { name: String = "baz" }
+
+d: *Foo | Baz
+e: *Foo | Baz = new {}
+f: Foo | *Baz
+g: Foo | *Baz = new {}
+
+---
+
+(module
+  (typeAlias
+    (identifier)
+    (unionType
+      (stringLiteralType
+        (stringConstant
+          (slStringLiteralPart)))
+      (defaultUnionType
+        (stringLiteralType
+          (stringConstant
+            (slStringLiteralPart))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (unionType
+        (defaultUnionType
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))
+        (stringLiteralType
+          (stringConstant
+            (slStringLiteralPart))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (unionType
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (defaultUnionType
+          (stringLiteralType
+            (stringConstant
+              (slStringLiteralPart)))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (unionType
+        (defaultUnionType
+          (parenthesizedType
+            (unionType
+              (stringLiteralType
+                (stringConstant
+                  (slStringLiteralPart)))
+              (defaultUnionType
+                (stringLiteralType
+                  (stringConstant
+                    (slStringLiteralPart)))))))
+        (stringLiteralType
+          (stringConstant
+            (slStringLiteralPart))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (unionType
+        (parenthesizedType
+          (unionType
+            (stringLiteralType
+              (stringConstant
+                (slStringLiteralPart)))
+            (defaultUnionType
+              (stringLiteralType
+                (stringConstant
+                  (slStringLiteralPart))))))
+        (defaultUnionType
+          (stringLiteralType
+            (stringConstant
+              (slStringLiteralPart)))))))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (unionType
+        (defaultUnionType
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))
+        (declaredType
+          (qualifiedIdentifier
+            (identifier))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (unionType
+        (defaultUnionType
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))))
+    (newExpr
+      (objectBody)))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (unionType
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (defaultUnionType
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (unionType
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (defaultUnionType
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))))
+    (newExpr
+      (objectBody))))

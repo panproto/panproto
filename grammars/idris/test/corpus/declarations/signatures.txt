@@ -1,0 +1,345 @@
+================================================================================
+Implicit Arguments 1
+================================================================================
+
+_ : forall a, n. Fin n -> Vect n a -> a
+
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (wildcard)
+    (colon)
+    (forall)
+    (comma)
+    (exp_name
+      (caname))
+    (exp_name
+      (loname))
+    (arrow_separator)
+    (exp_name
+      (caname))
+    (exp_name
+      (loname))
+    (exp_name
+      (loname))
+    (arrow_separator)
+    (exp_name
+      (loname))))
+
+================================================================================
+Implicit Arguments 2
+================================================================================
+
+_ : {a : Type} -> {n : Nat} -> Fin n -> Vect n a -> a
+
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (wildcard)
+    (colon)
+    (type_braces
+      (exp_name
+        (loname))
+      (colon)
+      (exp_name
+        (caname)))
+    (arrow_separator)
+    (type_braces
+      (exp_name
+        (loname))
+      (colon)
+      (exp_name
+        (caname)))
+    (arrow_separator)
+    (exp_name
+      (caname))
+    (exp_name
+      (loname))
+    (arrow_separator)
+    (exp_name
+      (caname))
+    (exp_name
+      (loname))
+    (exp_name
+      (loname))
+    (arrow_separator)
+    (exp_name
+      (loname))))
+
+================================================================================
+Implicit Arguments 3
+================================================================================
+
+_ : (i : Fin n) -> (xs : Vect n a) -> a
+
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (wildcard)
+    (colon)
+    (type_parens
+      (type_var
+        (loname)
+        (colon)
+        (exp_name
+          (caname))
+        (exp_name
+          (loname))))
+    (arrow_separator)
+    (type_parens
+      (type_var
+        (loname)
+        (colon)
+        (exp_name
+          (caname))
+        (exp_name
+          (loname))
+        (exp_name
+          (loname))))
+    (arrow_separator)
+    (exp_name
+      (loname))))
+
+================================================================================
+Auto Implicit Arguments
+================================================================================
+
+_ : (xs : List a) -> {auto p : isCons xs = True} -> a
+ 
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (wildcard)
+    (colon)
+    (type_parens
+      (type_var
+        (loname)
+        (colon)
+        (exp_name
+          (caname))
+        (exp_name
+          (loname))))
+    (arrow_separator)
+    (type_braces
+      (auto)
+      (exp_name
+        (loname))
+      (colon)
+      (exp_name
+        (loname))
+      (exp_name
+        (loname))
+      (equal)
+      (exp_name
+        (caname)))
+    (arrow_separator)
+    (exp_name
+      (loname))))
+
+================================================================================
+Default Implicit Arguments
+================================================================================
+
+_ : {default 0 x : Nat} -> {default 1 y : Nat} -> (n : Nat) -> Nat
+ 
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (wildcard)
+    (colon)
+    (type_braces
+      (default
+        (literal
+          (integer)))
+      (exp_name
+        (loname))
+      (colon)
+      (exp_name
+        (caname)))
+    (arrow_separator)
+    (type_braces
+      (default
+        (literal
+          (integer)))
+      (exp_name
+        (loname))
+      (colon)
+      (exp_name
+        (caname)))
+    (arrow_separator)
+    (type_parens
+      (type_var
+        (loname)
+        (colon)
+        (exp_name
+          (caname))))
+    (arrow_separator)
+    (exp_name
+      (caname))))
+
+================================================================================
+Function application
+================================================================================
+
+_ : {x : X} -> So (f x n) -> So (g {ty=Nat} x < n)
+
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (wildcard)
+    (colon)
+    (type_braces
+      (exp_name
+        (loname))
+      (colon)
+      (exp_name
+        (caname)))
+    (arrow_separator)
+    (exp_name
+      (caname))
+    (exp_parens
+      (exp_name
+        (loname))
+      (exp_name
+        (loname))
+      (exp_name
+        (loname)))
+    (arrow_separator)
+    (exp_name
+      (caname))
+    (exp_parens
+      (exp_name
+        (loname))
+      (exp_braces
+        (explicit_arg
+          (loname)
+          (equal)
+          (exp_name
+            (caname))))
+      (exp_name
+        (loname))
+      (operator)
+      (exp_name
+        (loname)))))
+
+================================================================================
+With forall
+================================================================================
+
+_ : {s : _} -> forall fs, ty . F n ty fs -> ty
+
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (wildcard)
+    (colon)
+    (type_braces
+      (exp_name
+        (loname))
+      (colon)
+      (wildcard))
+    (arrow_separator)
+    (forall)
+    (comma)
+    (exp_name
+      (caname))
+    (exp_name
+      (loname))
+    (exp_name
+      (loname))
+    (exp_name
+      (loname))
+    (arrow_separator)
+    (exp_name
+      (loname))))
+
+================================================================================
+With let-in
+================================================================================
+
+_ : let x : X Y; x = f y in x
+
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (wildcard)
+    (colon)
+    (exp_let_in
+      (declarations
+        (signature
+          (loname)
+          (colon)
+          (exp_name
+            (caname))
+          (exp_name
+            (caname)))
+        (lhs
+          (pat_name
+            (loname)))
+        (rhs
+          (exp_name
+            (loname))
+          (exp_name
+            (loname))))
+      (in
+        (exp_name
+          (loname))))))
+
+================================================================================
+With dependent pairs
+================================================================================
+
+_ : (ty : Type ** d : (ty -> T k) ** (v : ty) -> E (d v) -> E g)
+
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (wildcard)
+    (colon)
+    (type_parens
+      (type_var
+        (loname)
+        (colon)
+        (exp_name
+          (caname)))
+      (double_star)
+      (type_var
+        (loname)
+        (colon)
+        (type_parens
+          (exp_name
+            (loname))
+          (arrow_separator)
+          (exp_name
+            (caname))
+          (exp_name
+            (loname))))
+      (double_star)
+      (type_parens
+        (type_var
+          (loname)
+          (colon)
+          (exp_name
+            (loname))))
+      (arrow_separator)
+      (exp_name
+        (caname))
+      (exp_parens
+        (exp_name
+          (loname))
+        (exp_name
+          (loname)))
+      (arrow_separator)
+      (exp_name
+        (caname))
+      (exp_name
+        (loname)))))

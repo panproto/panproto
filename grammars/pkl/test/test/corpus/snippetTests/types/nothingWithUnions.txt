@@ -1,0 +1,31 @@
+===
+types/nothingWithUnions.pkl
+===
+
+x: "foo"|nothing = "foo"
+
+y: nothing|"foo" = "foo"
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (unionType
+        (stringLiteralType
+          (stringConstant
+            (slStringLiteralPart)))
+        (nothingType)))
+    (slStringLiteralExpr
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (unionType
+        (nothingType)
+        (stringLiteralType
+          (stringConstant
+            (slStringLiteralPart)))))
+    (slStringLiteralExpr
+      (slStringLiteralPart))))

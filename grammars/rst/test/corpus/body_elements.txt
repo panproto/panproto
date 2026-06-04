@@ -1,0 +1,1145 @@
+================================================================================
+Paragraphs
+================================================================================
+
+Hello, I'm a reStructuredText file.
+
+I'm another paragraph
+
+-I'm not a list
+
+*I'm not a list or strong emphasis.
+
+(fg_*ff*)
+
+I'm not a ("::") literal block.
+
+Me neither:
+
+This isn't a list nor a title (#31)
+(a)
+
+--------------------------------------------------------------------------------
+
+(document
+  (paragraph)
+  (paragraph)
+  (paragraph)
+  (paragraph)
+  (paragraph)
+  (paragraph)
+  (paragraph)
+  (paragraph))
+
+================================================================================
+Blank lines
+================================================================================
+
+One with spaces at the end      
+three
+
+This has spaces below on purpose
+          
+This has spaces above on purpose
+
+--------------------------------------------------------------------------------
+
+(document
+  (paragraph)
+  (paragraph)
+  (paragraph))
+
+================================================================================
+Bullet lists
+================================================================================
+
+- One
+- Two
+- Three
+
+|
+
++ Another
+* Other one
+
+|
+
++ Just me
+
+--------------------------------------------------------------------------------
+
+(document
+  (bullet_list
+    (list_item
+      (body
+        (paragraph)))
+    (list_item
+      (body
+        (paragraph)))
+    (list_item
+      (body
+        (paragraph))))
+  (line_block
+    (line))
+  (bullet_list
+    (list_item
+      (body
+        (paragraph)))
+    (list_item
+      (body
+        (paragraph))))
+  (line_block
+    (line))
+  (bullet_list
+    (list_item
+      (body
+        (paragraph)))))
+
+================================================================================
+Enumerated lists
+================================================================================
+
+1. One
+2. Two
+3. Three
+
+|
+
+#. One
+#. Two
+
+|
+
+10. One
+11. Two
+I. Three
+V. Four
+a. Five
+Z. Six
+
+|
+
+(#) one
+(2) two
+(III) three
+(f) four
+
+--------------------------------------------------------------------------------
+
+(document
+  (enumerated_list
+    (list_item
+      (body
+        (paragraph)))
+    (list_item
+      (body
+        (paragraph)))
+    (list_item
+      (body
+        (paragraph))))
+  (line_block
+    (line))
+  (enumerated_list
+    (list_item
+      (body
+        (paragraph)))
+    (list_item
+      (body
+        (paragraph))))
+  (line_block
+    (line))
+  (enumerated_list
+    (list_item
+      (body
+        (paragraph)))
+    (list_item
+      (body
+        (paragraph)))
+    (list_item
+      (body
+        (paragraph)))
+    (list_item
+      (body
+        (paragraph)))
+    (list_item
+      (body
+        (paragraph)))
+    (list_item
+      (body
+        (paragraph))))
+  (line_block
+    (line))
+  (enumerated_list
+    (list_item
+      (body
+        (paragraph)))
+    (list_item
+      (body
+        (paragraph)))
+    (list_item
+      (body
+        (paragraph)))
+    (list_item
+      (body
+        (paragraph)))))
+
+================================================================================
+Definition lists
+================================================================================
+
+term 1 : bar
+    Definition 1.
+term 2 : foo
+    Definition 2, paragraph 1.
+
+    Definition 2, paragraph 2.
+term 3 : classifier
+    Definition 3.
+term 4 : classifier one : classifier two
+    Definition 4.
+Term only
+    Foo
+One
+                two
+
+--------------------------------------------------------------------------------
+
+(document
+  (definition_list
+    (list_item
+      (term)
+      (classifier)
+      (definition
+        (paragraph)))
+    (list_item
+      (term)
+      (classifier)
+      (definition
+        (paragraph)
+        (paragraph)))
+    (list_item
+      (term)
+      (classifier)
+      (definition
+        (paragraph)))
+    (list_item
+      (term)
+      (classifier)
+      (classifier)
+      (definition
+        (paragraph)))
+    (list_item
+      (term)
+      (definition
+        (paragraph)))
+    (list_item
+      (term)
+      (definition
+        (paragraph)))))
+
+================================================================================
+Field lists
+================================================================================
+
+:Date: 2001-08-16
+:Version: 1
+:Authors: - Me
+          - Myself
+          - I
+:boolean value:
+:Indentation: Since the field marker may be quite long, the second
+   and subsequent lines of the field body do not have to line up
+   with the first line, but they must be indented relative to the
+   field name marker, and they must line up with each other.
+:Parameter i: integer
+:weird indentation:        I'm a normal paragraph
+:weird indentation:        I'm a normal paragraph
+  I follow!
+:weird indentation:        I'm a normal paragraph
+
+
+  I follow!
+:weird indentation:
+
+
+
+
+  I follow!
+:s:
+
+   .. role::
+
+
+I'm a quoted block:
+
+  :one: one
+  :two: two
+  :|three|: three
+
+--------------------------------------------------------------------------------
+
+(document
+  (field_list
+    (field
+      (field_name)
+      (field_body
+        (paragraph)))
+    (field
+      (field_name)
+      (field_body
+        (paragraph)))
+    (field
+      (field_name)
+      (field_body
+        (bullet_list
+          (list_item
+            (body
+              (paragraph)))
+          (list_item
+            (body
+              (paragraph)))
+          (list_item
+            (body
+              (paragraph))))))
+    (field
+      (field_name))
+    (field
+      (field_name)
+      (field_body
+        (paragraph)))
+    (field
+      (field_name)
+      (field_body
+        (paragraph)))
+    (field
+      (field_name)
+      (field_body
+        (paragraph)))
+    (field
+      (field_name)
+      (field_body
+        (paragraph)))
+    (field
+      (field_name)
+      (field_body
+        (paragraph)
+        (paragraph)))
+    (field
+      (field_name)
+      (field_body
+        (paragraph)))
+    (field
+      (field_name)
+      (field_body
+        (directive
+          (type)))))
+  (paragraph)
+  (block_quote
+    (field_list
+      (field
+        (field_name)
+        (field_body
+          (paragraph)))
+      (field
+        (field_name)
+        (field_body
+          (paragraph)))
+      (field
+        (field_name
+          (substitution_reference))
+        (field_body
+          (paragraph))))))
+
+================================================================================
+Indented literal blocks
+================================================================================
+
+This is a typical paragraph. An indented literal block follows.
+
+::
+
+    for a in [5,4,3,2,1]:   # this is program code, shown as-is
+        print a
+    print "it's..."
+    # a literal block continues until the indentation ends
+
+Ordinary paragraph.
+
+Another indented block::
+
+ > I'm the *content*
+ I'm the *content*
+
+Another indented block: ::
+
+                I'm the content
+
+indented block?::
+    
+    Indented
+ Still indented
+
+The following is a literal block::
+
+    >>> This is not recognized as a doctest block by
+    reStructuredText.  It *will* be recognized by the doctest
+    module, though!
+
+::
+
+    < Test for issue #21
+
+::
+
+    <
+
+::
+
+    <
+
+.. note::
+
+   a
+
+--------------------------------------------------------------------------------
+
+(document
+  (paragraph)
+  (literal_block)
+  (paragraph)
+  (paragraph
+    (literal_block))
+  (paragraph
+    (literal_block))
+  (paragraph
+    (literal_block))
+  (paragraph
+    (literal_block))
+  (literal_block)
+  (literal_block)
+  (literal_block)
+  (directive
+    (type)
+    (body
+      (content))))
+
+================================================================================
+Quoted literal blocks
+================================================================================
+
+::
+
+> lonely
+> block
+
+John Doe wrote::
+
+>> Great idea!
+>
+> Why didn't I think of that?
+
+You just did!  ;-)
+
+Another indented block::
+
+> I'm the content
+
+Another indented block: ::
+
+|               I'm the content
+
+indented block?::
+    
+*   Indented
+*
+* Still indented
+
+
+a::
+
+* b
+*a*:
+
+- foo
+  Bar::
+
+  >
+  >
+
+- bar
+  Foo::
+   
+   one
+   two
+
+--------------------------------------------------------------------------------
+
+(document
+  (literal_block)
+  (paragraph
+    (literal_block))
+  (paragraph)
+  (paragraph
+    (literal_block))
+  (paragraph
+    (literal_block))
+  (paragraph
+    (literal_block))
+  (paragraph
+    (literal_block))
+  (bullet_list
+    (list_item
+      (body
+        (paragraph
+          (literal_block)))))
+  (bullet_list
+    (list_item
+      (body
+        (paragraph
+          (literal_block))))))
+
+================================================================================
+Line blocks
+================================================================================
+
+| Lend us a couple of bob till Thursday.
+| I'm absolutely skint.
+| But I'm expecting a postal order and I can pay you back
+  as soon as it comes.
+| Love, Ewan.
+
+Take it away, Eric the Orchestra Leader!
+
+| A one, two, a one two three four
+|
+| Half a bee, philosophically,
+|     must, **ipso facto**, half not be.
+| But half the bee has got to be,
+|     *vis a vis* its entity.  D'you see?
+|
+| But can a bee be said to be
+|     or not to be an entire bee,
+|         when half the bee is not a bee,
+|             due to some ancient injury?
+|
+| Singing...
+
+And finally, an empty one:
+
+|
+
+--------------------------------------------------------------------------------
+
+(document
+  (line_block
+    (line)
+    (line)
+    (line)
+    (line))
+  (paragraph)
+  (line_block
+    (line)
+    (line)
+    (line)
+    (line
+      (strong))
+    (line)
+    (line
+      (emphasis))
+    (line)
+    (line)
+    (line)
+    (line)
+    (line)
+    (line)
+    (line))
+  (paragraph)
+  (line_block
+    (line)))
+
+================================================================================
+Block quotes
+================================================================================
+
+  Can you quote me?
+
+This is a great quote
+
+    "It is my *business* to know things.  That is my trade."
+
+    + A
+    + B
+    
+    .. am i here?
+
+    -- Sherlock Holmes
+
+..
+
+    "It is my *business* to know things.  That is my trade."
+
+    -- Sherlock
+       *Holmes*
+
+..
+
+  And This is a real em-dash:
+
+  — the *m*-**dash**
+
+--------------------------------------------------------------------------------
+
+(document
+  (block_quote
+    (paragraph))
+  (paragraph)
+  (block_quote
+    (paragraph
+      (emphasis))
+    (bullet_list
+      (list_item
+        (body
+          (paragraph)))
+      (list_item
+        (body
+          (paragraph))))
+    (comment)
+    (attribution))
+  (comment)
+  (block_quote
+    (paragraph
+      (emphasis))
+    (attribution
+      (emphasis)))
+  (comment)
+  (block_quote
+    (paragraph)
+    (attribution
+      (emphasis)
+      (strong))))
+
+================================================================================
+Doctest blocks
+================================================================================
+
+This is an ordinary paragraph.
+
+>>> print 'this is a Doctest block'
+this is a Doctest block
+
+
+>>>I'm a paragraph.
+
+>>> print("hello")
+
+>>> print("world")
+
+--------------------------------------------------------------------------------
+
+(document
+  (paragraph)
+  (doctest_block)
+  (paragraph)
+  (doctest_block)
+  (doctest_block))
+
+================================================================================
+Footnotes
+================================================================================
+
+.. [1] Body elements go here.
+.. [#] Body elements go here.
+.. [#foo] Body elements go here.
+.. [#another_label] Body elements go here.
+.. [*] Body elements go here.
+
+.. [*] I'm a footnote
+   too.
+
+.. [*]
+   I'm a footnote *too*.
+
+--------------------------------------------------------------------------------
+
+(document
+  (footnote
+    (label)
+    (body
+      (paragraph)))
+  (footnote
+    (label)
+    (body
+      (paragraph)))
+  (footnote
+    (label)
+    (body
+      (paragraph)))
+  (footnote
+    (label)
+    (body
+      (paragraph)))
+  (footnote
+    (label)
+    (body
+      (paragraph)))
+  (footnote
+    (label)
+    (body
+      (paragraph)))
+  (footnote
+    (label)
+    (body
+      (paragraph
+        (emphasis)))))
+
+================================================================================
+Citations
+================================================================================
+
+.. [2c] Citation `with` body elements.
+.. [CIT2002] This is the citation.  It's just like a footnote.
+.. [foo-bar] This is the citation.  It's just like a footnote.
+.. [foo_bar] This is the citation.  It's just like a footnote.
+.. [foo.bar] This is the citation.  It's just like a footnote.
+
+.. [foo.bar] This is the citation.
+   I's just like a footnote.
+
+.. [foo.bar] This is the citation.
+   **I's just like a footnote**
+
+--------------------------------------------------------------------------------
+
+(document
+  (citation
+    (label)
+    (body
+      (paragraph
+        (interpreted_text))))
+  (citation
+    (label)
+    (body
+      (paragraph)))
+  (citation
+    (label)
+    (body
+      (paragraph)))
+  (citation
+    (label)
+    (body
+      (paragraph)))
+  (citation
+    (label)
+    (body
+      (paragraph)))
+  (citation
+    (label)
+    (body
+      (paragraph)))
+  (citation
+    (label)
+    (body
+      (paragraph
+        (strong)))))
+
+================================================================================
+Hyperlink targets
+================================================================================
+
+.. _hyperlink-name: link-block
+.. _hyperlink_name: link-block
+
+.. _hyperlink?name: link-block
+.. _`_hyperlink: name`: link-block
+
+.. _hyperlink-one:
+.. _hyperlink-two:
+
+.. __: anonymous
+.. __:
+
+--------------------------------------------------------------------------------
+
+(document
+  (target
+    (name)
+    (link))
+  (target
+    (name)
+    (link))
+  (target
+    (name)
+    (link))
+  (target
+    (name)
+    (link))
+  (target
+    (name))
+  (target
+    (name))
+  (target
+    (name)
+    (link))
+  (target
+    (name)))
+
+================================================================================
+Anonymous hyperlink targets
+================================================================================
+
+__ foo
+__ I'm anonymous
+
+__ Bar
+__
+
+__
+
+
+--------------------------------------------------------------------------------
+
+(document
+  (target
+    (link))
+  (target
+    (link))
+  (target
+    (link))
+  (target)
+  (target))
+
+================================================================================
+Directives
+================================================================================
+
+.. note::
+
+.. image:: mylogo.jpeg
+
+.. note:: This is a paragraph
+.. warning::  Modify at your own risk!
+
+.. note::
+
+   This is a paragraph
+
+.. note::
+
+   - a
+   - b
+
+.. note:: **Warning!**
+
+   Just joking...
+
+.. note::
+
+ First line from the body is the indentation.
+
+.. note::
+.. note::
+
+.. code:: python
+   :name: python code
+
+   print("hello")
+
+.. code:: python
+   :name: empty content
+
+.. figure:: figure.png
+   :alt: My figure
+   :align: center
+
+.. figure:: figure.png
+   :alt: My figure
+   :align: center
+
+   An amazing figure
+
+.. Important::
+   - Wash behind your ears.
+   - Clean up your room.
+   - Call your mother.
+   - Back up your data.
+
+.. note::
+   :warning: true
+
+.. list-table::
+   :class: borderless
+
+   Foobar
+
+.. WARNING:: Strong prose may provoke extreme mental exertion.
+   Reader discretion is strongly advised.
+
+.. note :: Directives can have one (and only one) space before the `::`
+
+.. note  :: If they have more than one space, they are a comment.
+
+--------------------------------------------------------------------------------
+
+(document
+  (directive
+    (type))
+  (directive
+    (type)
+    (body
+      (arguments)))
+  (directive
+    (type)
+    (body
+      (arguments)))
+  (directive
+    (type)
+    (body
+      (arguments)))
+  (directive
+    (type)
+    (body
+      (content)))
+  (directive
+    (type)
+    (body
+      (content)))
+  (directive
+    (type)
+    (body
+      (arguments)
+      (content)))
+  (directive
+    (type)
+    (body
+      (content)))
+  (directive
+    (type))
+  (directive
+    (type))
+  (directive
+    (type)
+    (body
+      (arguments)
+      (options
+        (field
+          (field_name)
+          (field_body
+            (paragraph))))
+      (content)))
+  (directive
+    (type)
+    (body
+      (arguments)
+      (options
+        (field
+          (field_name)
+          (field_body
+            (paragraph))))))
+  (directive
+    (type)
+    (body
+      (arguments)
+      (options
+        (field
+          (field_name)
+          (field_body
+            (paragraph)))
+        (field
+          (field_name)
+          (field_body
+            (paragraph))))))
+  (directive
+    (type)
+    (body
+      (arguments)
+      (options
+        (field
+          (field_name)
+          (field_body
+            (paragraph)))
+        (field
+          (field_name)
+          (field_body
+            (paragraph))))
+      (content)))
+  (directive
+    (type)
+    (body
+      (content)))
+  (directive
+    (type)
+    (body
+      (options
+        (field
+          (field_name)
+          (field_body
+            (paragraph))))))
+  (directive
+    (type)
+    (body
+      (options
+        (field
+          (field_name)
+          (field_body
+            (paragraph))))
+      (content)))
+  (directive
+    (type)
+    (body
+      (arguments)
+      (content)))
+  (directive
+    (type)
+    (body
+      (arguments)))
+  (comment))
+
+================================================================================
+Substitution definitions
+================================================================================
+
+.. |reST| replace:: reStructuredText
+
+.. |biohazard| image:: biohazard.png
+.. |bio-hazard| image:: biohazard.png
+
+.. |bio hazard| image:: biohazard.png
+.. |bio|hazard| image:: biohazard.png
+
+.. |my-image| image:: /images/spade.png
+   :height: 11
+   :width: 11
+
+.. |reST| class::
+
+.. |reST| class::
+   :foo: bar
+
+.. |reST| note::
+
+   I'm here
+
+--------------------------------------------------------------------------------
+
+(document
+  (substitution_definition
+    (substitution)
+    (directive
+      (type)
+      (body
+        (arguments))))
+  (substitution_definition
+    (substitution)
+    (directive
+      (type)
+      (body
+        (arguments))))
+  (substitution_definition
+    (substitution)
+    (directive
+      (type)
+      (body
+        (arguments))))
+  (substitution_definition
+    (substitution)
+    (directive
+      (type)
+      (body
+        (arguments))))
+  (substitution_definition
+    (substitution)
+    (directive
+      (type)
+      (body
+        (arguments))))
+  (substitution_definition
+    (substitution)
+    (directive
+      (type)
+      (body
+        (arguments)
+        (options
+          (field
+            (field_name)
+            (field_body
+              (paragraph)))
+          (field
+            (field_name)
+            (field_body
+              (paragraph)))))))
+  (substitution_definition
+    (substitution)
+    (directive
+      (type)))
+  (substitution_definition
+    (substitution)
+    (directive
+      (type)
+      (body
+        (options
+          (field
+            (field_name)
+            (field_body
+              (paragraph)))))))
+  (substitution_definition
+    (substitution)
+    (directive
+      (type)
+      (body
+        (content)))))
+
+================================================================================
+Comments
+================================================================================
+
+.. This is a comment
+.. []
+.. [a--b]
+.. [-a]
+.. [-1]
+.. [*]foo
+.. [#]foo
+.. [a]foo
+.. [1]foo
+
+.. I'm anothe comment
+.. Me too
+
+.. I'm a
+   **multiline** comment.
+
+..    I'm *another*
+      multiline comment.
+
+..
+  I'm a comment
+
+.. I'm
+ a comment
+
+..
+
+..
+..
+
+--------------------------------------------------------------------------------
+
+(document
+  (comment)
+  (comment)
+  (comment)
+  (comment)
+  (comment)
+  (comment)
+  (comment)
+  (comment)
+  (comment)
+  (comment)
+  (comment)
+  (comment)
+  (comment)
+  (comment)
+  (comment)
+  (comment)
+  (comment)
+  (comment))

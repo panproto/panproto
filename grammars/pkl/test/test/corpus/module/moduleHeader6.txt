@@ -1,0 +1,17 @@
+================================================================================
+moduleHeader6
+================================================================================
+
+import* "foo.pkl"
+import* "bar.pkl" as bar
+
+--------------------------------------------------------------------------------
+
+(module
+  (importGlobClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (importGlobClause
+    (stringConstant
+      (slStringLiteralPart))
+    (identifier)))

@@ -1,0 +1,159 @@
+================================================================================
+fibonacci.ncl
+================================================================================
+
+# Currently, only record bindings are recursive. To use a recursive function,
+# one has to use a record.
+
+# This is the naive, exponential version of fibonacci: don't call it on a big
+# value!
+let fibonacci = {
+ f = fun n =>
+  if n == 0 then
+    0
+  else if n == 1 then
+    1
+  else
+    f (n - 1) + f (n - 2)
+}.f in
+fibonacci 10
+
+--------------------------------------------------------------------------------
+
+(term
+  (comment)
+  (comment)
+  (comment)
+  (comment)
+  (uni_term
+    (let_expr
+      (let_in_block
+        (let_binding
+          (pattern
+            (ident))
+          (term
+            (uni_term
+              (infix_expr
+                (applicative
+                  (record_operand
+                    (record_operation_chain
+                      (record_operand
+                        (atom
+                          (uni_record
+                            (last_field
+                              (field_decl
+                                (field_def
+                                  (field_path
+                                    (field_path_elem
+                                      (ident)))
+                                  (term
+                                    (uni_term
+                                      (fun_expr
+                                        (pattern_fun
+                                          (ident))
+                                        (term
+                                          (uni_term
+                                            (ite_expr
+                                              (term
+                                                (uni_term
+                                                  (infix_expr
+                                                    (infix_expr
+                                                      (applicative
+                                                        (record_operand
+                                                          (atom
+                                                            (ident)))))
+                                                    (infix_b_op_8)
+                                                    (infix_expr
+                                                      (applicative
+                                                        (record_operand
+                                                          (atom
+                                                            (num_literal))))))))
+                                              (term
+                                                (uni_term
+                                                  (infix_expr
+                                                    (applicative
+                                                      (record_operand
+                                                        (atom
+                                                          (num_literal)))))))
+                                              (term
+                                                (uni_term
+                                                  (ite_expr
+                                                    (term
+                                                      (uni_term
+                                                        (infix_expr
+                                                          (infix_expr
+                                                            (applicative
+                                                              (record_operand
+                                                                (atom
+                                                                  (ident)))))
+                                                          (infix_b_op_8)
+                                                          (infix_expr
+                                                            (applicative
+                                                              (record_operand
+                                                                (atom
+                                                                  (num_literal))))))))
+                                                    (term
+                                                      (uni_term
+                                                        (infix_expr
+                                                          (applicative
+                                                            (record_operand
+                                                              (atom
+                                                                (num_literal)))))))
+                                                    (term
+                                                      (uni_term
+                                                        (infix_expr
+                                                          (infix_expr
+                                                            (applicative
+                                                              (applicative
+                                                                (record_operand
+                                                                  (atom
+                                                                    (ident))))
+                                                              (record_operand
+                                                                (atom
+                                                                  (uni_term
+                                                                    (infix_expr
+                                                                      (infix_expr
+                                                                        (applicative
+                                                                          (record_operand
+                                                                            (atom
+                                                                              (ident)))))
+                                                                      (infix_b_op_4)
+                                                                      (infix_expr
+                                                                        (applicative
+                                                                          (record_operand
+                                                                            (atom
+                                                                              (num_literal)))))))))))
+                                                          (infix_b_op_4)
+                                                          (infix_expr
+                                                            (applicative
+                                                              (applicative
+                                                                (record_operand
+                                                                  (atom
+                                                                    (ident))))
+                                                              (record_operand
+                                                                (atom
+                                                                  (uni_term
+                                                                    (infix_expr
+                                                                      (infix_expr
+                                                                        (applicative
+                                                                          (record_operand
+                                                                            (atom
+                                                                              (ident)))))
+                                                                      (infix_b_op_4)
+                                                                      (infix_expr
+                                                                        (applicative
+                                                                          (record_operand
+                                                                            (atom
+                                                                              (num_literal)))))))))))))))))))))))))))))
+                      (ident)))))))))
+      (term
+        (uni_term
+          (infix_expr
+            (applicative
+              (applicative
+                (record_operand
+                  (atom
+                    (ident))))
+              (record_operand
+                (atom
+                  (num_literal))))))))))

@@ -1,0 +1,31 @@
+===
+simple
+===
+
+a: 'Hello, world!'
+b: 'Hello, \(name)!\n\xff\u00FF'
+c: #'Hello \(ignored) \#(interpreted)'#
+d: bytes
+
+---
+
+(source_file 
+ (field (label (identifier)) (value (string))) 
+ (field (label (identifier)) (value (string (interpolation (identifier)) (escape_char) (escape_byte) (escape_unicode))))
+ (field (label (identifier)) (value (string (raw_interpolation (identifier)))))
+ (field (label (identifier)) (value (primitive_type))))
+
+===
+multiline
+===
+
+b: '''
+	Hello world!
+	\(foo) ' \xff
+	'''
+
+---
+
+(source_file 
+ (field (label (identifier)) 
+	(value (string (interpolation (identifier))))))

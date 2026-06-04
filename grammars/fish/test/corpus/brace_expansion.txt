@@ -1,0 +1,312 @@
+================================================================================
+Brace Expansion - empty
+================================================================================
+
+{,}
+{,,,}
+{,,,,,}
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (brace_expansion))
+  (command
+    name: (brace_expansion))
+  (command
+    name: (brace_expansion)))
+
+================================================================================
+Brace Expansion - empty no comma, single item
+================================================================================
+
+{a}
+{}
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (brace_expansion
+      (word)))
+  (command
+    name: (brace_expansion)))
+
+================================================================================
+Brace Expansion - single value
+================================================================================
+
+{name,}
+{name;,}
+{,name}
+{,name,}
+{,,,name,}
+{,,,name,,,,,}
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (brace_expansion
+      (word)))
+  (command
+    name: (brace_expansion
+      (word)))
+  (command
+    name: (brace_expansion
+      (word)))
+  (command
+    name: (brace_expansion
+      (word)))
+  (command
+    name: (brace_expansion
+      (word)))
+  (command
+    name: (brace_expansion
+      (word))))
+
+================================================================================
+Brace Expansion - with escapes
+================================================================================
+
+{\ ,\'}
+{t\ est,}
+{,,'lit\'eral',}
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (brace_expansion
+      (escape_sequence)
+      (escape_sequence)))
+  (command
+    name: (brace_expansion
+      (concatenation
+        (word)
+        (escape_sequence)
+        (word))))
+  (command
+    name: (brace_expansion
+      (single_quote_string
+        (escape_sequence)))))
+
+================================================================================
+Brace Expansion - with variable_expansion
+================================================================================
+
+{,$PATH}
+{,$PATH[1]}
+{\$PATH,$env}
+{$$ref,$arr}
+{env[],iron}
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (brace_expansion
+      (variable_expansion
+        (variable_name))))
+  (command
+    name: (brace_expansion
+      (variable_expansion
+        (variable_name)
+        (list_element_access
+          (index
+            (integer))))))
+  (command
+    name: (brace_expansion
+      (concatenation
+        (escape_sequence)
+        (word))
+      (variable_expansion
+        (variable_name))))
+  (command
+    name: (brace_expansion
+      (variable_expansion
+        (variable_expansion
+          (variable_name)))
+      (variable_expansion
+        (variable_name))))
+  (command
+    name: (brace_expansion
+      (word)
+      (word))))
+
+================================================================================
+Brace Expansion - with otherwise special characters
+================================================================================
+
+{<,>,~,#}
+{^,&}
+{|,;}
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (brace_expansion
+      (word)
+      (word)
+      (word)
+      (word)))
+  (command
+    name: (brace_expansion
+      (word)
+      (word)))
+  (command
+    name: (brace_expansion
+      (word)
+      (word))))
+
+================================================================================
+Brace Expansion - with around string concat
+================================================================================
+
+{a,b}c
+$PATH{a,b}c
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (concatenation
+      (brace_expansion
+        (word)
+        (word))
+      (word)))
+  (command
+    name: (concatenation
+      (variable_expansion
+        (variable_name))
+      (brace_expansion
+        (word)
+        (word))
+      (word))))
+
+================================================================================
+Brace Expansion - accepts inputs with spaces
+================================================================================
+
+{,b b}
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (brace_expansion
+      (word))))
+
+================================================================================
+Brace Expansion - expanded single var
+================================================================================
+
+{$PATH}
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (brace_expansion
+      (variable_expansion
+        (variable_name)))))
+
+================================================================================
+Brace Expansion - with glob
+================================================================================
+
+{,*}
+{,*/**/*.test}.ts
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (brace_expansion
+      (glob)))
+  (command
+    name: (concatenation
+      (brace_expansion
+        (concatenation
+          (glob)
+          (word)
+          (glob)
+          (word)
+          (glob)
+          (word)))
+      (word))))
+
+================================================================================
+Brace Expansion - with numbers
+================================================================================
+
+{1,2.0}
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (brace_expansion
+      (integer)
+      (float))))
+
+================================================================================
+Brace Expansion - nested, substitutions
+================================================================================
+
+echo {{min,max},}ed
+echo {{min,max}\',}ed
+echo {min,(echo {max,})}ed
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (word)
+    argument: (concatenation
+      (brace_expansion
+        (brace_expansion
+          (word)
+          (word)))
+      (word)))
+  (command
+    name: (word)
+    argument: (concatenation
+      (brace_expansion
+        (concatenation
+          (brace_expansion
+            (word)
+            (word))
+          (escape_sequence)))
+      (word)))
+  (command
+    name: (word)
+    argument: (concatenation
+      (brace_expansion
+        (word)
+        (command_substitution
+          (command
+            name: (word)
+            argument: (brace_expansion
+              (word)))))
+      (word))))
+
+================================================================================
+Brace Expansion - nested concatenation
+================================================================================
+
+echo { 1, 2{.1,.2}}
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (word)
+    argument: (brace_expansion
+      (integer)
+      (concatenation
+        (integer)
+        (brace_expansion
+          (word)
+          (word))))))

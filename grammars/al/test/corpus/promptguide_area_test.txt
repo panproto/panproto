@@ -1,0 +1,237 @@
+================================================================================
+PromptGuide area in actions
+================================================================================
+
+page 332 "No. Series Generation"
+{
+    PageType = PromptDialog;
+    
+    actions
+    {
+        area(PromptGuide)
+        {
+            group(CreateNewNoSeriesGroup)
+            {
+                Caption = 'Create new';
+
+                action(NewNumberSeriesFor)
+                {
+                    ApplicationArea = All;
+                    Caption = 'Create number series for [purchase orders]';
+                    ToolTip = 'Sample prompt for creating number series.';
+                    trigger OnAction()
+                    begin
+                        InputText := CreateNoSeriesForLbl;
+                    end;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_group_section
+          (group_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (action_declaration
+            name: (identifier)
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (trigger_declaration
+              (trigger_keyword)
+              name: (identifier)
+              (code_block
+                (begin_keyword)
+                (assignment_statement
+                  left: (identifier)
+                  right: (identifier))
+                (end_keyword)))))))))
+
+================================================================================
+PromptGuide area case variations
+================================================================================
+
+page 400 "AI Assistant"
+{
+    actions
+    {
+        area(promptguide)
+        {
+            action(SamplePrompt1)
+            {
+                Caption = 'Sample 1';
+            }
+        }
+        area(PROMPTGUIDE)
+        {
+            action(SamplePrompt2)
+            {
+                Caption = 'Sample 2';
+            }
+        }
+        area(PromptGuide)
+        {
+            action(SamplePrompt3)
+            {
+                Caption = 'Sample 3';
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))))
+      (action_area_section
+        (area_keyword)
+        (action_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))))
+      (action_area_section
+        (area_keyword)
+        (action_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal)))))))
+
+================================================================================
+PromptGuide with multiple groups
+================================================================================
+
+page 500 "Copilot Assistant"
+{
+    PageType = PromptDialog;
+    
+    actions
+    {
+        area(PromptGuide)
+        {
+            group(BasicPromptsGroup)
+            {
+                Caption = 'Basic prompts';
+                
+                action(CreateNew)
+                {
+                    Caption = 'Create new record';
+                    trigger OnAction()
+                    begin
+                        Message('Creating...');
+                    end;
+                }
+            }
+            group(AdvancedPromptsGroup)
+            {
+                Caption = 'Advanced prompts';
+                
+                action(ComplexOperation)
+                {
+                    Caption = 'Perform complex operation';
+                    Visible = ShowAdvanced;
+                }
+            }
+        }
+        area(SystemActions)
+        {
+            systemaction(Generate)
+            {
+                Caption = 'Generate';
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_group_section
+          (group_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (action_declaration
+            name: (identifier)
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (trigger_declaration
+              (trigger_keyword)
+              name: (identifier)
+              (code_block
+                (begin_keyword)
+                (call_expression
+                  function: (identifier)
+                  arguments: (argument_list
+                    (string_literal)))
+                (end_keyword)))))
+        (action_group_section
+          (group_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (action_declaration
+            name: (identifier)
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (identifier)))))
+      (action_area_section
+        (area_keyword)
+        (systemaction_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal)))))))

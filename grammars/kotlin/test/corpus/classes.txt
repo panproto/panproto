@@ -1,0 +1,1103 @@
+================================================================================
+Classes
+================================================================================
+
+class Empty
+class Empty2 {}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_declaration
+    (type_identifier))
+  (class_declaration
+    (type_identifier)
+    (class_body)))
+
+================================================================================
+Class with methods
+================================================================================
+
+class HelloWorld {
+  fun a() {}
+
+  fun b() {}
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_declaration
+    (type_identifier)
+    (class_body
+      (function_declaration
+        (simple_identifier)
+        (function_value_parameters)
+        (function_body))
+      (function_declaration
+        (simple_identifier)
+        (function_value_parameters)
+        (function_body)))))
+
+================================================================================
+Generic class
+================================================================================
+
+class Container<T> {}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_declaration
+    (type_identifier)
+    (type_parameters
+      (type_parameter
+        (type_identifier)))
+    (class_body)))
+
+================================================================================
+Class with methods and expressions
+================================================================================
+
+class Strings {
+  fun aString() = "Hello World!"
+
+  fun anotherString() = "Hello" + " " + "World"
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_declaration
+    (type_identifier)
+    (class_body
+      (function_declaration
+        (simple_identifier)
+        (function_value_parameters)
+        (function_body
+          (string_literal
+            (string_content))))
+      (function_declaration
+        (simple_identifier)
+        (function_value_parameters)
+        (function_body
+          (additive_expression
+            (additive_expression
+              (string_literal
+                (string_content))
+              (string_literal
+                (string_content)))
+            (string_literal
+              (string_content))))))))
+
+================================================================================
+Class with modifiers
+================================================================================
+
+internal open class Test {
+  private abstract inline fun test()
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_declaration
+    (modifiers
+      (visibility_modifier)
+      (inheritance_modifier))
+    (type_identifier)
+    (class_body
+      (function_declaration
+        (modifiers
+          (visibility_modifier)
+          (inheritance_modifier)
+          (function_modifier))
+        (simple_identifier)
+        (function_value_parameters)))))
+
+================================================================================
+Class with modifier and delegation specifier
+================================================================================
+
+abstract class S : suspend (Req) -> Resp
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_declaration
+    (modifiers
+      (inheritance_modifier))
+    (type_identifier)
+    (delegation_specifier
+      (function_type
+        (function_type_parameters
+          (user_type
+            (type_identifier)))
+        (user_type
+          (type_identifier))))))
+
+================================================================================
+Objects
+================================================================================
+
+object Singleton {
+  fun test()
+}
+
+object : C by c {
+  override fun getDefault() = default
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (object_declaration
+    (type_identifier)
+    (class_body
+      (function_declaration
+        (simple_identifier)
+        (function_value_parameters))))
+  (object_literal
+    (delegation_specifier
+      (explicit_delegation
+        (user_type
+          (type_identifier))
+        (simple_identifier)))
+    (class_body
+      (function_declaration
+        (modifiers
+          (member_modifier))
+        (simple_identifier)
+        (function_value_parameters)
+        (function_body
+          (simple_identifier))))))
+
+================================================================================
+Primary constructors
+================================================================================
+
+data class Vector2D(
+  val x: Int,
+  val y: Int
+)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_declaration
+    (modifiers
+      (class_modifier))
+    (type_identifier)
+    (primary_constructor
+      (class_parameter
+        (binding_pattern_kind)
+        (simple_identifier)
+        (user_type
+          (type_identifier)))
+      (class_parameter
+        (binding_pattern_kind)
+        (simple_identifier)
+        (user_type
+          (type_identifier))))))
+
+================================================================================
+Class with constructor on new line
+================================================================================
+
+public class Foo
+constructor (x: Int) {
+}
+
+---
+
+(source_file
+  (class_declaration
+    (modifiers
+      (visibility_modifier))
+    (type_identifier)
+    (primary_constructor
+      (class_parameter
+        (simple_identifier)
+        (user_type
+          (type_identifier))))
+    (class_body)))
+
+================================================================================
+Class with constructor and modifier on new line
+================================================================================
+
+public class Foo
+@Bar
+constructor (x: Int) {
+}
+
+---
+
+(source_file
+  (class_declaration
+    (modifiers
+      (visibility_modifier))
+    (type_identifier)
+    (primary_constructor
+      (modifiers
+        (annotation
+          (user_type
+            (type_identifier))))
+      (class_parameter
+        (simple_identifier)
+        (user_type
+          (type_identifier))))
+    (class_body)))
+
+================================================================================
+Class with fully qualified annotation on constructor
+================================================================================
+
+class Foo
+@com.example.Inject
+constructor (x: Int) {
+}
+
+---
+
+(source_file
+  (class_declaration
+    (type_identifier)
+    (primary_constructor
+      (modifiers
+        (annotation
+          (user_type
+            (type_identifier)
+            (type_identifier)
+            (type_identifier))))
+      (class_parameter
+        (simple_identifier)
+        (user_type
+          (type_identifier))))
+    (class_body)))
+
+================================================================================
+Class with annotation with parens in string arg on constructor
+================================================================================
+
+class Foo
+@Bar(name = "some ) text")
+constructor (x: Int) {
+}
+
+---
+
+(source_file
+  (class_declaration
+    (type_identifier)
+    (primary_constructor
+      (modifiers
+        (annotation
+          (constructor_invocation
+            (user_type
+              (type_identifier))
+            (value_arguments
+              (value_argument
+                (simple_identifier)
+                (string_literal
+                  (string_content)))))))
+      (class_parameter
+        (simple_identifier)
+        (user_type
+          (type_identifier))))
+    (class_body)))
+
+================================================================================
+Generic class with constructor on new line
+================================================================================
+
+class Foo<T>
+constructor(x: T) {
+}
+
+---
+
+(source_file
+  (class_declaration
+    (type_identifier)
+    (type_parameters
+      (type_parameter
+        (type_identifier)))
+    (primary_constructor
+      (class_parameter
+        (simple_identifier)
+        (user_type
+          (type_identifier))))
+    (class_body)))
+
+================================================================================
+Class with private constructor on new line
+================================================================================
+
+class Foo
+private constructor (x: Int) {
+}
+
+---
+
+(source_file
+  (class_declaration
+    (type_identifier)
+    (primary_constructor
+      (modifiers
+        (visibility_modifier))
+      (class_parameter
+        (simple_identifier)
+        (user_type
+          (type_identifier))))
+    (class_body)))
+
+================================================================================
+Inheritance
+================================================================================
+
+class A : B() {}
+
+class C(param: Int) : D(param)
+
+class D : SomeInterface
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_declaration
+    (type_identifier)
+    (delegation_specifier
+      (constructor_invocation
+        (user_type
+          (type_identifier))
+        (value_arguments)))
+    (class_body))
+  (class_declaration
+    (type_identifier)
+    (primary_constructor
+      (class_parameter
+        (simple_identifier)
+        (user_type
+          (type_identifier))))
+    (delegation_specifier
+      (constructor_invocation
+        (user_type
+          (type_identifier))
+        (value_arguments
+          (value_argument
+            (simple_identifier))))))
+  (class_declaration
+    (type_identifier)
+    (delegation_specifier
+      (user_type
+        (type_identifier)))))
+
+================================================================================
+Class with explicit interface delegation
+================================================================================
+
+class Derived(b: Base) : Base by b {
+    override fun print() { println("Derived") }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_declaration
+    (type_identifier)
+    (primary_constructor
+      (class_parameter
+        (simple_identifier)
+        (user_type
+          (type_identifier))))
+    (delegation_specifier
+      (explicit_delegation
+        (user_type
+          (type_identifier))
+        (simple_identifier)))
+    (class_body
+      (function_declaration
+        (modifiers
+          (member_modifier))
+        (simple_identifier)
+        (function_value_parameters)
+        (function_body
+          (statements
+            (call_expression
+              (simple_identifier)
+              (call_suffix
+                (value_arguments
+                  (value_argument
+                    (string_literal
+                      (string_content))))))))))))
+
+================================================================================
+Object declaration with explicit delegation
+================================================================================
+
+object AppConfig : Config by DefaultConfig {
+    override fun get(key: String) = "custom"
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (object_declaration
+    (type_identifier)
+    (delegation_specifier
+      (explicit_delegation
+        (user_type
+          (type_identifier))
+        (simple_identifier)))
+    (class_body
+      (function_declaration
+        (modifiers
+          (member_modifier))
+        (simple_identifier)
+        (function_value_parameters
+          (parameter
+            (simple_identifier)
+            (user_type
+              (type_identifier))))
+        (function_body
+          (string_literal
+            (string_content)))))))
+
+================================================================================
+Object declaration with explicit delegation on next line
+================================================================================
+
+object AppConfig : Config
+by DefaultConfig {
+    override fun get(key: String) = "custom"
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (object_declaration
+    (type_identifier)
+    (delegation_specifier
+      (explicit_delegation
+        (user_type
+          (type_identifier))
+        (simple_identifier)))
+    (class_body
+      (function_declaration
+        (modifiers
+          (member_modifier))
+        (simple_identifier)
+        (function_value_parameters
+          (parameter
+            (simple_identifier)
+            (user_type
+              (type_identifier))))
+        (function_body
+          (string_literal
+            (string_content)))))))
+
+================================================================================
+Object declaration with explicit delegation, generic type, by on next line
+================================================================================
+
+object Foo : Base.Factory<Input, Output>
+by Base.Factory.create(Impl)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (object_declaration
+    (type_identifier)
+    (delegation_specifier
+      (explicit_delegation
+        (user_type
+          (type_identifier)
+          (type_identifier)
+          (type_arguments
+            (type_projection
+              (user_type
+                (type_identifier)))
+            (type_projection
+              (user_type
+                (type_identifier)))))
+        (call_expression
+          (navigation_expression
+            (navigation_expression
+              (simple_identifier)
+              (navigation_suffix
+                (simple_identifier)))
+            (navigation_suffix
+              (simple_identifier)))
+          (call_suffix
+            (value_arguments
+              (value_argument
+                (simple_identifier)))))))))
+
+================================================================================
+Object declaration with explicit delegation, line comment before by
+================================================================================
+
+object Foo : Config
+// use the default implementation
+by DefaultConfig
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (object_declaration
+    (type_identifier)
+    (delegation_specifier
+      (explicit_delegation
+        (user_type
+          (type_identifier))
+        (line_comment)
+        (simple_identifier)))))
+
+================================================================================
+Object declaration with explicit delegation, block comment before by
+================================================================================
+
+object Foo : Config
+/* use the default implementation */
+by DefaultConfig
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (object_declaration
+    (type_identifier)
+    (delegation_specifier
+      (explicit_delegation
+        (user_type
+          (type_identifier))
+        (multiline_comment)
+        (simple_identifier)))))
+
+================================================================================
+Class with multiple delegation specifiers
+================================================================================
+
+class MyClass : InterfaceA by delegateA, InterfaceB by delegateB {
+    fun myMethod() {}
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_declaration
+    (type_identifier)
+    (delegation_specifier
+      (explicit_delegation
+        (user_type
+          (type_identifier))
+        (simple_identifier)))
+    (delegation_specifier
+      (explicit_delegation
+        (user_type
+          (type_identifier))
+        (simple_identifier)))
+    (class_body
+      (function_declaration
+        (simple_identifier)
+        (function_value_parameters)
+        (function_body)))))
+
+================================================================================
+Property delegation
+================================================================================
+
+class Example {
+    val lazyValue: String by lazy { "computed" }
+    var observed: Int by Delegates.observable(0) { _, old, new -> println("$old -> $new") }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_declaration
+    (type_identifier)
+    (class_body
+      (property_declaration
+        (binding_pattern_kind)
+        (variable_declaration
+          (simple_identifier)
+          (user_type
+            (type_identifier)))
+        (property_delegate
+          (call_expression
+            (simple_identifier)
+            (call_suffix
+              (annotated_lambda
+                (lambda_literal
+                  (statements
+                    (string_literal
+                      (string_content)))))))))
+      (property_declaration
+        (binding_pattern_kind)
+        (variable_declaration
+          (simple_identifier)
+          (user_type
+            (type_identifier)))
+        (property_delegate
+          (call_expression
+            (navigation_expression
+              (simple_identifier)
+              (navigation_suffix
+                (simple_identifier)))
+            (call_suffix
+              (value_arguments
+                (value_argument
+                  (integer_literal)))
+              (annotated_lambda
+                (lambda_literal
+                  (lambda_parameters
+                    (variable_declaration
+                      (simple_identifier))
+                    (variable_declaration
+                      (simple_identifier))
+                    (variable_declaration
+                      (simple_identifier)))
+                  (statements
+                    (call_expression
+                      (simple_identifier)
+                      (call_suffix
+                        (value_arguments
+                          (value_argument
+                            (string_literal
+                              (interpolation_identifier_start)
+                              (interpolated_identifier)
+                              (string_content)
+                              (interpolation_identifier_start)
+                              (interpolated_identifier))))))))))))))))
+
+================================================================================
+Class with explicit delegation, by on next line
+================================================================================
+
+class Derived(b: Base) : Base
+by b
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_declaration
+    (type_identifier)
+    (primary_constructor
+      (class_parameter
+        (simple_identifier)
+        (user_type
+          (type_identifier))))
+    (delegation_specifier
+      (explicit_delegation
+        (user_type
+          (type_identifier))
+        (simple_identifier)))))
+
+================================================================================
+Property delegation with by on next line
+================================================================================
+
+class Example {
+    val lazyValue: String
+    by lazy { "computed" }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_declaration
+    (type_identifier)
+    (class_body
+      (property_declaration
+        (binding_pattern_kind)
+        (variable_declaration
+          (simple_identifier)
+          (user_type
+            (type_identifier)))
+        (property_delegate
+          (call_expression
+            (simple_identifier)
+            (call_suffix
+              (annotated_lambda
+                (lambda_literal
+                  (statements
+                    (string_literal
+                      (string_content))))))))))))
+
+================================================================================
+Property delegation, line comment before by
+================================================================================
+
+class Example {
+    val lazyValue: String
+    // computed on first access
+    by lazy { "computed" }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_declaration
+    (type_identifier)
+    (class_body
+      (property_declaration
+        (binding_pattern_kind)
+        (variable_declaration
+          (simple_identifier)
+          (user_type
+            (type_identifier)))
+        (line_comment)
+        (property_delegate
+          (call_expression
+            (simple_identifier)
+            (call_suffix
+              (annotated_lambda
+                (lambda_literal
+                  (statements
+                    (string_literal
+                      (string_content))))))))))))
+
+================================================================================
+Property delegation, block comment before by
+================================================================================
+
+class Example {
+    val lazyValue: String
+    /* computed on first access */
+    by lazy { "computed" }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_declaration
+    (type_identifier)
+    (class_body
+      (property_declaration
+        (binding_pattern_kind)
+        (variable_declaration
+          (simple_identifier)
+          (user_type
+            (type_identifier)))
+        (multiline_comment)
+        (property_delegate
+          (call_expression
+            (simple_identifier)
+            (call_suffix
+              (annotated_lambda
+                (lambda_literal
+                  (statements
+                    (string_literal
+                      (string_content))))))))))))
+
+================================================================================
+Properties
+================================================================================
+
+class Something {
+  val x: Int = 4
+  var y: Int?
+  val z: Int get() = x
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_declaration
+    (type_identifier)
+    (class_body
+      (property_declaration
+        (binding_pattern_kind)
+        (variable_declaration
+          (simple_identifier)
+          (user_type
+            (type_identifier)))
+        (integer_literal))
+      (property_declaration
+        (binding_pattern_kind)
+        (variable_declaration
+          (simple_identifier)
+          (nullable_type
+            (user_type
+              (type_identifier))
+            (quest))))
+      (property_declaration
+        (binding_pattern_kind)
+        (variable_declaration
+          (simple_identifier)
+          (user_type
+            (type_identifier)))
+        (getter
+          (function_body
+            (simple_identifier)))))))
+
+================================================================================
+Constructor delegation calls
+================================================================================
+
+class Test(x: Int, y: Int) {
+  constructor() : this(0, 0)
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_declaration
+    (type_identifier)
+    (primary_constructor
+      (class_parameter
+        (simple_identifier)
+        (user_type
+          (type_identifier)))
+      (class_parameter
+        (simple_identifier)
+        (user_type
+          (type_identifier))))
+    (class_body
+      (secondary_constructor
+        (function_value_parameters)
+        (constructor_delegation_call
+          (value_arguments
+            (value_argument
+              (integer_literal))
+            (value_argument
+              (integer_literal))))))))
+
+================================================================================
+Enum classes
+================================================================================
+
+enum class Suit {
+  DIAMONDS, CLOVERS, HEARTS, SPADES
+}
+
+enum class Color(val rgb: Int) {
+  RED(0xFF0000),
+  GREEN(0x00FF00),
+  BLUE(0x0000FF);
+
+  override fun toString() = rgb.toString(16)
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_declaration
+    (type_identifier)
+    (enum_class_body
+      (enum_entry
+        (simple_identifier))
+      (enum_entry
+        (simple_identifier))
+      (enum_entry
+        (simple_identifier))
+      (enum_entry
+        (simple_identifier))))
+  (class_declaration
+    (type_identifier)
+    (primary_constructor
+      (class_parameter
+        (binding_pattern_kind)
+        (simple_identifier)
+        (user_type
+          (type_identifier))))
+    (enum_class_body
+      (enum_entry
+        (simple_identifier)
+        (value_arguments
+          (value_argument
+            (hex_literal))))
+      (enum_entry
+        (simple_identifier)
+        (value_arguments
+          (value_argument
+            (hex_literal))))
+      (enum_entry
+        (simple_identifier)
+        (value_arguments
+          (value_argument
+            (hex_literal))))
+      (function_declaration
+        (modifiers
+          (member_modifier))
+        (simple_identifier)
+        (function_value_parameters)
+        (function_body
+          (call_expression
+            (navigation_expression
+              (simple_identifier)
+              (navigation_suffix
+                (simple_identifier)))
+            (call_suffix
+              (value_arguments
+                (value_argument
+                  (integer_literal))))))))))
+
+================================================================================
+Data class with hanging comma
+================================================================================
+
+data class JwtConfiguration(
+   val audience: String,
+   val realm: String,
+)
+
+data class JwtConfiguration(
+   final override val audience: String,
+   final override val realm: String,
+)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_declaration
+    (modifiers
+      (class_modifier))
+    (type_identifier)
+    (primary_constructor
+      (class_parameter
+        (binding_pattern_kind)
+        (simple_identifier)
+        (user_type
+          (type_identifier)))
+      (class_parameter
+        (binding_pattern_kind)
+        (simple_identifier)
+        (user_type
+          (type_identifier)))))
+  (class_declaration
+    (modifiers
+      (class_modifier))
+    (type_identifier)
+    (primary_constructor
+      (class_parameter
+        (modifiers
+          (inheritance_modifier)
+          (member_modifier))
+        (binding_pattern_kind)
+        (simple_identifier)
+        (user_type
+          (type_identifier)))
+      (class_parameter
+        (modifiers
+          (inheritance_modifier)
+          (member_modifier))
+        (binding_pattern_kind)
+        (simple_identifier)
+        (user_type
+          (type_identifier))))))
+
+================================================================================
+Value class: https://kotlinlang.org/docs/inline-classes.html
+================================================================================
+
+@JvmInline
+value class Password(private val s: String)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_declaration
+    (modifiers
+      (annotation
+        (user_type
+          (type_identifier)))
+      (class_modifier))
+    (type_identifier)
+    (primary_constructor
+      (class_parameter
+        (modifiers
+          (visibility_modifier))
+        (binding_pattern_kind)
+        (simple_identifier)
+        (user_type
+          (type_identifier))))))
+
+================================================================================
+Interface
+================================================================================
+
+interface Foo {
+    fun bar()
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_declaration
+    (type_identifier)
+    (class_body
+      (function_declaration
+        (simple_identifier)
+        (function_value_parameters)))))
+
+================================================================================
+Functional Interface
+================================================================================
+
+fun interface Foo {
+    fun bar()
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_declaration
+    (type_identifier)
+    (class_body
+      (function_declaration
+        (simple_identifier)
+        (function_value_parameters)))))
+
+================================================================================
+Interface with function type delegation specifier
+================================================================================
+
+interface Foo<A, B> : (T, A?) -> B?
+
+interface Foo<A, B> : ((T, A?) -> B?)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_declaration
+    (type_identifier)
+    (type_parameters
+      (type_parameter
+        (type_identifier))
+      (type_parameter
+        (type_identifier)))
+    (delegation_specifier
+      (function_type
+        (function_type_parameters
+          (user_type
+            (type_identifier))
+          (nullable_type
+            (user_type
+              (type_identifier))
+            (quest)))
+        (nullable_type
+          (user_type
+            (type_identifier))
+          (quest)))))
+  (class_declaration
+    (type_identifier)
+    (type_parameters
+      (type_parameter
+        (type_identifier))
+      (type_parameter
+        (type_identifier)))
+    (delegation_specifier
+      (function_type
+        (function_type_parameters
+          (user_type
+            (type_identifier))
+          (nullable_type
+            (user_type
+              (type_identifier))
+            (quest)))
+        (nullable_type
+          (user_type
+            (type_identifier))
+          (quest))))))

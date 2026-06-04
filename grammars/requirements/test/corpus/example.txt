@@ -1,0 +1,194 @@
+================================================================================
+plain names
+================================================================================
+
+# This is a comment, to show how #-prefixed lines are ignored.
+# It is possible to specify requirements as plain names.
+pytest
+pytest-cov
+beautifulsoup4
+
+--------------------------------------------------------------------------------
+
+(file
+  (comment)
+  (comment)
+  (requirement
+    (package))
+  (requirement
+    (package))
+  (requirement
+    (package)))
+
+================================================================================
+version specifiers
+================================================================================
+
+# The syntax supported here is the same as that of requirement specifiers.
+docopt == 0.6.1
+requests [security] >= 2.8.1, == 2.8.* ; python_version < "2.7"
+urllib3 @ https://github.com/urllib3/urllib3/archive/refs/tags/1.26.8.zip
+
+--------------------------------------------------------------------------------
+
+(file
+  (comment)
+  (requirement
+    (package)
+    (version_spec
+      (version_cmp)
+      (version)))
+  (requirement
+    (package)
+    (extras
+      (package))
+    (version_spec
+      (version_cmp)
+      (version)
+      (version_cmp)
+      (version))
+    (marker_spec
+      (marker_var)
+      (version_cmp)
+      (quoted_string)))
+  (requirement
+    (package)
+    (url_spec
+      (url))))
+
+================================================================================
+global options
+================================================================================
+
+--no-index
+--find-links http://some.archives.com/archives
+-r more_requirements.txt
+
+--------------------------------------------------------------------------------
+
+(file
+  (global_opt
+    (option))
+  (global_opt
+    (option)
+    (url))
+  (global_opt
+    (option)
+    (path)))
+
+================================================================================
+local paths
+================================================================================
+
+# It is possible to refer to specific local distribution paths.
+./downloads/numpy-1.9.2-cp34-none-win32.whl
+
+--------------------------------------------------------------------------------
+
+(file
+  (comment)
+  (path))
+
+================================================================================
+remote URLs
+================================================================================
+
+# It is possible to refer to URLs.
+http://wxpython.org/Phoenix/snapshot-builds/wxPython_Phoenix-3.0.3.dev1820+49a8884-cp34-none-win_amd64.whl
+
+--------------------------------------------------------------------------------
+
+(file
+  (comment)
+  (url))
+
+================================================================================
+environment markers
+================================================================================
+
+pywin32 >=1.0 ; sys_platform == 'win32'
+unittest2 >=2.0,<3.0 ; python_version == '2.4' or python_version == '2.5'
+backports.ssl_match_hostname >= 3.4 ; python_version < '2.7.9' or (python_version >= '3.0' and python_version < '3.4')
+
+--------------------------------------------------------------------------------
+
+(file
+  (requirement
+    (package)
+    (version_spec
+      (version_cmp)
+      (version))
+    (marker_spec
+      (marker_var)
+      (version_cmp)
+      (quoted_string)))
+  (requirement
+    (package)
+    (version_spec
+      (version_cmp)
+      (version)
+      (version_cmp)
+      (version))
+    (marker_spec
+      (marker_var)
+      (version_cmp)
+      (quoted_string)
+      (marker_op)
+      (marker_var)
+      (version_cmp)
+      (quoted_string)))
+  (requirement
+    (package)
+    (version_spec
+      (version_cmp)
+      (version))
+    (marker_spec
+      (marker_var)
+      (version_cmp)
+      (quoted_string)
+      (marker_op)
+      (marker_var)
+      (version_cmp)
+      (quoted_string)
+      (marker_op)
+      (marker_var)
+      (version_cmp)
+      (quoted_string))))
+
+================================================================================
+environment variables
+================================================================================
+
+git+https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/user/project.git
+
+--------------------------------------------------------------------------------
+
+(file
+  (url
+    (env_var)
+    (env_var)))
+
+================================================================================
+per-requirement options
+================================================================================
+
+FooProject == 1.2 \
+  --hash=sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824 \
+  --hash=sha256:486ea46224d1bb4fb680f34f7c9ad96a8f24ec88be73ea8e5a6c65260e9cb8a7
+
+--------------------------------------------------------------------------------
+
+(file
+  (requirement
+    (package)
+    (version_spec
+      (version_cmp)
+      (version))
+    (requirement_opt
+      (linebreak)
+      (option)
+      (argument))
+    (requirement_opt
+      (linebreak)
+      (option)
+      (argument))))

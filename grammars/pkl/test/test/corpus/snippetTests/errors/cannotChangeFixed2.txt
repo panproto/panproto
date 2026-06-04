@@ -1,0 +1,35 @@
+===
+errors/cannotChangeFixed2.pkl
+===
+
+abstract class Animal {
+  name: String
+}
+
+class Dog extends Animal {
+  fixed name = "Spot"
+}
+
+---
+
+(module
+  (clazz
+    (modifier)
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (clazz
+    (identifier)      (classExtendsClause
+      (qualifiedIdentifier
+        (identifier)))
+    (classBody
+      (classProperty
+        (modifier)
+        (identifier)
+        (slStringLiteralExpr
+          (slStringLiteralPart))))))

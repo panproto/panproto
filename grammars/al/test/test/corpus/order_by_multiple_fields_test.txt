@@ -1,0 +1,121 @@
+================================================================================
+OrderBy property with multiple fields in single item
+================================================================================
+
+query 50100 "Test Multiple Fields OrderBy"
+{
+    QueryType = Normal;
+    OrderBy = ascending(Document_No_, Posting_Date);
+    
+    elements
+    {
+        dataitem(TestData; "Test Table")
+        {
+            column(Document_No_; "Document No.") { }
+            column(Posting_Date; "Posting Date") { }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (order_by_list
+        (order_by_item
+          (identifier)
+          (identifier))))
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          field_name: (quoted_identifier))
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          field_name: (quoted_identifier))))))
+
+================================================================================
+OrderBy property with multiple fields and mixed directions
+================================================================================
+
+query 50101 "Mixed Fields OrderBy"
+{
+    OrderBy = ascending(Field1, Field2, Field3), descending(Field4);
+    
+    elements
+    {
+        dataitem(Data; Table) { }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (order_by_list
+        (order_by_item
+          (identifier)
+          (identifier)
+          (identifier))
+        (order_by_item
+          (identifier))))
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier
+          (table_keyword))))))
+
+================================================================================
+OrderBy property with quoted field names
+================================================================================
+
+query 50102 "Quoted Fields OrderBy"
+{
+    OrderBy = descending("Document No.", "Posting Date");
+    
+    elements
+    {
+        dataitem(Entry; "Entry Table") { }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (order_by_list
+        (order_by_item
+          (quoted_identifier)
+          (quoted_identifier))))
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)))))

@@ -1,0 +1,217 @@
+================================================================================
+Extended glob - hash pattern with qualifiers
+================================================================================
+
+echo file(#q.)
+
+
+(program
+  (command
+    name: (command_name (word))
+    argument: (concatenation
+      (word)
+      (zsh_extended_glob_flags))))
+
+================================================================================
+Extended glob - tilde exclusion
+================================================================================
+
+ls *.c~*foo*
+
+
+(program
+  (command
+    name: (command_name (word))
+    argument: (concatenation
+      (zsh_extended_glob_flags)
+      (word))))
+
+================================================================================
+Extended glob - caret negation
+================================================================================
+
+ls ^*.txt
+
+
+(program
+  (command
+    name: (command_name (word))
+    argument: (concatenation
+      (word)
+      (zsh_extended_glob_flags)
+      (word))))
+
+================================================================================
+Numeric glob - range
+================================================================================
+
+ls <1-100>.txt
+
+
+(program
+  (command
+    name: (command_name (word))
+    argument: (concatenation
+      (zsh_numeric_glob)
+      (word))))
+
+================================================================================
+Extended glob - approximate matching
+================================================================================
+
+echo (#a2)pattern
+
+
+(program
+  (command
+    name: (command_name (word))
+    argument: (concatenation
+      (zsh_extended_glob_flags)
+      (word))))
+
+================================================================================
+Extended glob - case insensitive
+================================================================================
+
+echo (#i)*.TXT
+
+
+(program
+  (command
+    name: (command_name (word))
+    argument: (concatenation
+      (zsh_extended_glob_flags)
+      (word))))
+
+================================================================================
+Extended glob - multiple flags
+================================================================================
+
+echo (#iq)*.txt
+
+
+(program
+  (command
+    name: (command_name (word))
+    argument: (word)))
+
+================================================================================
+Extended glob - backref support
+================================================================================
+
+echo (#b)(*).backup~$match[1]
+
+
+(program
+  (command
+    name: (command_name (word))
+    argument: (concatenation
+      (zsh_extended_glob_flags)
+      (word)
+      (word)
+      (word)
+      (simple_expansion
+        (variable_name))
+      (word)
+      (number)
+      (word))))
+
+================================================================================
+Extended glob - with regular qualifiers
+================================================================================
+
+echo *.txt(#qN.)
+
+
+(program
+  (command
+    name: (command_name (word))
+    argument: (concatenation
+      (word)
+      (zsh_extended_glob_flags))))
+
+================================================================================
+Extended glob - in test expressions
+================================================================================
+
+[[ foo.txt == *.txt(#qN) ]]
+
+
+(program
+  (test_command
+    (binary_expression
+      left: (word)
+      right: (concatenation
+        (word)
+        (zsh_extended_glob_flags)))))
+
+================================================================================
+Extended glob - complex pattern
+================================================================================
+
+echo **/*(#qN.)~*test*
+
+
+(program
+  (command
+    name: (command_name (word))
+    argument: (word)))
+
+================================================================================
+Extended glob - parenthesized alternatives
+================================================================================
+
+echo file.(txt|doc|pdf)
+
+
+(program
+  (command
+    name: (command_name (word))
+    argument: (concatenation
+      (word)
+      (word))))
+
+================================================================================
+Extended glob - brace alternatives
+================================================================================
+
+echo file.{txt,doc,pdf}
+
+
+(program
+  (command
+    name: (command_name (word))
+    argument: (brace_expression
+      (word)
+      (word)
+      (word))))
+
+================================================================================
+Extended glob - recursive with qualifiers
+================================================================================
+
+echo **/*(.N)
+
+
+(program
+  (command
+    name: (command_name (word))
+    argument: (zsh_glob
+      pattern: (word)
+      qualifier: (zsh_glob_qualifier))))
+
+================================================================================
+Extended glob - negation in test
+================================================================================
+
+[[ $file != *.tmp(#qN) ]]
+
+
+(program
+  (test_command
+    (binary_expression
+      left: (simple_expansion
+        (variable_name))
+      right: (concatenation
+        (word)
+        (zsh_extended_glob_flags)))))

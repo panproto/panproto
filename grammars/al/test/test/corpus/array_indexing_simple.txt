@@ -1,0 +1,41 @@
+==================
+Simple Array Indexing
+==================
+
+codeunit 50118 "Simple Array Indexing Test"
+{
+    procedure Process()
+    var
+        Tab: array[10] of Integer;
+    begin
+        Tab[1] := 9;
+    end;
+}
+
+---
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (array_type
+              (integer)
+              (type_specification
+                (basic_type))))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          (subscript_expression
+            (identifier)
+            (integer))
+          (integer))
+        (end_keyword)))))

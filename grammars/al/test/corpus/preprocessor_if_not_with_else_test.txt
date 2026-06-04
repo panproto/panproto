@@ -1,0 +1,53 @@
+==========================================
+Preprocessor #if not with #else in using statements
+==========================================
+
+using Microsoft.Common;
+#if not DEBUG
+using Microsoft.Development.Tools;
+#else
+using Microsoft.Production.Tools;
+#endif
+using Microsoft.Utilities;
+
+table 123 "Test Table"
+{
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (using_statement
+    (using_keyword)
+    namespace: (namespace_name
+      (identifier)
+      (identifier)))
+  (preproc_conditional_object
+    (preproc_if
+      (preproc_open)
+      condition: (preproc_not_expression
+        (identifier)))
+    (using_statement
+      (using_keyword)
+      namespace: (namespace_name
+        (identifier)
+        (identifier)
+        (identifier)))
+    (preproc_else)
+    (using_statement
+      (using_keyword)
+      namespace: (namespace_name
+        (identifier)
+        (identifier)
+        (identifier)))
+    (preproc_endif
+      (preproc_close)))
+  (using_statement
+    (using_keyword)
+    namespace: (namespace_name
+      (identifier)
+      (identifier)))
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)))

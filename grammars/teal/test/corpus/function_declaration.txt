@@ -1,0 +1,403 @@
+================================================================================
+Anonymous
+================================================================================
+
+local foo = function()
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    (var_declarators
+      (var
+        (identifier)))
+    (expressions
+      (anon_function
+        (function_signature
+          (arguments))
+        (function_body)))))
+
+================================================================================
+Named
+================================================================================
+
+local function foo()
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_statement
+    name: (identifier)
+    signature: (function_signature
+      arguments: (arguments))
+    body: (function_body)))
+
+================================================================================
+A function that actually does something
+================================================================================
+
+local function bar()
+   local x = 3
+   local y = {
+      z = function()
+         local x = 1
+      end,
+      w = function()
+      end,
+   }
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_statement
+    name: (identifier)
+    signature: (function_signature
+      arguments: (arguments))
+    body: (function_body
+      (var_declaration
+        declarators: (var_declarators
+          (var
+            name: (identifier)))
+        initializers: (expressions
+          (number)))
+      (var_declaration
+        declarators: (var_declarators
+          (var
+            name: (identifier)))
+        initializers: (expressions
+          (table_constructor
+            (table_entry
+              key: (identifier)
+              value: (anon_function
+                signature: (function_signature
+                  arguments: (arguments))
+                body: (function_body
+                  (var_declaration
+                    declarators: (var_declarators
+                      (var
+                        name: (identifier)))
+                    initializers: (expressions
+                      (number))))))
+            (table_entry
+              key: (identifier)
+              value: (anon_function
+                signature: (function_signature
+                  arguments: (arguments))
+                body: (function_body)))))))))
+
+================================================================================
+A function that returns
+================================================================================
+
+local function bar()
+   local x = "hello"
+   return x
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_statement
+    name: (identifier)
+    signature: (function_signature
+      arguments: (arguments))
+    body: (function_body
+      (var_declaration
+        declarators: (var_declarators
+          (var
+            name: (identifier)))
+        initializers: (expressions
+          (string
+            content: (string_content))))
+      (return_statement
+        (identifier)))))
+
+================================================================================
+A function with args
+================================================================================
+
+local function foo(bar, baz)
+   return bar, baz
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_statement
+    name: (identifier)
+    signature: (function_signature
+      arguments: (arguments
+        (arg
+          name: (identifier))
+        (arg
+          name: (identifier))))
+    body: (function_body
+      (return_statement
+        (identifier)
+        (identifier)))))
+
+================================================================================
+A function with typed args
+================================================================================
+
+local function foo(bar: string, baz: number)
+   return bar, baz
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_statement
+    name: (identifier)
+    signature: (function_signature
+      arguments: (arguments
+        (arg
+          name: (identifier)
+          type: (simple_type
+            name: (identifier)))
+        (arg
+          name: (identifier)
+          type: (simple_type
+            name: (identifier)))))
+    body: (function_body
+      (return_statement
+        (identifier)
+        (identifier)))))
+
+================================================================================
+A function with typed returns
+================================================================================
+
+local function foo(): string, number
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_statement
+    name: (identifier)
+    signature: (function_signature
+      arguments: (arguments)
+      return_type: (return_type
+        (simple_type
+          name: (identifier))
+        (simple_type
+          name: (identifier))))
+    body: (function_body)))
+
+================================================================================
+A function in a table/record
+================================================================================
+
+function foo.bar()
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_statement
+    name: (function_name
+      base: (identifier)
+      entry: (identifier))
+    signature: (function_signature
+      arguments: (arguments))
+    body: (function_body)))
+
+================================================================================
+A method in a table/record
+================================================================================
+
+function foo:bar()
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_statement
+    name: (function_name
+      base: (identifier)
+      method: (identifier))
+    signature: (function_signature
+      arguments: (arguments))
+    body: (function_body)))
+
+================================================================================
+Argument with typearg
+================================================================================
+
+local function parse_list<T>(ps: ParseState, i: number, list: {T}, close: {string:boolean}, sep: SeparatorMode, parse_item: ParseItem<T>): number, {T}
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_statement
+    name: (identifier)
+    signature: (function_signature
+      typeargs: (typeargs
+        (typearg name: (identifier)))
+      arguments: (arguments
+        (arg
+          name: (identifier)
+          type: (simple_type
+            name: (identifier)))
+        (arg
+          name: (identifier)
+          type: (simple_type
+            name: (identifier)))
+        (arg
+          name: (identifier)
+          type: (table_type
+            value_type: (simple_type
+              name: (identifier))))
+        (arg
+          name: (identifier)
+          type: (table_type
+            key_type: (simple_type
+              name: (identifier))
+            value_type: (simple_type
+              name: (identifier))))
+        (arg
+          name: (identifier)
+          type: (simple_type
+            name: (identifier)))
+        (arg
+          name: (identifier)
+          type: (simple_type
+            name: (identifier)
+            (typeargs
+              (simple_type
+                name: (identifier))))))
+      return_type: (return_type
+        (simple_type
+          name: (identifier))
+        (table_type
+          value_type: (simple_type
+            name: (identifier)))))
+    body: (function_body)))
+
+================================================================================
+Variadic argument
+================================================================================
+
+local function thing(...: number)
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_statement
+    name: (identifier)
+    signature: (function_signature
+      arguments: (arguments
+        (varargs
+          type: (simple_type
+            name: (identifier)))))
+    body: (function_body)))
+
+================================================================================
+Multiple args with variadic last argument
+================================================================================
+
+local function error_in_type(where: Type, msg: string, ...: Type): Error
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_statement
+    name: (identifier)
+    signature: (function_signature
+      arguments: (arguments
+        (arg
+          name: (identifier)
+          type: (simple_type
+            name: (identifier)))
+        (arg
+          name: (identifier)
+          type: (simple_type
+            name: (identifier)))
+        (varargs
+          type: (simple_type
+            name: (identifier))))
+      return_type: (return_type
+        (simple_type
+          name: (identifier))))
+    body: (function_body)))
+
+================================================================================
+Variadic return
+================================================================================
+
+local function thing(): string...
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_statement
+    name: (identifier)
+    signature: (function_signature
+      arguments: (arguments)
+      return_type: (return_type
+        (variadic_type
+          (simple_type
+            name: (identifier)))))
+    body: (function_body)))
+
+================================================================================
+Function type arguments
+================================================================================
+
+local function foo(bar: function(): (number), baz: number)
+   return bar, baz
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_statement
+    name: (identifier)
+    signature: (function_signature
+      arguments: (arguments
+        (arg
+          name: (identifier)
+          type: (function_type
+            arguments: (arguments)
+            return_type: (return_type
+              (simple_type
+                name: (identifier)))))
+        (arg
+          name: (identifier)
+          type: (simple_type
+            name: (identifier)))))
+    body: (function_body
+      (return_statement
+        (identifier)
+        (identifier)))))
+
+================================================================================
+Function with optional arguments
+================================================================================
+
+local function foo(_bar: integer, _baz?: number)
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_statement
+    name: (identifier)
+    signature: (function_signature
+      arguments: (arguments
+        (arg
+          name: (identifier)
+          type: (simple_type name: (identifier)))
+        (arg
+          name: (identifier)
+          optional_marker: (optional_marker)
+          type: (simple_type name: (identifier)))))
+    body: (function_body)))

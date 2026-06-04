@@ -1,0 +1,99 @@
+================================================================================
+underscores
+================================================================================
+
+res1 = 1_000_000
+res2 = 1___
+res3 = 1___1
+res4 = 1__000_0
+res5 = -1__000_0
+res6 = 0x42_ab_AB_de_12
+res7 = 0x41__
+res8 = 0x59__9
+res9 = -0x59__9
+res10 = 0b1011_0110
+res11 = 0b01__10
+res12 = 0b1____0
+res13 = -0b1_____
+res14 = 123_456_789.123_456_789
+res15 = 1____.1____
+res16 = 123.4_56e7
+res17 = 123.4_56e-7
+res18 = 123.456e1_0
+res19 = 1_23.456e-1_0
+res20 = .123_456_789
+res21 = 0o755
+res22 = 0o7_5_5__
+
+--------------------------------------------------------------------------------
+
+(module
+  (classProperty
+    (identifier)
+    (intLiteralExpr))
+  (classProperty
+    (identifier)
+    (intLiteralExpr))
+  (classProperty
+    (identifier)
+    (intLiteralExpr))
+  (classProperty
+    (identifier)
+    (intLiteralExpr))
+  (classProperty
+    (identifier)
+    (unaryMinusExpr
+      (intLiteralExpr)))
+  (classProperty
+    (identifier)
+    (intLiteralExpr))
+  (classProperty
+    (identifier)
+    (intLiteralExpr))
+  (classProperty
+    (identifier)
+    (intLiteralExpr))
+  (classProperty
+    (identifier)
+    (unaryMinusExpr
+      (intLiteralExpr)))
+  (classProperty
+    (identifier)
+    (intLiteralExpr))
+  (classProperty
+    (identifier)
+    (intLiteralExpr))
+  (classProperty
+    (identifier)
+    (intLiteralExpr))
+  (classProperty
+    (identifier)
+    (unaryMinusExpr
+      (intLiteralExpr)))
+  (classProperty
+    (identifier)
+    (floatLiteralExpr))
+  (classProperty
+    (identifier)
+    (floatLiteralExpr))
+  (classProperty
+    (identifier)
+    (floatLiteralExpr))
+  (classProperty
+    (identifier)
+    (floatLiteralExpr))
+  (classProperty
+    (identifier)
+    (floatLiteralExpr))
+  (classProperty
+    (identifier)
+    (floatLiteralExpr))
+  (classProperty
+    (identifier)
+    (floatLiteralExpr))
+  (classProperty
+    (identifier)
+    (intLiteralExpr))
+  (classProperty
+    (identifier)
+    (intLiteralExpr)))

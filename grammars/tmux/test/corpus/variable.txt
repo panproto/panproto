@@ -1,0 +1,37 @@
+========================================
+variable: environment
+========================================
+
+MYVAR=value
+MYVAR="value"
+
+---
+
+(file
+  (environment_assignment
+    (name)
+    (value))
+  (environment_assignment
+    (name)
+    (value
+      (str_double_quotes))))
+
+========================================
+variable: hidden
+========================================
+
+%hidden MYVAR=value
+%hidden MYVAR="value"
+
+---
+
+(file
+  (hidden_assignment
+    (hidden_keyword)
+    (name)
+    (value))
+  (hidden_assignment
+    (hidden_keyword)
+    (name)
+    (value
+      (str_double_quotes))))

@@ -1,0 +1,124 @@
+================================================================================
+Codeunit with TestType Uncategorized
+================================================================================
+
+codeunit 50100 "Test Type Test"
+{
+    Subtype = Test;
+    TestType = Uncategorized;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))))
+
+================================================================================
+Codeunit with TestType IntegrationTest and TestIsolation
+================================================================================
+
+codeunit 50101 "Integration Test"
+{
+    Subtype = Test;
+    TestType = IntegrationTest;
+    TestIsolation = Codeunit;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (keyword_identifier
+        (codeunit_keyword)))))
+
+================================================================================
+Codeunit with TestType UnitTest
+================================================================================
+
+codeunit 50102 "Unit Test"
+{
+    Subtype = Test;
+    TestType = UnitTest;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))))
+
+================================================================================
+Codeunit with TestType AITest
+================================================================================
+
+codeunit 50103 "AI Test"
+{
+    Subtype = Test;
+    TestType = AITest;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))))
+
+================================================================================
+Codeunit with TestType case insensitive
+================================================================================
+
+codeunit 50104 "Case Test"
+{
+    Subtype = Test;
+    testtype = uncategorized;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))))

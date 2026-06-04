@@ -1,0 +1,95 @@
+===
+api/pcfRenderer1.pkl
+===
+
+pigeon {
+  name = "pigeon"
+  age = 30
+}
+
+barnOwl {
+  name = "barn owl"
+  "surfing"
+  age = 42
+  "fire making"
+}
+
+parrot {
+  new {
+    lastName = """
+      Flintstone
+
+      Flintstone
+      """
+    """
+    Flintstone
+
+    Flintstone
+    """
+  }
+  """
+  Flintstone
+
+  Flintstone
+  """
+}
+
+output {
+  renderer = new PcfRenderer {}
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (slStringLiteralExpr
+          (slStringLiteralPart)))
+      (objectProperty
+        (identifier)
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (slStringLiteralExpr
+          (slStringLiteralPart)))
+      (objectElement
+        (slStringLiteralExpr
+          (slStringLiteralPart)))
+      (objectProperty
+        (identifier)
+        (intLiteralExpr))
+      (objectElement
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectElement
+        (newExpr
+          (objectBody
+            (objectProperty
+              (identifier)
+              (mlStringLiteralExpr
+                (mlStringLiteralPart)))
+            (objectElement
+              (mlStringLiteralExpr
+                (mlStringLiteralPart))))))
+      (objectElement
+        (mlStringLiteralExpr
+          (mlStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (objectBody))))))

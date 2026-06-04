@@ -1,0 +1,209 @@
+========================================
+select-window: simple
+========================================
+select-window
+selectw
+
+---
+
+(file
+  (select_window_directive
+    (command))
+  (select_window_directive
+    (command)))
+
+========================================
+select-window: flags
+========================================
+select-window -l
+selectw -l
+select-window -n
+selectw -n
+select-window -p
+selectw -p
+select-window -T
+selectw -T
+select-window -ln
+selectw -ln
+select-window -lT
+selectw -lT
+
+---
+
+(file
+  (select_window_directive
+    (command)
+    (command_line_option))
+  (select_window_directive
+    (command)
+    (command_line_option))
+  (select_window_directive
+    (command)
+    (command_line_option))
+  (select_window_directive
+    (command)
+    (command_line_option))
+  (select_window_directive
+    (command)
+    (command_line_option))
+  (select_window_directive
+    (command)
+    (command_line_option))
+  (select_window_directive
+    (command)
+    (command_line_option))
+  (select_window_directive
+    (command)
+    (command_line_option))
+  (select_window_directive
+    (command)
+    (command_line_option))
+  (select_window_directive
+    (command)
+    (command_line_option))
+  (select_window_directive
+    (command)
+    (command_line_option))
+  (select_window_directive
+    (command)
+    (command_line_option)))
+
+========================================
+select-window: options
+========================================
+select-window -t :3
+selectw -t :3
+select-window -t mysession:2
+selectw -t mysession:2
+select-window -t @42
+selectw -t @42
+select-window -t :+
+selectw -t :+
+select-window -t 'proj alpha:4'
+selectw -t 'proj alpha:4'
+
+---
+
+(file
+  (select_window_directive
+    (command)
+    (command_line_option)
+    (window))
+  (select_window_directive
+    (command)
+    (command_line_option)
+    (window))
+  (select_window_directive
+    (command)
+    (command_line_option)
+    (window))
+  (select_window_directive
+    (command)
+    (command_line_option)
+    (window))
+  (select_window_directive
+    (command)
+    (command_line_option)
+    (window))
+  (select_window_directive
+    (command)
+    (command_line_option)
+    (window))
+  (select_window_directive
+    (command)
+    (command_line_option)
+    (window))
+  (select_window_directive
+    (command)
+    (command_line_option)
+    (window))
+  (select_window_directive
+    (command)
+    (command_line_option)
+    (window
+      (str_single_quotes)))
+  (select_window_directive
+    (command)
+    (command_line_option)
+    (window
+      (str_single_quotes))))
+
+========================================
+select-window: flags + options
+========================================
+select-window -n -t :1
+selectw -n -t :1
+select-window -t :2 -p
+selectw -t :2 -p
+select-window -lT -t mysession:7
+selectw -lT -t mysession:7
+select-window -T -t @5
+selectw -T -t @5
+
+---
+
+(file
+  (select_window_directive
+    (command)
+    (command_line_option)
+    (command_line_option)
+    (window))
+  (select_window_directive
+    (command)
+    (command_line_option)
+    (command_line_option)
+    (window))
+  (select_window_directive
+    (command)
+    (command_line_option)
+    (window)
+    (command_line_option))
+  (select_window_directive
+    (command)
+    (command_line_option)
+    (window)
+    (command_line_option))
+  (select_window_directive
+    (command)
+    (command_line_option)
+    (command_line_option)
+    (window))
+  (select_window_directive
+    (command)
+    (command_line_option)
+    (command_line_option)
+    (window))
+  (select_window_directive
+    (command)
+    (command_line_option)
+    (command_line_option)
+    (window))
+  (select_window_directive
+    (command)
+    (command_line_option)
+    (command_line_option)
+    (window)))
+
+========================================
+select-window: complex
+========================================
+select-window -t \
+:5 -ln  # jump to last/next behavior, target :5
+selectw -t \
+:5 -ln  # jump to last/next behavior, target :5
+
+---
+
+(file
+  (select_window_directive
+    (command)
+    (command_line_option)
+    (window)
+    (command_line_option))
+  (comment)
+  (select_window_directive
+    (command)
+    (command_line_option)
+    (window)
+    (command_line_option))
+  (comment))

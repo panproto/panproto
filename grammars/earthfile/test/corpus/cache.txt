@@ -1,0 +1,19 @@
+==================
+cache command
+==================
+
+foo:
+  CACHE --persist /foo
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (cache_command
+            options: (options
+              (persist))
+            mount_point: (string
+              (unquoted_string))))))
+

@@ -1,0 +1,126 @@
+================================================================================
+Comprehensive area types including new prompt areas
+================================================================================
+
+page 123 TestPage
+{
+    layout
+    {
+        area(Content)
+        {
+            field(Field1; Field1)
+            {
+                ApplicationArea = All;
+            }
+        }
+        area(FactBoxes)
+        {
+            field(Field2; Field2)
+            {
+                ApplicationArea = All;
+            }
+        }
+        area(Filter)
+        {
+            field(Field3; Field3)
+            {
+                ApplicationArea = All;
+            }
+        }
+        area(RoleCenter)
+        {
+            field(Field4; Field4)
+            {
+                ApplicationArea = All;
+            }
+        }
+        area(Prompt)
+        {
+            field(Field5; Field5)
+            {
+                ApplicationArea = All;
+            }
+        }
+        area(PromptOptions)
+        {
+            field(Field6; Field6)
+            {
+                ApplicationArea = All;
+            }
+        }
+        area(SystemActions)
+        {
+            field(Field7; Field7)
+            {
+                ApplicationArea = All;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))))
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))))
+      (area_section
+        (area_keyword)
+        type: (identifier)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))))
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))))
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))))
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))))
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))))))

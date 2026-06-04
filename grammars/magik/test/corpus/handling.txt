@@ -1,0 +1,26 @@
+================================================================================
+handling
+================================================================================
+
+_handling error _with _proc() _endproc()
+$
+
+_handling error _with _default
+$
+
+_handling _default
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (handling
+      condition: (variable)
+      (invoke
+        receiver: (procedure))))
+  (fragment
+    (handling
+      condition: (variable)))
+  (fragment
+    (handling)))

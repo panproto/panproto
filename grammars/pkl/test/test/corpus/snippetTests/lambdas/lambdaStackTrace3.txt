@@ -1,0 +1,33 @@
+===
+lambdas/lambdaStackTrace3.pkl
+===
+
+hidden fs = List(() -> 42, () -> throw("ouch"))
+
+res1 = fs[1].apply()
+---
+
+(module
+  (classProperty
+    (modifier)
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (intLiteralExpr))
+        (functionLiteralExpr
+          (parameterList)
+          (throwExpr
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (subscriptExpr
+        (unqualifiedAccessExpr
+          (identifier))
+        (intLiteralExpr))
+      (identifier)
+      (argumentList))))

@@ -1,0 +1,91 @@
+================================================================================
+Export enum
+================================================================================
+
+edition = "2024";
+
+export enum Foo {
+  FOO_UNSPECIFIED = 0;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (edition
+    (string))
+  (enum
+    (enum_name
+      (identifier))
+    (enum_body
+      (enum_field
+        (identifier)
+        (int_lit
+          (octal_lit))))))
+
+================================================================================
+Local enum
+================================================================================
+
+edition = "2024";
+
+local enum Foo {
+  FOO_UNSPECIFIED = 0;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (edition
+    (string))
+  (enum
+    (enum_name
+      (identifier))
+    (enum_body
+      (enum_field
+        (identifier)
+        (int_lit
+          (octal_lit))))))
+
+================================================================================
+Option
+================================================================================
+
+syntax = "proto3";
+
+enum EnumAllowingAlias {
+  option allow_alias = true;
+  UNKNOWN = 0;
+  STARTED = 1;
+  RUNNING = 2 [(custom_option) = "hello world"];
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (syntax)
+  (enum
+    (enum_name
+      (identifier))
+    (enum_body
+      (option
+        (identifier)
+        (constant
+          (bool
+            (true))))
+      (enum_field
+        (identifier)
+        (int_lit
+          (octal_lit)))
+      (enum_field
+        (identifier)
+        (int_lit
+          (decimal_lit)))
+      (enum_field
+        (identifier)
+        (int_lit
+          (decimal_lit))
+        (enum_value_option
+          (full_ident
+            (identifier))
+          (constant
+            (string)))))))

@@ -1,0 +1,153 @@
+====
+Empty program
+====
+
+---
+(program)
+
+====
+Comment
+====
+
+// Parse as a comment: `process = +(1);`
+/**
+Everything in here should parse as a comment:
+```
+    declare complex_string "a\"\n\r!@#$%^&*(),<.>?/~`{}\|\';:";
+    process = +(1);
+```
+// ... including inner single-line comments
+*/
+
+foo = 1; // Comment at the end of a line.
+// Inline comments ...
+bar = sin(
+  cos( 1.f // this is serious math stuff
+  ) // reeeeal serious stuff
+);
+
+process = var; /* Comment at the end of a line. */
+
+// Bye! /*still in line comment...*/ // still in line comment...
+---
+(program
+  (comment)
+  (comment)
+  (definition (identifier) (int))
+  (comment)
+  (comment)
+  (definition
+    (identifier)
+    (prim1
+      (prim1 (real) (comment))
+      (comment)))
+  (definition (identifier) (identifier))
+  (comment)
+  (comment))
+
+====
+Variable assignment
+====
+
+var = ::foo::bar::baz;
+negated_var = -var;
+
+---
+(program
+  (definition variable: (identifier) value: (identifier))
+  (definition variable: (identifier) value: (negate_id (identifier))))
+
+====
+Function definition
+====
+
+identity(var) = var;
+identity ( var ) = var ;
+
+---
+(program
+  (function_definition (identifier) (arguments (identifier)) (identifier))
+  (function_definition (identifier) (arguments (identifier)) (identifier)))
+
+====
+Metadata
+====
+
+declare name "Noise";
+declare complex_string "a\"\n\r!@#$%^&*(),<.>?/~`{}\|\';:";
+
+declare add author "Karl Hiner";
+add = +;
+
+---
+(program
+  (global_metadata key: (identifier) value: (string))
+  (global_metadata key: (identifier) value: (string))
+  (function_metadata function_name: (identifier) key: (identifier) value: (string))
+  (definition variable: (identifier) value: (add)))
+
+====
+Import
+====
+
+import("stdfaust.lib");
+import ( "stdfaust.lib" ) ;
+---
+(program
+  (file_import filename: (string))
+  (file_import filename: (string)))
+
+====
+Variant
+====
+
+fixedpointprecision import("stdfaust.lib");
+
+singleprecision int_part(idv) = idv : _,!;
+doubleprecision quadprecision int_part(idv) = int(idv);
+
+---
+(program
+  (file_import (variants (fixed_point_precision)) (string))
+  (function_definition
+    (variants (single_precision))
+    (identifier)
+    (arguments (identifier))
+    (sequential (identifier) (parallel (wire) (cut))))
+  (function_definition
+    (variants (double_precision) (quad_precision))
+    (identifier)
+    (arguments (identifier))
+    (prim1 (identifier))))
+
+====
+Memory
+====
+
+// These are semantically equivalent.
+var1 = mem;
+var2 = @(var1);
+process = var2';
+
+---
+(program
+  (comment)
+  (definition (identifier) (mem))
+  (definition (identifier) (partial (delay) (identifier)))
+  (definition (identifier) (modifier (identifier) (one_sample_delay))))
+
+===
+Explicit substitution
+===
+
+process = component("freeverb.dsp")[foo(x) = 1; bar = _;];
+
+---
+(program
+  (definition
+    variable: (identifier)
+    value: (substitution
+      expression: (component filename: (string))
+      (substitutions
+        (function_definition name: (identifier) (arguments (identifier)) value: (int))
+        (definition variable: (identifier) value: (wire))))))

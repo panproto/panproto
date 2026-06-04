@@ -1,0 +1,79 @@
+================================================================================
+abstract method declaration
+================================================================================
+proto static native notnull void foo();
+--------------------------------------------------------------------------------
+(compilation_unit
+	(decl_method
+		(method_modifier)
+		(method_modifier)
+		(method_modifier)
+		(method_modifier)
+		return_type: (type_void)
+		name: (identifier)))
+
+================================================================================
+concrete method declaration
+================================================================================
+void foo() {}
+--------------------------------------------------------------------------------
+(compilation_unit
+	(decl_method
+		return_type: (type_void)
+		name: (identifier)
+		body: (block)))
+
+================================================================================
+method declaration with parameters
+================================================================================
+override void foo(const int x = 69, inout int y, out int y) {}
+--------------------------------------------------------------------------------
+(compilation_unit
+	(decl_method
+		(method_modifier)
+		return_type: (type_void)
+		name: (identifier)
+		(formal_parameters
+			(formal_parameter
+				(formal_parameter_modifier)
+				type: (type_int)
+				name: (identifier)
+				default: (literal_int))
+			(formal_parameter
+				(formal_parameter_modifier)
+				type: (type_int)
+				name: (identifier))
+			(formal_parameter
+				(formal_parameter_modifier)
+				type: (type_int)
+				name: (identifier)))
+		body: (block)))
+
+================================================================================
+method declaration with array parameter
+================================================================================
+void foo(int x[4], int y[], int z[][4], int w[3][3]) {}
+--------------------------------------------------------------------------------
+(compilation_unit
+	(decl_method
+		return_type: (type_void)
+		name: (identifier)
+		(formal_parameters
+			(formal_parameter
+				type: (type_int)
+				name: (identifier)
+				(literal_int))
+			(formal_parameter
+				type: (type_int)
+				name: (identifier))
+			(formal_parameter
+				type: (type_int)
+				name: (identifier)
+				(literal_int))
+			(formal_parameter
+				type: (type_int)
+				name: (identifier)
+				(literal_int)
+				(literal_int)))
+		body: (block)))
+

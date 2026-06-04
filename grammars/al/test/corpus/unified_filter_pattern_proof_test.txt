@@ -1,0 +1,304 @@
+================================================================================
+PROOF: Unified filter pattern - range expressions work everywhere
+================================================================================
+
+report 60100 "Unified Range Test"
+{
+    dataset
+    {
+        dataitem(TestData; "Integer")
+        {
+            DataItemTableView = sorting(Number) where(Number = filter(1 .. 100));
+        }
+    }
+}
+
+page 60200 "Unified Range Page"
+{
+    layout
+    {
+        area(content)
+        {
+            part("Test Part"; "Test Page")
+            {
+                SubPageLink = "No." = filter(1 .. 100);
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (sorting_value
+            (identifier)
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (identifier)
+                  (filter_keyword)
+                  value: (filter_value
+                    (integer)
+                    (integer))))))))))
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (part_section
+          (part_keyword)
+          name: (quoted_identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (property_expression
+              (comparison_expression
+                left: (quoted_identifier)
+                operator: (comparison_operator)
+                right: (call_expression
+                  function: (identifier)
+                  arguments: (argument_list
+                    (range_expression
+                      left: (integer)
+                      right: (integer))))))))))))
+
+================================================================================
+PROOF: Unified filter pattern - OR expressions work everywhere
+================================================================================
+
+report 60300 "Unified OR Test"
+{
+    dataset
+    {
+        dataitem(TestData; Customer)
+        {
+            DataItemTableView = sorting("No.") where("Status" = filter(Active | Pending));
+        }
+    }
+}
+
+page 60400 "Unified OR Page"
+{
+    layout
+    {
+        area(content)
+        {
+            part("Test Part"; "Test Page")
+            {
+                SubPageLink = "Status" = filter(Active | Pending);
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (property
+          name: (property_name)
+          value: (sorting_value
+            (quoted_identifier)
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (quoted_identifier)
+                  (filter_keyword)
+                  value: (filter_value
+                    (identifier)
+                    (identifier))))))))))
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (part_section
+          (part_keyword)
+          name: (quoted_identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (quoted_identifier)
+                (filter_keyword)
+                value: (filter_value
+                  (identifier)
+                  (identifier))))))))))
+
+================================================================================
+PROOF: Unified filter pattern - open-ended ranges work everywhere
+================================================================================
+
+report 60500 "Unified Open Range Test"
+{
+    dataset
+    {
+        dataitem(TestData; "Integer")
+        {
+            DataItemTableView = sorting(Number) where(Number = filter(1 ..));
+        }
+    }
+}
+
+page 60600 "Unified Open Range Page"
+{
+    layout
+    {
+        area(content)
+        {
+            part("Test Part"; "Test Page")
+            {
+                SubPageLink = "No." = filter(1 ..);
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (sorting_value
+            (identifier)
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (identifier)
+                  (filter_keyword)
+                  value: (filter_value
+                    (integer))))))))))
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (part_section
+          (part_keyword)
+          name: (quoted_identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (quoted_identifier)
+                (filter_keyword)
+                value: (filter_value
+                  (integer))))))))))
+
+================================================================================
+PROOF: Unified filter pattern - simple identifiers work everywhere
+================================================================================
+
+report 60700 "Unified Identifier Test"
+{
+    dataset
+    {
+        dataitem(TestData; Customer)
+        {
+            DataItemTableView = sorting("No.") where("Status" = filter(Active));
+        }
+    }
+}
+
+page 60800 "Unified Identifier Page"
+{
+    layout
+    {
+        area(content)
+        {
+            part("Test Part"; "Test Page")
+            {
+                SubPageLink = "Status" = filter(Active);
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (property
+          name: (property_name)
+          value: (sorting_value
+            (quoted_identifier)
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (quoted_identifier)
+                  (filter_keyword)
+                  value: (filter_value
+                    (identifier))))))))))
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (part_section
+          (part_keyword)
+          name: (quoted_identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (property_expression
+              (comparison_expression
+                left: (quoted_identifier)
+                operator: (comparison_operator)
+                right: (call_expression
+                  function: (identifier)
+                  arguments: (argument_list
+                    (identifier)))))))))))

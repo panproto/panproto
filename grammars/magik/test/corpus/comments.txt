@@ -1,0 +1,28 @@
+================================================================================
+comments
+================================================================================
+
+# Single line 'comment'
+
+# Multi
+# Line
+# Comment
+
+_block
+ 1 _and # comment
+ 2
+_endblock
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (comment)
+  (comment)
+  (comment)
+  (comment)
+  (fragment
+    (block
+      (logical_operator
+        (number)
+        (comment)
+        (number)))))

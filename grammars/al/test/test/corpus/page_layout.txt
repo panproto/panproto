@@ -1,0 +1,309 @@
+========================================================================
+Basic page layout
+========================================================================
+page 50100 MyPage
+{
+    layout
+    {
+        area(Content)
+        {
+            group(General)
+            {
+                field(Name; Rec.Name) { }
+                field("No."; Rec."No.") { }
+            }
+        }
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    (integer)
+    (identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (group_section
+          (group_keyword)
+          (identifier)
+          (page_field
+            (identifier)
+            (member_expression
+              (identifier)
+              (identifier)))
+          (page_field
+            (quoted_identifier)
+            (member_expression
+              (identifier)
+              (quoted_identifier))))))))
+
+========================================================================
+Page with repeater
+========================================================================
+page 50100 P
+{
+    layout
+    {
+        area(Content)
+        {
+            repeater(Lines)
+            {
+                field(Amount; Rec.Amount) { }
+            }
+        }
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    (integer)
+    (identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (repeater_section
+          (repeater_keyword)
+          (identifier)
+          (page_field
+            (identifier)
+            (member_expression
+              (identifier)
+              (identifier))))))))
+
+========================================================================
+Page with actions
+========================================================================
+page 50100 P
+{
+    actions
+    {
+        area(Processing)
+        {
+            action(MyAction)
+            {
+                Caption = 'Do Something';
+            }
+        }
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    (integer)
+    (identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_declaration
+          (identifier)
+          (property
+            (property_name)
+            (string_literal)))))))
+
+========================================================================
+Page with layout and actions
+========================================================================
+page 50100 P
+{
+    SourceTable = Customer;
+
+    layout
+    {
+        area(Content)
+        {
+            group(General)
+            {
+                field(Name; Name) { }
+            }
+        }
+    }
+
+    actions
+    {
+        area(Processing)
+        {
+            action(DoIt)
+            {
+                Caption = 'Do It';
+            }
+        }
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    (integer)
+    (identifier)
+    (property
+      (property_name)
+      (identifier))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (group_section
+          (group_keyword)
+          (identifier)
+          (page_field
+            (identifier)
+            (identifier)))))
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_declaration
+          (identifier)
+          (property
+            (property_name)
+            (string_literal)))))))
+
+========================================================================
+Action group
+========================================================================
+page 50100 P
+{
+    actions
+    {
+        area(Processing)
+        {
+            group(ActionGroup)
+            {
+                action(Action1)
+                {
+                    Caption = 'One';
+                }
+                action(Action2)
+                {
+                    Caption = 'Two';
+                }
+            }
+        }
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    (integer)
+    (identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_group_section
+          (group_keyword)
+          (identifier)
+          (action_declaration
+            (identifier)
+            (property
+              (property_name)
+              (string_literal)))
+          (action_declaration
+            (identifier)
+            (property
+              (property_name)
+              (string_literal))))))))
+
+========================================================================
+Page field without body
+========================================================================
+page 50100 P
+{
+    layout
+    {
+        area(Content)
+        {
+            field(Name; Name)
+        }
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    (integer)
+    (identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          (identifier)
+          (identifier))))))
+
+========================================================================
+Part section
+========================================================================
+page 50100 P
+{
+    layout
+    {
+        area(FactBoxes)
+        {
+            part(CustomerPart; "Customer Details FactBox")
+            {
+                Caption = 'Details';
+            }
+        }
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    (integer)
+    (identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (part_section
+          (part_keyword)
+          (identifier)
+          (quoted_identifier)
+          (property
+            (property_name)
+            (string_literal)))))))
+
+========================================================================
+Separator action
+========================================================================
+page 50100 P
+{
+    actions
+    {
+        area(Processing)
+        {
+            separator { }
+            action(MyAction) { }
+        }
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    (integer)
+    (identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (separator_action)
+        (action_declaration
+          (identifier))))))

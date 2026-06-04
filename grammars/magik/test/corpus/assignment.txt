@@ -1,0 +1,28 @@
+================================================================================
+assignment
+================================================================================
+
+a << 1
+b ^<< 1
+c +<< 1
+d _orif<< a 
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (assignment
+      (variable)
+      (number)))
+  (fragment
+    (assignment
+      (variable)
+      (number)))
+  (fragment
+    (assignment
+      (variable)
+      (number)))
+  (fragment
+    (assignment
+      (variable)
+      (variable))))

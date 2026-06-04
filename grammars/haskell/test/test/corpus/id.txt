@@ -1,0 +1,135 @@
+================================================================================
+id: variable
+================================================================================
+
+a = a
+_a0 = a
+_A0 = a
+a0 = a
+a9 = a
+aA = a
+aZ' = a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (variable)))
+    (bind
+      (variable)
+      (match
+        (variable)))
+    (bind
+      (variable)
+      (match
+        (variable)))
+    (bind
+      (variable)
+      (match
+        (variable)))
+    (bind
+      (variable)
+      (match
+        (variable)))
+    (bind
+      (variable)
+      (match
+        (variable)))
+    (bind
+      (variable)
+      (match
+        (variable)))))
+
+================================================================================
+id: constructor
+================================================================================
+
+data B = A
+       | A0
+       | A9
+       | Aa
+       | A_
+       | Az'
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (data_type
+      (name)
+      (data_constructors
+        (data_constructor
+          (prefix
+            (constructor)))
+        (data_constructor
+          (prefix
+            (constructor)))
+        (data_constructor
+          (prefix
+            (constructor)))
+        (data_constructor
+          (prefix
+            (constructor)))
+        (data_constructor
+          (prefix
+            (constructor)))
+        (data_constructor
+          (prefix
+            (constructor)))))))
+
+================================================================================
+id: unicode
+================================================================================
+
+accenté = ()
+data T =
+  Œufs
+  | Étonnement
+  | ǋtitlecasetest
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (unit)))
+    (data_type
+      (name)
+      (data_constructors
+        (data_constructor
+          (prefix
+            (constructor)))
+        (data_constructor
+          (prefix
+            (constructor)))
+        (data_constructor
+          (prefix
+            (constructor)))))))
+
+================================================================================
+id: hashes
+================================================================================
+
+a#### = a##
+
+data A## = A###
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (variable)))
+    (data_type
+      (name)
+      (data_constructors
+        (data_constructor
+          (prefix
+            (constructor)))))))

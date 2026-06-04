@@ -1,0 +1,454 @@
+===========
+evdev.rules
+===========
+
+ACTION=="remove", GOTO="evdev_end"
+KERNEL!="event*", GOTO="evdev_end"
+
+# skip later rules when we find something for this input device
+IMPORT{builtin}="hwdb --subsystem=input --lookup-prefix=evdev:", \
+  RUN{builtin}+="keyboard", GOTO="evdev_end"
+
+# AT keyboard matching by the machine's DMI data
+DRIVERS=="atkbd", \
+  IMPORT{builtin}="hwdb 'evdev:atkbd:$attr{[dmi/id]modalias}'", \
+  RUN{builtin}+="keyboard", GOTO="evdev_end"
+
+# device matching the input device name + properties + the machine's DMI data
+KERNELS=="input*", IMPORT{builtin}="hwdb 'evdev:name:$attr{name}:phys:$attr{phys}:ev:$attr{capabilities/ev}:$attr{[dmi/id]modalias}'", \
+  RUN{builtin}+="keyboard", GOTO="evdev_end"
+
+# device matching the input device name and the machine's DMI data
+KERNELS=="input*", IMPORT{builtin}="hwdb 'evdev:name:$attr{name}:$attr{[dmi/id]modalias}'", \
+  RUN{builtin}+="keyboard", GOTO="evdev_end"
+
+LABEL="evdev_end"
+
+----
+
+(rules
+  (rule
+    (match
+      (match_op)
+      (value
+        (content)))
+    (assignment
+      (assignment_op)
+      (value
+        (content))))
+  (rule
+    (match
+      (match_op)
+      (value
+        (content
+          (pattern))))
+    (assignment
+      (assignment_op)
+      (value
+        (content))))
+  (comment)
+  (rule
+    (assignment
+      (import_type)
+      (assignment_op)
+      (value
+        (content)))
+    (linebreak)
+    (assignment
+      (run_type)
+      (assignment_op)
+      (value
+        (content)))
+    (assignment
+      (assignment_op)
+      (value
+        (content))))
+  (comment)
+  (rule
+    (match
+      (match_op)
+      (value
+        (content)))
+    (linebreak)
+    (assignment
+      (import_type)
+      (assignment_op)
+      (value
+        (content
+          (pattern))))
+    (linebreak)
+    (assignment
+      (run_type)
+      (assignment_op)
+      (value
+        (content)))
+    (assignment
+      (assignment_op)
+      (value
+        (content))))
+  (comment)
+  (rule
+    (match
+      (match_op)
+      (value
+        (content
+          (pattern))))
+    (assignment
+      (import_type)
+      (assignment_op)
+      (value
+        (content
+          (pattern))))
+    (linebreak)
+    (assignment
+      (run_type)
+      (assignment_op)
+      (value
+        (content)))
+    (assignment
+      (assignment_op)
+      (value
+        (content))))
+  (comment)
+  (rule
+    (match
+      (match_op)
+      (value
+        (content
+          (pattern))))
+    (assignment
+      (import_type)
+      (assignment_op)
+      (value
+        (content
+          (pattern))))
+    (linebreak)
+    (assignment
+      (run_type)
+      (assignment_op)
+      (value
+        (content)))
+    (assignment
+      (assignment_op)
+      (value
+        (content))))
+  (rule
+    (assignment
+      (assignment_op)
+      (value
+        (content)))))
+
+============
+serial.rules
+============
+
+ACTION=="remove", GOTO="serial_end"
+SUBSYSTEM!="tty", GOTO="serial_end"
+
+SUBSYSTEMS=="pci", ENV{ID_BUS}="pci", ENV{ID_VENDOR_ID}="$attr{vendor}", ENV{ID_MODEL_ID}="$attr{device}"
+SUBSYSTEMS=="pci", IMPORT{builtin}="hwdb --subsystem=pci"
+SUBSYSTEMS=="usb", IMPORT{builtin}="usb_id", IMPORT{builtin}="hwdb --subsystem=usb"
+
+# /dev/serial/by-path/, /dev/serial/by-id/ for USB devices
+KERNEL!="ttyUSB[0-9]*|ttyACM[0-9]*", GOTO="serial_end"
+
+SUBSYSTEMS=="usb-serial", ENV{.ID_PORT}="$attr{port_number}"
+
+IMPORT{builtin}="path_id"
+ENV{ID_PATH}=="?*", ENV{.ID_PORT}=="", SYMLINK+="serial/by-path/$env{ID_PATH}"
+ENV{ID_PATH}=="?*", ENV{.ID_PORT}=="?*", SYMLINK+="serial/by-path/$env{ID_PATH}-port$env{.ID_PORT}"
+
+IMPORT{builtin}="usb_id"
+ENV{ID_SERIAL}=="", GOTO="serial_end"
+SUBSYSTEMS=="usb", ENV{ID_USB_INTERFACE_NUM}="$attr{bInterfaceNumber}"
+ENV{ID_USB_INTERFACE_NUM}=="", GOTO="serial_end"
+ENV{.ID_PORT}=="", SYMLINK+="serial/by-id/$env{ID_BUS}-$env{ID_SERIAL}-if$env{ID_USB_INTERFACE_NUM}"
+ENV{.ID_PORT}=="?*", SYMLINK+="serial/by-id/$env{ID_BUS}-$env{ID_SERIAL}-if$env{ID_USB_INTERFACE_NUM}-port$env{.ID_PORT}"
+
+LABEL="serial_end"
+
+----
+
+(rules
+  (rule
+    (match
+      (match_op)
+      (value
+        (content)))
+    (assignment
+      (assignment_op)
+      (value
+        (content))))
+  (rule
+    (match
+      (match_op)
+      (value
+        (content)))
+    (assignment
+      (assignment_op)
+      (value
+        (content))))
+  (rule
+    (match
+      (match_op)
+      (value
+        (content)))
+    (assignment
+      (env_var)
+      (assignment_op)
+      (value
+        (content)))
+    (assignment
+      (env_var)
+      (assignment_op)
+      (value
+        (content
+          (var_sub
+            (attribute)))))
+    (assignment
+      (env_var)
+      (assignment_op)
+      (value
+        (content
+          (var_sub
+            (attribute))))))
+  (rule
+    (match
+      (match_op)
+      (value
+        (content)))
+    (assignment
+      (import_type)
+      (assignment_op)
+      (value
+        (content))))
+  (rule
+    (match
+      (match_op)
+      (value
+        (content)))
+    (assignment
+      (import_type)
+      (assignment_op)
+      (value
+        (content)))
+    (assignment
+      (import_type)
+      (assignment_op)
+      (value
+        (content))))
+  (comment)
+  (rule
+    (match
+      (match_op)
+      (value
+        (content
+          (pattern)
+          (pattern)
+          (pattern)
+          (pattern)
+          (pattern))))
+    (assignment
+      (assignment_op)
+      (value
+        (content))))
+  (rule
+    (match
+      (match_op)
+      (value
+        (content)))
+    (assignment
+      (env_var)
+      (assignment_op)
+      (value
+        (content
+          (var_sub
+            (attribute))))))
+  (rule
+    (assignment
+      (import_type)
+      (assignment_op)
+      (value
+        (content))))
+  (rule
+    (match
+      (env_var)
+      (match_op)
+      (value
+        (content
+          (pattern)
+          (pattern))))
+    (match
+      (env_var)
+      (match_op)
+      (value))
+    (assignment
+      (assignment_op)
+      (value
+        (content
+          (var_sub
+            (env_var))))))
+  (rule
+    (match
+      (env_var)
+      (match_op)
+      (value
+        (content
+          (pattern)
+          (pattern))))
+    (match
+      (env_var)
+      (match_op)
+      (value
+        (content
+          (pattern)
+          (pattern))))
+    (assignment
+      (assignment_op)
+      (value
+        (content
+          (var_sub
+            (env_var))
+          (var_sub
+            (env_var))))))
+  (rule
+    (assignment
+      (import_type)
+      (assignment_op)
+      (value
+        (content))))
+  (rule
+    (match
+      (env_var)
+      (match_op)
+      (value))
+    (assignment
+      (assignment_op)
+      (value
+        (content))))
+  (rule
+    (match
+      (match_op)
+      (value
+        (content)))
+    (assignment
+      (env_var)
+      (assignment_op)
+      (value
+        (content
+          (var_sub
+            (attribute))))))
+  (rule
+    (match
+      (env_var)
+      (match_op)
+      (value))
+    (assignment
+      (assignment_op)
+      (value
+        (content))))
+  (rule
+    (match
+      (env_var)
+      (match_op)
+      (value))
+    (assignment
+      (assignment_op)
+      (value
+        (content
+          (var_sub
+            (env_var))
+          (var_sub
+            (env_var))
+          (var_sub
+            (env_var))))))
+  (rule
+    (match
+      (env_var)
+      (match_op)
+      (value
+        (content
+          (pattern)
+          (pattern))))
+    (assignment
+      (assignment_op)
+      (value
+        (content
+          (var_sub
+            (env_var))
+          (var_sub
+            (env_var))
+          (var_sub
+            (env_var))
+          (var_sub
+            (env_var))))))
+  (rule
+    (assignment
+      (assignment_op)
+      (value
+        (content)))))
+
+==========================
+sound-card.rules (partial)
+==========================
+
+SUBSYSTEM!="sound", GOTO="sound_end"
+
+ACTION=="add|change", KERNEL=="controlC*", ATTR{../uevent}="change"
+ACTION!="change", GOTO="sound_end"
+
+ATTR{pcmC%nD0p/pcm_class}=="modem", ENV{SOUND_CLASS}="modem", GOTO="sound_end"
+
+----
+
+(rules
+  (rule
+    (match
+      (match_op)
+      (value
+        (content)))
+    (assignment
+      (assignment_op)
+      (value
+        (content))))
+  (rule
+    (match
+      (match_op)
+      (value
+        (content
+          (pattern))))
+    (match
+      (match_op)
+      (value
+        (content
+          (pattern))))
+    (assignment
+      (attribute)
+      (assignment_op)
+      (value
+        (content))))
+  (rule
+    (match
+      (match_op)
+      (value
+        (content)))
+    (assignment
+      (assignment_op)
+      (value
+        (content))))
+  (rule
+    (match
+      (attribute
+        (fmt_sub))
+      (match_op)
+      (value
+        (content)))
+    (assignment
+      (env_var)
+      (assignment_op)
+      (value
+        (content)))
+    (assignment
+      (assignment_op)
+      (value
+        (content)))))

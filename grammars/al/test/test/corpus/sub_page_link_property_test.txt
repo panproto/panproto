@@ -1,0 +1,49 @@
+================================================================================
+SubPageLink property in part sections
+================================================================================
+
+pageextension 50104 CustomerCard extends "Customer Card"
+{
+    layout
+    {
+        addfirst(General)
+        {
+            part(CDOActions; "CDO Reminder Actions")
+            {
+                ApplicationArea = All;
+                SubPageLink = "No." = field("No.");
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pageextension_declaration
+    (pageextension_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (addfirst_modification
+        target: (identifier)
+        (part_section
+          (part_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (property_expression
+              (comparison_expression
+                left: (quoted_identifier)
+                operator: (comparison_operator)
+                right: (call_expression
+                  function: (identifier)
+                  arguments: (argument_list
+                    (quoted_identifier)))))))))))

@@ -1,0 +1,143 @@
+============================================
+Quote
+============================================
+
+'x
+''x
+'(a 10 "str")
+'('a 10 '"str")
+
+---
+
+(source_file
+  (short_quote
+    (symbol))
+  (short_quote
+    (short_quote
+      (symbol)))
+  (short_quote
+    (tuple
+      item: (symbol)
+      item: (number_literal)
+      item: (str_literal)))
+  (short_quote
+    (tuple
+      item: (short_quote
+        (symbol))
+      item: (number_literal)
+      item: (short_quote
+        (str_literal)))))
+
+============================================
+Splice
+============================================
+
+;x
+;x
+;(a 10 "str")
+;('a 10 ;"str")
+
+---
+
+(source_file
+  (short_splice
+    (symbol))
+  (short_splice
+    (symbol))
+  (short_splice
+    (tuple
+      item: (symbol)
+      item: (number_literal)
+      item: (str_literal)))
+  (short_splice
+    (tuple
+      item: (short_quote
+        (symbol))
+      item: (number_literal)
+      item: (short_splice
+        (str_literal)))))
+
+============================================
+Quasiquote
+============================================
+
+~x
+~x
+~(a 10 "str")
+~(~a 10 ~"str")
+
+---
+
+(source_file
+  (short_quasiquote
+    (symbol))
+  (short_quasiquote
+    (symbol))
+  (short_quasiquote
+    (tuple
+      item: (symbol)
+      item: (number_literal)
+      item: (str_literal)))
+  (short_quasiquote
+    (tuple
+      item: (short_quasiquote
+        (symbol))
+      item: (number_literal)
+      item: (short_quasiquote
+        (str_literal)))))
+
+============================================
+Unquote
+============================================
+
+,x
+,x
+,(a 10 "str")
+,(,a 10 ,"str")
+
+---
+
+(source_file
+  (short_unquote
+    (symbol))
+  (short_unquote
+    (symbol))
+  (short_unquote
+    (tuple
+      item: (symbol)
+      item: (number_literal)
+      item: (str_literal)))
+  (short_unquote
+    (tuple
+      item: (short_unquote
+        (symbol))
+      item: (number_literal)
+      item: (short_unquote
+        (str_literal)))))
+
+============================================
+Fn
+============================================
+
+|$
+|($)
+|($0 $1)
+|(+ $ $)
+
+---
+
+(source_file
+  (short_fn
+    body: (symbol))
+  (short_fn
+    body: (tuple
+      item: (symbol)))
+  (short_fn
+    body: (tuple
+      item: (symbol)
+      item: (symbol)))
+  (short_fn
+    body: (tuple
+      item: (symbol)
+      item: (symbol)
+      item: (symbol))))

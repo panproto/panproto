@@ -1,0 +1,31 @@
+===
+errors/invalidClassPropertyModifier.pkl
+===
+
+class Foo {
+  open foo: Int = 42
+}
+
+res1 = new Foo {}
+
+---
+
+(module
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (modifier)
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody))))

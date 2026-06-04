@@ -1,0 +1,128 @@
+================================================================================
+Basic if
+================================================================================
+
+if thing then
+
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (if_statement
+    condition: (identifier)))
+
+================================================================================
+Basic if+else
+================================================================================
+
+if thing then
+
+else
+
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (if_statement
+    condition: (identifier)
+    (else_block)))
+
+================================================================================
+Basic if+elseif
+================================================================================
+
+if thing then
+
+elseif other_thing then
+
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (if_statement
+    condition: (identifier)
+    (elseif_block
+      condition: (identifier))))
+
+================================================================================
+Basic if+multiple elseif
+================================================================================
+
+if thing then
+elseif other_thing1 then
+elseif other_thing2 then
+elseif other_thing3 then
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (if_statement
+    condition: (identifier)
+    (elseif_block
+      condition: (identifier))
+    (elseif_block
+      condition: (identifier))
+    (elseif_block
+      condition: (identifier))))
+
+================================================================================
+Basic if+elseif+else
+================================================================================
+
+if thing then
+elseif other_thing then
+else
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (if_statement
+    condition: (identifier)
+    (elseif_block
+      condition: (identifier))
+    (else_block)))
+
+================================================================================
+Basic if+elseif+else with statements
+================================================================================
+
+if thing then
+   local x = 2
+elseif other_thing then
+   local y = "hey"
+else
+   local z = {}
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (if_statement
+    condition: (identifier)
+    (var_declaration
+      declarators: (var_declarators
+        (var
+          name: (identifier)))
+      initializers: (expressions
+        (number)))
+    (elseif_block
+      condition: (identifier)
+      (var_declaration
+        declarators: (var_declarators
+          (var
+            name: (identifier)))
+        initializers: (expressions
+          (string
+            content: (string_content)))))
+    (else_block
+      (var_declaration
+        declarators: (var_declarators
+          (var
+            name: (identifier)))
+        initializers: (expressions
+          (table_constructor))))))

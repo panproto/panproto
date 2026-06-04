@@ -1,0 +1,83 @@
+================================================================================
+Local <const> Variable Declaration
+================================================================================
+
+local x <const> = 5
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    (var_declarators
+      (var
+        (identifier)
+        (attribute)))
+    (expressions
+      (number))))
+
+================================================================================
+Global <const> Variable Declaration
+================================================================================
+
+local x <const> = 5
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    (var_declarators
+      (var
+        (identifier)
+        (attribute)))
+    (expressions
+      (number))))
+
+================================================================================
+Local <const> Variable List Declaration
+================================================================================
+
+local x <const>, y <const>, z <const> = 1, 2, 3
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    (var_declarators
+      (var
+        (identifier)
+        (attribute))
+      (var
+        (identifier)
+        (attribute))
+      (var
+        (identifier)
+        (attribute)))
+    (expressions
+      (number)
+      (number)
+      (number))))
+
+================================================================================
+Global <const> Variable List Declaration
+================================================================================
+
+global x <const>, y <const>, z <const> = 1, 2, 3
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    (var_declarators
+      (var
+        (identifier)
+        (attribute))
+      (var
+        (identifier)
+        (attribute))
+      (var
+        (identifier)
+        (attribute)))
+    (expressions
+      (number)
+      (number)
+      (number))))

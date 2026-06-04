@@ -1,0 +1,44 @@
+==================
+Built-in Functions Simple
+==================
+
+codeunit 50100 "Built-in Functions Test"
+{
+    trigger OnRun()
+    begin
+        TestDateTimeFunctions();
+        TestSystemFunctions();
+        TestMathFunctions();
+        TestStringFunctions();
+        TestDatabaseFunctions();
+    end;
+}
+
+---
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (quoted_identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          (identifier)
+          (argument_list))
+        (call_expression
+          (identifier)
+          (argument_list))
+        (call_expression
+          (identifier)
+          (argument_list))
+        (call_expression
+          (identifier)
+          (argument_list))
+        (call_expression
+          (identifier)
+          (argument_list))
+        (end_keyword)))))

@@ -1,0 +1,201 @@
+================================================================================
+PermissionSet with Access and IncludedPermissionSets properties
+================================================================================
+
+permissionset 50000 "TEST-PERMSET"
+{
+    Access = Internal;
+    Assignable = true;
+    Caption = 'Test Permission Set', Locked = true;
+    IncludedPermissionSets = "BASE-PERM", "OTHER-PERM";
+
+    Permissions =
+        tabledata "Test Table" = R,
+        tabledata "Another Table" = RIMD;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (permissionset_declaration
+    (permissionset_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (internal_keyword))))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (caption_value
+        (string_literal)
+        (property_name)
+        (boolean)))
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (quoted_identifier))
+        (option_member
+          (quoted_identifier))))
+    (property
+      name: (property_name)
+      value: (tabledata_permission_list
+        (tabledata_permission
+          table_name: (quoted_identifier)
+          permission: (permission_type))
+        (tabledata_permission
+          table_name: (quoted_identifier)
+          permission: (permission_type))))))
+
+================================================================================
+PermissionSet with single IncludedPermissionSet
+================================================================================
+
+permissionset 50001 "SINGLE-INCLUDE"
+{
+    Access = Public;
+    Assignable = false;
+    IncludedPermissionSets = "BASIC-PERMISSIONS";
+
+    Permissions =
+        tabledata "Simple Table" = R;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (permissionset_declaration
+    (permissionset_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (quoted_identifier))
+    (property
+      name: (property_name)
+      value: (tabledata_permission_list
+        (tabledata_permission
+          table_name: (quoted_identifier)
+          permission: (permission_type))))))
+
+================================================================================
+PermissionSet with Access Private and unquoted included sets
+================================================================================
+
+permissionset 50002 PRIVATE_PERM
+{
+    Access = Private;
+    IncludedPermissionSets = BASIC_SET, ADVANCED_SET;
+
+    Permissions =
+        tabledata "Test Data" = rim;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (permissionset_declaration
+    (permissionset_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (identifier))
+        (option_member
+          (identifier))))
+    (property
+      name: (property_name)
+      value: (tabledata_permission_list
+        (tabledata_permission
+          table_name: (quoted_identifier)
+          permission: (permission_type))))))
+
+================================================================================
+PermissionSet with only basic properties
+================================================================================
+
+permissionset 50003 "BASIC-ONLY"
+{
+    Assignable = true;
+    Caption = 'Basic permissions only';
+
+    Permissions =
+        tabledata "Simple Table" = R;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (permissionset_declaration
+    (permissionset_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (tabledata_permission_list
+        (tabledata_permission
+          table_name: (quoted_identifier)
+          permission: (permission_type))))))
+
+================================================================================
+PermissionSet with multiple included permission sets (three items)
+================================================================================
+
+permissionset 50004 "MULTI-INCLUDE"
+{
+    Access = Internal;
+    IncludedPermissionSets = "PERM-A", "PERM-B", "PERM-C";
+
+    Permissions =
+        tabledata "Test Table" = RIMD;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (permissionset_declaration
+    (permissionset_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (internal_keyword))))
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (quoted_identifier))
+        (option_member
+          (quoted_identifier))
+        (option_member
+          (quoted_identifier))))
+    (property
+      name: (property_name)
+      value: (tabledata_permission_list
+        (tabledata_permission
+          table_name: (quoted_identifier)
+          permission: (permission_type))))))

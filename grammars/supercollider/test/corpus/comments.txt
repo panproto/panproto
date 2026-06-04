@@ -1,0 +1,32 @@
+=====================
+Single line comment
+=====================
+// Hello this is a comment
+
+---
+
+(source_file (line_comment))
+
+=====================
+Single line comment in codeblock
+=====================
+
+(
+// Hello this is a comment
+)
+
+---
+
+(source_file (code_block (line_comment)))
+
+=====================
+Multi line with code
+=====================
+/*
+   f = {
+
+   };
+*/ 
+
+---
+(source_file (block_comment))

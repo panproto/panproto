@@ -1,0 +1,188 @@
+================================================================================
+Database reference in const filter expressions
+================================================================================
+
+table 50000 "Sales Line Test"
+{
+    fields
+    {
+        field(2677; "Alloc. Acc. Modified by User"; Boolean)
+        {
+            Caption = 'Allocation Account Distributions Modified';
+            FieldClass = FlowField;
+            CalcFormula = exist("Alloc. Acc. Manual Override" where("Parent System Id" = field(SystemId), "Parent Table Id" = const(Database::"Sales Line")));
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (identifier))
+        (property
+          name: (property_name)
+          value: (aggregate_formula
+            function: (aggregate_function)
+            target: (calc_field_reference
+              (quoted_identifier))
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (quoted_identifier)
+                  value: (identifier))
+                (where_condition
+                  field: (quoted_identifier)
+                  value: (database_reference
+                    keyword: (object_type_keyword)
+                    table_name: (quoted_identifier)))))))))))
+
+================================================================================
+Database reference with unquoted table name
+================================================================================
+
+table 50100 "Test Table"
+{
+    fields
+    {
+        field(1; ParentTableId; Integer)
+        {
+            TableRelation = AllObj."Object ID" where("Object Type" = const(Table), "Object ID" = const(Database::Customer));
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (table_relation_value
+            (table_relation_expression
+              (simple_table_relation
+                table: (identifier)
+                table: (quoted_identifier)
+                (where_clause
+                  (where_conditions
+                    (where_condition
+                      field: (quoted_identifier)
+                      value: (identifier))
+                    (where_condition
+                      field: (quoted_identifier)
+                      value: (database_reference
+                        keyword: (object_type_keyword)
+                        table_name: (identifier)))))))))))))
+
+================================================================================
+Database reference in various contexts
+================================================================================
+
+codeunit 50200 "Database References"
+{
+    procedure TestDatabaseRefs()
+    var
+        TableId: Integer;
+    begin
+        // Direct assignment
+        TableId := Database::"Sales Line";
+        
+        // In case statement
+        case TableId of
+            Database::Customer:
+                Message('Customer table');
+            Database::"Sales Line":
+                Message('Sales Line table');
+        end;
+        
+        // In if statement
+        if TableId = Database::Item then
+            Message('Item table');
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (comment)
+        (assignment_statement
+          left: (identifier)
+          right: (database_reference
+            keyword: (object_type_keyword)
+            table_name: (quoted_identifier)))
+        (comment)
+        (case_statement
+          (case_keyword)
+          expression: (identifier)
+          (of_keyword)
+          (case_branch
+            pattern: (database_reference
+              keyword: (object_type_keyword)
+              table_name: (identifier))
+            body: (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (string_literal))))
+          (case_branch
+            pattern: (database_reference
+              keyword: (object_type_keyword)
+              table_name: (quoted_identifier))
+            body: (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (string_literal)))))
+        (comment)
+        (if_statement
+          (if_keyword)
+          condition: (comparison_expression
+            left: (identifier)
+            operator: (comparison_operator)
+            right: (database_reference
+              keyword: (object_type_keyword)
+              table_name: (identifier)))
+          (then_keyword)
+          then_branch: (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (string_literal))))
+        (end_keyword)))))

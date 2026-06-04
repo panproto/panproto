@@ -1,0 +1,173 @@
+================================================================================
+Basic chuck operator
+================================================================================
+
+SinOsc s => dac;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (expression
+      (chuck_expression
+        left: (chuck_expression
+          (arrow_expression
+            (decl_expression
+              (variable_declaration
+                (type_decl
+                  (type_decl_a
+                    (id_dot
+                      (identifier))))
+                (var_decl_list
+                  (var_decl
+                    name: (identifier)))))))
+        operator: (chuck_operator)
+        right: (arrow_expression
+          (decl_expression
+            (conditional_expression
+              (logical_or_expression
+                (logical_and_expression
+                  (bitwise_or_expression
+                    (bitwise_xor_expression
+                      (bitwise_and_expression
+                        (equality_expression
+                          (relational_expression
+                            (shift_expression
+                              (additive_expression
+                                (multiplicative_expression
+                                  (tilda_expression
+                                    (cast_expression
+                                      (unary_expression
+                                        (dur_expression
+                                          (postfix_expression
+                                            (identifier)))))))))))))))))))))))
+
+================================================================================
+Chained chuck operators
+================================================================================
+
+osc => filter => dac;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (expression
+      (chuck_expression
+        left: (chuck_expression
+          left: (chuck_expression
+            (arrow_expression
+              (decl_expression
+                (conditional_expression
+                  (logical_or_expression
+                    (logical_and_expression
+                      (bitwise_or_expression
+                        (bitwise_xor_expression
+                          (bitwise_and_expression
+                            (equality_expression
+                              (relational_expression
+                                (shift_expression
+                                  (additive_expression
+                                    (multiplicative_expression
+                                      (tilda_expression
+                                        (cast_expression
+                                          (unary_expression
+                                            (dur_expression
+                                              (postfix_expression
+                                                (identifier))))))))))))))))))))
+          operator: (chuck_operator)
+          right: (arrow_expression
+            (decl_expression
+              (conditional_expression
+                (logical_or_expression
+                  (logical_and_expression
+                    (bitwise_or_expression
+                      (bitwise_xor_expression
+                        (bitwise_and_expression
+                          (equality_expression
+                            (relational_expression
+                              (shift_expression
+                                (additive_expression
+                                  (multiplicative_expression
+                                    (tilda_expression
+                                      (cast_expression
+                                        (unary_expression
+                                          (dur_expression
+                                            (postfix_expression
+                                              (identifier))))))))))))))))))))
+        operator: (chuck_operator)
+        right: (arrow_expression
+          (decl_expression
+            (conditional_expression
+              (logical_or_expression
+                (logical_and_expression
+                  (bitwise_or_expression
+                    (bitwise_xor_expression
+                      (bitwise_and_expression
+                        (equality_expression
+                          (relational_expression
+                            (shift_expression
+                              (additive_expression
+                                (multiplicative_expression
+                                  (tilda_expression
+                                    (cast_expression
+                                      (unary_expression
+                                        (dur_expression
+                                          (postfix_expression
+                                            (identifier)))))))))))))))))))))))
+
+================================================================================
+Duration expression
+================================================================================
+
+5::second => now;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (expression
+      (chuck_expression
+        left: (chuck_expression
+          (arrow_expression
+            (decl_expression
+              (conditional_expression
+                (logical_or_expression
+                  (logical_and_expression
+                    (bitwise_or_expression
+                      (bitwise_xor_expression
+                        (bitwise_and_expression
+                          (equality_expression
+                            (relational_expression
+                              (shift_expression
+                                (additive_expression
+                                  (multiplicative_expression
+                                    (tilda_expression
+                                      (cast_expression
+                                        (unary_expression
+                                          (dur_expression
+                                            (dur_expression
+                                              (postfix_expression
+                                                (int_literal)))
+                                            (postfix_expression
+                                              (identifier))))))))))))))))))))
+        operator: (chuck_operator)
+        right: (arrow_expression
+          (decl_expression
+            (conditional_expression
+              (logical_or_expression
+                (logical_and_expression
+                  (bitwise_or_expression
+                    (bitwise_xor_expression
+                      (bitwise_and_expression
+                        (equality_expression
+                          (relational_expression
+                            (shift_expression
+                              (additive_expression
+                                (multiplicative_expression
+                                  (tilda_expression
+                                    (cast_expression
+                                      (unary_expression
+                                        (dur_expression
+                                          (postfix_expression
+                                            (identifier)))))))))))))))))))))))

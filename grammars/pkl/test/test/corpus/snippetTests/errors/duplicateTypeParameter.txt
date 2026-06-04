@@ -1,0 +1,22 @@
+===
+errors/duplicateTypeParameter.pkl
+===
+
+typealias MyType<Elem, Elem> = List<Elem>
+---
+
+(module
+  (typeAlias
+    (identifier)
+    (typeParameterList
+      (typeParameter
+        (identifier))
+      (typeParameter
+        (identifier)))
+    (declaredType
+      (qualifiedIdentifier
+        (identifier))
+      (typeArgumentList
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))))))

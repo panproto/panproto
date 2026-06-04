@@ -1,0 +1,505 @@
+================================================================================
+setting variables
+================================================================================
+
+set editing-mode vi
+set show-mode-in-prompt On
+set completion-ignore-case on
+set emacs-mode-string
+set vi-ins-mode-string \1\e[5 q\2
+set vi-cmd-mode-string \1\e[2 q\2
+set keyseq-timeout 0
+
+--------------------------------------------------------------------------------
+
+(source
+  (variable_setting
+    (edit_mode_variable)
+    (edit_mode_value))
+  (variable_setting
+    (bool_variable)
+    (bool_value))
+  (variable_setting
+    (bool_variable)
+    (bool_value))
+  (variable_setting
+    (string_variable))
+  (variable_setting
+    (string_variable)
+    (string_value))
+  (variable_setting
+    (string_variable)
+    (string_value))
+  (variable_setting
+    (number_variable)
+    (number_value)))
+
+================================================================================
+keyseq statements
+================================================================================
+
+"\C-u": universal-argument
+"\C-x\C-r": re-read-init-file
+"\e[11~": "Function Key 1"
+
+--------------------------------------------------------------------------------
+
+(source
+  (key_binding
+    (keyseq
+      (escape_sequence))
+    (function_name))
+  (key_binding
+    (keyseq
+      (escape_sequence)
+      (escape_sequence))
+    (function_name))
+  (key_binding
+    (keyseq
+      (escape_sequence))
+    (macro)))
+
+================================================================================
+keyname statements
+================================================================================
+
+Control-u: universal-argument
+Meta-Rubout: backward-kill-word
+Control-o: "> output"
+
+--------------------------------------------------------------------------------
+
+(source
+  (key_binding
+    (keyname
+      (symbolic_character_name)
+      (key_literal))
+    (function_name))
+  (key_binding
+    (keyname
+      (symbolic_character_name)
+      (symbolic_character_name))
+    (function_name))
+  (key_binding
+    (keyname
+      (symbolic_character_name)
+      (key_literal))
+    (macro)))
+
+================================================================================
+conditionals and imports
+================================================================================
+
+$if version >= 7.0
+    $include /etc/inputrc
+$else
+    set editing-mode emacs
+$endif
+
+--------------------------------------------------------------------------------
+
+(source
+  (conditional_construct
+    (test
+      (version_number))
+    (consequence
+      (include_directive
+        (file_path)))
+    (alternative
+      (variable_setting
+        (edit_mode_variable)
+        (edit_mode_value)))))
+
+================================================================================
+keyseq with lots of escape sequences
+================================================================================
+
+"\C-x\\\"\xF0b\765\75f": "\\"
+
+--------------------------------------------------------------------------------
+
+(source
+  (key_binding
+    (keyseq
+      (escape_sequence)
+      (escape_sequence)
+      (escape_sequence)
+      (escape_sequence)
+      (escape_sequence)
+      (escape_sequence))
+    (macro
+      (escape_sequence))))
+
+================================================================================
+comments and case-insensitivity
+================================================================================
+
+# start in vi mode
+seT editing-mode VI
+set SHOW-MODE-IN-PROMPT on
+# case insensitive auto-complete
+set completion-ignore-case oN
+# don't show weird emacs mode string
+SET emacs-mode-string
+# blinking I-beam cursor in insert mode
+set VI-ins-mode-string \1\e[5 q\2
+# block cursor in normal mode
+set vi-CMD-MODE-string \1\e[2 q\2
+# snappier insert mode leaving
+# NOTE: Could be bad when using tmux. See: https://superuser.com/a/1809494
+set keyseq-timeout +120
+
+--------------------------------------------------------------------------------
+
+(source
+  (comment)
+  (variable_setting
+    (edit_mode_variable)
+    (edit_mode_value))
+  (variable_setting
+    (bool_variable)
+    (bool_value))
+  (comment)
+  (variable_setting
+    (bool_variable)
+    (bool_value))
+  (comment)
+  (variable_setting
+    (string_variable))
+  (comment)
+  (variable_setting
+    (string_variable)
+    (string_value))
+  (comment)
+  (variable_setting
+    (string_variable)
+    (string_value))
+  (comment)
+  (comment)
+  (variable_setting
+    (number_variable)
+    (number_value)))
+
+================================================================================
+nested conditionals
+================================================================================
+
+$if term=kitty
+    $if Bash
+        set keyseq-timeout 69
+    $else
+        set keyseq-timeout 129
+    $endif
+$else
+    set keyseq-timeout 56
+$endif
+
+--------------------------------------------------------------------------------
+
+(source
+  (conditional_construct
+    (test
+      (term_name))
+    (consequence
+      (conditional_construct
+        (test
+          (application_name))
+        (consequence
+          (variable_setting
+            (number_variable)
+            (number_value)))
+        (alternative
+          (variable_setting
+            (number_variable)
+            (number_value)))))
+    (alternative
+      (variable_setting
+        (number_variable)
+        (number_value)))))
+
+================================================================================
+weird whitespace
+================================================================================
+
+    #wow this comment  is    spaced    
+coNTRoL-U:               "a"   
+#                           ^^^whitespaces
+  set       keyseq-timeout     0
+$if version   ==      7.0
+    set keyseq-timeout 234
+$endif
+set emacs-mode-string   
+# whitespace here    ^^^
+set keyseq-timeout             
+set editing-mode      
+set keymap      
+$include
+set show-mode-in-prompt        
+set editing-mode      emacs
+$include       
+set editing-mode vi  
+
+--------------------------------------------------------------------------------
+
+(source
+  (comment)
+  (key_binding
+    (keyname
+      (symbolic_character_name)
+      (key_literal))
+    (macro))
+  (comment)
+  (variable_setting
+    (number_variable)
+    (number_value))
+  (conditional_construct
+    (test
+      (version_number))
+    (consequence
+      (variable_setting
+        (number_variable)
+        (number_value))))
+  (variable_setting
+    (string_variable))
+  (comment)
+  (variable_setting
+    (number_variable))
+  (variable_setting
+    (edit_mode_variable))
+  (variable_setting
+    (keymap_variable))
+  (include_directive)
+  (variable_setting
+    (bool_variable))
+  (variable_setting
+    (edit_mode_variable)
+    (edit_mode_value))
+  (include_directive)
+  (variable_setting
+    (edit_mode_variable)
+    (edit_mode_value)))
+
+================================================================================
+a bit of everything
+================================================================================
+
+# vim:ft=readline
+# hello
+
+   # helloagain
+
+$include myfilenamehere.txt
+
+coNTRoL-u: "a"
+coNTRoL-U: kill-backward-word
+
+set editing-mode vi         
+set emacs-mode-string
+
+
+
+"\C-m'\"":"asdf"
+  set       keyseq-timeout     0
+
+$if version >= 7.0
+    # comment
+    $include /etc/inputrc
+$else
+    set editing-mode emacs
+    # comment
+$endif
+
+#comment
+#comment
+#comment
+
+$if Bash
+    $INCLUDE hello
+$else
+    set editing-mode emacs
+$endif
+
+
+$if version   ==      7.0
+    set keyseq-timeout 234
+$endif
+
+
+
+# vim:ft=readline
+    # hi    
+       set     editing-mode    vi    
+
+$if term=kitty
+    set editing-mode emacs
+$endif   
+
+$if editing-mode == emacs
+set show-mode-in-prompt on
+$endif
+
+set bell-style VIsibLE
+
+$If term=kitty
+    $if Bash
+        set keyseq-timeout 69
+    $else
+        set keyseq-timeout 129
+    $endif
+$ELSE
+    set KEYSEQ-TIMEOUT 56
+$enDIF
+
+--------------------------------------------------------------------------------
+
+(source
+  (comment)
+  (comment)
+  (comment)
+  (include_directive
+    (file_path))
+  (key_binding
+    (keyname
+      (symbolic_character_name)
+      (key_literal))
+    (macro))
+  (key_binding
+    (keyname
+      (symbolic_character_name)
+      (key_literal))
+    (function_name))
+  (variable_setting
+    (edit_mode_variable)
+    (edit_mode_value))
+  (variable_setting
+    (string_variable))
+  (key_binding
+    (keyseq
+      (escape_sequence)
+      (escape_sequence))
+    (macro))
+  (variable_setting
+    (number_variable)
+    (number_value))
+  (conditional_construct
+    (test
+      (version_number))
+    (consequence
+      (comment)
+      (include_directive
+        (file_path)))
+    (alternative
+      (variable_setting
+        (edit_mode_variable)
+        (edit_mode_value))
+      (comment)))
+  (comment)
+  (comment)
+  (comment)
+  (conditional_construct
+    (test
+      (application_name))
+    (consequence
+      (include_directive
+        (file_path)))
+    (alternative
+      (variable_setting
+        (edit_mode_variable)
+        (edit_mode_value))))
+  (conditional_construct
+    (test
+      (version_number))
+    (consequence
+      (variable_setting
+        (number_variable)
+        (number_value))))
+  (comment)
+  (comment)
+  (variable_setting
+    (edit_mode_variable)
+    (edit_mode_value))
+  (conditional_construct
+    (test
+      (term_name))
+    (consequence
+      (variable_setting
+        (edit_mode_variable)
+        (edit_mode_value))))
+  (conditional_construct
+    (test
+      (edit_mode_variable)
+      (edit_mode_value))
+    (consequence
+      (variable_setting
+        (bool_variable)
+        (bool_value))))
+  (variable_setting
+    (bell_variable)
+    (bell_value))
+  (conditional_construct
+    (test
+      (term_name))
+    (consequence
+      (conditional_construct
+        (test
+          (application_name))
+        (consequence
+          (variable_setting
+            (number_variable)
+            (number_value)))
+        (alternative
+          (variable_setting
+            (number_variable)
+            (number_value)))))
+    (alternative
+      (variable_setting
+        (number_variable)
+        (number_value)))))
+
+================================================================================
+fail fast
+================================================================================
+
+set editing-mode ema
+set input-meta on
+$If bell-style == visib
+    $if Bash
+        set keyseq-timeout 69
+    $else
+        set keyseq-timeout 129
+    $endif
+$ELSE
+    set KEYSEQ-TIMEOUT 56
+$enDIF
+
+--------------------------------------------------------------------------------
+
+(source
+  (variable_setting
+    (edit_mode_variable)
+    (edit_mode_value
+      (ERROR)))
+  (variable_setting
+    (bool_variable)
+    (bool_value))
+  (conditional_construct
+    (test
+      (bell_variable)
+      (bell_value
+        (ERROR)))
+    (consequence
+      (conditional_construct
+        (test
+          (application_name))
+        (consequence
+          (variable_setting
+            (number_variable)
+            (number_value)))
+        (alternative
+          (variable_setting
+            (number_variable)
+            (number_value)))))
+    (alternative
+      (variable_setting
+        (number_variable)
+        (number_value)))))

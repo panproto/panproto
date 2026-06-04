@@ -1,0 +1,179 @@
+================================================================================
+Basic each
+================================================================================
+
+each val in [1, 2, 3, 4, 5]
+  li= val
+
+tag
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (each
+    (keyword)
+    (iteration_variable
+      (javascript))
+    (keyword)
+    (iteration_iterator
+      (javascript))
+    (children
+      (tag
+        (tag_name)
+        (buffered_code
+          (javascript)))))
+  (tag
+    (tag_name)))
+
+================================================================================
+Each with key and value
+================================================================================
+
+for key, val in [1, 2, 3, 4, 5]
+  li= val
+
+tag
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (each
+    (keyword)
+    (iteration_variable
+      (javascript)
+      (javascript))
+    (keyword)
+    (iteration_iterator
+      (javascript))
+    (children
+      (tag
+        (tag_name)
+        (buffered_code
+          (javascript)))))
+  (tag
+    (tag_name)))
+
+================================================================================
+Each with object
+================================================================================
+
+each val, key in {1: 'one', 2: 'two', 3: 'three'}
+  tag
+
+tag
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (each
+    (keyword)
+    (iteration_variable
+      (javascript)
+      (javascript))
+    (keyword)
+    (iteration_iterator
+      (javascript))
+    (children
+      (tag
+        (tag_name))))
+  (tag
+    (tag_name)))
+
+================================================================================
+Each with complex iterator
+================================================================================
+
+- var values = [];
+ul
+  for val in values.length ? values : ['There are no values']
+    li= val
+
+tag
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (unbuffered_code
+    (javascript))
+  (tag
+    (tag_name)
+    (children
+      (each
+        (keyword)
+        (iteration_variable
+          (javascript))
+        (keyword)
+        (iteration_iterator
+          (javascript))
+        (children
+          (tag
+            (tag_name)
+            (buffered_code
+              (javascript)))))))
+  (tag
+    (tag_name)))
+
+================================================================================
+Complex each with else
+================================================================================
+
+- var values = [];
+ul
+  each val in values
+    li= val
+  else
+    li There are no values
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (unbuffered_code
+    (javascript))
+  (tag
+    (tag_name)
+    (children
+      (each
+        (keyword)
+        (iteration_variable
+          (javascript))
+        (keyword)
+        (iteration_iterator
+          (javascript))
+        (children
+          (tag
+            (tag_name)
+            (buffered_code
+              (javascript))))
+        (else
+          (keyword)
+          (children
+            (tag
+              (tag_name)
+              (content))))))))
+
+================================================================================
+Complex while
+================================================================================
+
+- var n = 0;
+ul
+  while n < 4
+    li= n++
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (unbuffered_code
+    (javascript))
+  (tag
+    (tag_name)
+    (children
+      (while
+        (keyword)
+        (iteration_iterator
+          (javascript))
+        (children
+          (tag
+            (tag_name)
+            (buffered_code
+              (javascript))))))))

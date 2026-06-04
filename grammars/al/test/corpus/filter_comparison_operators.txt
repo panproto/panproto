@@ -1,0 +1,175 @@
+================================================================================
+Filter with less than operator
+================================================================================
+
+table 50100 "Test Table"
+{
+    fields
+    {
+        field(1; "Quantity"; Decimal)
+        {
+            TableRelation = if (Amount = filter(< 0)) Item."No.";
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        (integer)
+        (quoted_identifier)
+        (type_specification
+          (basic_type))
+        (property
+          (property_name)
+          (table_relation_value
+            (table_relation_expression
+              (if_table_relation
+                (where_conditions
+                  (where_condition
+                    (identifier)
+                    (filter_keyword)
+                    (filter_value
+                      (integer))))
+                (simple_table_relation
+                  (identifier)
+                  (quoted_identifier))))))))))
+
+================================================================================
+Filter with greater than operator
+================================================================================
+
+table 50100 "Test Table"
+{
+    fields
+    {
+        field(1; "Amount"; Decimal)
+        {
+            TableRelation = if (Balance = filter(> 100)) Customer."No.";
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        (integer)
+        (quoted_identifier)
+        (type_specification
+          (basic_type))
+        (property
+          (property_name)
+          (table_relation_value
+            (table_relation_expression
+              (if_table_relation
+                (where_conditions
+                  (where_condition
+                    (identifier)
+                    (filter_keyword)
+                    (filter_value
+                      (integer))))
+                (simple_table_relation
+                  (identifier)
+                  (quoted_identifier))))))))))
+
+================================================================================
+Filter with less than or equal operator
+================================================================================
+
+table 50100 "Test Table"
+{
+    fields
+    {
+        field(1; "Days"; Integer)
+        {
+            TableRelation = if (Days = filter(<= 30)) "Payment Terms".Code;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        (integer)
+        (quoted_identifier)
+        (type_specification
+          (basic_type))
+        (property
+          (property_name)
+          (table_relation_value
+            (table_relation_expression
+              (if_table_relation
+                (where_conditions
+                  (where_condition
+                    (identifier)
+                    (filter_keyword)
+                    (filter_value
+                      (integer))))
+                (simple_table_relation
+                  (quoted_identifier)
+                  (identifier))))))))))
+
+================================================================================
+Filter with greater than or equal operator
+================================================================================
+
+table 50100 "Test Table"
+{
+    fields
+    {
+        field(1; "Score"; Integer)
+        {
+            TableRelation = if (Score = filter(>= 80)) "Grade".Code;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        (integer)
+        (quoted_identifier)
+        (type_specification
+          (basic_type))
+        (property
+          (property_name)
+          (table_relation_value
+            (table_relation_expression
+              (if_table_relation
+                (where_conditions
+                  (where_condition
+                    (identifier)
+                    (filter_keyword)
+                    (filter_value
+                      (integer))))
+                (simple_table_relation
+                  (quoted_identifier)
+                  (identifier))))))))))

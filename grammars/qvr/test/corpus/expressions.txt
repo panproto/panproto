@@ -1,0 +1,82 @@
+==================
+compose precedence
+==================
+
+let h = f >> g @ k
+
+---
+
+(source_file
+  (let_decl
+    name: (identifier)
+    value: (compose_expr
+      left: (expr_ident (identifier))
+      right: (tensor_expr
+        left: (expr_ident (identifier))
+        right: (expr_ident (identifier))))))
+
+==================
+combinators
+==================
+
+let layer = fan(head, tail) >> stack(deep, 4)
+let big   = repeat(transition) >> emission
+let filter = scan(cell, init=learned)
+
+---
+
+(source_file
+  (let_decl
+    name: (identifier)
+    value: (compose_expr
+      left: (fan_expr
+        args: (expr_ident (identifier))
+        args: (expr_ident (identifier)))
+      right: (stack_expr
+        inner: (expr_ident (identifier))
+        count: (integer))))
+  (let_decl
+    name: (identifier)
+    value: (compose_expr
+      left: (repeat_expr inner: (expr_ident (identifier)))
+      right: (expr_ident (identifier))))
+  (let_decl
+    name: (identifier)
+    value: (scan_expr
+      inner: (expr_ident (identifier))
+      init: (identifier))))
+
+==================
+parser invocation
+==================
+
+let g = parser(rules=[a, b], terminal=Token, start=S, depth=2)
+
+---
+
+(source_file
+  (let_decl
+    name: (identifier)
+    value: (parser_expr
+      args: (parser_arg
+        value: (ident_list (identifier) (identifier)))
+      args: (parser_arg value: (identifier))
+      args: (parser_arg value: (identifier))
+      args: (parser_arg value: (integer)))))
+
+==================
+postfix marginalize
+==================
+
+let m = f.marginalize(A, B)
+
+---
+
+(source_file
+  (let_decl
+    name: (identifier)
+    value: (postfix_expr
+      inner: (expr_ident (identifier))
+      method: (method_call
+        args: (identifier)
+        args: (identifier)))))

@@ -1,0 +1,29 @@
+===
+errors/invalidClassMethodModifier.pkl
+===
+
+class Foo {
+  open function foo() = 42
+}
+
+res1 = new Foo {}
+
+---
+
+(module
+  (clazz
+    (identifier)
+    (classBody
+      (classMethod
+        (methodHeader
+          (modifier)
+          (identifier)
+          (parameterList))
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody))))

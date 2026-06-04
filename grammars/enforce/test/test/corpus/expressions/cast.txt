@@ -1,0 +1,13 @@
+================================================================================
+cast
+================================================================================
+void foo() {
+	(int) a;
+	(Foo) a;
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method return_type: (type_void) name: (identifier) body: (block
+	(statement_expression (cast type: (type_int) value: (identifier)))
+	(statement_expression (cast type: (type_identifier (identifier)) value: (identifier))))))
+
+

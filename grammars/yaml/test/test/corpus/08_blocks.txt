@@ -1,0 +1,782 @@
+================================================================================
+Block Scalar Header
+================================================================================
+- | # Empty header
+
+ literal
+- >1 # Indentation indicator
+
+  folded
+- |+ # Chomping indicator
+
+ keep
+
+- >1- # Both indicators
+
+  strip
+
+
+--------------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_sequence
+        (block_sequence_item
+          (block_node
+            (block_scalar
+              (comment))))
+        (block_sequence_item
+          (block_node
+            (block_scalar
+              (comment))))
+        (block_sequence_item
+          (block_node
+            (block_scalar
+              (comment))))
+        (block_sequence_item
+          (block_node
+            (block_scalar
+              (comment))))))))
+
+================================================================================
+Block Indentation Indicator
+================================================================================
+- |
+ detected
+- >
+
+
+  # detected
+- |1
+  explicit
+- >
+
+ detected
+
+--------------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_sequence
+        (block_sequence_item
+          (block_node
+            (block_scalar)))
+        (block_sequence_item
+          (block_node
+            (block_scalar)))
+        (block_sequence_item
+          (block_node
+            (block_scalar)))
+        (block_sequence_item
+          (block_node
+            (block_scalar)))))))
+
+================================================================================
+Chomping Final Line Break
+================================================================================
+strip: |-
+  text
+
+clip: |
+  text
+
+keep: |+
+  text
+
+
+--------------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_mapping
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (block_node
+            (block_scalar)))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (block_node
+            (block_scalar)))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (block_node
+            (block_scalar)))))))
+
+================================================================================
+Chomping Trailing Lines
+================================================================================
+ # Strip
+  # Comments:
+strip: |-
+  # text
+
+  ⇓
+ # Clip
+  # comments:
+
+
+clip: |
+  # text
+
+
+
+ # Keep
+  # comments:
+
+
+keep: |+
+  # text
+
+
+
+ # Trail
+  # comments.
+
+--------------------------------------------------------------------------------
+
+(stream
+  (comment)
+  (comment)
+  (document
+    (block_node
+      (block_mapping
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (block_node
+            (block_scalar)))
+        (comment)
+        (comment)
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (block_node
+            (block_scalar)))
+        (comment)
+        (comment)
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (block_node
+            (block_scalar)))
+        (comment)
+        (comment)))))
+
+================================================================================
+Empty Scalar Chomping
+================================================================================
+strip: >-
+
+
+clip: >
+
+
+keep: |+
+
+
+
+--------------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_mapping
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (block_node
+            (block_scalar)))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (block_node
+            (block_scalar)))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (block_node
+            (block_scalar)))))))
+
+================================================================================
+Literal Scalar
+================================================================================
+|
+
+ literal
+
+ 	text
+
+
+
+
+--------------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_scalar))))
+
+================================================================================
+Literal Content
+================================================================================
+|
+
+
+  literal
+
+
+
+
+  text
+
+
+
+ # Comment
+
+--------------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_scalar)))
+  (comment))
+
+================================================================================
+Folded Scalar
+================================================================================
+>
+
+ folded
+
+ text
+
+
+
+
+--------------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_scalar))))
+
+================================================================================
+Folded Lines
+================================================================================
+>
+
+ folded
+
+ line
+
+
+
+ next
+ line
+
+   * bullet
+
+   * list
+   * lines
+
+ last
+
+ line
+
+
+# Comment
+
+--------------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_scalar)))
+  (comment))
+
+================================================================================
+More Indented Lines
+================================================================================
+>
+
+ folded
+ line
+
+ next
+ line
+   * bullet
+
+
+
+   * list
+
+   * lines
+
+
+ last
+ line
+
+# Comment
+
+--------------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_scalar)))
+  (comment))
+
+================================================================================
+Empty Separation Lines
+================================================================================
+>
+
+
+ folded
+ line
+
+
+
+ next
+ line
+
+   * bullet
+
+   * list
+   * line
+
+
+
+ last
+ line
+
+# Comment
+
+--------------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_scalar)))
+  (comment))
+
+================================================================================
+Final Empty Lines
+================================================================================
+>
+ folded
+ line
+
+ next
+ line
+   * bullet
+
+   * list
+   * line
+
+ last
+ line
+
+
+
+# Comment
+
+--------------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_scalar)))
+  (comment))
+
+================================================================================
+Block Sequence
+================================================================================
+block sequence:
+  - one
+
+  - two : three
+
+
+--------------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_mapping
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (block_node
+            (block_sequence
+              (block_sequence_item
+                (flow_node
+                  (plain_scalar
+                    (string_scalar))))
+              (block_sequence_item
+                (block_node
+                  (block_mapping
+                    (block_mapping_pair
+                      (flow_node
+                        (plain_scalar
+                          (string_scalar)))
+                      (flow_node
+                        (plain_scalar
+                          (string_scalar))))))))))))))
+
+================================================================================
+Block Sequence Entry Types
+================================================================================
+- # Empty
+- |
+ block node
+- - one # Compact
+  - two # sequence
+- one: two # Compact mapping
+
+--------------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_sequence
+        (block_sequence_item)
+        (comment)
+        (block_sequence_item
+          (block_node
+            (block_scalar)))
+        (block_sequence_item
+          (block_node
+            (block_sequence
+              (block_sequence_item
+                (flow_node
+                  (plain_scalar
+                    (string_scalar))))
+              (comment)
+              (block_sequence_item
+                (flow_node
+                  (plain_scalar
+                    (string_scalar))))
+              (comment))))
+        (block_sequence_item
+          (block_node
+            (block_mapping
+              (block_mapping_pair
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))
+                (flow_node
+                  (plain_scalar
+                    (string_scalar))))
+              (comment))))))))
+
+================================================================================
+Block Mappings
+================================================================================
+block mapping:
+ key: value
+
+
+--------------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_mapping
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (block_node
+            (block_mapping
+              (block_mapping_pair
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))))))))))
+
+================================================================================
+Explicit Block Mapping Entries
+================================================================================
+? explicit key # Empty value
+
+? |
+  block key
+
+: - one # Explicit compact
+  - two # block value
+
+
+--------------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_mapping
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar))))
+        (comment)
+        (block_mapping_pair
+          (block_node
+            (block_scalar))
+          (block_node
+            (block_sequence
+              (block_sequence_item
+                (flow_node
+                  (plain_scalar
+                    (string_scalar))))
+              (comment)
+              (block_sequence_item
+                (flow_node
+                  (plain_scalar
+                    (string_scalar))))
+              (comment))))))))
+
+================================================================================
+Implicit Block Mapping Entries
+================================================================================
+plain key: in-line value
+: # Both empty
+"quoted key":
+- entry
+
+--------------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_mapping
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (flow_node
+            (plain_scalar
+              (string_scalar))))
+        (block_mapping_pair)
+        (comment)
+        (block_mapping_pair
+          (flow_node
+            (double_quote_scalar))
+          (block_node
+            (block_sequence
+              (block_sequence_item
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))))))))))
+
+================================================================================
+Compact Block Mappings
+================================================================================
+- sun: yellow
+
+- ? earth: blue
+
+  : moon: white
+
+
+--------------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_sequence
+        (block_sequence_item
+          (block_node
+            (block_mapping
+              (block_mapping_pair
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))))))
+        (block_sequence_item
+          (block_node
+            (block_mapping
+              (block_mapping_pair
+                (block_node
+                  (block_mapping
+                    (block_mapping_pair
+                      (flow_node
+                        (plain_scalar
+                          (string_scalar)))
+                      (flow_node
+                        (plain_scalar
+                          (string_scalar))))))
+                (block_node
+                  (block_mapping
+                    (block_mapping_pair
+                      (flow_node
+                        (plain_scalar
+                          (string_scalar)))
+                      (flow_node
+                        (plain_scalar
+                          (string_scalar))))))))))))))
+
+================================================================================
+Block Node Types
+================================================================================
+-
+
+  "flow in block"
+
+- >
+ Block scalar
+
+- !!map # Block collection
+  foo : bar
+
+
+--------------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_sequence
+        (block_sequence_item
+          (flow_node
+            (double_quote_scalar)))
+        (block_sequence_item
+          (block_node
+            (block_scalar)))
+        (block_sequence_item
+          (block_node
+            (tag)
+            (comment)
+            (block_mapping
+              (block_mapping_pair
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))))))))))
+
+================================================================================
+Block Scalar Nodes
+================================================================================
+literal: |2
+  value
+folded:
+
+   !foo
+  >1
+ value
+
+--------------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_mapping
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (block_node
+            (block_scalar)))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (block_node
+            (tag)
+            (block_scalar)))))))
+
+================================================================================
+Block Collection Nodes
+================================================================================
+sequence: !!seq
+- entry
+- !!seq
+ - nested
+mapping: !!map
+ foo: bar
+
+--------------------------------------------------------------------------------
+
+(stream
+  (document
+    (block_node
+      (block_mapping
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (block_node
+            (tag)
+            (block_sequence
+              (block_sequence_item
+                (flow_node
+                  (plain_scalar
+                    (string_scalar))))
+              (block_sequence_item
+                (block_node
+                  (tag)
+                  (block_sequence
+                    (block_sequence_item
+                      (flow_node
+                        (plain_scalar
+                          (string_scalar))))))))))
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (block_node
+            (tag)
+            (block_mapping
+              (block_mapping_pair
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))))))))))
+
+================================================================================
+Long string scalar (> SCHAR_MAX in length)
+================================================================================
+
+long:
+  abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef1234567890!@#$%^&*()_+{}|:"<>?`-=[]\;',./almostat128chars!:
+    {}
+
+---
+
+(stream
+  (document
+    (block_node
+      (block_mapping
+        (block_mapping_pair
+          (flow_node
+            (plain_scalar
+              (string_scalar)))
+          (block_node
+            (block_mapping
+              (block_mapping_pair
+                (flow_node
+                  (plain_scalar
+                    (string_scalar)))
+                (flow_node
+                  (flow_mapping))))))))))

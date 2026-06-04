@@ -1,0 +1,24 @@
+==================
+Flags
+==================
+
+interface foo {
+    flags permissions {
+        read,
+        write,
+        exec,
+    }
+}
+
+---
+
+(source_file
+  (interface_item
+    (id)
+    (body
+      (flags_items
+        (id)
+        (body
+          (flags_field)
+          (flags_field)
+          (flags_field))))))

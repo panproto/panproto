@@ -1,0 +1,41 @@
+===
+objectMemberPredicate
+===
+
+foo {
+  [[fuzz == 15]] {
+    foo = 1
+  }
+
+  [[fuzz == 15]] = 15
+
+  [[foo[bar]]] = true
+}
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (memberPredicate
+        (equalityExpr
+          (unqualifiedAccessExpr
+            (identifier))
+          (intLiteralExpr))
+        (objectBody
+          (objectProperty
+            (identifier)
+            (intLiteralExpr))))
+      (memberPredicate
+        (equalityExpr
+          (unqualifiedAccessExpr
+            (identifier))
+          (intLiteralExpr))
+        (intLiteralExpr))
+      (memberPredicate
+        (subscriptExpr
+          (unqualifiedAccessExpr
+            (identifier))
+          (unqualifiedAccessExpr
+            (identifier)))
+        (trueLiteralExpr)))))

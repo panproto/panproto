@@ -1,0 +1,152 @@
+============================================
+when
+============================================
+
+circuit top_mod :
+  module top_mod :
+    when c1 : y <= b
+    a <= b
+
+----
+
+(source_file
+  (circuit
+	(identifier)
+	(module
+	  (identifier)
+	  (when
+		(identifier)
+		(suite
+		  (connection
+			(identifier)
+			(identifier))))
+	  (connection
+		(identifier)
+		(identifier)))))
+
+============================================
+when /
+============================================
+
+circuit top_mod :
+  module top_mod :
+    when c1 :
+      y <= b
+      z <= b
+    a <= b
+
+----
+
+(source_file
+  (circuit
+    (identifier)
+    (module
+      (identifier)
+      (when
+        (identifier)
+        (suite
+          (connection
+            (identifier)
+            (identifier))
+          (connection
+            (identifier)
+            (identifier))))
+      (connection
+        (identifier)
+        (identifier)))))
+
+============================================
+when else
+============================================
+
+circuit top_mod :
+  module top_mod :
+    when c1 : y <= b else : y <= c
+    a <= b
+
+----
+
+(source_file
+  (circuit
+    (identifier)
+    (module
+      (identifier)
+      (when
+        (identifier)
+        (suite
+          (connection
+            (identifier)
+            (identifier)))
+        (else
+          (suite
+            (connection
+              (identifier)
+              (identifier)))))
+      (connection
+        (identifier)
+        (identifier)))))
+
+============================================
+when / else /
+============================================
+
+circuit top_mod :
+  module top_mod :
+    when c1 :
+      y <= b
+    else :
+      y <= c
+    a <= b
+
+----
+
+(source_file
+  (circuit
+    (identifier)
+    (module
+      (identifier)
+      (when
+        (identifier)
+        (suite
+          (connection
+            (identifier)
+            (identifier)))
+        (else
+          (suite
+            (connection
+              (identifier)
+              (identifier)))))
+      (connection
+        (identifier)
+        (identifier)))))
+
+============================================
+when / else when
+============================================
+
+circuit top_mod :
+  module top_mod :
+    when c1 :
+      y <= b
+    else when c2 :
+      y <= c
+----
+
+(source_file
+  (circuit
+    (identifier)
+    (module
+      (identifier)
+      (when
+        (identifier)
+        (suite
+          (connection
+            (identifier)
+            (identifier)))
+        (else
+          (when
+            (identifier)
+            (suite
+              (connection
+                (identifier)
+                (identifier)))))))))

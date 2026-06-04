@@ -1,0 +1,68 @@
+==================
+Page Properties Phase 2A - Boolean Properties
+==================
+
+page 50003 "Test Page Phase 2A"
+{
+    PageType = Card;
+    SourceTable = Customer;
+    AnalysisModeEnabled = true;
+    AutoSplitKey = false;
+    ChangeTrackingAllowed = true;
+    DelayedInsert = false;
+    LinksAllowed = true;
+    MultipleNewLines = false;
+    PopulateAllFields = true;
+
+    layout
+    {
+        area(content)
+        {
+            field(Name; Rec.Name) { }
+        }
+    }
+}
+
+---
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (identifier)))))))

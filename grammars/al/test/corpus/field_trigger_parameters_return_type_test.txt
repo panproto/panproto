@@ -1,0 +1,329 @@
+================================================================================
+Field trigger with parameters and return type - OnLookup with semicolon
+================================================================================
+
+page 50000 "Test Page"
+{
+    layout
+    {
+        area(Content)
+        {
+            field(TestField; TestField)
+            {
+                ApplicationArea = All;
+                trigger OnLookup(var Text: Text): Boolean;
+                begin
+                    EXIT(true);
+                end;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    (integer)
+    (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          (identifier)
+          (identifier)
+          (property
+            (property_name)
+            (identifier))
+          (trigger_declaration
+            (trigger_keyword)
+            (identifier)
+            (parameter_list
+              (parameter
+                (var_keyword)
+                (identifier)
+                (type_specification
+                  (text_type))))
+            (type_specification
+              (basic_type))
+            (code_block
+              (begin_keyword)
+              (exit_statement
+                (exit_keyword)
+                (boolean))
+              (end_keyword))))))))
+
+================================================================================
+Field trigger with parameters and return type - OnLookup without semicolon
+================================================================================
+
+page 50001 "Test Page 2"
+{
+    layout
+    {
+        area(Content)
+        {
+            field(TestField2; TestField2)
+            {
+                ApplicationArea = All;
+                trigger OnLookup(var Text: Text): Boolean
+                begin
+                    EXIT(false);
+                end;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    (integer)
+    (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          (identifier)
+          (identifier)
+          (property
+            (property_name)
+            (identifier))
+          (trigger_declaration
+            (trigger_keyword)
+            (identifier)
+            (parameter_list
+              (parameter
+                (var_keyword)
+                (identifier)
+                (type_specification
+                  (text_type))))
+            (type_specification
+              (basic_type))
+            (code_block
+              (begin_keyword)
+              (exit_statement
+                (exit_keyword)
+                (boolean))
+              (end_keyword))))))))
+
+================================================================================
+Field trigger with multiple parameters and return type
+================================================================================
+
+page 50002 "Test Page 3"
+{
+    layout
+    {
+        area(Content)
+        {
+            field(TestField3; TestField3)
+            {
+                ApplicationArea = All;
+                trigger OnAssistEdit(var Rec: Record "Test Table"; var xRec: Record "Test Table"): Boolean;
+                var
+                    LocalVar: Text[50];
+                begin
+                    LocalVar := 'Test';
+                    EXIT(true);
+                end;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    (integer)
+    (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          (identifier)
+          (identifier)
+          (property
+            (property_name)
+            (identifier))
+          (trigger_declaration
+            (trigger_keyword)
+            (identifier)
+            (parameter_list
+              (parameter
+                (var_keyword)
+                (identifier)
+                (type_specification
+                  (record_type
+                    (quoted_identifier))))
+              (parameter
+                (var_keyword)
+                (identifier)
+                (type_specification
+                  (record_type
+                    (quoted_identifier)))))
+            (type_specification
+              (basic_type))
+            (var_section
+              (var_keyword)
+              (variable_declaration
+                (identifier)
+                (type_specification
+                  (text_type
+                    (integer)))))
+            (code_block
+              (begin_keyword)
+              (assignment_statement
+                (identifier)
+                (string_literal))
+              (exit_statement
+                (exit_keyword)
+                (boolean))
+              (end_keyword))))))))
+
+================================================================================
+Field trigger without parameters but with return type
+================================================================================
+
+page 50003 "Test Page 4"
+{
+    layout
+    {
+        area(Content)
+        {
+            field(TestField4; TestField4)
+            {
+                ApplicationArea = All;
+                trigger OnValidate(): Boolean;
+                begin
+                    EXIT(true);
+                end;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    (integer)
+    (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          (identifier)
+          (identifier)
+          (property
+            (property_name)
+            (identifier))
+          (trigger_declaration
+            (trigger_keyword)
+            (identifier)
+            (type_specification
+              (basic_type))
+            (code_block
+              (begin_keyword)
+              (exit_statement
+                (exit_keyword)
+                (boolean))
+              (end_keyword))))))))
+
+================================================================================
+Field trigger compatibility with basic triggers
+================================================================================
+
+page 50004 "Test Page 5"
+{
+    layout
+    {
+        area(Content)
+        {
+            field(TestField5; TestField5)
+            {
+                ApplicationArea = All;
+                
+                trigger OnValidate()
+                begin
+                    Message('Basic trigger');
+                end;
+                
+                trigger OnLookup(var Text: Text): Boolean;
+                begin
+                    EXIT(true);
+                end;
+                
+                trigger OnDrillDown();
+                begin
+                    Message('Another basic trigger');
+                end;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    (integer)
+    (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          (identifier)
+          (identifier)
+          (property
+            (property_name)
+            (identifier))
+          (trigger_declaration
+            (trigger_keyword)
+            (identifier)
+            (code_block
+              (begin_keyword)
+              (call_expression
+                (identifier)
+                (argument_list
+                  (string_literal)))
+              (end_keyword)))
+          (trigger_declaration
+            (trigger_keyword)
+            (identifier)
+            (parameter_list
+              (parameter
+                (var_keyword)
+                (identifier)
+                (type_specification
+                  (text_type))))
+            (type_specification
+              (basic_type))
+            (code_block
+              (begin_keyword)
+              (exit_statement
+                (exit_keyword)
+                (boolean))
+              (end_keyword)))
+          (trigger_declaration
+            (trigger_keyword)
+            (identifier)
+            (code_block
+              (begin_keyword)
+              (call_expression
+                (identifier)
+                (argument_list
+                  (string_literal)))
+              (end_keyword))))))))

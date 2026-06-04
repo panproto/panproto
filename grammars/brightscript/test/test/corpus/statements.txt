@@ -1,0 +1,190 @@
+==================
+Print statement without params
+==================
+
+sub x()
+    print("hi")
+end sub
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (print_statement
+        (print)
+        (prefix_exp
+          (left_paren)
+          (literal
+            (string
+              (string_contents)))
+          (right_paren))))
+    (end_statement
+      (end_sub))))
+
+==================
+Print statements with params
+==================
+
+sub x(y as string)
+    print(y)
+end sub
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list
+      (parameter
+        (identifier)
+        (type_specifier
+          (as))))
+    (block
+      (print_statement
+        (print)
+        (prefix_exp
+          (left_paren)
+          (prefix_exp
+            (identifier))
+          (right_paren))))
+    (end_statement
+      (end_sub))))
+
+==================
+Print statements with comma sep params
+==================
+
+sub x(y as string, x as string)
+    print(x)
+end sub
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list
+      (parameter
+        (identifier)
+        (type_specifier
+          (as)))
+      (parameter
+        (identifier)
+        (type_specifier
+          (as))))
+    (block
+      (print_statement
+        (print)
+        (prefix_exp
+          (left_paren)
+          (prefix_exp
+            (identifier))
+          (right_paren))))
+    (end_statement
+      (end_sub))))
+
+==================
+function return type string
+==================
+
+function x() as string
+    return "hi"
+end function
+---
+
+(source_file
+  (function_statement
+    (function_start)
+    (identifier)
+    (parameter_list)
+    (return_type
+      (type_specifier
+        (as)))
+    (block
+      (return_statement
+        (return)
+        (literal
+          (string
+            (string_contents)))))
+    (end_statement
+      (end_function))))
+
+==================
+Library definition
+==================
+Library "Roku_Ads.brs"
+
+sub x()
+    print("hi")
+end sub
+---
+
+(source_file
+  (library_statement
+    (string
+      (string_contents)))
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (print_statement
+        (print)
+        (prefix_exp
+          (left_paren)
+          (literal
+            (string
+              (string_contents)))
+          (right_paren))))
+    (end_statement
+      (end_sub))))
+
+====================
+invalid return statement
+====================
+function x() as object
+    return invalid
+end function
+---
+
+(source_file
+  (function_statement
+    (function_start)
+    (identifier)
+    (parameter_list)
+    (return_type
+      (type_specifier
+        (as)))
+    (block
+      (return_statement
+        (return)
+        (literal
+          (invalid))))
+    (end_statement
+      (end_function))))
+
+==================
+Print statement as shortcut
+==================
+
+sub x()
+    ?"hi"
+end sub
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (print_statement
+        (print)
+        (literal
+          (string
+            (string_contents)))))
+    (end_statement
+      (end_sub))))

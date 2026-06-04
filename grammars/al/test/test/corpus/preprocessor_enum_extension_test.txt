@@ -1,0 +1,62 @@
+================================================================================
+Preprocessor conditionals in enum extensions
+================================================================================
+
+enumextension 50100 "Payment Method Type Ext" extends "Payment Method Type"
+{
+#if CLEAN24
+    value(50100; "Digital Wallet")
+    {
+        Caption = 'Digital Wallet';
+    }
+#else
+    value(50100; "Electronic Payment")
+    {
+        Caption = 'Electronic Payment';
+    }
+#endif
+
+#region NewPaymentTypes
+    value(50101; "Cryptocurrency")
+    {
+        Caption = 'Cryptocurrency';
+    }
+#endregion
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (enumextension_declaration
+    (enumextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)
+    (preproc_conditional
+      (preproc_if
+        (preproc_open)
+        condition: (identifier))
+      (enum_value_declaration
+        value_id: (integer)
+        value_name: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (string_literal)))
+      (preproc_else)
+      (enum_value_declaration
+        value_id: (integer)
+        value_name: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (string_literal)))
+      (preproc_endif
+        (preproc_close)))
+    (preproc_region)
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (quoted_identifier)
+      (property
+        name: (property_name)
+        value: (string_literal)))
+    (preproc_endregion)))

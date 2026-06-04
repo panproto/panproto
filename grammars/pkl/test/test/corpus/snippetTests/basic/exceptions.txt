@@ -1,0 +1,18 @@
+===
+basic/exceptions.pkl
+===
+
+foo {
+  bar = throw("Something went wrong")
+}
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (throwExpr
+          (slStringLiteralExpr
+            (slStringLiteralPart)))))))

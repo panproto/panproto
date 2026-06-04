@@ -1,0 +1,19 @@
+===
+errors/cannotAssignFixedProperty2.pkl
+===
+
+amends "../basic/fixedProperty1.pkl"
+
+res1 = "bye"
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (classProperty
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart))))

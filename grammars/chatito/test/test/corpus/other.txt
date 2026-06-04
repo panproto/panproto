@@ -1,0 +1,91 @@
+================================================================================
+Importing
+================================================================================
+
+# file main.chatito
+import ./slot1.chatito
+
+%[some intent]
+    ~[word] @[slot1]
+
+--------------------------------------------------------------------------------
+
+(source
+  (comment)
+  (import
+    (file))
+  (intent_def
+    (intent)
+    (intent_body
+      (alias_ref
+        (alias))
+      (slot_ref
+        (slot)))))
+
+================================================================================
+Percentage probability
+================================================================================
+
+%[intent with a maximum of 1k combinations]
+    *[20%] first sentence ~[100 maximum combinations]
+    second sentence ~[50 maximum combinations] multiplied by ~[10 maximum combinations]
+    third sentence ~[400 maximum combinations]
+
+--------------------------------------------------------------------------------
+
+(source
+  (intent_def
+    (intent)
+    (intent_body
+      (probability
+        (number))
+      (word)
+      (word)
+      (alias_ref
+        (alias))
+      (word)
+      (word)
+      (alias_ref
+        (alias))
+      (word)
+      (word)
+      (alias_ref
+        (alias))
+      (word)
+      (word)
+      (alias_ref
+        (alias)))))
+
+================================================================================
+Weighted probability
+================================================================================
+
+%[intent with a maximum of 1k combinations]
+    *[2] first sentence ~[100 maximum combinations]
+    second sentence ~[50 maximum combinations] multiplied by ~[10 maximum combinations]
+    third sentence ~[400 maximum combinations]
+
+--------------------------------------------------------------------------------
+
+(source
+  (intent_def
+    (intent)
+    (intent_body
+      (probability
+        (number))
+      (word)
+      (word)
+      (alias_ref
+        (alias))
+      (word)
+      (word)
+      (alias_ref
+        (alias))
+      (word)
+      (word)
+      (alias_ref
+        (alias))
+      (word)
+      (word)
+      (alias_ref
+        (alias)))))

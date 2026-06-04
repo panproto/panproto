@@ -1,0 +1,120 @@
+================================================================================
+If Statement - simple
+================================================================================
+
+if true
+end
+
+if true; end
+
+if [ '1' = '1' ]
+end
+if [ [ = ] ]
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (if_statement
+    condition: (command
+      name: (word)))
+  (if_statement
+    condition: (command
+      name: (word)))
+  (if_statement
+    condition: (command
+      name: (word)
+      argument: (single_quote_string)
+      argument: (word)
+      argument: (single_quote_string)
+      argument: (word)))
+  (if_statement
+    condition: (command
+      name: (word)
+      argument: (word)
+      argument: (word)
+      argument: (word)
+      argument: (word))))
+
+================================================================================
+If Statement - else
+================================================================================
+
+if true
+else
+end
+
+if true; else; end
+
+if true;
+else
+    begin; end
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (if_statement
+    condition: (command
+      name: (word))
+    (else_clause))
+  (if_statement
+    condition: (command
+      name: (word))
+    (else_clause))
+  (if_statement
+    condition: (command
+      name: (word))
+    (else_clause
+      (begin_statement))))
+
+================================================================================
+If Statement - else if
+================================================================================
+
+if true
+else if true
+end
+
+if false; else if true; end
+
+if false
+else if false
+else if true
+else
+end
+
+if false; else if false; else; end
+
+--------------------------------------------------------------------------------
+
+(program
+  (if_statement
+    condition: (command
+      name: (word))
+    (else_if_clause
+      condition: (command
+        name: (word))))
+  (if_statement
+    condition: (command
+      name: (word))
+    (else_if_clause
+      condition: (command
+        name: (word))))
+  (if_statement
+    condition: (command
+      name: (word))
+    (else_if_clause
+      condition: (command
+        name: (word)))
+    (else_if_clause
+      condition: (command
+        name: (word)))
+    (else_clause))
+  (if_statement
+    condition: (command
+      name: (word))
+    (else_if_clause
+      condition: (command
+        name: (word)))
+    (else_clause)))

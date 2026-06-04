@@ -1,0 +1,97 @@
+================================================================================
+Standalone semicolons in table properties
+================================================================================
+
+table 50000 "Test Table"
+{
+    Caption = 'Test Table';
+    DataPerCompany = true;
+    ; // Standalone semicolon
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (empty_statement)
+    (comment)))
+
+================================================================================
+Standalone semicolons in field properties
+================================================================================
+
+table 50001 "Test Table 2"
+{
+    fields
+    {
+        field(1; Code; Code[20])
+        {
+            Caption = 'Code';
+            ;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (code_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (empty_statement)))))
+
+================================================================================
+Standalone semicolons in key properties
+================================================================================
+
+table 50002 "Test Table 3"
+{
+    keys
+    {
+        key(PK; Code)
+        {
+            Clustered = true;
+            ;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (keys_section
+      (keys_keyword)
+      (key_declaration
+        (key_keyword)
+        name: (identifier)
+        fields: (field_list
+          (identifier))
+        (property
+          name: (property_name)
+          value: (boolean))
+        (empty_statement)))))

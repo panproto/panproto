@@ -1,0 +1,230 @@
+================================================================================
+Preprocessor conditionals in action properties
+================================================================================
+
+page 42 "Sales Order"
+{
+    actions
+    {
+        area(processing)
+        {
+            action(Statistics)
+            {
+                ApplicationArea = Basic, Suite;
+                Caption = 'Statistics';
+                Enabled = Rec."No." <> '';
+                Image = Statistics;
+                ShortCutKey = 'F7';
+#if CLEAN26
+                Visible = true;
+#else
+                Visible = false;
+#endif
+                ToolTip = 'View statistical information, such as the value of posted entries, for the record.';
+                RunObject = Page "Sales Order Statistics";
+                RunPageOnRec = true;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (option_member_list
+              (option_member
+                (identifier))
+              (option_member
+                (identifier))))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (property_expression
+              (comparison_expression
+                left: (member_expression
+                  object: (identifier)
+                  member: (quoted_identifier))
+                operator: (comparison_operator)
+                right: (string_literal))))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (preproc_conditional
+            (preproc_if
+              (preproc_open)
+              condition: (identifier))
+            (property
+              name: (property_name)
+              value: (boolean))
+            (preproc_else)
+            (property
+              name: (property_name)
+              value: (boolean))
+            (preproc_endif
+              (preproc_close)))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (object_reference_value
+              (page_keyword)
+              (quoted_identifier)))
+          (property
+            name: (property_name)
+            value: (boolean)))))))
+
+================================================================================
+Area processing in layout section
+================================================================================
+
+page 50100 "Test Page"
+{
+    layout
+    {
+        area(content)
+        {
+            field(No; Rec."No.")
+            {
+                ApplicationArea = All;
+            }
+        }
+        area(processing)
+        {
+            field(Test; Test)
+            {
+                ApplicationArea = All;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (quoted_identifier))
+          (property
+            name: (property_name)
+            value: (identifier))))
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))))))
+
+================================================================================
+Multiple preprocessor blocks in action
+================================================================================
+
+page 50101 "Order Page"
+{
+    actions
+    {
+        area(navigation)
+        {
+            action(TestAction)
+            {
+                ApplicationArea = All;
+#if CLEAN25
+                Caption = 'New Caption';
+#else
+                Caption = 'Old Caption';
+#endif
+                
+#if CLEAN26
+                Visible = true;
+                Enabled = true;
+#else
+                Visible = false;
+                Enabled = false;
+#endif
+                
+                ToolTip = 'Test action with multiple preprocessor blocks';
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (preproc_conditional
+            (preproc_if
+              (preproc_open)
+              condition: (identifier))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (preproc_else)
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (preproc_endif
+              (preproc_close)))
+          (preproc_conditional
+            (preproc_if
+              (preproc_open)
+              condition: (identifier))
+            (property
+              name: (property_name)
+              value: (boolean))
+            (property
+              name: (property_name)
+              value: (boolean))
+            (preproc_else)
+            (property
+              name: (property_name)
+              value: (boolean))
+            (property
+              name: (property_name)
+              value: (boolean))
+            (preproc_endif
+              (preproc_close)))
+          (property
+            name: (property_name)
+            value: (string_literal)))))))

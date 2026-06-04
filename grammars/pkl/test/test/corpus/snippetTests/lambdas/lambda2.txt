@@ -1,0 +1,78 @@
+===
+lambdas/lambda2.pkl
+===
+
+x = 2
+
+local addX = (y) -> y + x
+
+res1 = addX.apply(3)
+
+local a {
+  b = 2
+  c {
+    mulB = (x) -> x * b
+  }
+}
+
+res2 = a.c.mulB.apply(3)
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (intLiteralExpr))
+  (classProperty
+    (modifier)
+    (identifier)
+    (functionLiteralExpr
+      (parameterList
+        (typedIdentifier
+          (identifier)))
+      (additiveExpr
+        (unqualifiedAccessExpr
+          (identifier))
+        (unqualifiedAccessExpr
+          (identifier)))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (intLiteralExpr))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (intLiteralExpr))
+      (objectProperty
+        (identifier)
+        (objectBody
+          (objectProperty
+            (identifier)
+            (functionLiteralExpr
+              (parameterList
+                (typedIdentifier
+                  (identifier)))
+              (multiplicativeExpr
+                (unqualifiedAccessExpr
+                  (identifier))
+                (unqualifiedAccessExpr
+                  (identifier)))))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (qualifiedAccessExpr
+        (qualifiedAccessExpr
+          (unqualifiedAccessExpr
+            (identifier))
+          (identifier))
+        (identifier))
+      (identifier)
+      (argumentList
+        (intLiteralExpr)))))

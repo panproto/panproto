@@ -1,0 +1,101 @@
+===================================
+Basic Exit Statement Patterns
+===================================
+
+codeunit 50200 "Exit Statements Test"
+{
+    procedure SimpleExit()
+    begin
+        exit; // Simple exit without parameters
+    end;
+
+    procedure ExitWithLiteral(): Integer
+    begin
+        exit(42); // Exit with a literal value
+    end;
+
+    procedure ExitWithVariable(): Integer
+    var
+        Value: Integer;
+    begin
+        Value := 100;
+        exit(Value); // Exit with a variable
+    end;
+
+    procedure ExitWithRecord(): Record Customer
+    var
+        Customer: Record Customer;
+    begin
+        exit(Customer); // Exit with a record
+    end;
+}
+
+---
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (exit_statement
+          (exit_keyword))
+        (comment)
+        (end_keyword)))
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (type_specification
+        (basic_type))
+      (code_block
+        (begin_keyword)
+        (exit_statement
+          (exit_keyword)
+          (integer))
+        (comment)
+        (end_keyword)))
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (type_specification
+        (basic_type))
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          (identifier)
+          (integer))
+        (exit_statement
+          (exit_keyword)
+          (identifier))
+        (comment)
+        (end_keyword)))
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (type_specification
+        (record_type
+          (identifier)))
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (record_type
+              (identifier)))))
+      (code_block
+        (begin_keyword)
+        (exit_statement
+          (exit_keyword)
+          (identifier))
+        (comment)
+        (end_keyword)))))

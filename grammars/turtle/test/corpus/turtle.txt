@@ -1,0 +1,576 @@
+===============
+Simple triples
+===============
+
+<http://example.org/#spiderman> <http://www.perceive.net/schemas/relationship/enemyOf> <http://example.org/#green-goblin> .
+
+---
+
+(document
+  (triple
+    (subject
+      (iri_reference))
+    (property_list
+      (property
+        (predicate
+          (iri_reference))
+        (object_list
+          (iri_reference))))))
+
+================
+Predicate lists
+================
+
+<http://example.org/#spiderman> <http://www.perceive.net/schemas/relationship/enemyOf> <http://example.org/#green-goblin> ;
+                                <http://xmlns.com/foaf/0.1/name> "Spiderman" .
+
+---
+
+(document
+  (triple
+    (subject
+      (iri_reference))
+    (property_list
+      (property
+        (predicate
+          (iri_reference))
+        (object_list
+          (iri_reference)))
+      (property
+        (predicate
+          (iri_reference))
+        (object_list
+          (rdf_literal
+            (string)))))))
+
+=============
+Object lists
+=============
+
+<http://example.org/#spiderman> <http://xmlns.com/foaf/0.1/name> "Spiderman", "Человек-паук"@ru .
+
+---
+
+(document
+  (triple
+    (subject
+      (iri_reference))
+    (property_list
+      (property
+        (predicate
+          (iri_reference))
+        (object_list
+          (rdf_literal
+            (string))
+          (rdf_literal
+            (string)
+            (lang_tag)))))))
+
+=============
+Absolute iri
+=============
+
+<http://one.example/subject1> <http://one.example/predicate1> <http://one.example/object1> .
+
+---
+
+(document
+  (triple
+    (subject
+      (iri_reference))
+    (property_list
+      (property
+        (predicate
+          (iri_reference))
+        (object_list
+          (iri_reference))))))
+
+============
+Relative iri
+============
+
+<subject2> <predicate2> <object2> .
+
+---
+
+(document
+  (triple
+    (subject
+      (iri_reference))
+    (property_list
+      (property
+        (predicate
+          (iri_reference))
+        (object_list
+          (iri_reference))))))
+
+==============
+Prefixed name
+==============
+
+p:subject3 p:predicate3 p:object3 .
+
+---
+
+(document
+  (triple
+    (subject
+      (prefixed_name
+        (namespace
+          (pn_prefix))
+        (pn_local)))
+    (property_list
+      (property
+        (predicate
+          (prefixed_name
+            (namespace
+              (pn_prefix))
+            (pn_local)))
+        (object_list
+          (prefixed_name
+            (namespace
+              (pn_prefix))
+            (pn_local)))))))
+
+=============
+Empty prefix
+=============
+
+:subject5 a :object5 .
+
+---
+
+(document
+  (triple
+    (subject
+      (prefixed_name
+        (namespace)
+        (pn_local)))
+    (property_list
+      (property
+        (predicate)
+        (object_list
+          (prefixed_name
+            (namespace)
+            (pn_local)))))))
+
+=================
+Multi-script iri
+=================
+
+<http://伝言.example/?user=أكرم&amp;channel=R%26D> a :subject8 .
+
+---
+
+(document
+  (triple
+    (subject
+      (iri_reference))
+    (property_list
+      (property
+        (predicate)
+        (object_list
+          (prefixed_name
+            (namespace)
+            (pn_local)))))))
+
+=====
+Base
+=====
+
+@base <http://one.example/> .
+BASE <http://one.example/>
+BAse <http://one.example/>
+
+---
+
+(document
+  (directive
+    (base
+      (iri_reference)))
+  (directive
+    (sparql_base
+      (iri_reference)))
+  (directive
+    (sparql_base
+      (iri_reference))))
+
+=======
+Prefix
+=======
+
+@prefix p: <http://two.example/> .
+PREFIX p: <http://two.example/>
+PREfix p: <http://two.example/>
+
+---
+
+(document
+  (directive
+    (prefix_id
+      (namespace
+        (pn_prefix))
+      (iri_reference)))
+  (directive
+    (sparql_prefix
+      (namespace
+        (pn_prefix))
+      (iri_reference)))
+  (directive
+    (sparql_prefix
+      (namespace
+        (pn_prefix))
+      (iri_reference))))
+
+================
+Quoted literals
+================
+
+show:218 rdfs:label "That Seventies Show"^^xsd:string .
+show:218 rdfs:label "That Seventies Show"^^<http://www.w3.org/2001/XMLSchema#string> .
+show:218 rdfs:label "That Seventies Show" .
+
+---
+
+(document
+  (triple
+    (subject
+      (prefixed_name
+        (namespace
+          (pn_prefix))
+        (pn_local)))
+    (property_list
+      (property
+        (predicate
+          (prefixed_name
+            (namespace
+              (pn_prefix))
+            (pn_local)))
+        (object_list
+          (rdf_literal
+            value: (string)
+            datatype: (prefixed_name
+              (namespace
+                (pn_prefix))
+              (pn_local)))))))
+  (triple
+    (subject
+      (prefixed_name
+        (namespace
+          (pn_prefix))
+        (pn_local)))
+    (property_list
+      (property
+        (predicate
+          (prefixed_name
+            (namespace
+              (pn_prefix))
+            (pn_local)))
+        (object_list
+          (rdf_literal
+            value: (string)
+            datatype: (iri_reference))))))
+  (triple
+    (subject
+      (prefixed_name
+        (namespace
+          (pn_prefix))
+        (pn_local)))
+    (property_list
+      (property
+        (predicate
+          (prefixed_name
+            (namespace
+              (pn_prefix))
+            (pn_local)))
+        (object_list
+          (rdf_literal
+            value: (string)))))))
+
+=============
+Language Tag
+=============
+
+show:218 show:localName 'That Seventies Show'@fr-be .
+
+---
+
+(document
+  (triple
+    (subject
+      (prefixed_name
+        (namespace
+          (pn_prefix))
+        (pn_local)))
+    (property_list
+      (property
+        (predicate
+          (prefixed_name
+            (namespace
+              (pn_prefix))
+            (pn_local)))
+        (object_list
+          (rdf_literal
+            value: (string)
+            (lang_tag)))))))
+
+=======================
+Literal with new lines
+=======================
+
+show:218 show:blurb '''This is a multi-line
+literal with many quotes (""""")
+and up to two sequential apostrophes ('').''' .
+
+---
+
+(document
+  (triple
+    (subject
+      (prefixed_name
+        (namespace
+          (pn_prefix))
+        (pn_local)))
+    (property_list
+      (property
+        (predicate
+          (prefixed_name
+            (namespace
+              (pn_prefix))
+            (pn_local)))
+        (object_list
+          (rdf_literal
+            (string)))))))
+
+=================
+String with Hash
+=================
+
+<s> <p> "foo#" .
+
+---
+
+(document
+  (triple
+    (subject
+      (iri_reference))
+    (property_list
+      (property
+        (predicate
+          (iri_reference))
+        (object_list
+          (rdf_literal
+            (string)))))))
+
+========
+Numbers
+========
+
+<http://en.wikipedia.org/wiki/Helium>
+    :atomicNumber 2 ;               # xsd:integer
+    :atomicMass 4.002602 ;          # xsd:decimal
+    :specificGravity 1.663E-4 .     # xsd:double
+
+---
+
+(document
+  (triple
+    (subject
+      (iri_reference))
+    (property_list
+      (property
+        (predicate
+          (prefixed_name
+            (namespace)
+            (pn_local)))
+        (object_list
+          (integer)))
+      (comment)
+      (property
+        (predicate
+          (prefixed_name
+            (namespace)
+            (pn_local)))
+        (object_list
+          (decimal)))
+      (comment)
+      (property
+        (predicate
+          (prefixed_name
+            (namespace)
+            (pn_local)))
+        (object_list
+          (double)))))
+  (comment))
+
+=========
+Booleans
+=========
+
+<http://somecountry.example/census2007> :isLandlocked false .
+
+---
+
+(document
+  (triple
+    (subject
+      (iri_reference))
+    (property_list
+      (property
+        (predicate
+          (prefixed_name
+            (namespace)
+            (pn_local)))
+        (object_list
+          (boolean_literal))))))
+
+============
+Blank nodes
+============
+
+_:alice foaf:knows _:bob .
+
+---
+
+(document
+  (triple
+    (subject
+      (blank_node_label))
+    (property_list
+      (property
+        (predicate
+          (prefixed_name
+            (namespace
+              (pn_prefix))
+            (pn_local)))
+        (object_list
+          (blank_node_label))))))
+
+===================
+Nested blank nodes
+===================
+
+[] foaf:knows [ foaf:name "Bob" ] .
+
+---
+
+(document
+  (triple
+    (subject
+      (anon))
+    (property_list
+      (property
+        (predicate
+          (prefixed_name
+            (namespace
+              (pn_prefix))
+            (pn_local)))
+        (object_list
+          (blank_node_property_list
+            (property_list
+              (property
+                (predicate
+                  (prefixed_name
+                    (namespace
+                      (pn_prefix))
+                    (pn_local)))
+                (object_list
+                  (rdf_literal
+                    (string)))))))))))
+
+============
+Collections
+============
+
+() :predicate ( :a :b :c ) .
+
+---
+
+(document
+  (triple
+    (subject
+      (collection))
+    (property_list
+      (property
+        (predicate
+          (prefixed_name
+            (namespace)
+            (pn_local)))
+        (object_list
+          (collection
+            (object_collection
+              (prefixed_name
+                (namespace)
+                (pn_local))
+              (prefixed_name
+                (namespace)
+                (pn_local))
+              (prefixed_name
+                (namespace)
+                (pn_local)))))))))
+
+=====
+Verb
+=====
+
+:a :a :a .
+
+---
+
+(document
+  (triple
+    (subject
+      (prefixed_name
+        (namespace)
+        (pn_local)))
+    (property_list
+      (property
+        (predicate
+          (prefixed_name
+            (namespace)
+            (pn_local)))
+        (object_list
+          (prefixed_name
+            (namespace)
+            (pn_local)))))))
+
+=================
+Escape sequences
+=================
+
+<s> <p> '\ta\b' .
+
+---
+
+(document
+  (triple
+    (subject
+      (iri_reference))
+    (property_list
+      (property
+        (predicate
+          (iri_reference))
+        (object_list
+          (rdf_literal
+            (string
+              (echar)
+              (echar))))))))
+
+==============
+Hex sequences
+==============
+
+<s> <p> <http://www.dit.unitn.it/\u0020pavel/om2017/papers/oaei17_paper11.pdf> .
+
+---
+
+(document
+  (triple
+    (subject
+      (iri_reference))
+    (property_list
+      (property
+        (predicate
+          (iri_reference))
+        (object_list
+          (iri_reference))))))

@@ -1,0 +1,47 @@
+================================================================================
+While Statement: Simple
+================================================================================
+
+while 1 < b
+   continue
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (while_statement
+    (comparison_operator
+      (number)
+      (identifier))
+    (block
+      (continue_statement))))
+
+================================================================================
+While Statement: Inline
+================================================================================
+
+while 1 < b continue; end
+while 1 < b, continue; end
+while 1 < b,, continue; end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (while_statement
+    (comparison_operator
+      (number)
+      (identifier))
+    (block
+      (continue_statement)))
+  (while_statement
+    (comparison_operator
+      (number)
+      (identifier))
+    (block
+      (continue_statement)))
+  (while_statement
+    (comparison_operator
+      (number)
+      (identifier))
+    (block
+      (continue_statement))))

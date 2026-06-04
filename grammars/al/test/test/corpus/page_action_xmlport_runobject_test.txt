@@ -1,0 +1,125 @@
+================================================================================
+Page action with XMLport RunObject
+================================================================================
+
+page 50100 "Test Page"
+{
+    actions
+    {
+        area(processing)
+        {
+            action("Import Data")
+            {
+                Caption = 'Import Data';
+                Image = Import;
+                RunObject = XMLport "Data Import";
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_declaration
+          name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (object_reference_value
+              (xmlport_keyword)
+              (quoted_identifier))))))))
+
+================================================================================
+Page actions with various RunObject types
+================================================================================
+
+page 50101 "Multi Action Page"
+{
+    actions
+    {
+        area(processing)
+        {
+            action(ImportXML)
+            {
+                RunObject = xmlport 50100;
+            }
+            action(RunReport)
+            {
+                RunObject = report "Customer List";
+            }
+            action(OpenPage)
+            {
+                RunObject = page 21;
+            }
+            action(RunCodeunit)
+            {
+                RunObject = codeunit "Sales-Post";
+            }
+            action(OpenTable)
+            {
+                RunObject = table Customer;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (object_reference_value
+              (xmlport_keyword)
+              (integer))))
+        (action_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (object_reference_value
+              (report_keyword)
+              (quoted_identifier))))
+        (action_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (object_reference_value
+              (page_keyword)
+              (integer))))
+        (action_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (object_reference_value
+              (codeunit_keyword)
+              (quoted_identifier))))
+        (action_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (object_reference_value
+              (table_keyword)
+              (identifier))))))))

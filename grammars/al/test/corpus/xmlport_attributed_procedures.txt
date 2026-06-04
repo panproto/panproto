@@ -1,0 +1,320 @@
+================================================================================
+XMLPort with IntegrationEvent attributed procedure
+================================================================================
+
+xmlport 50100 "Test XMLPort"
+{
+    Caption = 'Test XMLPort';
+    Direction = Import;
+    
+    schema
+    {
+        textelement(Root)
+        {
+            textelement(Data)
+            {
+            }
+        }
+    }
+    
+    [IntegrationEvent(false, false)]
+    local procedure OnBeforeProcessData(var DataText: Text; var IsHandled: Boolean)
+    begin
+    end;
+    
+    [IntegrationEvent(true, false)]
+    procedure OnAfterProcessData(DataText: Text)
+    begin
+        Message('Data processed: %1', DataText);
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (schema_section
+      (schema_keyword)
+      (xmlport_element
+        name: (identifier)
+        (xmlport_element
+          name: (identifier))))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (boolean)
+            (boolean)))))
+    (procedure
+      modifier: (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (text_type)))
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (boolean)
+            (boolean)))))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (text_type))))
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list
+            (string_literal)
+            (identifier)))
+        (end_keyword)))))
+
+================================================================================
+XMLPort with multiple attributed procedures
+================================================================================
+
+xmlport 50101 "Test XMLPort Multiple Events"
+{
+    schema
+    {
+        textelement(Root)
+        {
+        }
+    }
+    
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Test Codeunit", 'OnTestEvent', '', true, true)]
+    local procedure HandleTestEvent()
+    begin
+    end;
+    
+    [BusinessEvent(false)]
+    local procedure OnCustomBusinessEvent(CustomerNo: Code[20])
+    begin
+    end;
+    
+    [IntegrationEvent(false, false)]
+    internal procedure OnInternalEvent(var Record: Record Customer)
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (schema_section
+      (schema_keyword)
+      (xmlport_element
+        name: (identifier)))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (qualified_enum_value
+              enum_type: (identifier)
+              value: (identifier))
+            (database_reference
+              keyword: (object_type_keyword)
+              table_name: (quoted_identifier))
+            (string_literal)
+            (string_literal)
+            (boolean)
+            (boolean)))))
+    (procedure
+      modifier: (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (boolean)))))
+    (procedure
+      modifier: (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (code_type
+              length: (integer)))))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (boolean)
+            (boolean)))))
+    (procedure
+      modifier: (procedure_modifier
+        (internal_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (identifier)))))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))
+
+================================================================================
+XMLPort with event attributes and triggers
+================================================================================
+
+xmlport 50102 "Mixed Content XMLPort"
+{
+    Direction = Export;
+    
+    schema
+    {
+        textelement(Root)
+        {
+            trigger OnBeforePassVariable()
+            begin
+                Root := 'Test';
+            end;
+        }
+    }
+    
+    trigger OnPreXmlPort()
+    begin
+        Initialize();
+    end;
+    
+    [IntegrationEvent(false, false)]
+    procedure OnBeforeExport(var IsHandled: Boolean)
+    begin
+    end;
+    
+    local procedure Initialize()
+    begin
+        // Initialize logic
+    end;
+    
+    [InternalEvent(false)]
+    local procedure OnInternalProcess()
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (schema_section
+      (schema_keyword)
+      (xmlport_element
+        name: (identifier)
+        (trigger_declaration
+          (trigger_keyword)
+          name: (identifier)
+          (code_block
+            (begin_keyword)
+            (assignment_statement
+              left: (identifier)
+              right: (string_literal))
+            (end_keyword)))))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list))
+        (end_keyword)))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (boolean)
+            (boolean)))))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (procedure
+      modifier: (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (comment)
+        (end_keyword)))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (boolean)))))
+    (procedure
+      modifier: (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))

@@ -1,0 +1,386 @@
+================================================================================
+Empty interface
+================================================================================
+
+local type foo = interface
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (type_declaration
+    name: (identifier)
+    value: (anon_interface
+      interface_body: (interface_body))))
+
+================================================================================
+Empty interface (shorthand)
+================================================================================
+
+local interface foo
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (interface_declaration
+    name: (identifier)
+    interface_body: (interface_body)))
+
+================================================================================
+Interface with stuff
+================================================================================
+
+local type foo = interface
+   bar: {number}
+   baz: string
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (type_declaration
+    name: (identifier)
+    value: (anon_interface
+      interface_body: (interface_body
+        (field
+          key: (identifier)
+          type: (table_type
+            value_type: (simple_type
+              name: (identifier))))
+        (field
+          key: (identifier)
+          type: (simple_type
+            name: (identifier)))))))
+
+================================================================================
+Arrayinterface with stuff
+================================================================================
+
+local type foo = interface
+   {thread}
+   bar: {number}
+   baz: string
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (type_declaration
+    name: (identifier)
+    value: (anon_interface
+      interface_body: (interface_body
+        (record_array_type
+          (simple_type
+            name: (identifier)))
+        (field
+          key: (identifier)
+          type: (table_type
+            value_type: (simple_type
+              name: (identifier))))
+        (field
+          key: (identifier)
+          type: (simple_type
+            name: (identifier)))))))
+
+================================================================================
+Nested interfaces
+================================================================================
+
+local type foo = interface
+   type bar = interface
+      x: number
+   end
+   baz: bar
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (type_declaration
+    name: (identifier)
+    value: (anon_interface
+      interface_body: (interface_body
+        (typedef
+          name: (identifier)
+          value: (anon_interface
+            interface_body: (interface_body
+              (field
+                key: (identifier)
+                type: (simple_type
+                  name: (identifier))))))
+        (field
+          key: (identifier)
+          type: (simple_type
+            name: (identifier)))))))
+
+================================================================================
+Generic interface
+================================================================================
+
+local type foo = interface<T>
+   foo: T
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (type_declaration
+    name: (identifier)
+    value: (anon_interface
+      (typeargs
+        (typearg name: (identifier)))
+      interface_body: (interface_body
+        (field
+          key: (identifier)
+          type: (simple_type
+            name: (identifier)))))))
+
+================================================================================
+Interface with a 'type' entry
+================================================================================
+
+local type foo = interface
+   type: number
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (type_declaration
+    name: (identifier)
+    value: (anon_interface
+      interface_body: (interface_body
+        (field
+          key: (identifier)
+          type: (simple_type
+            name: (identifier)))))))
+
+================================================================================
+Interface with a 'type' entry and types
+================================================================================
+
+local type foo = interface
+   type: number
+   type bar = interface
+   end
+   type baz = enum
+      "foo" "bar"
+   end
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (type_declaration
+    name: (identifier)
+    value: (anon_interface
+      interface_body: (interface_body
+        (field
+          key: (identifier)
+          type: (simple_type
+            name: (identifier)))
+        (typedef
+          name: (identifier)
+          value: (anon_interface
+            interface_body: (interface_body)))
+        (typedef
+          name: (identifier)
+          value: (enum_body
+            (string
+              content: (string_content))
+            (string
+              content: (string_content))))))))
+
+================================================================================
+Nested interface shorthand syntax
+================================================================================
+
+local interface Foo
+   interface Bar
+   end
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (interface_declaration
+    name: (identifier)
+    interface_body: (interface_body
+      (interface_declaration
+        name: (identifier)
+        interface_body: (interface_body)))))
+
+================================================================================
+Nested enum shorthand syntax
+================================================================================
+
+local interface Foo
+   enum Bar
+    "foo" "bar"
+   end
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (interface_declaration
+    name: (identifier)
+    interface_body: (interface_body
+      (enum_declaration
+        name: (identifier)
+        enum_body: (enum_body
+          (string
+            content: (string_content))
+          (string
+            content: (string_content)))))))
+
+================================================================================
+Interface with a 'interface' entry
+================================================================================
+
+local interface Foo
+   interface: number
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (interface_declaration
+    name: (identifier)
+    interface_body: (interface_body
+      (field
+        key: (identifier)
+        type: (simple_type
+          name: (identifier))))))
+
+================================================================================
+Interface with a 'enum' entry
+================================================================================
+
+local interface Foo
+   enum: number
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (interface_declaration
+    name: (identifier)
+    interface_body: (interface_body
+      (field
+        key: (identifier)
+        type: (simple_type
+          name: (identifier))))))
+
+================================================================================
+Interface with ['entry']
+================================================================================
+
+local interface Foo
+   ["things"]: number
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (interface_declaration
+    name: (identifier)
+    interface_body: (interface_body
+      (field
+        key: (string
+          content: (string_content))
+        type: (simple_type
+          name: (identifier))))))
+
+================================================================================
+Nested generic interface shorthand
+================================================================================
+
+local interface Foo
+   interface Bar<T>
+   end
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (interface_declaration
+    name: (identifier)
+    interface_body: (interface_body
+      (interface_declaration
+        name: (identifier)
+        typeargs: (typeargs
+          (typearg name: (identifier)))
+        interface_body: (interface_body)))))
+
+================================================================================
+Userdata interface
+================================================================================
+
+local interface Foo
+   userdata
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (interface_declaration
+    name: (identifier)
+    interface_body: (interface_body
+      (userdata))))
+
+================================================================================
+Interface with metamethod
+================================================================================
+
+local interface Foo
+   metamethod __call: number
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (interface_declaration
+    name: (identifier)
+    interface_body: (interface_body
+      metamethod: (metamethod
+        name: (identifier)
+        type: (simple_type
+          name: (identifier))))))
+
+================================================================================
+Interface with is clause
+================================================================================
+
+local interface Foo is Bar
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (interface_declaration
+    name: (identifier)
+    interface_body: (interface_body
+      is_types: (simple_type
+        name: (identifier)))))
+
+================================================================================
+Interface with is and where clause
+================================================================================
+
+local interface Foo is Bar where self.blah
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (interface_declaration
+    name: (identifier)
+    interface_body: (interface_body
+      is_types: (simple_type
+        name: (identifier))
+      where: (index
+        (identifier)
+        key: (identifier)))))
+

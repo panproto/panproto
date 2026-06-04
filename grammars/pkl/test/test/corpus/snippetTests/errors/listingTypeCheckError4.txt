@@ -1,0 +1,43 @@
+===
+errors/listingTypeCheckError4.pkl
+===
+
+res: Listing<String(!isEmpty)> = new Listing<String(endsWith("ga"))> {
+  "hola"
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (constrainedType
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (logicalNotExpr
+              (unqualifiedAccessExpr
+                (identifier)))))))
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (constrainedType
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (unqualifiedAccessExpr
+              (identifier)
+              (argumentList
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))))))
+      (objectBody
+        (objectElement
+          (slStringLiteralExpr
+            (slStringLiteralPart)))))))

@@ -1,0 +1,111 @@
+===================
+foreach array
+==================
+
+progs = [['prog1', ['prog1.c', 'foo.c']],
+         ['prog2', ['prog2.c', 'bar.c']]]
+
+foreach p : progs
+  exe = executable(p[0], p[1])
+  test(p[0], exe)
+endforeach
+
+---
+(source_file
+   (operatorunit
+     (identifier)
+     (list
+       (list
+         (string)
+         (list
+           (string)
+           (string)))
+       (list
+         (string)
+         (list
+           (string)
+           (string)))))
+   (foreach_command
+     (identifier)
+     (identifier)
+     (operatorunit
+       (identifier)
+       (normal_command
+         (identifier)
+         (listitem
+           (identifier)
+           (number))
+         (listitem
+           (identifier)
+           (number))))
+     (normal_command
+       (identifier)
+       (listitem
+         (identifier)
+         (number))
+       (variableunit
+         (identifier)))))
+
+============
+break and continue
+============
+items = ['a', 'continue', 'b', 'break', 'c']
+result = []
+foreach i : items
+  if i == 'continue'
+    continue
+  elif i == 'break'
+    break
+  endif
+  result += i
+endforeach
+# result is ['a', 'b']
+
+---
+(source_file
+  (operatorunit
+    (identifier)
+    (list
+      (string)
+      (string)
+      (string)
+      (string)
+      (string)))
+  (operatorunit
+    (identifier)
+    (list))
+  (foreach_command
+    (identifier)
+    (identifier)
+    (if_condition
+      (if_command
+        (var_unit
+          (identifier)
+          (string))
+        (keyword_continue))
+      (elseif_command
+        (var_unit
+          (identifier)
+          (string))
+        (keyword_break)))
+    (operatorunit
+      (identifier)
+       (var_unit
+        (identifier))))
+  (comment))
+
+=========
+double items 
+=========
+
+foreach name, sources : components
+  #double key
+endforeach
+
+---
+(source_file
+  (foreach_command
+    (identifier)
+    (identifier)
+    (identifier)
+    (comment)))

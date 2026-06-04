@@ -1,0 +1,80 @@
+===
+errors/constraintDetails1.pkl
+===
+
+birds: Listing(firstOneIsSandy) = new {
+  new Bird { name = "Bob" }
+  new Bird { name = "Bob" }
+}
+
+hidden firstOneIsSandy = (it: Listing<Bird>) -> it[0].name == "Sandy"
+
+class Bird { name: String }
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (constrainedType
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (unqualifiedAccessExpr
+          (identifier))))
+    (newExpr
+      (objectBody
+        (objectElement
+          (newExpr
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (objectBody
+              (objectProperty
+                (identifier)
+                (slStringLiteralExpr
+                  (slStringLiteralPart))))))
+        (objectElement
+          (newExpr
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (objectBody
+              (objectProperty
+                (identifier)
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))))))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (functionLiteralExpr
+      (parameterList
+        (typedIdentifier
+          (identifier)
+          (typeAnnotation
+            (declaredType
+              (qualifiedIdentifier
+                (identifier))
+              (typeArgumentList
+                (declaredType
+                  (qualifiedIdentifier
+                    (identifier))))))))
+      (equalityExpr
+        (qualifiedAccessExpr
+          (subscriptExpr
+            (unqualifiedAccessExpr
+              (identifier))
+            (intLiteralExpr))
+          (identifier))
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))))))

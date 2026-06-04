@@ -1,0 +1,84 @@
+====================================
+If-else with CRLF line end
+====================================
+
+{
+    if (1) {}
+    else 2
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (if_statement
+         (number)
+        (block)
+        (else_clause
+          (number))))))
+
+====================================
+Line continuation (CRLF)
+====================================
+
+\
+BEGIN {}
+
+------------------------------------
+
+(program
+  (rule
+    (pattern)
+    (block)))
+
+
+=========================================
+If-else statement with statements (CRLF)
+=========================================
+
+{
+  if (1) 1; else 2
+  
+  if (1) 1;
+  else 2
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (if_statement
+         (number)
+        (number)
+        (else_clause
+          (number)))
+      (if_statement
+         (number)
+        (number)
+        (else_clause
+          (number))))))
+
+=========================================
+String concatenation line continuation (CRLF)
+=========================================
+
+{
+  a \
+  b
+  a \
+  && b
+}
+------------------------------------
+
+(program
+  (rule
+    (block
+      (string_concat
+         (identifier)
+        (concatenating_space)
+         (identifier))
+      (binary_exp
+         (identifier)
+         (identifier)))))

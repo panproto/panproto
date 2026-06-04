@@ -1,0 +1,151 @@
+================================================================================
+Page with complex properties test
+================================================================================
+
+#pragma warning disable AS0106
+page 30 "Item Card"
+#pragma warning restore AS0106
+{
+    Caption = 'Item Card';
+    PageType = Card;
+    RefreshOnActivate = true;
+    SourceTable = Item;
+    AdditionalSearchTerms = 'Product, Finished Good, Component, Raw Material, Assembly Item, Product Details, Merchandise Profile, Item Info, Commodity Info, Product Data, Article Details, Goods Profile, Item Detail';
+    AboutTitle = 'About item details';
+    AboutText = 'With the **Item Card** you manage the information that appears in sales and purchase documents when you buy or sell an item, such as line description and price. You can also find settings for how an item is priced, replenished, stocked, and for how costing and posting is done.';
+    
+    layout
+    {
+        area(content)
+        {
+            field("No."; Rec."No.")
+            {
+                ShowMandatory = true;
+                HideValue = false;
+                CaptionClass = '2,0,' + Rec.FieldCaption("Unit Price");
+                DecimalPlaces = 2 : 2;
+                AboutTitle = 'About item number';
+                AboutText = 'This field contains the unique identifier for the item.';
+            }
+        }
+    }
+    
+    actions
+    {
+        area(processing)
+        {
+            action(TestAction)
+            {
+                Caption = 'Test Action';
+                trigger OnAction()
+                begin
+                    if AdjustInventory.RunModal() in [ACTION::LookupOK, ACTION::OK] then
+                        Message('Success');
+                end;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pragma)
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (pragma)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (quoted_identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (quoted_identifier))
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (property_expression
+              (additive_expression
+                left: (string_literal)
+                right: (call_expression
+                  function: (member_expression
+                    object: (identifier)
+                    member: (identifier))
+                  arguments: (argument_list
+                    (quoted_identifier))))))
+          (property
+            name: (property_name)
+            value: (decimal_range_value
+              min: (integer)
+              max: (integer)))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (string_literal)))))
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (trigger_declaration
+            (trigger_keyword)
+            name: (identifier)
+            (code_block
+              (begin_keyword)
+              (if_statement
+                (if_keyword)
+                left: (call_expression
+                  function: (member_expression
+                    object: (identifier)
+                    member: (identifier))
+                  arguments: (argument_list))
+                operator: (in_keyword)
+                right: (list_literal
+                  (qualified_enum_value
+                    enum_type: (keyword_identifier)
+                    value: (identifier))
+                  (qualified_enum_value
+                    enum_type: (keyword_identifier)
+                    value: (identifier)))
+                (then_keyword)
+                then_branch: (call_expression
+                  function: (identifier)
+                  arguments: (argument_list
+                    (string_literal))))
+              (end_keyword))))))))

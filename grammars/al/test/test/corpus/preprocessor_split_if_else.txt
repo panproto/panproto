@@ -1,0 +1,176 @@
+================================================================================
+Preprocessor split if-else statement
+================================================================================
+
+codeunit 50000 "Test Split If-Else"
+{
+    procedure TestMethod()
+    var
+        Value: Text;
+    begin
+#if not CLEAN24
+        if true then
+            Value := 'True'
+        else
+#endif
+            Value := 'False';
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (text_type))))
+      (code_block
+        (begin_keyword)
+        (preproc_split_if_else_statement
+          (preproc_if
+            (preproc_open)
+            condition: (preproc_not_expression
+              (identifier)))
+          (if_keyword)
+          condition: (boolean)
+          (then_keyword)
+          then_branch: (assignment_statement
+            left: (identifier)
+            right: (string_literal))
+          (else_keyword)
+          (preproc_endif
+            (preproc_close))
+          else_branch: (assignment_statement
+            left: (identifier)
+            right: (string_literal)))
+        (end_keyword)))))
+
+================================================================================
+Multiple preprocessor split if-else statements
+================================================================================
+
+codeunit 50001 "Multiple Split If-Else"
+{
+    procedure ComplexSplitMethod()
+    var
+        OrderAttribute: Record "Order Attribute";
+        ShopifyShop: Record "Shop";
+    begin
+#if not CLEAN24
+        if not ShopifyShop."Replace Order Attribute Value" then
+            OrderAttribute.Value := CopyStr('test', 1, MaxStrLen(OrderAttribute.Value))
+        else
+#endif
+            OrderAttribute."Attribute Value" := CopyStr('test', 1, MaxStrLen(OrderAttribute."Attribute Value"));
+        
+#if not CLEAN25
+        if OrderAttribute.Insert() then
+            Message('Inserted')
+        else
+#endif
+            OrderAttribute.Modify();
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier))))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier)))))
+      (code_block
+        (begin_keyword)
+        (preproc_split_if_else_statement
+          (preproc_if
+            (preproc_open)
+            condition: (preproc_not_expression
+              (identifier)))
+          (if_keyword)
+          condition: (unary_expression
+            operand: (member_expression
+              object: (identifier)
+              member: (quoted_identifier)))
+          (then_keyword)
+          then_branch: (assignment_statement
+            left: (member_expression
+              object: (identifier)
+              member: (identifier))
+            right: (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (string_literal)
+                (integer)
+                (call_expression
+                  function: (identifier)
+                  arguments: (argument_list
+                    (member_expression
+                      object: (identifier)
+                      member: (identifier)))))))
+          (else_keyword)
+          (preproc_endif
+            (preproc_close))
+          else_branch: (assignment_statement
+            left: (member_expression
+              object: (identifier)
+              member: (quoted_identifier))
+            right: (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (string_literal)
+                (integer)
+                (call_expression
+                  function: (identifier)
+                  arguments: (argument_list
+                    (member_expression
+                      object: (identifier)
+                      member: (quoted_identifier))))))))
+        (preproc_split_if_else_statement
+          (preproc_if
+            (preproc_open)
+            condition: (preproc_not_expression
+              (identifier)))
+          (if_keyword)
+          condition: (call_expression
+            function: (member_expression
+              object: (identifier)
+              member: (identifier))
+            arguments: (argument_list))
+          (then_keyword)
+          then_branch: (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (string_literal)))
+          (else_keyword)
+          (preproc_endif
+            (preproc_close))
+          else_branch: (call_expression
+            function: (member_expression
+              object: (identifier)
+              member: (identifier))
+            arguments: (argument_list)))
+        (end_keyword)))))

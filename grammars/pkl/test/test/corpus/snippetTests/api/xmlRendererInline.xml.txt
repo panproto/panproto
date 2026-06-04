@@ -1,0 +1,175 @@
+===
+api/xmlRendererInline.xml.pkl
+===
+
+import "pkl:xml"
+
+class Person {
+  name: String
+  age: Int
+}
+
+content {
+  xml.Inline(List("pigeon", "parrot"))
+  xml.Inline(Set("pigeon", "parrot"))
+  xml.Inline(new Listing { "pigeon"; "parrot" })
+  xml.Inline(Map("name", "pigeon", "age", 42))
+  xml.Inline(new Mapping { ["name"] = "pigeon"; ["age"] = 42 })
+  xml.Inline(new Dynamic { name = "pigeon"; age = 42 })
+  xml.Inline(new Person { name = "pigeon"; age = 42 })
+}
+
+output {
+  renderer = new xml.Renderer {}
+}
+
+---
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectElement
+        (qualifiedAccessExpr
+          (unqualifiedAccessExpr
+            (identifier))
+          (identifier)
+          (argumentList
+            (unqualifiedAccessExpr
+              (identifier)
+              (argumentList
+                (slStringLiteralExpr
+                  (slStringLiteralPart))
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))))))
+      (objectElement
+        (qualifiedAccessExpr
+          (unqualifiedAccessExpr
+            (identifier))
+          (identifier)
+          (argumentList
+            (unqualifiedAccessExpr
+              (identifier)
+              (argumentList
+                (slStringLiteralExpr
+                  (slStringLiteralPart))
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))))))
+      (objectElement
+        (qualifiedAccessExpr
+          (unqualifiedAccessExpr
+            (identifier))
+          (identifier)
+          (argumentList
+            (newExpr
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))
+              (objectBody
+                (objectElement
+                  (slStringLiteralExpr
+                    (slStringLiteralPart)))
+                (objectElement
+                  (slStringLiteralExpr
+                    (slStringLiteralPart))))))))
+      (objectElement
+        (qualifiedAccessExpr
+          (unqualifiedAccessExpr
+            (identifier))
+          (identifier)
+          (argumentList
+            (unqualifiedAccessExpr
+              (identifier)
+              (argumentList
+                (slStringLiteralExpr
+                  (slStringLiteralPart))
+                (slStringLiteralExpr
+                  (slStringLiteralPart))
+                (slStringLiteralExpr
+                  (slStringLiteralPart))
+                (intLiteralExpr))))))
+      (objectElement
+        (qualifiedAccessExpr
+          (unqualifiedAccessExpr
+            (identifier))
+          (identifier)
+          (argumentList
+            (newExpr
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))
+              (objectBody
+                (objectEntry
+                  (slStringLiteralExpr
+                    (slStringLiteralPart))
+                  (slStringLiteralExpr
+                    (slStringLiteralPart)))
+                (objectEntry
+                  (slStringLiteralExpr
+                    (slStringLiteralPart))
+                  (intLiteralExpr)))))))
+      (objectElement
+        (qualifiedAccessExpr
+          (unqualifiedAccessExpr
+            (identifier))
+          (identifier)
+          (argumentList
+            (newExpr
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))
+              (objectBody
+                (objectProperty
+                  (identifier)
+                  (slStringLiteralExpr
+                    (slStringLiteralPart)))
+                (objectProperty
+                  (identifier)
+                  (intLiteralExpr)))))))
+      (objectElement
+        (qualifiedAccessExpr
+          (unqualifiedAccessExpr
+            (identifier))
+          (identifier)
+          (argumentList
+            (newExpr
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))
+              (objectBody
+                (objectProperty
+                  (identifier)
+                  (slStringLiteralExpr
+                    (slStringLiteralPart)))
+                (objectProperty
+                  (identifier)
+                  (intLiteralExpr)))))))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)
+              (identifier)))
+          (objectBody))))))

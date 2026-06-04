@@ -1,0 +1,107 @@
+================================================================================
+UPPERLIMIT function in field references test
+================================================================================
+
+table 2632 "Statistical Account"
+{
+    fields
+    {
+        field(31; "Balance at Date"; Decimal)
+        {
+            CalcFormula = sum("Statistical Ledger Entry".Amount where("Statistical Account No." = field("No."),
+                                                        "Posting Date" = field(upperlimit("Date Filter"))));
+            FieldClass = FlowField;
+        }
+        field(32; "Net Change"; Decimal)
+        {
+            CalcFormula = Sum("Statistical Ledger Entry".Amount where("Statistical Account No." = field("No."),
+                                                        "Posting Date" = field(UPPERLIMIT("Date Filter"))));
+            FieldClass = FlowField;
+        }
+        field(33; "Other Balance"; Decimal)
+        {
+            CalcFormula = sum("Statistical Ledger Entry".Amount where("Statistical Account No." = field("No."),
+                                                        "Posting Date" = field(Upperlimit("Date Filter"))));
+            FieldClass = FlowField;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (aggregate_formula
+            function: (aggregate_function)
+            target: (calc_field_reference
+              (quoted_identifier)
+              (identifier))
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (quoted_identifier)
+                  value: (quoted_identifier))
+                (where_condition
+                  field: (quoted_identifier)
+                  value: (quoted_identifier))))))
+        (property
+          name: (property_name)
+          value: (identifier)))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (aggregate_formula
+            function: (aggregate_function)
+            target: (calc_field_reference
+              (quoted_identifier)
+              (identifier))
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (quoted_identifier)
+                  value: (quoted_identifier))
+                (where_condition
+                  field: (quoted_identifier)
+                  value: (quoted_identifier))))))
+        (property
+          name: (property_name)
+          value: (identifier)))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (aggregate_formula
+            function: (aggregate_function)
+            target: (calc_field_reference
+              (quoted_identifier)
+              (identifier))
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (quoted_identifier)
+                  value: (quoted_identifier))
+                (where_condition
+                  field: (quoted_identifier)
+                  value: (quoted_identifier))))))
+        (property
+          name: (property_name)
+          value: (identifier))))))

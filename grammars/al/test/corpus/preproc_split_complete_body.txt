@@ -1,0 +1,138 @@
+========================================================================
+Trigger with complete body split across #if/#else (Pattern 1)
+========================================================================
+page 50000 MyPage {
+    fields {
+        field(1; MyField; Text[50]) {
+            trigger OnValidate()
+#if not CLEAN27
+                var
+                    AppvlReasonCode: Record "CDC Approval Reason Code";
+                begin
+                    DoWork(AppvlReasonCode.Type::Reject);
+                end;
+#else
+                var
+                    AppvlReasonCode: Record "CTS Approval Reason Code";
+                begin
+                    DoWork(AppvlReasonCode.Type::Reject);
+                end;
+#endif
+        }
+    }
+}
+------------------------------------------------------------------------
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (trigger_declaration
+          (trigger_keyword)
+          name: (identifier)
+          (preproc_split_complete_body
+            (preproc_if
+              (preproc_open)
+              condition: (preproc_not_expression
+                (identifier)))
+            (var_section
+              (var_keyword)
+              (variable_declaration
+                name: (identifier)
+                type: (type_specification
+                  (record_type
+                    reference: (quoted_identifier)))))
+            (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (qualified_enum_value
+                  enum_type: (member_expression
+                    object: (identifier)
+                    member: (identifier))
+                  value: (identifier))))
+            (preproc_else)
+            (var_section
+              (var_keyword)
+              (variable_declaration
+                name: (identifier)
+                type: (type_specification
+                  (record_type
+                    reference: (quoted_identifier)))))
+            (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (qualified_enum_value
+                  enum_type: (member_expression
+                    object: (identifier)
+                    member: (identifier))
+                  value: (identifier))))
+            (preproc_endif
+              (preproc_close))))))))
+
+========================================================================
+Procedure with complete body split across #if/#else (Pattern 2)
+========================================================================
+codeunit 50000 MyCodeunit {
+    local procedure ValidateField(TableId: Integer; DimCode: Code[20])
+#if CONTINIAONE
+        var
+            CustomFields: Codeunit "CDC Custom Fields";
+        begin
+            CustomFields.Validate(Rec, DimCode);
+        end;
+#else
+        begin
+        end;
+#endif
+}
+------------------------------------------------------------------------
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      modifier: (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type)))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (code_type
+              length: (integer)))))
+      (preproc_split_complete_body
+        (preproc_if
+          (preproc_open)
+          condition: (identifier))
+        (var_section
+          (var_keyword)
+          (variable_declaration
+            name: (identifier)
+            type: (type_specification
+              (object_reference_type
+                object_type: (codeunit_keyword)
+                reference: (quoted_identifier)))))
+        (call_expression
+          function: (member_expression
+            object: (identifier)
+            member: (identifier))
+          arguments: (argument_list
+            (identifier)
+            (identifier)))
+        (preproc_else)
+        (preproc_endif
+          (preproc_close))))))

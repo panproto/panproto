@@ -1,0 +1,157 @@
+===
+generators/generatorNoMembers.pkl
+===
+
+res1 {
+  prop = trace("hello")
+}
+
+res2 = (res1) {
+  when (false) {
+    prop2 = 2
+  }
+}
+
+res3 = (res1) {
+  for (_ in List()) {
+    "hello"
+  }
+}
+
+res4 = (res1) {
+  ...List()
+}
+
+res5 = (res1) {
+  when (true) {
+  } else {
+    prop3 = 3
+  }
+}
+
+res6 = (Dynamic) {
+  when (true) {}
+}
+
+res7 = (Mapping) {
+  when (true) {}
+}
+
+class Person {}
+
+res8 = (Person) {
+  when (true) {}
+}
+
+res9 = (Listing) {
+  when (true) {}
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (traceExpr
+          (slStringLiteralExpr
+            (slStringLiteralPart))))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (whenGenerator
+          (falseLiteralExpr)
+          (objectBody
+            (objectProperty
+              (identifier)
+              (intLiteralExpr)))))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (forGenerator
+          (blankIdentifier)
+          (unqualifiedAccessExpr
+            (identifier)
+            (argumentList))
+          (objectBody
+            (objectElement
+              (slStringLiteralExpr
+                (slStringLiteralPart))))))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (objectSpread
+          (unqualifiedAccessExpr
+            (identifier)
+            (argumentList))))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (whenGenerator
+          (trueLiteralExpr)
+          (objectBody)
+          (objectBody
+            (objectProperty
+              (identifier)
+              (intLiteralExpr)))))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (whenGenerator
+          (trueLiteralExpr)
+          (objectBody)))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (whenGenerator
+          (trueLiteralExpr)
+          (objectBody)))))
+  (clazz
+    (identifier)
+    (classBody))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (whenGenerator
+          (trueLiteralExpr)
+          (objectBody)))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (whenGenerator
+          (trueLiteralExpr)
+          (objectBody))))))

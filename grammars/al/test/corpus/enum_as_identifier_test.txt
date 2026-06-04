@@ -1,0 +1,267 @@
+================================================================================
+Enum as variable name
+================================================================================
+
+codeunit 50100 "Enum Variable Test"
+{
+    var
+        Enum: DotNet Enum;
+        MyEnum: Enum "My Enum Type";
+        EnumValue: Integer;
+    
+    procedure TestEnumVariable()
+    var
+        LocalEnum: DotNet Enum;
+        Enum: Text;
+    begin
+        Enum := 'test';
+        LocalEnum := Enum.Parse(GetDotNetType(LocalEnum), 'Value');
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (dotnet_type
+            (dotnet_keyword)
+            reference: (identifier))))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (object_reference_type
+            object_type: (enum_keyword)
+            reference: (quoted_identifier))))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type))))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (dotnet_type
+              (dotnet_keyword)
+              reference: (identifier))))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (text_type))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (keyword_identifier
+            (enum_keyword))
+          right: (string_literal))
+        (assignment_statement
+          left: (identifier)
+          right: (call_expression
+            function: (member_expression
+              object: (keyword_identifier
+                (enum_keyword))
+              member: (identifier))
+            arguments: (argument_list
+              (call_expression
+                function: (identifier)
+                arguments: (argument_list
+                  (identifier)))
+              (string_literal))))
+        (end_keyword)))))
+
+================================================================================
+Enum in complex DotNet scenarios
+================================================================================
+
+codeunit 50101 "X509 Certificate Handler"
+{
+    [TryFunction]
+    local procedure TryExportToBase64String(X509Certificate2: DotNet X509Certificate2; X509ContentType: Enum "X509 Content Type"; var CertBase64Value: Text)
+    var
+        Convert: DotNet Convert;
+        X509ContType: DotNet X509ContentType;
+        Enum: DotNet Enum;
+    begin
+        X509ContType := Enum.Parse(GetDotNetType(X509ContType), Format(X509ContentType));
+        CertBase64Value := Convert.ToBase64String(X509Certificate2.Export(X509ContType));
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)))
+    (procedure
+      modifier: (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (dotnet_type
+              (dotnet_keyword)
+              reference: (identifier))))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (object_reference_type
+              object_type: (enum_keyword)
+              reference: (quoted_identifier))))
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (text_type))))
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (dotnet_type
+              (dotnet_keyword)
+              reference: (identifier))))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (dotnet_type
+              (dotnet_keyword)
+              reference: (identifier))))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (dotnet_type
+              (dotnet_keyword)
+              reference: (identifier)))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (identifier)
+          right: (call_expression
+            function: (member_expression
+              object: (keyword_identifier
+                (enum_keyword))
+              member: (identifier))
+            arguments: (argument_list
+              (call_expression
+                function: (identifier)
+                arguments: (argument_list
+                  (identifier)))
+              (call_expression
+                function: (identifier)
+                arguments: (argument_list
+                  (identifier))))))
+        (assignment_statement
+          left: (identifier)
+          right: (call_expression
+            function: (member_expression
+              object: (identifier)
+              member: (identifier))
+            arguments: (argument_list
+              (call_expression
+                function: (member_expression
+                  object: (identifier)
+                  member: (identifier))
+                arguments: (argument_list
+                  (identifier))))))
+        (end_keyword)))))
+
+================================================================================
+Enum case variations as identifiers
+================================================================================
+
+codeunit 50102 "Case Test"
+{
+    var
+        enum: Integer;
+        Enum: Text;
+        ENUM: Boolean;
+        eNuM: Decimal;
+    
+    procedure TestCases()
+    var
+        localEnum: Code[10];
+        LocalENUM: Option;
+    begin
+        enum := 1;
+        Enum := 'test';
+        ENUM := true;
+        eNuM := 123.45;
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (text_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type))))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (code_type
+              length: (integer))))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (option_type))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (keyword_identifier
+            (enum_keyword))
+          right: (integer))
+        (assignment_statement
+          left: (keyword_identifier
+            (enum_keyword))
+          right: (string_literal))
+        (assignment_statement
+          left: (keyword_identifier
+            (enum_keyword))
+          right: (boolean))
+        (assignment_statement
+          left: (identifier)
+          right: (decimal))
+        (end_keyword)))))

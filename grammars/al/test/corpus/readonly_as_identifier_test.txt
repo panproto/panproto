@@ -1,0 +1,494 @@
+================================================================================
+ReadOnly as variable name
+================================================================================
+
+page 50100 "Text Viewer"
+{
+    Caption = 'Text Viewer';
+    PageType = StandardDialog;
+    
+    layout
+    {
+        area(content)
+        {
+            field(ContentField; ContentText)
+            {
+                ApplicationArea = All;
+                MultiLine = true;
+            }
+        }
+    }
+    
+    var
+        ContentText: Text;
+        ReadOnly: Text;
+        Height: Decimal;
+        Width: Decimal;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (boolean)))))
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (text_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (text_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type))))))
+
+================================================================================
+ReadOnly in various contexts
+================================================================================
+
+codeunit 50101 "ReadOnly Test"
+{
+    procedure TestReadOnly()
+    var
+        ReadOnly: Boolean;
+        readonly: Integer;
+        READONLY: Text;
+        ReadOnlyValue: Decimal;
+    begin
+        ReadOnly := true;
+        readonly := 10;
+        READONLY := 'Test';
+        ReadOnlyValue := 5.5;
+        
+        if ReadOnly then
+            Message('%1', readonly);
+    end;
+    
+    procedure ProcessData(ReadOnly: Boolean; Value: Integer)
+    begin
+        if ReadOnly then
+            exit;
+            
+        ProcessValue(Value);
+    end;
+    
+    local procedure ProcessValue(Value: Integer)
+    begin
+        // Process the value
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type)))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type)))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (text_type)))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (identifier)
+          right: (boolean))
+        (assignment_statement
+          left: (identifier)
+          right: (integer))
+        (assignment_statement
+          left: (identifier)
+          right: (string_literal))
+        (assignment_statement
+          left: (identifier)
+          right: (decimal))
+        (if_statement
+          (if_keyword)
+          condition: (identifier)
+          (then_keyword)
+          then_branch: (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (string_literal)
+              (identifier))))
+        (end_keyword)))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type)))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (if_statement
+          (if_keyword)
+          condition: (identifier)
+          (then_keyword)
+          then_branch: (exit_statement
+            (exit_keyword)))
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list
+            (identifier)))
+        (end_keyword)))
+    (procedure
+      modifier: (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (comment)
+        (end_keyword)))))
+
+================================================================================
+ReadOnly with usercontrol
+================================================================================
+
+page 50102 "Advanced Viewer"
+{
+    layout
+    {
+        area(content)
+        {
+            usercontrol(TextEditor; WebPageViewer)
+            {
+                trigger ControlAddInReady(callbackUrl: Text)
+                var
+                    ReadOnly: Boolean;
+                begin
+                    ReadOnly := not IsEditable();
+                    CurrPage.TextEditor.SetContent(CreateContent(ReadOnly));
+                end;
+            }
+        }
+    }
+    
+    var
+        ReadOnly: Text;
+        IsReadOnly: Boolean;
+        
+    local procedure IsEditable(): Boolean
+    begin
+        exit(not IsReadOnly);
+    end;
+    
+    local procedure CreateContent(ReadOnly: Boolean): Text
+    begin
+        if ReadOnly then
+            exit('Read-only content');
+        exit('Editable content');
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (usercontrol_section
+          (usercontrol_keyword)
+          name: (identifier)
+          source: (identifier)
+          (trigger_declaration
+            (trigger_keyword)
+            name: (identifier)
+            (parameter_list
+              (parameter
+                name: (identifier)
+                type: (type_specification
+                  (text_type))))
+            (var_section
+              (var_keyword)
+              (variable_declaration
+                name: (identifier)
+                type: (type_specification
+                  (basic_type))))
+            (code_block
+              (begin_keyword)
+              (assignment_statement
+                left: (identifier)
+                right: (unary_expression
+                  operand: (call_expression
+                    function: (identifier)
+                    arguments: (argument_list))))
+              (call_expression
+                function: (member_expression
+                  object: (member_expression
+                    object: (identifier)
+                    member: (identifier))
+                  member: (identifier))
+                arguments: (argument_list
+                  (call_expression
+                    function: (identifier)
+                    arguments: (argument_list
+                      (identifier)))))
+              (end_keyword))))))
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (text_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type))))
+    (procedure
+      modifier: (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      return_type: (type_specification
+        (basic_type))
+      (code_block
+        (begin_keyword)
+        (exit_statement
+          (exit_keyword)
+          return_value: (unary_expression
+            operand: (identifier)))
+        (end_keyword)))
+    (procedure
+      modifier: (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      return_type: (type_specification
+        (text_type))
+      (code_block
+        (begin_keyword)
+        (if_statement
+          (if_keyword)
+          condition: (identifier)
+          (then_keyword)
+          then_branch: (exit_statement
+            (exit_keyword)
+            return_value: (string_literal)))
+        (exit_statement
+          (exit_keyword)
+          return_value: (string_literal))
+        (end_keyword)))))
+
+================================================================================
+ReadOnly as enum value reference
+================================================================================
+
+table 50103 "Permission Settings"
+{
+    fields
+    {
+        field(1; "Permission Level"; Enum "Permission Level")
+        {
+            Caption = 'Permission Level';
+        }
+    }
+    
+    procedure SetReadOnlyAccess()
+    var
+        ReadOnly: Boolean;
+    begin
+        "Permission Level" := "Permission Level"::ReadOnly;
+        ReadOnly := "Permission Level" = "Permission Level"::ReadOnly;
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (object_reference_type
+            object_type: (enum_keyword)
+            reference: (quoted_identifier)))
+        (property
+          name: (property_name)
+          value: (string_literal))))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (quoted_identifier)
+          right: (qualified_enum_value
+            enum_type: (quoted_identifier)
+            value: (identifier)))
+        (assignment_statement
+          left: (identifier)
+          right: (comparison_expression
+            left: (quoted_identifier)
+            operator: (comparison_operator)
+            right: (qualified_enum_value
+              enum_type: (quoted_identifier)
+              value: (identifier))))
+        (end_keyword)))))
+
+================================================================================
+Height and Width as variable names with workaround
+================================================================================
+
+page 50104 "Size Settings"
+{
+    Caption = 'Size Settings';
+    PageType = Card;
+    
+    layout
+    {
+        area(content)
+        {
+            field(HeightField; Height)
+            {
+                ApplicationArea = All;
+                Caption = 'Height';
+            }
+            field(WidthField; "Width")
+            {
+                ApplicationArea = All;
+                Caption = 'Width';
+            }
+        }
+    }
+    
+    var
+        Height: Decimal;
+        "Width": Decimal;
+        ReadOnly: Text;
+        AutoResize: Boolean;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal)))
+        (page_field
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal)))))
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type)))
+      (variable_declaration
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (text_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type))))))

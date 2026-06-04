@@ -1,0 +1,12 @@
+===
+errors/invalidOutput3.pkl
+===
+
+output = null
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (nullLiteralExpr)))

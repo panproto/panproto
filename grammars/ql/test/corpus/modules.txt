@@ -1,0 +1,239 @@
+======
+module
+======
+
+module foo {
+  module bar {
+    import woo
+
+    predicate baz();
+  }
+}
+
+---
+
+(ql (moduleMember
+   (module (moduleName (simpleId)) (moduleMember
+     (module (moduleName (simpleId))
+       (moduleMember (importDirective (importModuleExpr (moduleExpr (simpleId)))))
+       (moduleMember (classlessPredicate (predicate) (predicateName) (empty))))))))
+
+============
+module alias
+============
+
+module foo = bar::baz;
+
+---
+
+(ql (moduleMember (module (moduleName (simpleId)) (moduleAliasBody (moduleExpr (moduleExpr (simpleId)) (simpleId))))))
+
+==============================
+parameterised module signature
+==============================
+
+signature int supplyInt();
+
+signature module SupplyInt {
+  int get();
+  class C extends Foo, Bar;
+  predicate baz(C c);
+}
+
+---
+
+(ql
+  (moduleMember
+    (annotation
+      (annotName))
+    (classlessPredicate
+      (typeExpr
+        (primitiveType))
+      (predicateName)
+      (empty)))
+  (moduleMember
+    (annotation
+      (annotName))
+    (module
+      (moduleName
+        (simpleId))
+      (moduleMember
+        (classlessPredicate
+          (typeExpr
+            (primitiveType))
+          (predicateName)
+          (empty)))
+      (moduleMember
+        (dataclass
+          (className)
+          (typeExpr
+            (className))
+          (typeExpr
+            (className))))
+      (moduleMember
+        (classlessPredicate
+          (predicate)
+          (predicateName)
+          (varDecl
+            (typeExpr
+              (className))
+            (varName
+              (simpleId)))
+          (empty))))))
+
+================================
+parameterised module declaration
+================================
+
+module PModule<supplyInt/0 s1, SupplyInt S2> {
+  int foo() { result = s1() + S2::get() }
+}
+
+---
+
+(ql
+  (moduleMember
+    (module
+      (moduleName
+        (simpleId))
+      (moduleParam
+        (signatureExpr
+          (predicateExpr
+            (aritylessPredicateExpr
+              (literalId))
+            (integer)))
+        (simpleId))
+      (moduleParam
+        (signatureExpr
+          (typeExpr
+            (className)))
+        (simpleId))
+      (moduleMember
+        (classlessPredicate
+          (typeExpr
+            (primitiveType))
+          (predicateName)
+          (body
+            (comp_term
+              (variable
+                (result))
+              (compop)
+              (add_expr
+                (call_or_unqual_agg_expr
+                  (aritylessPredicateExpr
+                    (literalId))
+                  (call_body))
+                (addop)
+                (call_or_unqual_agg_expr
+                  (aritylessPredicateExpr
+                    (moduleExpr
+                      (simpleId))
+                    (literalId))
+                  (call_body))))))))))
+
+===============================
+parameterised module implements
+===============================
+
+module Supply11 implements SupplyInt {
+  int get() { result = 11 }
+}
+
+---
+
+(ql
+  (moduleMember
+    (module
+      (moduleName
+        (simpleId))
+      (signatureExpr
+        (typeExpr
+          (className)))
+      (moduleMember
+        (classlessPredicate
+          (typeExpr
+            (primitiveType))
+          (predicateName)
+          (body
+            (comp_term
+              (variable
+                (result))
+              (compop)
+              (literal
+                (integer)))))))))
+
+================================
+parameterised module application
+================================
+
+select PModule<supply6/0, supply10/0, Supply11, Supply15>::foo()
+
+---
+
+
+(ql
+  (moduleMember
+    (select
+      (asExprs
+        (asExpr
+          (call_or_unqual_agg_expr
+            (aritylessPredicateExpr
+              (moduleExpr
+                (moduleInstantiation
+                  (moduleName
+                    (simpleId))
+                  (signatureExpr
+                    (predicateExpr
+                      (aritylessPredicateExpr
+                        (literalId))
+                      (integer)))
+                  (signatureExpr
+                    (predicateExpr
+                      (aritylessPredicateExpr
+                        (literalId))
+                      (integer)))
+                  (signatureExpr
+                    (typeExpr
+                      (className)))
+                  (signatureExpr
+                    (typeExpr
+                      (className)))))
+              (literalId))
+            (call_body)))))))
+
+==================
+second application
+==================
+
+where node = DataFlow::BarrierGuard<containsDotDotSanitizer/3>::getABarrierNode()
+select 1
+
+---
+
+(ql
+  (moduleMember
+    (select
+      (comp_term
+        (variable
+          (varName
+            (simpleId)))
+        (compop)
+        (call_or_unqual_agg_expr
+          (aritylessPredicateExpr
+            (moduleExpr
+              (moduleExpr
+                (simpleId))
+              (moduleInstantiation
+                (moduleName
+                  (simpleId))
+                (signatureExpr
+                  (predicateExpr
+                    (aritylessPredicateExpr
+                      (literalId))
+                    (integer)))))
+            (literalId))
+          (call_body)))
+      (asExprs
+        (asExpr
+          (literal
+            (integer)))))))

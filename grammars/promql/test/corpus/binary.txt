@@ -1,0 +1,139 @@
+================================================================================
+binary - division with grouping
+================================================================================
+
+foo / ignoring(label1) group_left(label2) bar
+
+--------------------------------------------------------------------------------
+
+(query
+  (binary_expression
+    (instant_vector_selector
+      (metric_name))
+    (binary_grouping
+      (label_name)
+      (label_name))
+    (instant_vector_selector
+      (metric_name))))
+
+================================================================================
+binary - ungrouped subtraction
+================================================================================
+
+foo - bar
+
+--------------------------------------------------------------------------------
+
+(query
+  (binary_expression
+    (instant_vector_selector
+      (metric_name))
+    (instant_vector_selector
+      (metric_name))))
+
+================================================================================
+binary - error rate
+================================================================================
+
+(sum(rate(http_requests_total{status_code=~"5.*"}[5m]))/sum(rate(http_requests_total[5m])))
+
+--------------------------------------------------------------------------------
+
+(query
+  (binary_expression
+    (function_call
+      (function_name)
+      (function_args
+        (function_call
+          (function_name)
+          (function_args
+            (range_vector_selector
+              (metric_name)
+              (label_selectors
+                (label_matcher
+                  (label_name)
+                  (label_value)))
+              (range_selection))))))
+    (function_call
+      (function_name)
+      (function_args
+        (function_call
+          (function_name)
+          (function_args
+            (range_vector_selector
+              (metric_name)
+              (range_selection))))))))
+
+================================================================================
+binary - precedences
+================================================================================
+
+foo - bar > baz
+
+--------------------------------------------------------------------------------
+
+(query
+  (binary_expression
+    (binary_expression
+      (instant_vector_selector
+        (metric_name))
+      (instant_vector_selector
+        (metric_name)))
+    (instant_vector_selector
+      (metric_name))))
+
+================================================================================
+binary - bool comparison
+================================================================================
+
+foo > bool baz
+
+--------------------------------------------------------------------------------
+
+(query
+  (binary_expression
+    (instant_vector_selector
+      (metric_name))
+    (instant_vector_selector
+      (metric_name))))
+
+================================================================================
+binary - bool upper case comparison
+================================================================================
+
+foo > BOOL baz
+
+--------------------------------------------------------------------------------
+
+(query
+  (binary_expression
+    (instant_vector_selector
+      (metric_name))
+    (instant_vector_selector
+      (metric_name))))
+
+================================================================================
+binary - atan2
+================================================================================
+
+1.0 atan2 2.0
+
+--------------------------------------------------------------------------------
+
+(query
+  (binary_expression
+    (float_literal)
+    (float_literal)))
+
+================================================================================
+binary - atan2 upper case
+================================================================================
+
+1.0 ATAN2 2.0
+
+--------------------------------------------------------------------------------
+
+(query
+  (binary_expression
+    (float_literal)
+    (float_literal)))

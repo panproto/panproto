@@ -1,0 +1,18 @@
+===
+basic/objectMemberInvalid2.pkl
+===
+
+res1 {foo=1bar=2}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (intLiteralExpr))
+      (objectProperty
+        (identifier)
+        (intLiteralExpr)))))

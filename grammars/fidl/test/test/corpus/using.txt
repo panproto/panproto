@@ -1,0 +1,22 @@
+================================================================================
+Using
+================================================================================
+
+library this_is_library;
+
+using a;
+using b;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (library
+    (compound_identifier
+      (identifier)))
+  (using_list
+    (using
+      (compound_identifier
+        (identifier)))
+    (using
+      (compound_identifier
+        (identifier)))))

@@ -1,0 +1,261 @@
+==============
+Decimal natural
+==============
+
+#check 42
+
+---
+
+(module
+  (check
+    term: (num_lit)))
+
+==============
+Hex literal
+==============
+
+#check 0xCAFEBABE
+
+---
+
+(module
+  (check
+    term: (num_lit)))
+
+==============
+Octal literal
+==============
+
+#check 0o777
+
+---
+
+(module
+  (check
+    term: (num_lit)))
+
+==============
+Binary literal
+==============
+
+#check 0b1010_0110
+
+---
+
+(module
+  (check
+    term: (num_lit)))
+
+==============
+Float literal
+==============
+
+#check 3.14159
+
+---
+
+(module
+  (check
+    term: (scientific_lit)))
+
+==============
+Float with exponent
+==============
+
+#check 6.022e23
+
+---
+
+(module
+  (check
+    term: (scientific_lit)))
+
+==============
+Char literal
+==============
+
+#check 'a'
+
+---
+
+(module
+  (check
+    term: (char_lit)))
+
+==============
+Char escape
+==============
+
+#check '\n'
+
+---
+
+(module
+  (check
+    term: (char_lit
+      (escape_sequence))))
+
+==============
+String literal
+==============
+
+#check "hello world"
+
+---
+
+(module
+  (check
+    term: (str_lit)))
+
+==============
+String with escapes
+==============
+
+#check "tab:\there\nthere"
+
+---
+
+(module
+  (check
+    term: (str_lit
+      (escape_sequence)
+      (escape_sequence))))
+
+==============
+Raw string
+==============
+
+#check r"raw\nnotescape"
+
+---
+
+(module
+  (check
+    term: (raw_string)))
+
+==============
+Raw string with hashes
+==============
+
+#check r#"contains "quote" inside"#
+
+---
+
+(module
+  (check
+    term: (raw_string)))
+
+==============
+Raw string with double hashes
+==============
+
+#check r##"can use "# inside"##
+
+---
+
+(module
+  (check
+    term: (raw_string)))
+
+==============
+Interpolated string
+==============
+
+#check s!"hello {name}, you are {age} years old"
+
+---
+
+(module
+  (check
+    term: (interpolated_str
+      (interpolation
+        (identifier))
+      (interpolation
+        (identifier)))))
+
+==============
+Message interpolation
+==============
+
+#check m!"got {x}"
+
+---
+
+(module
+  (check
+    term: (interpolated_str
+      (interpolation
+        (identifier)))))
+
+==============
+Name literal
+==============
+
+#check `Foo.bar
+
+---
+
+(module
+  (check
+    term: (name_lit
+      name: (identifier))))
+
+==============
+Greek identifier
+==============
+
+#check α
+
+---
+
+(module
+  (check
+    term: (identifier)))
+
+==============
+Mixed Greek identifier
+==============
+
+#check List.foldl_α'
+
+---
+
+(module
+  (check
+    term: (identifier)))
+
+==============
+French quoted identifier
+==============
+
+#check «my weird name»
+
+---
+
+(module
+  (check
+    term: (identifier)))
+
+==============
+Dotted French quote
+==============
+
+#check Foo.«bar baz».Quux
+
+---
+
+(module
+  (check
+    term: (identifier)))
+
+==============
+Subscripted identifier
+==============
+
+#check x₀
+
+---
+
+(module
+  (check
+    term: (identifier)))

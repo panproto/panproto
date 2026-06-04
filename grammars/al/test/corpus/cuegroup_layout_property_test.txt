@@ -1,0 +1,113 @@
+================================================================================
+CueGroupLayout property test
+================================================================================
+
+page 9037 "Accountant Activities"
+{
+    PageType = CardPart;
+    
+    layout
+    {
+        area(content)
+        {
+            cuegroup(Control1)
+            {
+                CueGroupLayout = Wide;
+                ShowCaption = false;
+                
+                field("Cash Accounts Balance"; Rec."Cash Accounts Balance")
+                {
+                    ApplicationArea = All;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (cuegroup_section
+          (cuegroup_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (boolean))
+          (page_field
+            name: (quoted_identifier)
+            source: (member_expression
+              object: (identifier)
+              member: (quoted_identifier))
+            (property
+              name: (property_name)
+              value: (identifier))))))))
+
+================================================================================
+CueGroupLayout variations
+================================================================================
+
+page 50100 "Test Cues"
+{
+    layout
+    {
+        area(content)
+        {
+            cuegroup(Wide)
+            {
+                CueGroupLayout = Wide;
+            }
+            cuegroup(Narrow)
+            {
+                cuegroupLayout = Narrow;
+            }
+            cuegroup(Mixed)
+            {
+                CUEGROUPLAYOUT = Wide;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (cuegroup_section
+          (cuegroup_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))
+        (cuegroup_section
+          (cuegroup_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))
+        (cuegroup_section
+          (cuegroup_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))))))

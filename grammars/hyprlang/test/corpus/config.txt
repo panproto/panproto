@@ -1,0 +1,182 @@
+=================================================
+Basics
+=================================================
+
+# comment
+
+$variable = value # inline comment
+
+section {
+  key = not a ##comment
+}
+
+section:device {
+  key =
+}
+
+---
+
+(configuration
+  (comment)
+  (declaration
+    name: (variable)
+    value: (string_literal)
+    (comment))
+  (section
+    name: (name)
+    (assignment
+      name: (name)
+      value: (string)))
+  (section
+    name: (name)
+    device: (device_name)
+    (assignment
+      name: (name))))
+
+=================================================
+Data types
+=================================================
+
+boolean = true
+number = 1.2
+vec2 = 1 2
+string = hyprland
+color_hex = 0xffffff
+color_rgb = rgb(000fff)
+color_rgb2 = rgb(122, 176, 91, 0.1)
+gradient = rgb(000fff) 0xfff000 45deg
+mod = SUPER
+variable = $variable
+keyword = str, 1, 4, true
+monitor=DP-1,1378x1024@60,0x0,1
+
+---
+
+(configuration
+  (assignment
+    (name)
+    (boolean))
+  (assignment
+    (name)
+    (number))
+  (assignment
+    (name)
+    (vec2
+      (number)
+      (number)))
+  (assignment
+    (name)
+    (string))
+  (assignment
+    (name)
+    (color
+      (legacy_hex
+        (hex))))
+  (assignment
+    (name)
+    (color
+      (rgb
+        (hex))))
+  (assignment
+    (name)
+    (color
+      (rgb
+        (number_tuple
+          (number)
+          (number)
+          (number)
+          (number)))))
+  (assignment
+    (name)
+    (gradient
+      (color
+        (rgb
+          (hex)))
+      (color
+        (legacy_hex
+          (hex)))
+      (angle)))
+  (assignment
+    (name)
+    (mod))
+  (assignment
+    (name)
+    (variable))
+  (keyword
+    (name)
+    (params
+      (string)
+      (number)
+      (number)
+      (boolean)))
+  (keyword
+    (name)
+    (params
+      (string)
+      (display
+        (position
+          (number)
+          (number))
+        (number))
+      (position
+        (number)
+        (number))
+      (number))))
+
+=================================================
+Keyword `exec`
+=================================================
+
+exec-once = command
+execr-once = command
+exec = command
+execr = command
+exec-shutdown = command
+
+exec-once = [workspace 1 silent] command
+execr-once = [command]
+exec = [monitor 1; float; move 20% 30%] command
+execr = [command]
+exec-shutdown = [command]
+
+-------------------------------------------------
+
+(configuration
+  (exec
+    (string))
+  (exec
+    (string))
+  (exec
+    (string))
+  (exec
+    (string))
+  (exec
+    (string))
+  (exec
+    (rules
+      (window_rule
+        (name)
+        (arguments
+          (number)
+          (string))))
+    (string))
+  (exec
+    (string))
+  (exec
+    (rules
+      (window_rule
+        (name)
+        (arguments
+          (number)))
+      (window_rule
+        (name))
+      (window_rule
+        (name)
+        (arguments
+          (string)
+          (string))))
+    (string))
+  (exec
+    (string))
+  (exec
+    (string)))

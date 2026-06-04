@@ -1,0 +1,977 @@
+================================================================================
+Include directives
+================================================================================
+
+#include "some/path.h"
+#include <some/path>
+#include MACRO
+#include MACRO(arg1, arg2)
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (preproc_include
+    path: (string_literal))
+  (preproc_include
+    path: (system_lib_string))
+  (preproc_include
+    path: (identifier))
+  (preproc_include
+    path: (call_expression
+      function: (identifier)
+      arguments: (argument_list
+        (identifier)
+        (identifier)))))
+
+================================================================================
+Object-like macro definitions
+================================================================================
+
+#define ONE
+#define TWO int a = b;
+#define FOUR (mno * pq)
+#define FIVE_WITH_TRAILING_WHITESPACE 
+#define SIX
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (preproc_def
+    name: (identifier))
+  (preproc_def
+    name: (identifier)
+    value: (preproc_arg))
+  (preproc_def
+    name: (identifier)
+    value: (preproc_arg))
+  (preproc_def
+    name: (identifier))
+  (preproc_def
+    name: (identifier)))
+
+================================================================================
+Function-like macro definitions
+================================================================================
+
+#define ONE() a
+#define TWO(b) c
+#define THREE(d, e) f
+#define FOUR(...) g
+#define FIVE(h, i, ...) j
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (preproc_function_def
+    name: (identifier)
+    parameters: (preproc_params)
+    value: (preproc_arg))
+  (preproc_function_def
+    name: (identifier)
+    parameters: (preproc_params
+      (identifier))
+    value: (preproc_arg))
+  (preproc_function_def
+    name: (identifier)
+    parameters: (preproc_params
+      (identifier)
+      (identifier))
+    value: (preproc_arg))
+  (preproc_function_def
+    name: (identifier)
+    parameters: (preproc_params)
+    value: (preproc_arg))
+  (preproc_function_def
+    name: (identifier)
+    parameters: (preproc_params
+      (identifier)
+      (identifier))
+    value: (preproc_arg)))
+
+================================================================================
+Multiline definitions
+================================================================================
+
+#define set_error(id, msg)  \
+  if (present(ierr)) ierr = id; \
+  if (present(errmsg)) errmsg = msg;
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (preproc_function_def
+    name: (identifier)
+    parameters: (preproc_params
+      (identifier)
+      (identifier))
+    value: (preproc_arg)))
+
+================================================================================
+Ifdefs
+================================================================================
+
+#ifndef DEFINE1
+subroutine foo1
+end subroutine foo1
+#endif
+
+#ifdef DEFINE2
+subroutine foo2
+end subroutine foo2
+#define c 32
+#elif defined DEFINE3
+#else
+subroutine foo3
+end subroutine foo3
+#define c 16
+#endif  /* DEFINE1 */
+
+#ifdef DEFINE4
+subroutine foo4
+end subroutine foo4
+#endif // DEFINE4
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (preproc_ifdef
+    name: (identifier)
+    (subroutine
+      (subroutine_statement
+        name: (name))
+      (end_subroutine_statement
+        (name))))
+  (preproc_ifdef
+    name: (identifier)
+    (subroutine
+      (subroutine_statement
+        name: (name))
+      (end_subroutine_statement
+        (name)))
+    (preproc_def
+      name: (identifier)
+      value: (preproc_arg))
+    alternative: (preproc_elif
+      condition: (preproc_defined
+        (identifier))
+      alternative: (preproc_else
+        (subroutine
+          (subroutine_statement
+            name: (name))
+          (end_subroutine_statement
+            (name)))
+        (preproc_def
+          name: (identifier)
+          value: (preproc_arg))))
+    (multiline_preproc_comment))
+  (preproc_ifdef
+    name: (identifier)
+    (subroutine
+      (subroutine_statement
+        name: (name))
+      (end_subroutine_statement
+        (name)))
+    (inline_preproc_comment)))
+
+================================================================================
+Elifdefs
+================================================================================
+
+#ifndef DEFINE1
+subroutine foo
+end subroutine foo
+#elifndef DEFINE2
+subroutine foo2
+end subroutine foo2
+#endif
+
+#ifdef DEFINE2
+subroutine foo3
+end subroutine foo3
+#elifdef DEFINE3
+subroutine foo4
+end subroutine foo4
+#else
+subroutine foo5
+end subroutine foo5
+#endif
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (preproc_ifdef
+    name: (identifier)
+    (subroutine
+      (subroutine_statement
+        name: (name))
+      (end_subroutine_statement
+        (name)))
+    alternative: (preproc_elifdef
+      name: (identifier)
+      (subroutine
+        (subroutine_statement
+          name: (name))
+        (end_subroutine_statement
+          (name)))))
+  (preproc_ifdef
+    name: (identifier)
+    (subroutine
+      (subroutine_statement
+        name: (name))
+      (end_subroutine_statement
+        (name)))
+    alternative: (preproc_elifdef
+      name: (identifier)
+      (subroutine
+        (subroutine_statement
+          name: (name))
+        (end_subroutine_statement
+          (name)))
+      alternative: (preproc_else
+        (subroutine
+          (subroutine_statement
+            name: (name))
+          (end_subroutine_statement
+            (name)))))))
+
+================================================================================
+Mixing #elif and #elifdef
+================================================================================
+
+#ifndef DEFINE1
+subroutine a
+end subroutine a
+#elif  defined(DEFINE2)
+subroutine b
+end subroutine b
+#endif
+
+#if defined DEFINE3
+subroutine c
+end subroutine c
+#elifdef DEFINE4
+subroutine d
+end subroutine d
+#else
+subroutine e
+end subroutine e
+#endif
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (preproc_ifdef
+    name: (identifier)
+    (subroutine
+      (subroutine_statement
+        name: (name))
+      (end_subroutine_statement
+        (name)))
+    alternative: (preproc_elif
+      condition: (preproc_defined
+        (identifier))
+      (subroutine
+        (subroutine_statement
+          name: (name))
+        (end_subroutine_statement
+          (name)))))
+  (preproc_if
+    condition: (preproc_defined
+      (identifier))
+    (subroutine
+      (subroutine_statement
+        name: (name))
+      (end_subroutine_statement
+        (name)))
+    alternative: (preproc_elifdef
+      name: (identifier)
+      (subroutine
+        (subroutine_statement
+          name: (name))
+        (end_subroutine_statement
+          (name)))
+      alternative: (preproc_else
+        (subroutine
+          (subroutine_statement
+            name: (name))
+          (end_subroutine_statement
+            (name)))))))
+
+================================================================================
+General if blocks
+================================================================================
+
+#if defined(__GNUC__) && defined(__PIC__)
+#define inline inline __attribute__((always_inline))
+#elif defined(_WIN32)
+#define something
+#elif ~defined(SOMETHING_ELSE)
+#define SOMETHING_ELSE
+#else
+#include <something>
+#endif
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (preproc_if
+    condition: (binary_expression
+      left: (preproc_defined
+        (identifier))
+      right: (preproc_defined
+        (identifier)))
+    (preproc_def
+      name: (identifier)
+      value: (preproc_arg))
+    alternative: (preproc_elif
+      condition: (preproc_defined
+        (identifier))
+      (preproc_def
+        name: (identifier))
+      alternative: (preproc_elif
+        condition: (unary_expression
+          argument: (preproc_defined
+            (identifier)))
+        (preproc_def
+          name: (identifier))
+        alternative: (preproc_else
+          (preproc_include
+            path: (system_lib_string)))))))
+
+================================================================================
+Unary not
+================================================================================
+
+#if !defined(__GNUC__)
+#define foo
+#endif
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (preproc_if
+    condition: (unary_expression
+      argument: (preproc_defined
+        (identifier)))
+    (preproc_def
+      name: (identifier))))
+
+================================================================================
+Unknown preprocessor directives
+================================================================================
+
+#pragma mark - UIViewController
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (preproc_call
+    directive: (preproc_directive)
+    argument: (preproc_arg)))
+
+============================================
+Preprocessed Files
+============================================
+
+# 1 "/path/some/file.F90"
+# 1 "<built-in>"
+# 1 "<command-line>"
+# 1 "/path/some/file.F90" 1
+program test
+# 1 "/path/some/file.F90" 4
+contains
+# 1 "other.f90" 1
+subroutine foo
+
+# 1 "internals.f90" 1
+  integer :: bar
+# 3 "other.F90" 2
+end subroutine foo
+# 30 "preproc.F90" 2
+end program test
+
+---
+
+(translation_unit
+  (preproc_call
+    (preproc_directive)
+    (preproc_arg))
+  (preproc_call
+    (preproc_directive)
+    (preproc_arg))
+  (preproc_call
+    (preproc_directive)
+    (preproc_arg))
+  (preproc_call
+    (preproc_directive)
+    (preproc_arg))
+  (program
+    (program_statement
+      (name))
+    (preproc_call
+      (preproc_directive)
+      (preproc_arg))
+    (internal_procedures
+      (contains_statement)
+      (preproc_call
+        (preproc_directive)
+        (preproc_arg))
+      (subroutine
+        (subroutine_statement
+          (name))
+        (preproc_call
+          (preproc_directive)
+          (preproc_arg))
+        (variable_declaration
+          (intrinsic_type)
+          (identifier))
+        (preproc_call
+          (preproc_directive)
+          (preproc_arg))
+        (end_subroutine_statement
+          (name)))
+      (preproc_call
+        (preproc_directive)
+        (preproc_arg)))
+    (end_program_statement
+      (name))))
+
+================================================================================
+If directives in use statements
+================================================================================
+
+program foo
+  use mod, only: a, b
+#if A > 1
+  use other
+#endif
+
+end program
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (use_statement
+      (module_name)
+      (included_items
+        (identifier)
+        (identifier)))
+    (preproc_if
+      condition: (binary_expression
+        left: (identifier)
+        right: (number_literal))
+      (use_statement
+        (module_name)))
+    (end_program_statement)))
+
+================================================================================
+If directives in derived types
+================================================================================
+
+module foo
+  type bar
+#include "body.inc"
+    integer quux
+#if HAVE_THING
+    integer thing
+#endif
+  contains
+#if HAVE_FINAL
+    final :: dtor
+#endif
+  end type bar
+end module foo
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (module
+    (module_statement
+      (name))
+    (derived_type_definition
+      (derived_type_statement
+        (type_name))
+      (preproc_include
+        (string_literal))
+      (variable_declaration
+        (intrinsic_type)
+        (identifier))
+      (preproc_if
+        (identifier)
+        (variable_declaration
+          (intrinsic_type)
+          (identifier)))
+      (derived_type_procedures
+        (contains_statement)
+        (preproc_if
+          (identifier)
+          (final_statement
+            (method_name))))
+      (end_type_statement
+        (name)))
+    (end_module_statement
+      (name))))
+
+================================================================================
+If directives around procedures
+================================================================================
+
+module foo
+contains
+
+  subroutine zap
+  end subroutine zap
+
+#ifdef HAVE_BAR
+  subroutine bar
+  end subroutine bar
+#endif
+
+  subroutine zing
+  end subroutine zing
+
+end module foo
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (module
+    (module_statement
+      (name))
+    (internal_procedures
+      (contains_statement)
+      (subroutine
+        (subroutine_statement
+          name: (name))
+        (end_subroutine_statement
+          (name)))
+      (preproc_ifdef
+        name: (identifier)
+        (subroutine
+          (subroutine_statement
+            name: (name))
+          (end_subroutine_statement
+            (name))))
+      (subroutine
+        (subroutine_statement
+          name: (name))
+        (end_subroutine_statement
+          (name))))
+    (end_module_statement
+      (name))))
+
+================================================================================
+If directive splitting specification part
+================================================================================
+
+module foo
+contains
+
+  subroutine bar
+    integer :: zap
+#ifdef HAVE_FOO
+    integer :: foo
+
+    foo = zap + 1
+#endif
+    zap = zap + 2
+  end subroutine bar
+
+  subroutine zing
+  end subroutine zing
+
+end module foo
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (module
+    (module_statement
+      (name))
+    (internal_procedures
+      (contains_statement)
+      (subroutine
+        (subroutine_statement
+          name: (name))
+        (variable_declaration
+          type: (intrinsic_type)
+          declarator: (identifier))
+        (preproc_ifdef
+          name: (identifier)
+          (variable_declaration
+            type: (intrinsic_type)
+            declarator: (identifier))
+          (assignment_statement
+            left: (identifier)
+            right: (math_expression
+              left: (identifier)
+              right: (number_literal))))
+        (assignment_statement
+          left: (identifier)
+          right: (math_expression
+            left: (identifier)
+            right: (number_literal)))
+        (end_subroutine_statement
+          (name)))
+      (subroutine
+        (subroutine_statement
+          name: (name))
+        (end_subroutine_statement
+          (name))))
+    (end_module_statement
+      (name))))
+
+================================================================================
+Whitespace after if directive
+================================================================================
+
+module foo
+contains
+
+  subroutine bar
+    integer :: zap
+    zap = 0_real64
+#ifdef HAVE_FOO
+    zap = 0_real64
+#endif 
+
+  end subroutine bar
+
+  subroutine zing
+  end subroutine zing
+
+end module foo
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (module
+    (module_statement
+      (name))
+    (internal_procedures
+      (contains_statement)
+      (subroutine
+        (subroutine_statement
+          name: (name))
+        (variable_declaration
+          type: (intrinsic_type)
+          declarator: (identifier))
+        (assignment_statement
+          left: (identifier)
+          right: (number_literal
+            kind: (identifier)))
+        (preproc_ifdef
+          name: (identifier)
+          (assignment_statement
+            left: (identifier)
+            right: (number_literal
+              kind: (identifier))))
+        (end_subroutine_statement
+          (name)))
+      (subroutine
+        (subroutine_statement
+          name: (name))
+        (end_subroutine_statement
+          (name))))
+    (end_module_statement
+      (name))))
+
+================================================================================
+Preprocessor in select statements
+================================================================================
+
+program case_preprocessor
+    implicit none
+    character(len=256) :: multidata_item
+    integer :: dim
+    multidata_item = "test"
+
+    select case (multidata_item)
+#ifdef UM_PHYSICS
+        case ('plant_func_types')
+                dim = 1
+#endif
+#if TEST > 0
+        case ('test')
+                dim = 1
+#endif
+        case default
+#ifdef HAVE_DEFAULT_BODY
+                dim = 1
+#endif
+    end select
+
+end program
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (implicit_statement
+      (none))
+    (variable_declaration
+      (intrinsic_type
+        (kind
+          (keyword_argument
+            (identifier)
+            (number_literal))))
+      (identifier))
+    (variable_declaration
+      (intrinsic_type)
+      (identifier))
+    (assignment_statement
+      (identifier)
+      (string_literal))
+    (select_case_statement
+      (selector
+        (identifier))
+      (preproc_ifdef
+        (identifier)
+        (case_statement
+          (case_value_range_list
+            (string_literal))
+          (assignment_statement
+            (identifier)
+            (number_literal))))
+      (preproc_if
+        (binary_expression
+          (identifier)
+          (number_literal))
+        (case_statement
+          (case_value_range_list
+            (string_literal))
+          (assignment_statement
+            (identifier)
+            (number_literal))))
+      (case_statement
+        (default)
+        (preproc_ifdef
+          (identifier)
+          (assignment_statement
+            (identifier)
+            (number_literal))))
+      (end_select_statement))
+    (end_program_statement)))
+
+================================================================================
+Preprocessor in interface
+================================================================================
+
+module unit_test_module
+  interface assert_equals
+    module procedure assert_equals_int
+#ifdef HAVE_REAL8
+    module procedure assert_equals_real8
+#endif
+  end interface
+end module
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (module
+    (module_statement
+      (name))
+    (interface
+      (interface_statement
+        (name))
+      (procedure_statement
+        (procedure_kind)
+        (method_name))
+      (preproc_ifdef
+        (identifier)
+        (procedure_statement
+          (procedure_kind)
+          (method_name)))
+      (end_interface_statement))
+    (end_module_statement)))
+
+================================================================================
+Preprocessor in specification part
+================================================================================
+
+  subroutine foo()
+    implicit none
+#ifdef THINGY
+#ifndef MAJIG
+#ifdef stuff
+    integer(kind=8) :: signal
+    integer(kind=8) :: handler
+    integer(kind=8) :: minus_one = -1
+#else
+    integer :: signal
+    integer :: handler
+    integer :: minus_one = -1
+#endif
+    handler = signal(2,signal_handler,minus_one)
+    handler = signal(15,signal_handler,minus_one)
+
+#endif
+#endif
+  end subroutine foo
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (subroutine
+    (subroutine_statement
+      (name))
+    (implicit_statement
+      (none))
+    (preproc_ifdef
+      (identifier)
+      (preproc_ifdef
+        (identifier)
+        (preproc_ifdef
+          (identifier)
+          (variable_declaration
+            (intrinsic_type
+              (kind
+                (keyword_argument
+                  (identifier)
+                  (number_literal))))
+            (identifier))
+          (variable_declaration
+            (intrinsic_type
+              (kind
+                (keyword_argument
+                  (identifier)
+                  (number_literal))))
+            (identifier))
+          (variable_declaration
+            (intrinsic_type
+              (kind
+                (keyword_argument
+                  (identifier)
+                  (number_literal))))
+            (init_declarator
+              (identifier)
+              (unary_expression
+                (number_literal))))
+          (preproc_else
+            (variable_declaration
+              (intrinsic_type)
+              (identifier))
+            (variable_declaration
+              (intrinsic_type)
+              (identifier))
+            (variable_declaration
+              (intrinsic_type)
+              (init_declarator
+                (identifier)
+                (unary_expression
+                  (number_literal))))))
+        (assignment_statement
+          (identifier)
+          (call_expression
+            (identifier)
+            (argument_list
+              (number_literal)
+              (identifier)
+              (identifier))))
+        (assignment_statement
+          (identifier)
+          (call_expression
+            (identifier)
+            (argument_list
+              (number_literal)
+              (identifier)
+              (identifier))))))
+    (end_subroutine_statement
+      (name))))
+
+================================================================================
+Multiline preprocessor comments
+================================================================================
+
+/* Foo */
+#ifdef FOO
+#endif
+
+      PROGRAM MAIN
+        INTEGER /* FOO */ FOO
+        INTEGER BAR /* BAR */
+        INTEGER /* B
+                   A
+                   Z */ BAZ
+      END
+
+/* Foo
+// Bar
+Baz */
+#ifdef BAR
+#endif
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (multiline_preproc_comment)
+  (preproc_ifdef
+    (identifier))
+  (program
+    (program_statement
+      (name))
+    (variable_declaration
+      (intrinsic_type)
+      (multiline_preproc_comment)
+      (identifier))
+    (variable_declaration
+      (intrinsic_type)
+      (identifier))
+    (multiline_preproc_comment)
+    (variable_declaration
+      (intrinsic_type)
+      (multiline_preproc_comment)
+      (identifier))
+    (end_program_statement))
+  (multiline_preproc_comment)
+  (preproc_ifdef
+    (identifier)))
+
+================================================================================
+pFUnit directives
+================================================================================
+
+program test
+    @assertEqual(1, 1, tolerance=1e-6, message="1 should equal 1")
+end program test
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (custom_directive)
+    (end_program_statement
+      (name))))
+
+================================================================================
+Preprocessor If before module
+================================================================================
+
+#if A
+#endif
+
+#define B
+
+module my_mod
+end module my_mod
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (preproc_if
+    condition: (identifier))
+  (preproc_def
+    name: (identifier))
+  (module
+    (module_statement
+      (name))
+    (end_module_statement
+      (name))))

@@ -1,0 +1,122 @@
+================================================================================
+Multiline comment in codeunit
+================================================================================
+
+codeunit 50100 "Test Codeunit"
+{
+    /* This is a multiline comment
+       that spans multiple lines
+       and should be parsed correctly */
+    
+    trigger OnRun()
+    begin
+        /* Another multiline comment
+           inside a trigger */
+        Message('Hello');
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (multiline_comment)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (multiline_comment)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list
+            (string_literal)))
+        (end_keyword)))))
+
+================================================================================
+Multiline comment with special characters
+================================================================================
+
+table 50100 "Test Table"
+{
+    fields
+    {
+        /* Field with special chars in comment: 
+           - Bullet points
+           * Stars
+           // Double slashes
+           Nested comment syntax
+           @#$%^&*() */
+        field(1; "No."; Code[20])
+        {
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (multiline_comment)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (code_type
+            length: (integer)))))))
+
+================================================================================
+Multiline comment between statements
+================================================================================
+
+codeunit 50101 "Comment Test"
+{
+    procedure TestProc()
+    begin
+        Message('First');
+        /* This comment is between statements
+           and should parse correctly */
+        Message('Second');
+        /*
+         * Java-style multiline comment
+         * with asterisks on each line
+         */
+        Message('Third');
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list
+            (string_literal)))
+        (multiline_comment)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list
+            (string_literal)))
+        (multiline_comment)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list
+            (string_literal)))
+        (end_keyword)))))

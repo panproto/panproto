@@ -1,0 +1,164 @@
+================================================================================
+periodic transactions
+================================================================================
+
+~ monthly
+    State:2021:Tax
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (xact
+      (periodic_xact
+        (interval)
+        (posting
+          (account))))))
+
+================================================================================
+case insensitive interval
+================================================================================
+
+~ yEaRlY
+    State:2021:Tax
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (xact
+      (periodic_xact
+        (interval)
+        (posting
+          (account))))))
+
+================================================================================
+periodic transactions with integer interval
+================================================================================
+
+~ eVerY 20 wEeKs
+    Expenses:Groceries:Chocolate  2000 EUR ; don't ask questions
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (xact
+      (periodic_xact
+        (interval)
+        (posting
+          (account)
+          (amount
+            (quantity)
+            (commodity))
+          (note))))))
+
+================================================================================
+periodic transactions require interval
+================================================================================
+
+~
+    State:2021:Tax
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (ERROR
+    (ERROR)
+    (UNEXPECTED ':')
+    (UNEXPECTED ':')))
+
+================================================================================
+periodic transactions with begin/end times
+================================================================================
+
+~ every week from 24/1/1
+    Groceries  $100
+
+~ every week from Jan to Feb
+    Groceries  $100
+
+~ every week until 2024
+    Groceries  $100
+
+~ every week in august
+    Groceries  $100
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (xact
+      (periodic_xact
+        (interval
+          (date_spec))
+        (posting
+          (account)
+          (amount
+            (commodity)
+            (quantity))))))
+  (journal_item
+    (xact
+      (periodic_xact
+        (interval
+          (date_spec)
+          (date_spec))
+        (posting
+          (account)
+          (amount
+            (commodity)
+            (quantity))))))
+  (journal_item
+    (xact
+      (periodic_xact
+        (interval
+          (date_spec))
+        (posting
+          (account)
+          (amount
+            (commodity)
+            (quantity))))))
+  (journal_item
+    (xact
+      (periodic_xact
+        (interval
+          (date_spec))
+        (posting
+          (account)
+          (amount
+            (commodity)
+            (quantity)))))))
+
+================================================================================
+periodic transactions with relative dates
+================================================================================
+
+~ weekly last august
+    Groceries  $100
+
+~ last week
+    Groceries  $100
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (xact
+      (periodic_xact
+        (interval
+          (date_spec))
+        (posting
+          (account)
+          (amount
+            (commodity)
+            (quantity))))))
+  (journal_item
+    (xact
+      (periodic_xact
+        (interval
+          (date_spec))
+        (posting
+          (account)
+          (amount
+            (commodity)
+            (quantity)))))))

@@ -1,0 +1,637 @@
+===================
+int literal.
+===================
+
+class main {
+  var x = 12;
+}
+
+---
+
+(module
+  (class_declaration (identifier)
+    (block
+      (variable_declaration
+        (identifier)
+        (operator)
+        (integer)
+      )
+    )
+  )
+)
+
+===================
+int literal with seperators.
+===================
+
+class main {
+  var x = 12_000;
+}
+
+---
+
+(module
+  (class_declaration (identifier)
+    (block
+      (variable_declaration
+        (identifier)
+        (operator)
+        (integer)
+      )
+    )
+  )
+)
+
+
+
+===================
+int hex literal.
+===================
+
+class main {
+  var x = 0xFF42;
+}
+
+---
+
+(module
+  (class_declaration (identifier)
+    (block
+      (variable_declaration
+        (identifier)
+        (operator)
+        (integer)
+      )
+    )
+  )
+)
+
+===================
+int hex literal with seperators.
+===================
+
+class main {
+  var x = 0xFF_42;
+}
+
+---
+
+(module
+  (class_declaration (identifier)
+    (block
+      (variable_declaration
+        (identifier)
+        (operator)
+        (integer)
+      )
+    )
+  )
+)
+
+
+===================
+float literal.
+===================
+
+class main {
+  var x = 4.2;
+}
+
+---
+
+(module
+  (class_declaration (identifier)
+    (block
+      (variable_declaration
+        (identifier)
+        (operator)
+        (float)
+      )
+    )
+  )
+)
+
+===================
+float literal with seperators.
+===================
+
+class main {
+  var x = 4_0.2_0;
+}
+
+---
+
+(module
+  (class_declaration (identifier)
+    (block
+      (variable_declaration
+        (identifier)
+        (operator)
+        (float)
+      )
+    )
+  )
+)
+
+
+
+
+===================
+float literal with no trailing number.
+===================
+
+class main {
+  var x = 4.;
+}
+
+---
+
+(module
+  (class_declaration (identifier)
+    (block
+      (variable_declaration
+        (identifier)
+        (operator)
+        (float)
+      )
+    )
+  )
+)
+
+===================
+float literal e notation.
+===================
+
+class main {
+  var x = 4.3e5;
+}
+
+---
+
+(module
+  (class_declaration (identifier)
+    (block
+      (variable_declaration
+        (identifier)
+        (operator)
+        (float)
+      )
+    )
+  )
+)
+
+===================
+float literal e notation with seperators.
+===================
+
+class main {
+  var x = 4_0.3_0e1_5;
+}
+
+---
+
+(module
+  (class_declaration (identifier)
+    (block
+      (variable_declaration
+        (identifier)
+        (operator)
+        (float)
+      )
+    )
+  )
+)
+
+
+===================
+float literal e notation error (this is not working).
+===================
+
+class main {
+  var x = 4.3e5e;
+}
+
+---
+
+(module
+  (class_declaration (identifier)
+    (block
+      (variable_declaration
+        (identifier)
+        (operator)
+        (float)
+        (ERROR (identifier))
+      )
+    )
+  )
+)
+
+===================
+string literal single quote
+===================
+
+class main {
+  var x = 'hello';
+}
+
+---
+
+(module
+  (class_declaration (identifier)
+    (block
+      (variable_declaration
+        (identifier)
+        (operator)
+        (string)
+      )
+    )
+  )
+)
+
+===================
+string literal single quote with escape sequence
+===================
+
+class main {
+  var x = 'hello\n';
+}
+
+---
+
+(module
+  (class_declaration (identifier)
+    (block
+      (variable_declaration
+        (identifier)
+        (operator)
+        (string (escape_sequence))
+      )
+    )
+  )
+)
+
+===================
+string literal single quote with escape sequence single quote
+===================
+
+class main {
+  var x = 'hello\'';
+}
+
+---
+
+(module
+  (class_declaration (identifier)
+    (block
+      (variable_declaration
+        (identifier)
+        (operator)
+        (string (escape_sequence))
+      )
+    )
+  )
+)
+
+===================
+string literal double quote with escape sequence
+===================
+
+class main {
+  var x = 'hello\nhello';
+}
+
+---
+
+(module
+  (class_declaration (identifier)
+    (block
+      (variable_declaration
+        (identifier)
+        (operator)
+        (string (escape_sequence))
+      )
+    )
+  )
+)
+
+
+===================
+string literal double quote
+===================
+
+class main {
+  var x = "hello";
+}
+
+---
+
+(module
+  (class_declaration (identifier)
+    (block
+      (variable_declaration
+        (identifier)
+        (operator)
+        (string)
+      )
+    )
+  )
+)
+
+===================
+string literal single quote interpolated identifier
+===================
+
+class main {
+  var y = 1;
+  var x = 'hello $y';
+}
+
+---
+
+(module
+  (class_declaration (identifier)
+    (block
+      (variable_declaration
+        (identifier)
+        (operator)
+        (integer)
+      )
+      (variable_declaration
+        (identifier)
+        (operator)
+        (string (interpolation (identifier)))
+      )
+    )
+  )
+)
+
+===================
+string literal single quote interpolated identifier in braces
+===================
+
+class main {
+  var y = 1;
+  var x = 'hello ${y}';
+}
+
+---
+
+(module
+  (class_declaration (identifier)
+    (block
+      (variable_declaration
+        (identifier)
+        (operator)
+        (integer)
+      )
+      (variable_declaration
+        (identifier)
+        (operator)
+        (string (interpolation (identifier)))
+      )
+    )
+  )
+)
+
+
+===================
+string literal single quote interpolated expression in braces
+===================
+
+class main {
+  var y = 1;
+  var x = 'hello ${y + 1}';
+}
+
+---
+
+(module
+  (class_declaration (identifier)
+    (block
+      (variable_declaration
+        (identifier)
+        (operator)
+        (integer)
+      )
+      (variable_declaration
+        (identifier)
+        (operator)
+        (string (interpolation
+          (identifier) (operator) (integer)
+        ))
+      )
+    )
+  )
+)
+
+===================
+Array literal with no elements
+===================
+
+class main {
+  var y = [];
+}
+
+---
+
+(module
+  (class_declaration (identifier)
+    (block
+      (variable_declaration
+        (identifier)
+        (operator)
+        (array)
+      )
+    )
+  )
+)
+
+===================
+Array literal with single element
+===================
+
+class main {
+  var y = [1];
+}
+
+---
+
+(module
+  (class_declaration (identifier)
+    (block
+      (variable_declaration
+        (identifier)
+        (operator)
+        (array (integer))
+      )
+    )
+  )
+)
+
+===================
+Array literal with multiple elements
+===================
+
+  var y = [1, 2, 3];
+
+---
+
+(module
+  (variable_declaration
+    (identifier)
+    (operator)
+    (array (integer) (integer) (integer))
+  )
+)
+
+===================
+Array literal with object element
+===================
+
+  var y = [{x:1}];
+
+---
+
+(module
+  (variable_declaration
+    (identifier)
+    (operator)
+    (array
+      (object
+      (pair (identifier) (integer)))
+    )
+  )
+)
+
+===================
+Array literal with string element
+===================
+
+class main {
+  var y = ["a"];
+}
+
+---
+
+(module
+  (class_declaration (identifier)
+    (block
+      (variable_declaration
+        (identifier)
+        (operator)
+        (array (string))
+      )
+    )
+  )
+)
+
+===================
+simple pair literal
+===================
+
+x:1;
+
+---
+
+(module
+  (pair (identifier) (integer))
+)
+
+===================
+simple map pair literal
+===================
+
+"test"=>1;
+
+---
+
+(module
+  (pair (string) (integer))
+)
+
+
+
+===================
+Map literal with single element
+===================
+
+class main {
+  var y = ["string" =>  1];
+}
+
+---
+
+(module
+  (class_declaration (identifier)
+    (block
+      (variable_declaration
+        (identifier)
+        (operator)
+        (map (pair (string) (integer)))
+      )
+    )
+  )
+)
+
+===================
+Map literal with nested
+===================
+
+var y = ["string" =>  ["bar" => 2]];
+
+---
+
+(module
+  (variable_declaration
+    (identifier)
+    (operator)
+    (map
+      (pair
+        (string)
+        (map
+          (pair (string) (integer))
+        )
+      )
+    )
+  )
+)
+
+===================
+Object literal
+===================
+
+var y = {x:1, y:2};
+
+---
+
+(module
+  (variable_declaration
+    (identifier)
+    (operator)
+    (object
+      (pair (identifier) (integer))
+      (pair (identifier) (integer))
+    )
+  )
+)
+
+===================
+int literal.
+===================
+
+var x = "12".code;
+
+---
+
+(module
+  (variable_declaration
+    (identifier)
+    (operator)
+    (member_expression
+      (string)
+      (identifier)
+    )
+  )
+)
+
+

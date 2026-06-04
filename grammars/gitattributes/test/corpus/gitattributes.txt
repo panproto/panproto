@@ -1,0 +1,264 @@
+===========
+Simple file
+===========
+
+*	text=auto
+
+---
+
+(file
+  (pattern
+    (wildcard))
+  (attribute
+    (builtin_attr)
+    (attr_set)
+    (string_value)))
+
+=================
+Multiple patterns
+=================
+
+*               text=auto
+*.txt		text
+*.vcproj	text eol=crlf
+*.sh		text eol=lf
+*.jpg		-text
+
+---
+
+(file
+  (pattern
+    (wildcard))
+  (attribute
+    (builtin_attr)
+    (attr_set)
+    (string_value))
+  (pattern
+    (wildcard))
+  (attribute
+    (builtin_attr))
+  (pattern
+    (wildcard))
+  (attribute
+    (builtin_attr))
+  (attribute
+    (builtin_attr)
+    (attr_set)
+    (string_value))
+  (pattern
+    (wildcard))
+  (attribute
+    (builtin_attr))
+  (attribute
+    (builtin_attr)
+    (attr_set)
+    (string_value))
+  (pattern
+    (wildcard))
+  (attribute
+    (attr_unset)
+    (builtin_attr)))
+
+
+================
+Macro definition
+================
+
+[attr]nodiff -diff -merge
+
+---
+
+(file
+  (macro_def
+    (macro_tag)
+    (attr_name)
+    (attribute
+      (attr_unset)
+      (builtin_attr))
+    (attribute
+      (attr_unset)
+      (builtin_attr))))
+
+========
+Comments
+========
+
+# in $GIT_DIR/info/attributes
+
+a*	foo !bar -baz
+
+# in .gitattributes
+abc	foo bar baz
+
+# in t/.gitattributes
+ab*	merge=filfre
+abc	-foo -bar
+*.c	frotz
+
+---
+
+(file
+  (comment)
+  (pattern
+    (wildcard))
+  (attribute
+    (attr_name))
+  (attribute
+    (attr_reset)
+    (attr_name))
+  (attribute
+    (attr_unset)
+    (attr_name))
+  (comment)
+  (pattern)
+  (attribute
+    (attr_name))
+  (attribute
+    (attr_name))
+  (attribute
+    (attr_name))
+  (comment)
+  (pattern
+    (wildcard))
+  (attribute
+    (builtin_attr)
+    (attr_set)
+    (string_value))
+  (pattern)
+  (attribute
+    (attr_unset)
+    (attr_name))
+  (attribute
+    (attr_unset)
+    (attr_name))
+  (pattern
+    (wildcard))
+  (attribute
+    (attr_name)))
+
+==========
+Value list
+==========
+
+*.txt      whitespace=blank-at-eol,-blank-at-eof,-space-before-tab,tab-in-indent,tabwidth=2
+
+---
+
+(file
+  (pattern
+    (wildcard))
+  (attribute
+    (builtin_attr)
+    (attr_set)
+    (string_value)))
+
+=========
+Recursive
+=========
+
+vendor/** linguist-vendored=true
+
+---
+
+(file
+  (pattern
+    (dir_sep)
+    (wildcard))
+  (attribute
+    (attr_name)
+    (attr_set)
+    (boolean_value)))
+
+=============
+Simple ranges
+=============
+
+*.[Rr]md   linguist-detectable
+
+*.[bB][aA][tT] text eol=crlf
+
+---
+
+(file
+  (pattern
+    (wildcard)
+    (range_notation))
+  (attribute
+    (attr_name))
+  (pattern
+    (wildcard)
+    (range_notation)
+    (range_notation)
+    (range_notation))
+  (attribute
+    (builtin_attr))
+  (attribute
+    (builtin_attr)
+    (attr_set)
+    (string_value)))
+
+===========
+More ranges
+===========
+
+[._]*.sw[a-p] -diff
+
+  [^._]-[[:lower:]] !something
+
+---
+
+(file
+  (pattern
+    (range_notation)
+    (wildcard)
+    (range_notation
+      (class_range)))
+  (attribute
+    (attr_unset)
+    (builtin_attr))
+  (pattern
+    (range_notation
+      (range_negation))
+    (range_notation
+      (character_class)))
+  (attribute
+    (attr_reset)
+    (attr_name)))
+
+===============
+Quoted patterns
+===============
+
+"file [with] spaces" text
+
+"_\u4E00\t\56txt" encoding=UTF-16
+
+---
+
+(file
+  (quoted_pattern)
+  (attribute
+    (builtin_attr))
+  (quoted_pattern
+    (ansi_c_escape)
+    (ansi_c_escape)
+    (ansi_c_escape))
+  (attribute
+    (builtin_attr)
+    (attr_set)
+    (string_value)))
+
+==============
+Blank comments
+==============
+
+# This is some text
+#
+# It is a comment
+
+---
+
+(file
+  (comment)
+  (comment)
+  (comment))

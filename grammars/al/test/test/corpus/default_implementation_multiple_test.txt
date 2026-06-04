@@ -1,0 +1,146 @@
+================================================================================
+DefaultImplementation with multiple interfaces
+================================================================================
+
+enum 6110 "E-Doc. Proc. Customizations" implements
+    IVendorProvider,
+    IPurchaseOrderProvider,
+    IPurchaseLineProvider,
+    IUnitOfMeasureProvider,
+    IEDocumentCreatePurchaseInvoice
+{
+    Extensible = true;
+    DefaultImplementation = IVendorProvider = "E-Doc. Providers",
+                            IPurchaseOrderProvider = "E-Doc. Providers",
+                            IPurchaseLineProvider = "E-Doc. Providers",
+                            IUnitOfMeasureProvider = "E-Doc. Providers",
+                            IEDocumentCreatePurchaseInvoice = "E-Doc. Create Purchase Invoice";
+
+    value(0; Default)
+    {
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (enum_declaration
+    (enum_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (implements_clause
+      (implements_keyword)
+      interface: (identifier)
+      interface: (identifier)
+      interface: (identifier)
+      interface: (identifier)
+      interface: (identifier))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (implementation_value_list
+        (implementation_value
+          interface: (identifier)
+          implementation: (quoted_identifier))
+        (implementation_value
+          interface: (identifier)
+          implementation: (quoted_identifier))
+        (implementation_value
+          interface: (identifier)
+          implementation: (quoted_identifier))
+        (implementation_value
+          interface: (identifier)
+          implementation: (quoted_identifier))
+        (implementation_value
+          interface: (identifier)
+          implementation: (quoted_identifier))))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier))))
+
+================================================================================
+DefaultImplementation mixed quoted and unquoted
+================================================================================
+
+enum 200 TestEnum implements "ITest1", ITest2
+{
+    DefaultImplementation = "ITest1" = DefaultImpl1,
+                           ITest2 = "Default Impl 2";
+    
+    value(0; None) {}
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (enum_declaration
+    (enum_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (implements_clause
+      (implements_keyword)
+      interface: (quoted_identifier)
+      interface: (identifier))
+    (property
+      name: (property_name)
+      value: (implementation_value_list
+        (implementation_value
+          interface: (quoted_identifier)
+          implementation: (identifier))
+        (implementation_value
+          interface: (identifier)
+          implementation: (quoted_identifier))))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier))))
+
+================================================================================
+DefaultImplementation case variations with multiple values
+================================================================================
+
+enum 300 "Case Test" implements Interface1, Interface2, Interface3
+{
+    defaultimplementation = Interface1 = Impl1,
+                           Interface2 = Impl2,
+                           Interface3 = Impl3;
+    DEFAULTIMPLEMENTATION = Interface1 = ImplA;
+    
+    value(1; First) {}
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (enum_declaration
+    (enum_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (implements_clause
+      (implements_keyword)
+      interface: (identifier)
+      interface: (identifier)
+      interface: (identifier))
+    (property
+      name: (property_name)
+      value: (implementation_value_list
+        (implementation_value
+          interface: (identifier)
+          implementation: (identifier))
+        (implementation_value
+          interface: (identifier)
+          implementation: (identifier))
+        (implementation_value
+          interface: (identifier)
+          implementation: (identifier))))
+    (property
+      name: (property_name)
+      value: (property_expression
+        (comparison_expression
+          left: (identifier)
+          operator: (comparison_operator)
+          right: (identifier))))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier))))

@@ -1,0 +1,86 @@
+==================
+String lowercase s"
+==================
+
+s" Hello World!" .s
+
+---
+
+(source_file
+  (string)
+  (builtin
+    (io)))
+
+==================
+String uppercase S"
+==================
+
+S" HELLO WORLD!" .s
+
+---
+
+(source_file
+  (string)
+  (builtin
+    (io)))
+
+==================
+String c" counted
+==================
+
+c" counted string" drop
+
+---
+
+(source_file
+  (string)
+  (builtin
+    (operator)))
+
+==================
+String C" counted uppercase
+==================
+
+C" COUNTED STRING" drop
+
+---
+
+(source_file
+  (string)
+  (builtin
+    (operator)))
+
+==================
+String ." print
+==================
+
+." Print this message" cr
+
+---
+
+(source_file
+  (string)
+  (builtin
+    (io)))
+
+==================
+String empty
+==================
+
+s" "
+
+---
+
+(source_file
+  (string))
+
+==================
+String with multiple spaces
+==================
+
+s"   multiple   spaces   "
+
+---
+
+(source_file
+  (string))

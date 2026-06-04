@@ -1,0 +1,184 @@
+================================================================================
+newtype: basic
+================================================================================
+
+newtype A = A A
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (newtype
+      (name)
+      (newtype_constructor
+        (constructor)
+        (field
+          (name))))))
+
+================================================================================
+newtype: context
+================================================================================
+
+newtype A a => A a = A a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (newtype
+      (context
+        (apply
+          (name)
+          (variable)))
+      (name)
+      (type_params
+        (variable))
+      (newtype_constructor
+        (constructor)
+        (field
+          (variable))))))
+
+================================================================================
+newtype: record
+================================================================================
+
+newtype A = A { a :: A a }
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (newtype
+      (name)
+      (newtype_constructor
+        (constructor)
+        (record
+          (field
+            (field_name
+              (variable))
+            (apply
+              (name)
+              (variable))))))))
+
+================================================================================
+newtype: tyvar kind
+================================================================================
+
+newtype A a (a :: [* -> *]) a =
+  A a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (newtype
+      (name)
+      (type_params
+        (variable)
+        (parens
+          (annotated
+            (variable)
+            (list
+              (function
+                (star)
+                (star)))))
+        (variable))
+      (newtype_constructor
+        (constructor)
+        (field
+          (variable))))))
+
+================================================================================
+newtype: deriving
+================================================================================
+
+newtype A = A a deriving A
+newtype A a =
+  A { a :: A }
+  deriving (A, A)
+  deriving newtype A
+  deriving A via (A a)
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (newtype
+      (name)
+      (newtype_constructor
+        (constructor)
+        (field
+          (variable)))
+      (deriving
+        (name)))
+    (newtype
+      (name)
+      (type_params
+        (variable))
+      (newtype_constructor
+        (constructor)
+        (record
+          (field
+            (field_name
+              (variable))
+            (name))))
+      (deriving
+        (tuple
+          (name)
+          (name)))
+      (deriving
+        (deriving_strategy)
+        (name))
+      (deriving
+        (name)
+        (via
+          (parens
+            (apply
+              (name)
+              (variable))))))))
+
+================================================================================
+newtype: unlifted
+================================================================================
+
+newtype A :: TYPE 'A where
+  A :: A# -> A
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (newtype
+      (name)
+      (apply
+        (name)
+        (promoted
+          (constructor)))
+      (gadt_constructors
+        (gadt_constructor
+          (constructor)
+          (prefix
+            (function
+              (name)
+              (name))))))))
+
+================================================================================
+newtype: prefix operator
+================================================================================
+
+newtype (++) a = (:++) a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (newtype
+      (prefix_id
+        (operator))
+      (type_params
+        (variable))
+      (newtype_constructor
+        (prefix_id
+          (constructor_operator))
+        (field
+          (variable))))))

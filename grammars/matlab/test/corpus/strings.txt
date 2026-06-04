@@ -1,0 +1,105 @@
+================================================================================
+Strings: Single Quoted
+================================================================================
+
+'Single quoted string'
+'Single quoted with another '' inside it'
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (string
+    (string_content))
+  (string
+    (string_content)))
+
+================================================================================
+Stings: Double Quoted
+================================================================================
+
+"Double quoted string"
+"Double quoted with another "" inside it"
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (string
+    (string_content))
+  (string
+    (string_content)))
+
+================================================================================
+Strings: Percent Symbol
+================================================================================
+
+"This should be a string and % not a comment"
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (string
+    (string_content)))
+
+================================================================================
+Strings: Formatting
+================================================================================
+
+"This %% is a floating number with an f after it %3#4.2bff"
+'This %% is a floating number with an f after it %3#4.2bff'
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (string
+    (string_content)
+    (formatting_sequence)
+    (string_content)
+    (formatting_sequence)
+    (string_content))
+  (string
+    (string_content)
+    (formatting_sequence)
+    (string_content)
+    (formatting_sequence)
+    (string_content)))
+
+================================================================================
+Strings: Escaping
+================================================================================
+
+"It also supports hex \xdeadbeef"
+"And octal \1234"
+"This\tis\na\\escaped\tstring"
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (string
+    (string_content)
+    (escape_sequence))
+  (string
+    (string_content)
+    (escape_sequence))
+  (string
+    (string_content)
+    (escape_sequence)
+    (string_content)
+    (escape_sequence)
+    (string_content)
+    (escape_sequence)
+    (string_content)
+    (escape_sequence)
+    (string_content)))
+
+================================================================================
+Strings: Invalid termination
+================================================================================
+
+s = '''
+
+--------------------------------------------------------------------------------
+
+(source_file
+ (ERROR
+  (identifier)
+  (string_content)))

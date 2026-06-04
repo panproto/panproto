@@ -1,0 +1,441 @@
+==================
+array test 1
+==================
+
+sub TestEmptyArray()
+    emptyArray = []
+end sub
+
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (assignment_statement
+        (variable_declarator
+          (identifier))
+        (literal
+          (array))))
+    (end_statement
+      (end_sub))))
+
+==================
+array test 2
+==================
+
+sub TestArrayWithElements()
+    myArray = [1, 2, 3, 4, 5]
+end sub
+
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (assignment_statement
+        (variable_declarator
+          (identifier))
+        (literal
+          (array
+            (literal
+              (number))
+            (literal
+              (number))
+            (literal
+              (number))
+            (literal
+              (number))
+            (literal
+              (number))))))
+    (end_statement
+      (end_sub))))
+
+==================
+array test 3
+==================
+
+sub TestArrayElementAccess()
+    myArray = [1, 2, 3, 4, 5]
+    print myArray[1]
+end sub
+
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (assignment_statement
+        (variable_declarator
+          (identifier))
+        (literal
+          (array
+            (literal
+              (number))
+            (literal
+              (number))
+            (literal
+              (number))
+            (literal
+              (number))
+            (literal
+              (number)))))
+      (print_statement
+        (print)
+        (prefix_exp
+          (prefix_exp
+            (identifier))
+          (literal
+            (number)))))
+    (end_statement
+      (end_sub))))
+
+==================
+array test 4
+==================
+
+sub TestArrayElementModification()
+    myArray = [1, 2, 3, 4, 5]
+    myArray[1] = 10
+end sub
+
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (assignment_statement
+        (variable_declarator
+          (identifier))
+        (literal
+          (array
+            (literal
+              (number))
+            (literal
+              (number))
+            (literal
+              (number))
+            (literal
+              (number))
+            (literal
+              (number)))))
+      (assignment_statement
+        (variable_declarator
+          (prefix_exp
+            (identifier))
+          (literal
+            (number)))
+        (literal
+          (number))))
+    (end_statement
+      (end_sub))))
+
+==================
+array test 5
+==================
+
+sub TestMixedTypeArray()
+    mixedArray = ["hello", 42, true, 3.14]
+end sub
+
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (assignment_statement
+        (variable_declarator
+          (identifier))
+        (literal
+          (array
+            (literal
+              (string
+                (string_contents)))
+            (literal
+              (number))
+            (literal
+              (boolean))
+            (literal
+              (number))))))
+    (end_statement
+      (end_sub))))
+
+==================
+array test 6
+==================
+
+sub TestArrayWithExpressions()
+    expressionArray = [1 + 2, 3 * 4, 5 - 1]
+end sub
+
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (assignment_statement
+        (variable_declarator
+          (identifier))
+        (literal
+          (array
+            (binary_expression
+              (arithmetic_expression
+                (additive_expression
+                  (literal
+                    (number))
+                  (literal
+                    (number)))))
+            (binary_expression
+              (arithmetic_expression
+                (multiplicative_expression
+                  (literal
+                    (number))
+                  (literal
+                    (number)))))
+            (binary_expression
+              (arithmetic_expression
+                (additive_expression
+                  (literal
+                    (number))
+                  (literal
+                    (number)))))))))
+    (end_statement
+      (end_sub))))
+
+==================
+array test 7
+==================
+
+sub TestNestedArrays()
+    nestedArray = [[1, 2], [3, 4], [5, 6]]
+end sub
+
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (assignment_statement
+        (variable_declarator
+          (identifier))
+        (literal
+          (array
+            (literal
+              (array
+                (literal
+                  (number))
+                (literal
+                  (number))))
+            (literal
+              (array
+                (literal
+                  (number))
+                (literal
+                  (number))))
+            (literal
+              (array
+                (literal
+                  (number))
+                (literal
+                  (number))))))))
+    (end_statement
+      (end_sub))))
+
+==================
+array test 8
+==================
+
+sub TestArrayWithFunctionCalls()
+    functionArray = [Upper("hello"), Len("world")]
+end sub
+
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (assignment_statement
+        (variable_declarator
+          (identifier))
+        (literal
+          (array
+            (prefix_exp
+              (function_call
+                (prefix_exp
+                  (identifier))
+                (parenthesized_expression
+                  (literal
+                    (string
+                      (string_contents))))))
+            (prefix_exp
+              (function_call
+                (prefix_exp
+                  (identifier))
+                (parenthesized_expression
+                  (literal
+                    (string
+                      (string_contents))))))))))
+    (end_statement
+      (end_sub))))
+
+==================
+array test 9
+==================
+
+sub TestArrayAssignment()
+    myArray = [1, 2, 3, 4, 5]
+    assignedArray = myArray
+end sub
+
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (assignment_statement
+        (variable_declarator
+          (identifier))
+        (literal
+          (array
+            (literal
+              (number))
+            (literal
+              (number))
+            (literal
+              (number))
+            (literal
+              (number))
+            (literal
+              (number)))))
+      (assignment_statement
+        (variable_declarator
+          (identifier))
+        (prefix_exp
+          (identifier))))
+    (end_statement
+      (end_sub))))
+
+==================
+array test 10
+==================
+
+sub TestArrayAsArgument()
+    myArray = [1, 2, 3, 4, 5]
+    PrintArray(myArray)
+end sub
+
+sub PrintArray(arr)
+    print arr
+end sub
+
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (assignment_statement
+        (variable_declarator
+          (identifier))
+        (literal
+          (array
+            (literal
+              (number))
+            (literal
+              (number))
+            (literal
+              (number))
+            (literal
+              (number))
+            (literal
+              (number)))))
+      (function_call
+        (prefix_exp
+          (identifier))
+        (parenthesized_expression
+          (prefix_exp
+            (identifier)))))
+    (end_statement
+      (end_sub)))
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list
+      (parameter
+        (identifier)))
+    (block
+      (print_statement
+        (print)
+        (prefix_exp
+          (identifier))))
+    (end_statement
+      (end_sub))))
+
+==================
+property access array
+==================
+
+sub init()
+    if test[3].ads[3] = "test" then
+    end if
+end sub
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (if_statement
+        (multi_line_if
+          (if_start)
+          (binary_expression
+            (comparison_expression
+              (prefix_exp
+                (prefix_exp
+                  (prefix_exp
+                    (prefix_exp
+                      (identifier))
+                    (literal
+                      (number)))
+                  (identifier))
+                (literal
+                  (number)))
+              (literal
+                (string
+                  (string_contents)))))
+          (then)
+          (if_block
+            (end_statement
+              (end_if))))))
+    (end_statement
+      (end_sub))))

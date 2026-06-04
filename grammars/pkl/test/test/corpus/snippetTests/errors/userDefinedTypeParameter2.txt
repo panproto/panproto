@@ -1,0 +1,32 @@
+===
+errors/userDefinedTypeParameter2.pkl
+===
+
+class DoIt {
+  function doit<A>(a: A): A = a
+}
+---
+
+(module
+  (clazz
+    (identifier)
+    (classBody
+      (classMethod
+        (methodHeader
+          (identifier)
+          (typeParameterList
+            (typeParameter
+              (identifier)))
+          (parameterList
+            (typedIdentifier
+              (identifier)
+              (typeAnnotation
+                (declaredType
+                  (qualifiedIdentifier
+                    (identifier))))))
+          (typeAnnotation
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))))
+        (unqualifiedAccessExpr
+          (identifier))))))

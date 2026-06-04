@@ -1,0 +1,791 @@
+============================================
+Def
+============================================
+
+(def a 10)
+(def b "aaaa")
+(def c (1 2 3))
+(def a (+ 1 2 (* 3 4)))
+
+(def [a b c] (range 10))
+(def {:x x} @{:x (+ 1 2)})
+(def {:x x} {:deprecated :strict} @{:x (+ 1 2)})
+(def [y {:x x}] @[:hi @{:x (+ 1 2)}])
+
+(def mydef :private 3)
+(def mydef2 :private "A docstring" 4)
+(def mydef3 "doc" "value")
+
+# test possible edge cases
+(def a :key)
+(def a "str")
+(def a `str`)
+
+# With metadata
+(def 'a 'meta 'value)
+(def a :key :hidden 10)
+(def ,name ,;modifiers (fun ,name ,;(tuple/slice more start)))
+
+---
+
+(source_file
+  (def
+    name: (symbol)
+    value: (number_literal))
+  (def
+    name: (symbol)
+    value: (str_literal))
+  (def
+    name: (symbol)
+    value: (tuple
+      item: (number_literal)
+      item: (number_literal)
+      item: (number_literal)))
+  (def
+    name: (symbol)
+    value: (tuple
+      item: (symbol)
+      item: (number_literal)
+      item: (number_literal)
+      item: (tuple
+        item: (symbol)
+        item: (number_literal)
+        item: (number_literal))))
+  (def
+    name: (sqr_tuple
+      item: (symbol)
+      item: (symbol)
+      item: (symbol))
+    value: (tuple
+      item: (symbol)
+      item: (number_literal)))
+  (def
+    name: (struct
+      key: (keyword)
+      value: (symbol))
+    value: (table
+      key: (keyword)
+      value: (tuple
+        item: (symbol)
+        item: (number_literal)
+        item: (number_literal))))
+  (def
+    name: (struct
+      key: (keyword)
+      value: (symbol ))
+    metadata: (metadata
+      (struct
+        key: (keyword)
+        value: (keyword)))
+    value: (table
+      key: (keyword)
+      value: (tuple
+        item: (symbol)
+        item: (number_literal)
+        item: (number_literal ))))
+  (def
+    name: (sqr_tuple
+      item: (symbol)
+      item: (struct
+        key: (keyword)
+        value: (symbol)))
+    value: (sqr_array
+      item: (keyword)
+      item: (table
+        key: (keyword)
+        value: (tuple
+          item: (symbol)
+          item: (number_literal)
+          item: (number_literal)))))
+  (def
+    name: (symbol)
+    metadata: (metadata
+      (keyword))
+    value: (number_literal))
+  (def
+    name: (symbol)
+    metadata: (metadata
+      (keyword))
+    metadata: (metadata
+      (str_literal))
+    value: (number_literal))
+  (def
+    name: (symbol)
+    metadata: (metadata
+      (str_literal))
+    value: (str_literal))
+  (line_comment)
+  (def
+    name: (symbol)
+    value: (keyword))
+  (def
+    name: (symbol)
+    value: (str_literal))
+  (def
+    name: (symbol)
+    value: (long_str_literal))
+  (line_comment)
+  (def
+    name: (short_quote
+      (symbol))
+    metadata: (metadata
+      (short_quote
+        (symbol)))
+    value: (short_quote
+      (symbol)))
+  (def
+    name: (symbol)
+    metadata: (metadata
+      (keyword))
+    metadata: (metadata
+      (keyword))
+    value: (number_literal))
+  (def
+    name: (short_unquote
+      (symbol))
+    metadata: (metadata
+      (short_unquote
+        (short_splice
+          (symbol))))
+    value: (tuple
+      item: (symbol)
+      item: (short_unquote
+        (symbol))
+      item: (short_unquote
+        (short_splice
+          (tuple
+            item: (symbol)
+            item: (symbol)
+            item: (symbol)))))))
+
+
+
+============================================
+Var
+============================================
+
+(var a 10)
+(var b "aaaa")
+(var c (1 2 3))
+(var a (+ 1 2 (* 3 4)))
+
+(var [a b c] (range 10))
+(var {:x x} @{:x (+ 1 2)})
+(var [y {:x x}] @[:hi @{:x (+ 1 2)}])
+
+(var myvar :private 3)
+(var myvar2 :private "A docstring" 4)
+(var myvar3 "doc" "value")
+
+# test possible edge cases
+(var a :key)
+(var a "str")
+(var a `str`)
+
+# With metadata
+(var 'a 'meta 'value)
+(var a :key :hidden 10)
+(var ,name ,;modifiers (fun ,name ,;(tuple/slice more start)))
+
+
+---
+
+(source_file
+  (var
+    name: (symbol)
+    value: (number_literal))
+  (var
+    name: (symbol)
+    value: (str_literal))
+  (var
+    name: (symbol)
+    value: (tuple
+      item: (number_literal)
+      item: (number_literal)
+      item: (number_literal)))
+  (var
+    name: (symbol)
+    value: (tuple
+      item: (symbol)
+      item: (number_literal)
+      item: (number_literal)
+      item: (tuple
+        item: (symbol)
+        item: (number_literal)
+        item: (number_literal))))
+  (var
+    name: (sqr_tuple
+      item: (symbol)
+      item: (symbol)
+      item: (symbol))
+    value: (tuple
+      item: (symbol)
+      item: (number_literal)))
+  (var
+    name: (struct
+      key: (keyword)
+      value: (symbol))
+    value: (table
+      key: (keyword)
+      value: (tuple
+        item: (symbol)
+        item: (number_literal)
+        item: (number_literal))))
+  (var
+    name: (sqr_tuple
+      item: (symbol)
+      item: (struct
+        key: (keyword)
+        value: (symbol)))
+    value: (sqr_array
+      item: (keyword)
+      item: (table
+        key: (keyword)
+        value: (tuple
+          item: (symbol)
+          item: (number_literal)
+          item: (number_literal)))))
+  (var
+    name: (symbol)
+    metadata: (metadata
+      (keyword))
+    value: (number_literal))
+  (var
+    name: (symbol)
+    metadata: (metadata
+      (keyword))
+    metadata: (metadata
+      (str_literal))
+    value: (number_literal))
+  (var
+    name: (symbol)
+    metadata: (metadata
+      (str_literal))
+    value: (str_literal))
+  (line_comment)
+  (var
+    name: (symbol)
+    value: (keyword))
+  (var
+    name: (symbol)
+    value: (str_literal))
+  (var
+    name: (symbol)
+    value: (long_str_literal))
+  (line_comment)
+  (var
+    name: (short_quote
+      (symbol))
+    metadata: (metadata
+      (short_quote
+        (symbol)))
+    value: (short_quote
+      (symbol)))
+  (var
+    name: (symbol)
+    metadata: (metadata
+      (keyword))
+    metadata: (metadata
+      (keyword))
+    value: (number_literal))
+  (var
+    name: (short_unquote
+      (symbol))
+    metadata: (metadata
+      (short_unquote
+        (short_splice
+          (symbol))))
+    value: (tuple
+      item: (symbol)
+      item: (short_unquote
+        (symbol))
+      item: (short_unquote
+        (short_splice
+          (tuple
+            item: (symbol)
+            item: (symbol)
+            item: (symbol)))))))
+
+
+============================================
+Quote
+============================================
+
+(quote a)
+(quote 10)
+(quote "str")
+(quote (+ 10 20))
+(quote (var a 10))
+
+---
+
+(source_file
+  (quote
+    (symbol))
+  (quote
+    (number_literal))
+  (quote
+    (str_literal))
+  (quote
+    (tuple
+      item: (symbol)
+      item: (number_literal)
+      item: (number_literal)))
+  (quote
+    (var
+      name: (symbol)
+      value: (number_literal))))
+
+============================================
+Splice
+============================================
+
+(splice a)
+(splice 10)
+(splice "str")
+(splice (+ 10 20))
+(splice (var a 10))
+
+---
+
+(source_file
+  (splice
+    (symbol))
+  (splice
+    (number_literal))
+  (splice
+    (str_literal))
+  (splice
+    (tuple
+      item: (symbol)
+      item: (number_literal)
+      item: (number_literal)))
+  (splice
+    (var
+      name: (symbol)
+      value: (number_literal))))
+
+============================================
+Quasiquote
+============================================
+
+(quasiquote a)
+(quasiquote 10)
+(quasiquote "str")
+(quasiquote (+ 10 20))
+(quasiquote (var a 10))
+
+---
+
+(source_file
+  (quasiquote
+    (symbol))
+  (quasiquote
+    (number_literal))
+  (quasiquote
+    (str_literal))
+  (quasiquote
+    (tuple
+      item: (symbol)
+      item: (number_literal)
+      item: (number_literal)))
+  (quasiquote
+    (var
+      name: (symbol)
+      value: (number_literal))))
+
+============================================
+Unquote
+============================================
+
+(unquote a)
+(unquote 10)
+(unquote "str")
+(unquote (+ 10 20))
+(unquote (var a 10))
+
+---
+
+(source_file
+  (unquote
+    (symbol))
+  (unquote
+    (number_literal))
+  (unquote
+    (str_literal))
+  (unquote
+    (tuple
+      item: (symbol)
+      item: (number_literal)
+      item: (number_literal)))
+  (unquote
+    (var
+      name: (symbol)
+      value: (number_literal))))
+
+============================================
+Break
+============================================
+
+(break)
+(break 10)
+(break a)
+
+---
+
+(source_file
+  (break)
+  (break
+    (number_literal))
+  (break
+    (symbol)))
+
+============================================
+Set
+============================================
+
+(set x 11)
+(set x nil)
+(set (tab :property) "hello")
+
+---
+
+(source_file
+  (set
+    l_value: (symbol)
+    r_value: (number_literal))
+  (set
+    l_value: (symbol)
+    r_value: (nil_literal))
+  (set
+    l_value: (tuple
+      item: (symbol)
+      item: (keyword))
+    r_value: (str_literal)))
+
+============================================
+If
+============================================
+
+(if true 10)
+(if false 10)
+(if true (print 1) (print 2))
+(if 0 (print 1) (print 2))
+(if nil (print 1) (print 2))
+(if @[] (print 1) (print 2))
+
+---
+
+(source_file
+  (if
+    condition: (bool_literal)
+    then: (number_literal))
+  (if
+    condition: (bool_literal)
+    then: (number_literal))
+  (if
+    condition: (bool_literal)
+    then: (tuple
+      item: (symbol)
+      item: (number_literal))
+    else: (tuple
+      item: (symbol)
+      item: (number_literal)))
+  (if
+    condition: (number_literal)
+    then: (tuple
+      item: (symbol)
+      item: (number_literal))
+    else: (tuple
+      item: (symbol)
+      item: (number_literal)))
+  (if
+    condition: (nil_literal)
+    then: (tuple
+      item: (symbol)
+      item: (number_literal))
+    else: (tuple
+      item: (symbol)
+      item: (number_literal)))
+  (if
+    condition: (sqr_array)
+    then: (tuple
+      item: (symbol)
+      item: (number_literal))
+    else: (tuple
+      item: (symbol)
+      item: (number_literal))))
+
+============================================
+Do
+============================================
+
+(do 1 2 3 4)
+(do (print 1) (print 2) (print 3))
+(do
+ (def a 1)
+ (print a))
+
+---
+
+(source_file
+  (do
+    body: (body
+      form: (number_literal)
+      form: (number_literal)
+      form: (number_literal)
+      form: (number_literal)))
+  (do
+    body: (body
+      form: (tuple
+        item: (symbol)
+        item: (number_literal))
+      form: (tuple
+        item: (symbol)
+        item: (number_literal))
+      form: (tuple
+        item: (symbol)
+        item: (number_literal))))
+  (do
+    body: (body
+      form: (def
+        name: (symbol)
+        value: (number_literal))
+      form: (tuple
+        item: (symbol)
+        item: (symbol)))))
+
+============================================
+While
+============================================
+
+(while (< i 10)
+ (print i)
+ (++ i))
+
+---
+
+(source_file
+  (while
+    condition: (tuple
+      item: (symbol)
+      item: (symbol)
+      item: (number_literal))
+    form: (tuple
+      item: (symbol)
+      item: (symbol))
+    form: (tuple
+      item: (symbol)
+      item: (symbol))))
+
+============================================
+Fn
+============================================
+
+(fn ())
+(fn () x)
+(fn identity () x)
+(fn () 1 2 3 4 5)
+(fn (x y) (+ x y))
+(fn (& args) (length args))
+
+(fn [])
+(fn [x] x)
+(fn identity [x] x)
+(fn [] 1 2 3 4 5)
+(fn [x y] (+ x y))
+(fn [& args] (length args))
+(fn [&opt args] (length args))
+(fn [&keys args] (length args))
+(fn [w x y z &] (tuple w w x x y y z z))
+(fn [[a b] [c d]] (* a b c d))
+(fn with-name [x] (* 2 x))
+(fn 'name [c] 'body)
+(fn 'namae 'param 'body)
+# known limitation `'param` as name and `'body` as parameter
+# For highlight, not a big deal
+(fn 'param 'body)
+
+---
+
+(source_file
+  (fn
+    parameters: (tuple_parameters))
+  (fn
+    parameters: (tuple_parameters)
+    body: (body
+      form: (symbol)))
+  (fn
+    name: (symbol)
+    parameters: (tuple_parameters)
+    body: (body
+      form: (symbol)))
+  (fn
+    parameters: (tuple_parameters)
+    body: (body
+      form: (number_literal)
+      form: (number_literal)
+      form: (number_literal)
+      form: (number_literal)
+      form: (number_literal)))
+  (fn
+    parameters: (tuple_parameters
+      parameter: (symbol)
+      parameter: (symbol))
+    body: (body
+      form: (tuple
+        item: (symbol)
+        item: (symbol)
+        item: (symbol))))
+  (fn
+    parameters: (tuple_parameters
+      (variadic_marker)
+      parameter: (symbol))
+    body: (body
+      form: (tuple
+        item: (symbol)
+        item: (symbol))))
+  (fn
+    parameters: (parameters))
+  (fn
+    parameters: (parameters
+      parameter: (symbol))
+    body: (body
+      form: (symbol)))
+  (fn
+    name: (symbol)
+    parameters: (parameters
+      parameter: (symbol))
+    body: (body
+      form: (symbol)))
+  (fn
+    parameters: (parameters)
+    body: (body
+      form: (number_literal)
+      form: (number_literal)
+      form: (number_literal)
+      form: (number_literal)
+      form: (number_literal)))
+  (fn
+    parameters: (parameters
+      parameter: (symbol)
+      parameter: (symbol))
+    body: (body
+      form: (tuple
+        item: (symbol)
+        item: (symbol)
+        item: (symbol))))
+  (fn
+    parameters: (parameters
+      (variadic_marker)
+      parameter: (symbol))
+    body: (body
+      form: (tuple
+        item: (symbol)
+        item: (symbol))))
+  (fn
+    parameters: (parameters
+      (optional_marker)
+      parameter: (symbol))
+    body: (body
+      form: (tuple
+        item: (symbol)
+        item: (symbol))))
+  (fn
+    parameters: (parameters
+      (keys_marker)
+      parameter: (symbol))
+    body: (body
+      form: (tuple
+        item: (symbol)
+        item: (symbol))))
+  (fn
+    parameters: (parameters
+      parameter: (symbol)
+      parameter: (symbol)
+      parameter: (symbol)
+      parameter: (symbol)
+      (variadic_marker))
+    body: (body
+      form: (tuple
+        item: (symbol)
+        item: (symbol)
+        item: (symbol)
+        item: (symbol)
+        item: (symbol)
+        item: (symbol)
+        item: (symbol)
+        item: (symbol)
+        item: (symbol))))
+  (fn
+    parameters: (parameters
+      parameter: (sqr_tuple
+        item: (symbol)
+        item: (symbol))
+      parameter: (sqr_tuple
+        item: (symbol)
+        item: (symbol)))
+    body: (body
+      form: (tuple
+        item: (symbol)
+        item: (symbol)
+        item: (symbol)
+        item: (symbol)
+        item: (symbol))))
+  (fn
+    name: (symbol)
+    parameters: (parameters
+      parameter: (symbol))
+    body: (body
+      form: (tuple
+        item: (symbol)
+        item: (number_literal)
+        item: (symbol))))
+  (fn
+    name: (short_quote
+      (symbol))
+    parameters: (parameters
+      parameter: (symbol))
+    body: (body
+      form: (short_quote
+        (symbol))))
+  (fn
+    name: (short_quote
+      (symbol))
+    parameters: (short_quote
+      (symbol))
+    body: (body
+      form: (short_quote
+        (symbol))))
+  (line_comment)
+  (line_comment)
+  (fn
+    name: (short_quote
+      (symbol))
+    parameters: (short_quote
+      (symbol))))
+
+============================================
+Upscope
+============================================
+
+(upscope)
+(upscope 1)
+(upscope (print "hi") (+ 8 1))
+
+---
+
+(source_file
+  (upscope)
+  (upscope
+    body: (body
+      form: (number_literal)))
+  (upscope
+    body: (body
+      form: (tuple
+        item: (symbol)
+        item: (str_literal))
+      form: (tuple
+        item: (symbol)
+        item: (number_literal)
+        item: (number_literal)))))

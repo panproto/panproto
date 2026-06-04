@@ -1,0 +1,42 @@
+===============
+Test basic file
+===============
+
+# hello
+
+module steingatefu.components #hell
+linktarget appsteingatefucplugin
+optional plugin appsteingatefucplugin
+classname steingatefu_componentsPlugin
+typeinfo appsteingatefuc.qmltypes
+prefer :/steingatefu/components/
+Set 1.0 qml/components/Set.qml
+
+---
+
+(module_definition
+  (comment)
+  (command
+	(keyword)
+	(unit)
+	(comment))
+  (command
+	(keyword)
+	(unit))
+  (command
+	(keyword)
+	(unit)
+	(unit))
+  (command
+	(keyword)
+	(unit))
+  (command
+	(keyword)
+	(unit))
+  (command
+	(keyword)
+	(unit))
+  (command
+	(identifier)
+	(float)
+	(unit)))

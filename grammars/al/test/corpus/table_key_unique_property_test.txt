@@ -1,0 +1,186 @@
+================================================================================
+Table key with Unique property
+================================================================================
+
+table 50100 "Test Table"
+{
+    fields
+    {
+        field(1; "Code"; Code[20])
+        {
+            DataClassification = CustomerContent;
+        }
+        field(2; "Name"; Text[100])
+        {
+            DataClassification = CustomerContent;
+        }
+    }
+    
+    keys
+    {
+        key(PK; "Code")
+        {
+            Clustered = true;
+        }
+        
+        key(UniqueKey; "Name")
+        {
+            Unique = true;
+        }
+        
+        key(CompositeKey; "Code", "Name")
+        {
+            Unique = true;
+            Clustered = false;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (code_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (identifier)))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (identifier))))
+    (keys_section
+      (keys_keyword)
+      (key_declaration
+        (key_keyword)
+        name: (identifier)
+        fields: (field_list
+          (quoted_identifier))
+        (property
+          name: (property_name)
+          value: (boolean)))
+      (key_declaration
+        (key_keyword)
+        name: (identifier)
+        fields: (field_list
+          (quoted_identifier))
+        (property
+          name: (property_name)
+          value: (boolean)))
+      (key_declaration
+        (key_keyword)
+        name: (identifier)
+        fields: (field_list
+          (quoted_identifier)
+          (quoted_identifier))
+        (property
+          name: (property_name)
+          value: (boolean))
+        (property
+          name: (property_name)
+          value: (boolean))))))
+
+================================================================================
+Table key with case-insensitive Unique property
+================================================================================
+
+table 50101 "Case Test"
+{
+    fields
+    {
+        field(1; ID; Integer)
+        {
+            AutoIncrement = true;
+        }
+        field(2; Email; Text[250])
+        {
+            DataClassification = EndUserIdentifiableInformation;
+        }
+    }
+    
+    keys
+    {
+        key(PK; ID)
+        {
+            Clustered = true;
+        }
+        
+        key(Email; Email)
+        {
+            unique = true;
+        }
+        
+        key(AnotherKey; ID, Email)
+        {
+            UNIQUE = false;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (boolean)))
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (identifier))))
+    (keys_section
+      (keys_keyword)
+      (key_declaration
+        (key_keyword)
+        name: (identifier)
+        fields: (field_list
+          (identifier))
+        (property
+          name: (property_name)
+          value: (boolean)))
+      (key_declaration
+        (key_keyword)
+        name: (identifier)
+        fields: (field_list
+          (identifier))
+        (property
+          name: (property_name)
+          value: (boolean)))
+      (key_declaration
+        (key_keyword)
+        name: (identifier)
+        fields: (field_list
+          (identifier)
+          (identifier))
+        (property
+          name: (property_name)
+          value: (boolean))))))

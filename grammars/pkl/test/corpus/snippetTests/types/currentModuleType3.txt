@@ -1,0 +1,18 @@
+===
+types/currentModuleType3.pkl
+===
+
+extends "currentModuleType2.pkl"
+
+res1 = module
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (classProperty
+    (identifier)
+    (moduleExpr)))

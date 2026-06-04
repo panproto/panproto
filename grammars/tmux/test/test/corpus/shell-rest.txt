@@ -1,0 +1,14 @@
+========================================
+shell-rest: new-window
+========================================
+
+new-window foo -a --flag arg1 'arg2' \; start-server
+
+---
+
+(file
+  (new_window_directive
+    (command)
+    (str_single_quotes))
+  (start_server_directive
+    (command)))

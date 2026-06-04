@@ -1,0 +1,174 @@
+===
+api/xmlRenderer1.xml.pkl
+===
+
+import "pkl:xml"
+
+class Person {
+  name: String
+  age: Int
+  address: Address
+  friend: Person?
+}
+
+class Address {
+  street: String
+}
+
+int = 123
+
+float = 1.23
+
+bool = true
+
+string = "Pigeon"
+
+unicodeString = "abc😀abc😎abc"
+
+multiLineString = """
+  have a
+  great
+  day
+  """
+
+typedObject = new Person {
+  name = "Pigeon"
+  age = 30
+  address {
+    street = "Folsom St."
+  }
+  friend = null
+}
+
+dynamicObject {
+  name = "Pigeon"
+  age = 30
+  address {
+    street = "Folsom St."
+  }
+  friend = null
+}
+
+output {
+  renderer = new xml.Renderer {}
+}
+
+---
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (nullableType
+            (declaredType
+              (qualifiedIdentifier
+                (identifier))))))))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (classProperty
+    (identifier)
+    (intLiteralExpr))
+  (classProperty
+    (identifier)
+    (floatLiteralExpr))
+  (classProperty
+    (identifier)
+    (trueLiteralExpr))
+  (classProperty
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (mlStringLiteralExpr
+      (mlStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart)))
+        (objectProperty
+          (identifier)
+          (intLiteralExpr))
+        (objectProperty
+          (identifier)
+          (objectBody
+            (objectProperty
+              (identifier)
+              (slStringLiteralExpr
+                (slStringLiteralPart)))))
+        (objectProperty
+          (identifier)
+          (nullLiteralExpr)))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (slStringLiteralExpr
+          (slStringLiteralPart)))
+      (objectProperty
+        (identifier)
+        (intLiteralExpr))
+      (objectProperty
+        (identifier)
+        (objectBody
+          (objectProperty
+            (identifier)
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))
+      (objectProperty
+        (identifier)
+        (nullLiteralExpr))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)
+              (identifier)))
+          (objectBody))))))

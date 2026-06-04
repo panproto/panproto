@@ -1,0 +1,257 @@
+========================================
+select-pane: simple
+========================================
+select-pane
+selectp
+
+---
+
+(file
+  (select_pane_directive
+    (command))
+  (select_pane_directive
+    (command)))
+
+========================================
+select-pane: flags
+========================================
+select-pane -D
+selectp -D
+select-pane -L
+selectp -L
+select-pane -R
+selectp -R
+select-pane -U
+selectp -U
+select-pane -Z
+selectp -Z
+select-pane -l
+selectp -l
+select-pane -e
+selectp -e
+select-pane -d
+selectp -d
+select-pane -m
+selectp -m
+select-pane -M
+selectp -M
+select-pane -LR
+selectp -LR
+
+---
+
+(file
+  (select_pane_directive
+    (command)
+    (command_line_option))
+  (select_pane_directive
+    (command)
+    (command_line_option))
+  (select_pane_directive
+    (command)
+    (command_line_option))
+  (select_pane_directive
+    (command)
+    (command_line_option))
+  (select_pane_directive
+    (command)
+    (command_line_option))
+  (select_pane_directive
+    (command)
+    (command_line_option))
+  (select_pane_directive
+    (command)
+    (command_line_option))
+  (select_pane_directive
+    (command)
+    (command_line_option))
+  (select_pane_directive
+    (command)
+    (command_line_option))
+  (select_pane_directive
+    (command)
+    (command_line_option))
+  (select_pane_directive
+    (command)
+    (command_line_option))
+  (select_pane_directive
+    (command)
+    (command_line_option))
+  (select_pane_directive
+    (command)
+    (command_line_option))
+  (select_pane_directive
+    (command)
+    (command_line_option))
+  (select_pane_directive
+    (command)
+    (command_line_option))
+  (select_pane_directive
+    (command)
+    (command_line_option))
+  (select_pane_directive
+    (command)
+    (command_line_option))
+  (select_pane_directive
+    (command)
+    (command_line_option))
+  (select_pane_directive
+    (command)
+    (command_line_option))
+  (select_pane_directive
+    (command)
+    (command_line_option))
+  (select_pane_directive
+    (command)
+    (command_line_option))
+  (select_pane_directive
+    (command)
+    (command_line_option)))
+
+========================================
+select-pane: options
+========================================
+select-pane -t %3
+selectp -t %3
+select-pane -t :1.2
+selectp -t :1.2
+select-pane -T 'logs'
+selectp -T 'logs'
+select-pane -T "build #2"
+selectp -T "build #2"
+
+---
+
+(file
+  (select_pane_directive
+    (command)
+    (command_line_option)
+    (pane))
+  (select_pane_directive
+    (command)
+    (command_line_option)
+    (pane))
+  (select_pane_directive
+    (command)
+    (command_line_option)
+    (pane))
+  (select_pane_directive
+    (command)
+    (command_line_option)
+    (pane))
+  (select_pane_directive
+    (command)
+    (command_line_option)
+    (title
+      (str_single_quotes)))
+  (select_pane_directive
+    (command)
+    (command_line_option)
+    (title
+      (str_single_quotes)))
+  (select_pane_directive
+    (command)
+    (command_line_option)
+    (title
+      (str_double_quotes)))
+  (select_pane_directive
+    (command)
+    (command_line_option)
+    (title
+      (str_double_quotes))))
+
+========================================
+select-pane: flags + options
+========================================
+select-pane -R -t %5
+selectp -R -t %5
+select-pane -l -t :3.0
+selectp -l -t :3.0
+select-pane -Z -T 'stay-zoomed'
+selectp -Z -T 'stay-zoomed'
+select-pane -e -t %1 -T 'input on'
+selectp -e -t %1 -T 'input on'
+
+---
+
+(file
+  (select_pane_directive
+    (command)
+    (command_line_option)
+    (command_line_option)
+    (pane))
+  (select_pane_directive
+    (command)
+    (command_line_option)
+    (command_line_option)
+    (pane))
+  (select_pane_directive
+    (command)
+    (command_line_option)
+    (command_line_option)
+    (pane))
+  (select_pane_directive
+    (command)
+    (command_line_option)
+    (command_line_option)
+    (pane))
+  (select_pane_directive
+    (command)
+    (command_line_option)
+    (command_line_option)
+    (title
+      (str_single_quotes)))
+  (select_pane_directive
+    (command)
+    (command_line_option)
+    (command_line_option)
+    (title
+      (str_single_quotes)))
+  (select_pane_directive
+    (command)
+    (command_line_option)
+    (command_line_option)
+    (pane)
+    (command_line_option)
+    (title
+      (str_single_quotes)))
+  (select_pane_directive
+    (command)
+    (command_line_option)
+    (command_line_option)
+    (pane)
+    (command_line_option)
+    (title
+      (str_single_quotes))))
+
+========================================
+select-pane: complex
+========================================
+# mixed ordering, bundled flags, continuation, and trailing comment
+select-pane -dZ -t \
+%7 -T "ops pane"  # keep zoom, disable input, target %7
+selectp -dZ -t \
+%7 -T "ops pane"  # keep zoom, disable input, target %7
+
+---
+
+(file
+  (comment)
+  (select_pane_directive
+    (command)
+    (command_line_option)
+    (command_line_option)
+    (pane)
+    (command_line_option)
+    (title
+      (str_double_quotes)))
+  (comment)
+  (select_pane_directive
+    (command)
+    (command_line_option)
+    (command_line_option)
+    (pane)
+    (command_line_option)
+    (title
+      (str_double_quotes)))
+  (comment))

@@ -1,0 +1,329 @@
+================================================================================
+Simple JSX elements
+================================================================================
+
+<div className="b" tabIndex={1} />
+<Foo.Bar>a <span>b</span> c</Foo.Bar>
+<Foo.Bar.Baz.Baz></Foo.Bar.Baz.Baz>
+<div> React.null </div>
+<p> item.content </p>
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (jsx_self_closing_element
+      (jsx_identifier)
+      (jsx_attribute
+        (property_identifier)
+        (string
+          (string_fragment)))
+      (jsx_attribute
+        (property_identifier)
+        (jsx_expression
+          (expression_statement
+            (number))))))
+  (expression_statement
+    (jsx_element
+      (jsx_opening_element
+        (nested_jsx_identifier
+          (jsx_identifier)
+          (jsx_identifier)))
+      (value_identifier)
+      (jsx_element
+        (jsx_opening_element
+          (jsx_identifier))
+        (value_identifier)
+        (jsx_closing_element
+          (jsx_identifier)))
+      (value_identifier)
+      (jsx_closing_element
+        (nested_jsx_identifier
+          (jsx_identifier)
+          (jsx_identifier)))))
+  (expression_statement
+    (jsx_element
+      (jsx_opening_element
+        (nested_jsx_identifier
+          (nested_jsx_identifier
+            (nested_jsx_identifier
+              (jsx_identifier)
+              (jsx_identifier))
+            (jsx_identifier))
+          (jsx_identifier)))
+      (jsx_closing_element
+        (nested_jsx_identifier
+          (nested_jsx_identifier
+            (nested_jsx_identifier
+              (jsx_identifier)
+              (jsx_identifier))
+            (jsx_identifier))
+          (jsx_identifier)))))
+  (expression_statement
+    (jsx_element
+      (jsx_opening_element
+        (jsx_identifier))
+      (value_identifier_path
+        (module_identifier)
+        (value_identifier))
+      (jsx_closing_element
+        (jsx_identifier))))
+  (expression_statement
+    (jsx_element
+      (jsx_opening_element
+        (jsx_identifier))
+      (member_expression
+        (value_identifier)
+        (property_identifier))
+      (jsx_closing_element
+        (jsx_identifier)))))
+
+================================================================================
+Custom type children
+================================================================================
+
+<div> "Hello" </div>
+<div> 48 </div>
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (jsx_element
+      (jsx_opening_element
+        (jsx_identifier))
+      (string
+        (string_fragment))
+      (jsx_closing_element
+        (jsx_identifier))))
+  (expression_statement
+    (jsx_element
+      (jsx_opening_element
+        (jsx_identifier))
+      (number)
+      (jsx_closing_element
+        (jsx_identifier)))))
+
+================================================================================
+Attribute values
+================================================================================
+<Foo a=1 b=#hello c=None punned ?optA optB=?{foo} />;
+<Bar
+  x=qux->zoo
+  y=true
+/>
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (jsx_self_closing_element
+      (jsx_identifier)
+      (jsx_attribute
+        (property_identifier)
+        (number))
+      (jsx_attribute
+        (property_identifier)
+        (polyvar
+          (polyvar_identifier)))
+      (jsx_attribute
+        (property_identifier)
+        (variant
+          (variant_identifier)))
+      (jsx_attribute
+        (property_identifier))
+      (jsx_attribute
+        (property_identifier))
+      (jsx_attribute
+        (property_identifier)
+        (jsx_expression
+          (expression_statement
+            (value_identifier))))))
+  (expression_statement
+    (jsx_self_closing_element
+      (jsx_identifier)
+      (jsx_attribute
+        (property_identifier)
+        (pipe_expression
+          (value_identifier)
+          (value_identifier)))
+      (jsx_attribute
+        (property_identifier)
+        (true)))))
+
+================================================================================
+Anonymous JSX element
+================================================================================
+
+<></>
+<E><></></E>
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (jsx_fragment))
+  (expression_statement
+    (jsx_element
+      (jsx_opening_element
+        (jsx_identifier))
+      (jsx_fragment)
+      (jsx_closing_element
+        (jsx_identifier)))))
+
+================================================================================
+Block children
+================================================================================
+
+<div>
+  {
+    let href = "https://github.com"
+    <a href> {React.string("Hello")} </a>
+  }
+</div>
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (jsx_element
+      (jsx_opening_element
+        (jsx_identifier))
+      (block
+        (let_declaration
+          (let_binding
+            (value_identifier)
+            (string
+              (string_fragment))))
+        (expression_statement
+          (jsx_element
+            (jsx_opening_element
+              (jsx_identifier)
+              (jsx_attribute
+                (property_identifier)))
+            (block
+              (expression_statement
+                (call_expression
+                  (value_identifier_path
+                    (module_identifier)
+                    (value_identifier))
+                  (arguments
+                    (string
+                      (string_fragment))))))
+            (jsx_closing_element
+              (jsx_identifier)))))
+      (jsx_closing_element
+        (jsx_identifier)))))
+
+================================================================================
+Children spread
+================================================================================
+
+<MyComponent> ...myChild </MyComponent>
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (jsx_element
+      (jsx_opening_element
+        (jsx_identifier))
+      (spread_element
+        (value_identifier))
+      (jsx_closing_element
+        (jsx_identifier)))))
+
+================================================================================
+Attribute Block
+================================================================================
+
+<SingleInput
+  header={React.string("What's your first name?")}
+  event={
+    open SingleInput
+    {
+      submit: toNextStep,
+      isLoading: false,
+    }
+  }>
+    <Input />
+</SingleInput>
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (jsx_element
+      (jsx_opening_element
+        (jsx_identifier)
+        (jsx_attribute
+          (property_identifier)
+          (jsx_expression
+            (expression_statement
+              (call_expression
+                (value_identifier_path
+                  (module_identifier)
+                  (value_identifier))
+                (arguments
+                  (string
+                    (string_fragment)))))))
+        (jsx_attribute
+          (property_identifier)
+          (jsx_expression
+            (open_statement
+              (module_identifier))
+            (expression_statement
+              (record
+                (record_field
+                  (property_identifier)
+                  (value_identifier))
+                (record_field
+                  (property_identifier)
+                  (false)))))))
+      (jsx_self_closing_element
+        (jsx_identifier))
+      (jsx_closing_element
+        (jsx_identifier)))))
+
+================================================================================
+Spread props
+================================================================================
+
+<div {...a}/>
+<Comp {...a}></Comp>
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (jsx_self_closing_element
+      (jsx_identifier)
+      (jsx_expression
+        (spread_element
+          (value_identifier)))))
+  (expression_statement
+    (jsx_element
+      (jsx_opening_element
+        (jsx_identifier)
+        (jsx_expression
+          (spread_element
+            (value_identifier))))
+      (jsx_closing_element
+        (jsx_identifier)))))
+
+================================================================================
+Elements in pipes
+================================================================================
+
+<Comp />->Some
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (pipe_expression
+      (jsx_self_closing_element
+        (jsx_identifier))
+      (variant
+        (variant_identifier)))))
+

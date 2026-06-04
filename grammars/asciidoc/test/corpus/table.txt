@@ -1,0 +1,245 @@
+===========
+table
+===========
+
+|===
+|===
+
+[cols="1,1"]
+|===
+|Cell in column 1, row 1
+|Cell in column 2, row 1
+
+|Cell in column 1, row 2
+|Cell in column 2, row 2
+
+|Cell in column 1, row 3
+|Cell in column 2, row 3
+|===
+
+.A table with a title
+[%autowidth]
+|===
+|Column 1, header row |Column 2, header row
+
+|Cell in column 1, row 2
+|Cell in column 2, row 2
+|===
+
+[cols="2*"]
+|===
+>s|This cell's specifier indicates that this cell's content is right-aligned and bold.
+|The cell specifier on this cell hasn't been set explicitly, so the  default properties are applied.
+|===
+
+|===
+|info 1 |info 2 |info 3 |info 4
+.3+|info 5 |info 6 2.2+|info 7
+|info 8
+2+|info 9 |info 10
+|===
+
+|===
+a|
+[, rust]
+----
+let a = 10;
+----
+|===
+
+
+-----
+
+(document
+  (block_element
+    (section_block
+      (table_block
+        (table_block_marker)
+        (table_block_marker))))
+  (block_element
+    (section_block
+      (element_attr
+        (element_attr_marker)
+        (attr_value)
+        (element_attr_marker))
+      (table_block
+        (table_block_marker)
+        (table_cell
+          (table_cell_content))
+        (table_cell
+          (table_cell_content))
+        (table_cell
+          (table_cell_content))
+        (table_cell
+          (table_cell_content))
+        (table_cell
+          (table_cell_content))
+        (table_cell
+          (table_cell_content))
+        (table_block_marker))))
+  (block_element
+    (section_block
+      (block_title
+        (block_title_marker)
+        (line))
+      (element_attr
+        (element_attr_marker)
+        (attr_value)
+        (element_attr_marker))
+      (table_block
+        (table_block_marker)
+        (table_cell
+          (table_cell_content))
+        (table_cell
+          (table_cell_content))
+        (table_cell
+          (table_cell_content))
+        (table_cell
+          (table_cell_content))
+        (table_block_marker))))
+  (block_element
+    (section_block
+      (element_attr
+        (element_attr_marker)
+        (attr_value)
+        (element_attr_marker))
+      (table_block
+        (table_block_marker)
+        (table_cell
+          (table_cell_attr)
+          (table_cell_content))
+        (table_cell
+          (table_cell_content))
+        (table_block_marker))))
+  (block_element
+    (section_block
+      (table_block
+        (table_block_marker)
+        (table_cell
+          (table_cell_content))
+        (table_cell
+          (table_cell_content))
+        (table_cell
+          (table_cell_content))
+        (table_cell
+          (table_cell_content))
+        (table_cell
+          (table_cell_attr)
+          (table_cell_content))
+        (table_cell
+          (table_cell_content))
+        (table_cell
+          (table_cell_attr)
+          (table_cell_content))
+        (table_cell
+          (table_cell_content))
+        (table_cell
+          (table_cell_attr)
+          (table_cell_content))
+        (table_cell
+          (table_cell_content))
+        (table_block_marker))))
+  (block_element
+    (section_block
+      (table_block
+        (table_block_marker)
+        (table_cell
+          (table_cell_attr)
+          (section_block
+            (element_attr
+              (element_attr_marker)
+              (attr_value)
+              (element_attr_marker))
+            (listing_block
+              (listing_block_start_marker)
+              (listing_block_body)
+              (listing_block_end_marker))))
+        (table_block_marker)))))
+
+=================
+list continuation
+=================
+
+|===
+a|
+[, rust]
+----
+let a = 10;
+----
++
+[, rust]
+----
+let a = 10;
+----
+
+|===
+
+-----
+
+(document
+  (block_element
+    (section_block
+      (table_block
+        (table_block_marker)
+        (table_cell
+          (table_cell_attr)
+          (section_block
+            (element_attr
+              (element_attr_marker)
+              (attr_value)
+              (element_attr_marker))
+            (listing_block
+              (listing_block_start_marker)
+              (listing_block_body)
+              (listing_block_end_marker)))
+          (list_continuation)
+          (section_block
+            (element_attr
+              (element_attr_marker)
+              (attr_value)
+              (element_attr_marker))
+            (listing_block
+              (listing_block_start_marker)
+              (listing_block_body)
+              (listing_block_end_marker))))
+        (table_block_marker)))))
+
+==========
+empty
+==========
+
+|===
+a|
+|
+| something
+|===
+
+---
+
+(document
+  (block_element
+    (section_block
+      (table_block
+        (table_block_marker)
+        (table_cell
+          (table_cell_attr))
+        (table_cell)
+        (table_cell
+          (table_cell_content))
+        (table_block_marker)))))
+
+===========
+long table
+===========
+
+|========
+|========
+
+---
+
+(document
+  (block_element
+    (section_block
+      (table_block
+        (table_block_marker)
+        (table_block_marker)))))

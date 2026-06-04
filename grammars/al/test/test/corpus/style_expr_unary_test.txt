@@ -1,0 +1,201 @@
+================================================================================
+StyleExpr with NOT unary expression
+================================================================================
+
+page 12345 TestPage
+{
+    layout
+    {
+        area(content)
+        {
+            field(HashCheckName; HashCheckStatus)
+            {
+                ApplicationArea = All;
+                Caption = 'File Hash Check';
+                Style = Unfavorable;
+                StyleExpr = NOT HashCheck;
+                ToolTip = 'Hash check status';
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (property_expression
+              (unary_expression
+                operand: (identifier))))
+          (property
+            name: (property_name)
+            value: (string_literal)))))))
+
+================================================================================
+StyleExpr with 'not' lowercase unary expression
+================================================================================
+
+page 23456 LowerCasePage
+{
+    layout
+    {
+        area(content)
+        {
+            field(Status; StatusValue)
+            {
+                StyleExpr = not IsActive;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (property_expression
+              (unary_expression
+                operand: (identifier)))))))))
+
+================================================================================
+StyleExpr with minus unary expression
+================================================================================
+
+page 34567 MinusPage
+{
+    layout
+    {
+        area(content)
+        {
+            field(Amount; AmountValue)
+            {
+                StyleExpr = -NetAmount;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (property_expression
+              (unary_expression
+                operand: (identifier)))))))))
+
+================================================================================
+StyleExpr with boolean literal (existing functionality)
+================================================================================
+
+page 45678 BooleanPage
+{
+    layout
+    {
+        area(content)
+        {
+            field(Status; StatusValue)
+            {
+                StyleExpr = TRUE;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (boolean)))))))
+
+================================================================================
+StyleExpr with identifier (existing functionality)
+================================================================================
+
+page 56789 IdentifierPage
+{
+    layout
+    {
+        area(content)
+        {
+            field(Status; StatusValue)
+            {
+                StyleExpr = IsVisible;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))))))

@@ -1,0 +1,55 @@
+================================================================================
+PromptMode property with different values
+================================================================================
+
+page 123 TestPage1
+{
+    PromptMode = Generate;
+}
+
+page 124 TestPage2
+{
+    PromptMode = Auto;
+}
+
+page 125 TestPage3
+{
+    PromptMode = Always;
+}
+
+page 126 TestPage4
+{
+    PromptMode = Never;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (property
+      name: (property_name)
+      value: (identifier)))
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (property
+      name: (property_name)
+      value: (identifier)))
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (property
+      name: (property_name)
+      value: (identifier)))
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (property
+      name: (property_name)
+      value: (identifier))))

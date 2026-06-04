@@ -1,0 +1,44 @@
+================================================================================
+Preprocessor conditional with mixed var section and procedures
+================================================================================
+
+table 50000 "Known Limitation"
+{
+    // This pattern is not currently supported
+#if not CLEAN25  
+    protected var
+        Item: Record Item;
+
+    procedure CalcPrice()
+    begin
+    end;
+#endif
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (comment)
+    (preproc_conditional
+      (preproc_if
+        (preproc_open)
+        condition: (preproc_not_expression
+          (identifier)))
+      (var_section
+        (protected_keyword)
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (identifier)))))
+      (procedure
+        (procedure_keyword)
+        name: (identifier)
+        (code_block))
+      (preproc_endif
+        (preproc_close)))))

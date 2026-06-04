@@ -1,0 +1,104 @@
+==================
+XMLPort with fieldattribute Occurrence property
+==================
+
+xmlport 50000 "Test Import"
+{
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(MyTable; "Test Table")
+            {
+                fieldattribute(Code; MyTable.Code)
+                {
+                    Occurrence = Required;
+                }
+                fieldattribute(Description; MyTable.Description)
+                {
+                    Occurrence = Optional;
+                }
+            }
+        }
+    }
+}
+
+---
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (schema_section
+      (schema_keyword)
+      (xmlport_element
+        name: (identifier)
+        (xmlport_element
+          name: (identifier)
+          source: (quoted_identifier)
+          (xmlport_attribute
+            name: (identifier)
+            source: (member_expression
+              object: (identifier)
+              member: (identifier))
+            (property
+              name: (property_name)
+              value: (identifier)))
+          (xmlport_attribute
+            name: (identifier)
+            source: (member_expression
+              object: (identifier)
+              member: (identifier))
+            (property
+              name: (property_name)
+              value: (identifier))))))))
+
+==================
+XMLPort field attribute with mixed properties
+==================
+
+xmlport 50001 "Complex Import"
+{
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Table; "Table Name")
+            {
+                fieldattribute(ID; Table."ID Field")
+                {
+                    Occurrence = Required;
+                    Caption = 'Identifier';
+                }
+            }
+        }
+    }
+}
+
+---
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (schema_section
+      (schema_keyword)
+      (xmlport_element
+        name: (identifier)
+        (xmlport_element
+          name: (identifier
+            (table_keyword))
+          source: (quoted_identifier)
+          (xmlport_attribute
+            name: (identifier)
+            source: (member_expression
+              object: (identifier)
+              member: (quoted_identifier))
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (string_literal))))))))

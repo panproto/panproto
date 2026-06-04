@@ -1,0 +1,95 @@
+========================================
+bind
+========================================
+
+bind v split-window -h
+
+---
+
+(file
+  (bind_key_directive
+    (command)
+    (key)
+    (split_window_directive
+      (command)
+      (command_line_option))))
+
+========================================
+bind: copy-mode
+========================================
+
+bind -Tcopy-mode-vi C-v send-keys -X rectangle-toggle v M-v
+
+---
+
+(file
+  (bind_key_directive
+    (command)
+    (command_line_option)
+    (key_table)
+    (key)
+    (send_keys_directive
+      (command)
+      (command_line_option)
+      (key)
+      (key)
+      (key))))
+
+========================================
+bind: \\
+========================================
+
+bind \\ split-window -h -c "#{pane_current_path}"
+
+---
+
+(file
+  (bind_key_directive
+    (command)
+    (key
+      (backslash_escape))
+    (split_window_directive
+      (command)
+      (command_line_option)
+      (command_line_option)
+      (start_directory
+        (str_double_quotes
+          (expr_double_quotes
+            (name)))))))
+
+========================================
+bind: -
+========================================
+
+bind - split-window -v
+
+---
+
+(file
+  (bind_key_directive
+    (command)
+    (key)
+    (split_window_directive
+      (command)
+      (command_line_option))))
+
+========================================
+bind: table with mixed string
+========================================
+
+bind -T\033'1'"2" v split-window -h
+
+---
+
+(file
+  (bind_key_directive
+    (command)
+    (command_line_option)
+    (key_table
+      (backslash_escape)
+      (str_single_quotes)
+      (str_double_quotes))
+    (key)
+    (split_window_directive
+      (command)
+      (command_line_option))))

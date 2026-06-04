@@ -1,0 +1,843 @@
+====
+Normal attribute value
+====
+
+package main
+
+templ Foo() {
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (component_declaration
+    name: (component_identifier)
+    (parameter_list)
+    (component_block
+      (element
+        (self_closing_tag
+          name: (element_identifier)
+          (attribute
+            name: (attribute_name)
+            value: (quoted_attribute_value
+              (attribute_value)))
+          (attribute
+            name: (attribute_name)
+            value: (quoted_attribute_value
+              (attribute_value))))))))
+
+====
+Conditional attribute
+====
+
+package main
+
+templ Foo() {
+  <hr style="padding: 10px"
+    if true {
+      class="itIsTrue"
+    }
+  />
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (component_declaration
+    name: (component_identifier)
+    (parameter_list)
+    (component_block
+      (element
+        (self_closing_tag
+          name: (element_identifier)
+          (attribute
+            name: (attribute_name)
+            value: (quoted_attribute_value
+              (attribute_value)))
+          (conditional_attribute_if_statement
+            condition: (true)
+            consequence: (conditional_attribute_block
+              (attribute
+                name: (attribute_name)
+                value: (quoted_attribute_value
+                  (attribute_value))))))))))
+
+===
+More complex conditional attribute
+===
+
+package foo
+
+type person struct {
+	important bool
+	name string
+}
+
+templ render(p person) {
+	<div style="width: 100;"
+		if p.important {
+			class={ important }
+		} else if p.name == "vincent" {
+			class={ unimportant }
+		} else {
+			class="vincent" }
+	>
+	Foobar
+	</div>
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (type_declaration
+    (type_spec
+      (type_identifier)
+      (struct_type
+        (field_declaration_list
+          (field_declaration
+            (field_identifier)
+            (type_identifier))
+          (field_declaration
+            (field_identifier)
+            (type_identifier))))))
+  (component_declaration
+    (component_identifier)
+    (parameter_list
+      (parameter_declaration
+        (identifier)
+        (type_identifier)))
+    (component_block
+      (element
+        (tag_start
+          (element_identifier)
+          (attribute
+            (attribute_name)
+            (quoted_attribute_value
+              (attribute_value)))
+          (conditional_attribute_if_statement
+            (selector_expression
+              (identifier)
+              (field_identifier))
+            (conditional_attribute_block
+              (attribute
+                (attribute_name)
+                (expression
+                  (identifier))))
+            (conditional_attribute_if_statement
+              (binary_expression
+                (selector_expression
+                  (identifier)
+                  (field_identifier))
+                (interpreted_string_literal
+                  (interpreted_string_literal_content)))
+              (conditional_attribute_block
+                (attribute
+                  (attribute_name)
+                  (expression
+                    (identifier))))
+              (conditional_attribute_block
+                (attribute
+                  (attribute_name)
+                  (quoted_attribute_value
+                    (attribute_value)))))))
+        (element_text)
+        (tag_end
+          (element_identifier))))))
+
+===
+Spread attributes
+===
+
+package main
+
+templ Foobar() {
+  <hr
+    disabled
+    { attrs... }
+  />
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (component_declaration
+    name: (component_identifier)
+    (parameter_list)
+    (component_block
+      (element
+        (self_closing_tag
+          name: (element_identifier)
+          (attribute
+            name: (attribute_name))
+          (spread_attributes
+            name: (identifier)))))))
+
+===
+Spread attributes in if branch
+===
+
+package main
+
+templ component(shouldBeUsed bool, attrs templ.Attributes) {
+  <p { attrs... }>foobar</p>
+  <hr
+    if shouldBeUsed {
+      { attrs... }
+    }
+  />
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (component_declaration
+    name: (component_identifier)
+    (parameter_list
+      (parameter_declaration
+        name: (identifier)
+        type: (type_identifier))
+      (parameter_declaration
+        name: (identifier)
+        type: (qualified_type
+          package: (package_identifier)
+          name: (type_identifier))))
+    (component_block
+      (element
+        (tag_start
+          name: (element_identifier)
+          (spread_attributes
+            name: (identifier)))
+        (element_text)
+        (tag_end
+          name: (element_identifier)))
+      (element
+        (self_closing_tag
+          name: (element_identifier)
+          (conditional_attribute_if_statement
+            condition: (identifier)
+            consequence: (conditional_attribute_block
+              (spread_attributes
+                name: (identifier)))))))))
+
+===
+Multiple conditional attributes with spread attributes
+===
+
+package main
+
+templ component(attrs templ.Attributes) {
+  <hr
+    if true {
+      name="foobar"
+      { attrs... }
+      foo="bar"
+    }
+  />
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (component_declaration
+    name: (component_identifier)
+    (parameter_list
+      (parameter_declaration
+        name: (identifier)
+        type: (qualified_type
+          package: (package_identifier)
+          name: (type_identifier))))
+    (component_block
+      (element
+        (self_closing_tag
+          name: (element_identifier)
+          (conditional_attribute_if_statement
+            condition: (true)
+            consequence: (conditional_attribute_block
+              (attribute
+                name: (attribute_name)
+                value: (quoted_attribute_value
+                  (attribute_value)))
+              (spread_attributes
+                name: (identifier))
+              (attribute
+                name: (attribute_name)
+                value: (quoted_attribute_value
+                  (attribute_value))))))))))
+
+===
+Attribute after if
+===
+
+package main
+
+templ Foobar() {
+  <hr
+    if true {
+      name={ name }
+    }
+    id="id"
+  />
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (component_declaration
+    name: (component_identifier)
+    (parameter_list)
+    (component_block
+      (element
+        (self_closing_tag
+          name: (element_identifier)
+          (conditional_attribute_if_statement
+            condition: (true)
+            consequence: (conditional_attribute_block
+              (attribute
+                name: (attribute_name)
+                value: (expression
+                  (identifier)))))
+          (attribute
+            name: (attribute_name)
+            value: (quoted_attribute_value
+              (attribute_value))))))))
+
+===
+Attribute before if
+===
+
+package main
+
+templ Foobar() {
+  <hr
+    id="id"
+    if true {
+      name={ name }
+    }
+  />
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (component_declaration
+    name: (component_identifier)
+    (parameter_list)
+    (component_block
+      (element
+        (self_closing_tag
+          name: (element_identifier)
+          (attribute
+            name: (attribute_name)
+            value: (quoted_attribute_value
+              (attribute_value)))
+          (conditional_attribute_if_statement
+            condition: (true)
+            consequence: (conditional_attribute_block
+              (attribute
+                name: (attribute_name)
+                value: (expression
+                  (identifier))))))))))
+
+===
+Spread attributes accessing a field
+===
+
+package main
+
+type Props struct {
+  Attrs templ.Attributes
+}
+
+templ test(props Props) {
+  <hr
+    { props.Attrs... }
+  />
+  <hr
+    { (*(&props)).Attrs... }
+  />
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (type_declaration
+    (type_spec
+      name: (type_identifier)
+      type: (struct_type
+        (field_declaration_list
+          (field_declaration
+            name: (field_identifier)
+            type: (qualified_type
+              package: (package_identifier)
+              name: (type_identifier)))))))
+  (component_declaration
+    name: (component_identifier)
+    (parameter_list
+      (parameter_declaration
+        name: (identifier)
+        type: (type_identifier)))
+    (component_block
+      (element
+        (self_closing_tag
+          name: (element_identifier)
+          (spread_attributes
+            name: (selector_expression
+              operand: (identifier)
+              field: (field_identifier)))))
+      (element
+        (self_closing_tag
+          name: (element_identifier)
+          (spread_attributes
+            name: (selector_expression
+              operand: (parenthesized_expression
+                (unary_expression
+                  operand: (parenthesized_expression
+                    (unary_expression
+                      operand: (identifier)))))
+              field: (field_identifier))))))))
+
+===
+Multi-line attribute value
+===
+
+package main
+
+templ test() {
+  <a
+    href="https://example.com"
+    class={
+      "class1",
+      "class2",
+    }
+  >Test</a>
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (component_declaration
+    (component_identifier)
+    (parameter_list)
+    (component_block
+      (element
+        (tag_start
+          (element_identifier)
+          (attribute
+            (attribute_name)
+            (quoted_attribute_value
+              (attribute_value)))
+          (attribute
+            (attribute_name)
+            (dynamic_class_attribute_value
+              (interpreted_string_literal
+                (interpreted_string_literal_content))
+              (interpreted_string_literal
+                (interpreted_string_literal_content)))))
+        (element_text)
+        (tag_end
+          (element_identifier))))))
+
+===
+Multi-line attribute value without trailing comma
+===
+
+package main
+
+templ test() {
+  <a
+    href="https://example.com"
+    class={
+      "class1",
+      "class2"
+    }
+  >Test</a>
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (component_declaration
+    (component_identifier)
+    (parameter_list)
+    (component_block
+      (element
+        (tag_start
+          (element_identifier)
+          (attribute
+            (attribute_name)
+            (quoted_attribute_value
+              (attribute_value)))
+          (attribute
+            (attribute_name)
+            (dynamic_class_attribute_value
+              (interpreted_string_literal
+                (interpreted_string_literal_content))
+              (interpreted_string_literal
+                (interpreted_string_literal_content)))))
+        (element_text)
+        (tag_end
+          (element_identifier))))))
+
+===
+Expression in attribute
+===
+
+package main
+
+func Foo() string { return "foo" }
+
+templ Test() {
+	<div foo={Foo() + "bar"}></div>
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (function_declaration
+    (identifier)
+    (parameter_list)
+    (type_identifier)
+    (block
+      (statement_list
+        (return_statement
+          (expression_list
+            (interpreted_string_literal
+              (interpreted_string_literal_content)))))))
+  (component_declaration
+    (component_identifier)
+    (parameter_list)
+    (component_block
+      (element
+        (tag_start
+          (element_identifier)
+          (attribute
+            (attribute_name)
+            (expression
+              (binary_expression
+                (call_expression
+                  (identifier)
+                  (argument_list))
+                (interpreted_string_literal
+                  (interpreted_string_literal_content))))))
+        (tag_end
+          (element_identifier))))))
+
+===
+Nested if attributes
+===
+
+package main
+
+templ ButtonGH(props buttonPropsGH) {
+  <button
+    if true {
+      if true {
+        foo={ props.tooltip }
+      }
+    }
+  ></button>
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (component_declaration
+    (component_identifier)
+    (parameter_list
+      (parameter_declaration
+        (identifier)
+        (type_identifier)))
+    (component_block
+      (element
+        (tag_start
+          (element_identifier)
+          (conditional_attribute_if_statement
+            (true)
+            (conditional_attribute_block
+              (conditional_attribute_if_statement
+                (true)
+                (conditional_attribute_block
+                  (attribute
+                    (attribute_name)
+                    (expression
+                      (selector_expression
+                        (identifier)
+                        (field_identifier)))))))))
+        (tag_end
+          (element_identifier))))))
+
+===
+Nested if/else attributes
+===
+
+package main
+
+templ Foo() {
+  <button
+    if true {
+      if true {
+        foo="bar"
+      } else if false {
+        foo="baz"
+      } else {
+        foo="qux"
+      }
+    } else if true {
+      if true {
+        fa="bar"
+      }
+    } else {
+      fa="baz"
+    }
+  ></button>
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (component_declaration
+    (component_identifier)
+    (parameter_list)
+    (component_block
+      (element
+        (tag_start
+          (element_identifier)
+          (conditional_attribute_if_statement
+            (true)
+            (conditional_attribute_block
+              (conditional_attribute_if_statement
+                (true)
+                (conditional_attribute_block
+                  (attribute
+                    (attribute_name)
+                    (quoted_attribute_value
+                      (attribute_value))))
+                (conditional_attribute_if_statement
+                  (false)
+                  (conditional_attribute_block
+                    (attribute
+                      (attribute_name)
+                      (quoted_attribute_value
+                        (attribute_value))))
+                  (conditional_attribute_block
+                    (attribute
+                      (attribute_name)
+                      (quoted_attribute_value
+                        (attribute_value)))))))
+              (conditional_attribute_if_statement
+                (true)
+                (conditional_attribute_block
+                  (conditional_attribute_if_statement
+                    (true)
+                    (conditional_attribute_block
+                      (attribute
+                        (attribute_name)
+                        (quoted_attribute_value
+                          (attribute_value))))))
+                (conditional_attribute_block
+                  (attribute
+                    (attribute_name)
+                    (quoted_attribute_value
+                      (attribute_value)))))))
+        (tag_end
+          (element_identifier))))))
+
+===
+Attribute names with expression
+===
+
+templ Foo() {
+	<form
+		{ "dynamic"+"-attr-key" }={ "hello world" }
+	>
+  </form>
+}
+
+---
+
+(source_file
+  (component_declaration
+    (component_identifier)
+    (parameter_list)
+    (component_block
+      (element
+        (tag_start
+          (element_identifier)
+          (attribute
+            (expression
+              (binary_expression
+                (interpreted_string_literal
+                  (interpreted_string_literal_content))
+                (interpreted_string_literal
+                  (interpreted_string_literal_content))))
+            (expression
+              (interpreted_string_literal
+                (interpreted_string_literal_content)))))
+        (tag_end
+          (element_identifier))))))
+
+===
+Boolean attribute with variable
+===
+
+package main
+
+templ component(isDisabled bool) {
+  <input disabled?={ isDisabled } type="text" />
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (component_declaration
+    name: (component_identifier)
+    (parameter_list
+      (parameter_declaration
+        name: (identifier)
+        type: (type_identifier)))
+    (component_block
+      (element
+        (self_closing_tag
+          name: (element_identifier)
+          (attribute
+            name: (attribute_name)
+            value: (expression
+              (identifier)))
+          (attribute
+            name: (attribute_name)
+            value: (quoted_attribute_value
+              (attribute_value))))))))
+
+====
+Single-line conditional attribute
+====
+
+package main
+
+templ Foo() {
+  <hr if true { class="itIsTrue" } />
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (component_declaration
+    name: (component_identifier)
+    (parameter_list)
+    (component_block
+      (element
+        (self_closing_tag
+          name: (element_identifier)
+          (conditional_attribute_if_statement
+            condition: (true)
+            consequence: (conditional_attribute_block
+              (attribute
+                name: (attribute_name)
+                value: (quoted_attribute_value
+                  (attribute_value))))))))))
+
+====
+Single-line conditional attribute between regular attributes
+====
+
+package main
+
+templ Foo() {
+  <hr id="a" if true { class="b" } title="c" />
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (component_declaration
+    name: (component_identifier)
+    (parameter_list)
+    (component_block
+      (element
+        (self_closing_tag
+          name: (element_identifier)
+          (attribute
+            name: (attribute_name)
+            value: (quoted_attribute_value
+              (attribute_value)))
+          (conditional_attribute_if_statement
+            condition: (true)
+            consequence: (conditional_attribute_block
+              (attribute
+                name: (attribute_name)
+                value: (quoted_attribute_value
+                  (attribute_value)))))
+          (attribute
+            name: (attribute_name)
+            value: (quoted_attribute_value
+              (attribute_value))))))))
+
+====
+Single-line conditional attribute with else
+====
+
+package main
+
+templ Foo() {
+  <hr if true { class="t" } else { class="f" } />
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (component_declaration
+    name: (component_identifier)
+    (parameter_list)
+    (component_block
+      (element
+        (self_closing_tag
+          name: (element_identifier)
+          (conditional_attribute_if_statement
+            condition: (true)
+            consequence: (conditional_attribute_block
+              (attribute
+                name: (attribute_name)
+                value: (quoted_attribute_value
+                  (attribute_value))))
+            alternative: (conditional_attribute_block
+              (attribute
+                name: (attribute_name)
+                value: (quoted_attribute_value
+                  (attribute_value))))))))))

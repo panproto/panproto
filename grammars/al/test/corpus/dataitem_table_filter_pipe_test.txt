@@ -1,0 +1,84 @@
+================================================================================
+DataItemTableFilter with pipe-separated values
+================================================================================
+
+query 50100 "Production Orders"
+{
+    QueryType = Normal;
+    
+    elements
+    {
+        dataitem(My_Item; Item)
+        {
+            column(Item_No; "No.")
+            {
+            }
+            
+            dataitem(Prod_Order_Line; "Prod. Order Line")
+            {
+                DataItemLink = "Item No." = My_Item."Item No.";
+                DataItemTableFilter = Status = filter(Planned | "Firm Planned" | Released);
+                
+                column(Status; Status)
+                {
+                }
+                
+                column(Quantity; Quantity)
+                {
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          field_name: (quoted_identifier))
+        (query_dataitem
+          (dataitem_keyword)
+          name: (identifier)
+          table_name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (property_expression
+              (comparison_expression
+                left: (quoted_identifier)
+                operator: (comparison_operator)
+                right: (member_expression
+                  object: (identifier)
+                  member: (quoted_identifier)))))
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (identifier)
+                (filter_keyword)
+                value: (filter_value
+                  (identifier)
+                  (quoted_identifier)
+                  (identifier)))))
+          (query_column
+            (column_keyword)
+            name: (identifier)
+            field_name: (identifier))
+          (query_column
+            (column_keyword)
+            name: (identifier)
+            field_name: (identifier)))))))

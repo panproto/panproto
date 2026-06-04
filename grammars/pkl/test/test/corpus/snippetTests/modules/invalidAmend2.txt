@@ -1,0 +1,19 @@
+===
+modules/invalidAmend2.pkl
+===
+
+amends "library.pkl"
+
+other = "parrot"
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (classProperty
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart))))

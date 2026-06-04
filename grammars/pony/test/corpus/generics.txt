@@ -1,0 +1,46 @@
+=============================
+Ambiguous Generic Expressions
+=============================
+
+class X[T]
+
+actor Main
+  new create(env: Env) =>
+    X
+    [None]
+
+  fun other() =>
+    X [None]
+
+---
+
+(source_file
+  (class_definition
+    (identifier)
+    (generic_parameters
+      (generic_parameter
+        (identifier))))
+  (actor_definition
+    (identifier)
+    (members
+      (constructor
+        (identifier)
+        (parameters
+          (parameter
+            (identifier)
+            (base_type
+              (identifier))))
+        (block
+          (identifier)
+          (array_literal
+            (block
+              (identifier)))))
+      (method
+        (identifier)
+        (parameters)
+        (block
+          (generic_expression
+            (identifier)
+            (type_args
+              (base_type
+                (identifier)))))))))

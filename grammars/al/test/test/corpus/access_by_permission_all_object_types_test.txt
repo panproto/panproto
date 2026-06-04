@@ -1,0 +1,151 @@
+================================================================================
+AccessByPermission property with all object types test
+================================================================================
+
+page 50002 "All Permission Types Test"
+{
+    layout
+    {
+        area(Content)
+        {
+            field(TestTableData; Rec."Test Field")
+            {
+                AccessByPermission = TableData "Customer" = R;
+            }
+            field(TestTable; Rec."Test Field 2")
+            {
+                AccessByPermission = Table "Customer" = X;
+            }
+            field(TestPage; Rec."Test Field 3")
+            {
+                AccessByPermission = Page "Customer Card" = X;
+            }
+            field(TestReport; Rec."Test Field 4")
+            {
+                AccessByPermission = Report "Customer List" = X;
+            }
+            field(TestCodeunit; Rec."Test Field 5")
+            {
+                AccessByPermission = Codeunit "Sales-Post" = X;
+            }
+            field(TestXMLPort; Rec."Test Field 6")
+            {
+                AccessByPermission = XMLport "Export Customer" = X;
+            }
+            field(TestQuery; Rec."Test Field 7")
+            {
+                AccessByPermission = Query "Customer Sales" = X;
+            }
+            field(TestSystemQuoted; Rec."Test Field 8")
+            {
+                AccessByPermission = System "Allow Action Export To Excel" = X;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (quoted_identifier))
+          (property
+            name: (property_name)
+            value: (tabledata_permission_list
+              (tabledata_permission
+                table_name: (quoted_identifier)
+                permission: (permission_type)))))
+        (page_field
+          name: (identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (quoted_identifier))
+          (property
+            name: (property_name)
+            value: (tabledata_permission_list
+              (tabledata_permission
+                (table_keyword)
+                table_name: (quoted_identifier)
+                permission: (permission_type)))))
+        (page_field
+          name: (identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (quoted_identifier))
+          (property
+            name: (property_name)
+            value: (tabledata_permission_list
+              (tabledata_permission
+                (page_keyword)
+                table_name: (quoted_identifier)
+                permission: (permission_type)))))
+        (page_field
+          name: (identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (quoted_identifier))
+          (property
+            name: (property_name)
+            value: (tabledata_permission_list
+              (tabledata_permission
+                (report_keyword)
+                table_name: (quoted_identifier)
+                permission: (permission_type)))))
+        (page_field
+          name: (identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (quoted_identifier))
+          (property
+            name: (property_name)
+            value: (tabledata_permission_list
+              (tabledata_permission
+                (codeunit_keyword)
+                table_name: (quoted_identifier)
+                permission: (permission_type)))))
+        (page_field
+          name: (identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (quoted_identifier))
+          (property
+            name: (property_name)
+            value: (tabledata_permission_list
+              (tabledata_permission
+                (xmlport_keyword)
+                table_name: (quoted_identifier)
+                permission: (permission_type)))))
+        (page_field
+          name: (identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (quoted_identifier))
+          (property
+            name: (property_name)
+            value: (tabledata_permission_list
+              (tabledata_permission
+                (query_keyword)
+                table_name: (quoted_identifier)
+                permission: (permission_type)))))
+        (page_field
+          name: (identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (quoted_identifier))
+          (property
+            name: (property_name)
+            value: (tabledata_permission_list
+              (tabledata_permission
+                table_name: (quoted_identifier)
+                permission: (permission_type)))))))))

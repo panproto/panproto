@@ -1,0 +1,89 @@
+================================================================================
+Dto
+================================================================================
+
+service TestApi {
+	data One
+	{
+		num1: int32;
+		num2: int64;
+		dbl1: double;
+		dec1: decimal;
+		str1: string;
+		timestamp1: datetime;
+		bool1: boolean;
+		byte1: bytes;
+		obj1: object;
+		err1: error;
+		req1: string!;
+		[required] req2: string;
+		list1: boolean[];
+		dict1: map<string>;
+		sential1: nullable<int32>;
+		res1: result<error>;
+	}
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (service
+    service_name: (identifier)
+    (service_block
+      (dto
+        name: (identifier)
+        (field_list
+          (field
+            name: (identifier)
+            (type))
+          (field
+            name: (identifier)
+            (type))
+          (field
+            name: (identifier)
+            (type))
+          (field
+            name: (identifier)
+            (type))
+          (field
+            name: (identifier)
+            (type))
+          (field
+            name: (identifier)
+            (type))
+          (field
+            name: (identifier)
+            (type))
+          (field
+            name: (identifier)
+            (type))
+          (field
+            name: (identifier)
+            (type))
+          (field
+            name: (identifier)
+            (type))
+          (field
+            name: (identifier)
+            (required_type
+              (type)))
+          (field
+            (attribute)
+            name: (identifier)
+            (type))
+          (field
+            name: (identifier)
+            (list_type
+              (type)))
+          (field
+            name: (identifier)
+            (template_type
+              (type)))
+          (field
+            name: (identifier)
+            (template_type
+              (type)))
+          (field
+            name: (identifier)
+            (template_type
+              (type))))))))

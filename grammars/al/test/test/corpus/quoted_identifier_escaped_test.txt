@@ -1,0 +1,201 @@
+================================================================================
+Quoted identifier with escaped double quotes in field
+================================================================================
+
+page 50000 TestPage
+{
+    layout
+    {
+        area(content)
+        {
+            field("BankAccReconLine.""Statement Amount"""; BankAccReconLine."Statement Amount")
+            {
+                Caption = 'Statement Amount';
+                ApplicationArea = All;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (quoted_identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (quoted_identifier))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (identifier)))))))
+
+================================================================================
+Field with pragma directives and escaped quotes
+================================================================================
+
+page 50001 TestPage
+{
+    layout
+    {
+        area(content)
+        {
+            group(Control25)
+            {
+                ShowCaption = false;
+#pragma warning disable AA0100
+                field("BankAccReconLine.""Statement Amount"""; BankAccReconLine."Statement Amount")
+#pragma warning restore AA0100
+                {
+                    ApplicationArea = Basic, Suite;
+                    AutoFormatType = 1;
+                    Caption = 'Statement Amount';
+                    Editable = false;
+                    ToolTip = 'Specifies the amount that was applied in the selected check ledger entry line.';
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (group_section
+          (group_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (boolean))
+          (pragma)
+          (page_field
+            name: (quoted_identifier)
+            source: (member_expression
+              object: (identifier)
+              member: (quoted_identifier))
+            (pragma)
+            (property
+              name: (property_name)
+              value: (option_member_list
+                (option_member
+                  (identifier))
+                (option_member
+                  (identifier))))
+            (property
+              name: (property_name)
+              value: (integer))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (boolean))
+            (property
+              name: (property_name)
+              value: (string_literal))))))))
+
+================================================================================
+Report column with escaped quotes
+================================================================================
+
+report 50002 TestReport
+{
+    dataset
+    {
+        dataitem(TestData; TestTable)
+        {
+            column("Complex.""Name"""; ComplexField.Name)
+            {
+                Caption = 'Complex Name';
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (report_column
+          (column_keyword)
+          name: (quoted_identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal)))))))
+
+================================================================================
+Table field with quoted identifier
+================================================================================
+
+table 50004 TestTable
+{
+    fields
+    {
+        field(1; "My Field"; Text[50])
+        {
+            Caption = 'My Field';
+        }
+        field(2; "Status Code"; Code[20])
+        {
+            Caption = 'Status Code';
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (string_literal)))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (code_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (string_literal))))))

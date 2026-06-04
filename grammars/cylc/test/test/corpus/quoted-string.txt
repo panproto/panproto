@@ -1,0 +1,192 @@
+=============================================================================
+basic quoted string (1)
+=============================================================================
+
+[some-section]
+    key='String is quoted.'
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (quoted_string
+        (string_content)))))
+
+=============================================================================
+basic quoted string (2)
+=============================================================================
+
+[some-section]
+    key="String is quoted."
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (quoted_string
+        (string_content)))))
+
+=============================================================================
+nested reverse quoted string (1)
+=============================================================================
+
+[some-section]
+    just a key = 'Quote with "single quotes" inside'
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (quoted_string
+        (string_content)))))
+
+=============================================================================
+nested reverse quoted string (2)
+=============================================================================
+
+[some-section]
+    just a key = "Quote with 'single quotes' inside"
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (quoted_string
+        (string_content)))))
+
+=============================================================================
+escaped quote (1)
+=============================================================================
+
+[some-section]
+    just a key = 'Quote with escaped quote \' inside'
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (quoted_string
+        (string_content)))))
+
+=============================================================================
+escaped quote (2)
+=============================================================================
+
+[some-section]
+    just a key = "Quote with escaped quote \" inside"
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (quoted_string
+        (string_content)))))
+
+=============================================================================
+line continuation in quoted string
+=============================================================================
+
+[some-section]
+    just a key = "Quote with \
+line continuation. And here \
+another one"
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (quoted_string
+        (string_content
+          (line_continuation)
+          (line_continuation))))))
+
+=============================================================================
+line continuation in quoted string with "\" just before
+=============================================================================
+
+[some-section]
+    just a key = "Quote with\ \\\
+line \\
+continuation "
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (quoted_string
+        (string_content
+          (line_continuation)
+          (line_continuation))))))
+
+=============================================================================
+error: line continuation broken because of whitespace
+:error
+=============================================================================
+
+[some-section]
+    just a key = "Quote with \ 
+line continuation"
+
+-----------------------------------------------------------------------------
+
+(pass)
+
+=============================================================================
+"comment" in quoted string
+=============================================================================
+
+[some-section]
+    another-key = "This is a quoted str. #not a comment, a str!" # And real comment
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (quoted_string
+        (string_content))
+      (comment))))

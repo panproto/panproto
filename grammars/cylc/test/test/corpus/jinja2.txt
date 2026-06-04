@@ -1,0 +1,557 @@
+=============================================================================
+jinja2 (statement, expression, comment)
+=============================================================================
+
+# {% stating something %}    is for Statements
+# {{ expressing something }} is for Expressions
+# {# commenting something #} is for Comments
+
+[scheduling]
+    [[xtriggers]]
+        {% if cfg__input_strategy == 'internal' %}
+        catch_raw = catch_raw_internal('%(point)s', '%(workflow_run_dir)s')
+        {% elif cfg__input_strategy == 'local' %}
+        catch_raw = catch_raw_local('%(point)s', '%(workflow_run_dir)s', {{ cfg__local_runs_dir }})
+        {% endif %}
+    [[environment]]
+        INFLUXDB_{{ param }}_TEST = 1{{ id_fragment }}
+        INFLUXDB_V2_URL = {{ cfg__influxdb_url }}2
+        INFLUXDB_V2_ORG = "org-{{ cfg__influxdb_org }}-2"
+        INFLUXDB_V2_TOKEN = {{ cfg__influxdb_auth_token }}
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (comment
+    (jinja2_statement))
+  (comment
+    (jinja2_expression))
+  (comment
+    (jinja2_comment))
+  (top_section
+    name: (section_name
+      (nametag))
+    (sub_section_1
+      name: (section_name
+        (nametag))
+      (jinja2_statement)
+      (setting
+        key: (key)
+        operator: (assignment_operator)
+        value: (unquoted_string
+          (string_content)))
+      (jinja2_statement)
+      (setting
+        key: (key)
+        operator: (assignment_operator)
+        value: (unquoted_string
+          (string_content
+            (jinja2_expression))))
+      (jinja2_statement))
+    (sub_section_1
+      name: (section_name
+        (nametag))
+      (setting
+        key: (key
+          (jinja2_expression))
+        operator: (assignment_operator)
+        value: (integer
+        (jinja2_expression)))
+      (setting
+        key: (key)
+        operator: (assignment_operator)
+        (jinja2_expression)
+        value: (integer))
+      (setting
+        key: (key)
+        operator: (assignment_operator)
+        value: (quoted_string
+          (string_content
+            (jinja2_expression))))
+      (setting
+        key: (key)
+        operator: (assignment_operator)
+        (jinja2_expression)))))
+
+=============================================================================
+unsupported: jinja2 statement in middle of comment
+:skip
+=============================================================================
+
+# This is a jinja2 {% stating something %} statement
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (comment
+    (jinja2_statement)))
+
+=============================================================================
+unsupported: jinja2 comment in middle of comment
+:skip
+=============================================================================
+
+# This is a jinja2 {# commenting something #} comment
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (comment
+    (jinja2_comment)))
+
+=============================================================================
+unsupported: jinja2 expression in middle of a comment
+:skip
+=============================================================================
+
+# This is a jinja2 {{ expressing something }} expression
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (comment
+    (jinja2_expression)))
+
+=============================================================================
+jinja2 in unquoted string (start)
+=============================================================================
+
+[section]
+    param = {{ custom-setting }}.txt
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    (section_name
+      (nametag))
+    (setting
+      (key)
+      (assignment_operator)
+      (jinja2_expression)
+      (unquoted_string
+        (string_content)))))
+
+=============================================================================
+jinja2 in unquoted string (middle)
+=============================================================================
+
+[section]
+    param = file-{{ custom-setting }}.txt
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    (section_name
+      (nametag))
+    (setting
+      (key)
+      (assignment_operator)
+      (unquoted_string
+        (string_content
+         (jinja2_expression))))))
+
+=============================================================================
+jinja2 in unquoted string (end)
+=============================================================================
+
+[section]
+    param = file.{{ extension }}
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    (section_name
+      (nametag))
+    (setting
+      (key)
+      (assignment_operator)
+      (unquoted_string
+        (string_content))
+      (jinja2_expression))))
+
+=============================================================================
+jinja2 in multiline string (start)
+=============================================================================
+
+[section]
+    item = """{{the following dude is lying}}
+      I am a integer
+    """
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    (section_name
+      (nametag))
+    (setting
+      (key)
+      (assignment_operator)
+      (multiline_string
+        (jinja2_expression)
+        (string_content)))))
+
+=============================================================================
+jinja2 in multiline string (end)
+=============================================================================
+
+[section]
+    item = """
+      this is a string {{but with a surprise inside}}
+    """
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    (section_name
+      (nametag))
+    (setting
+      (key)
+      (assignment_operator)
+      (multiline_string
+        (string_content
+          (jinja2_expression))))))
+
+=============================================================================
+jinja2 in multiline string (middle)
+=============================================================================
+
+[section]
+    item = """
+      this is a {{despicable }} string.
+    """
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    (section_name
+      (nametag))
+    (setting
+      (key)
+      (assignment_operator)
+      (multiline_string
+        (string_content
+          (jinja2_expression))))))
+
+=============================================================================
+jinja2 expression in integer (makes it a unq.-string)
+=============================================================================
+
+[scheduling]
+INFLUXDB_V2_URL = 1{{ cfg__influxdb_url }}2
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (unquoted_string
+        (string_content
+          (jinja2_expression))))))
+
+=============================================================================
+jinja2 in intercycle annotation
+=============================================================================
+
+[scheduling]
+    [[graph]]
+        R1 = my_task
+        P1 = my_task[ {{recurrence}} ] => my_task
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    (section_name
+      (nametag))
+    (graph_section
+      (section_name)
+      (graph_setting
+        (recurrence)
+        (assignment_operator)
+        (unquoted_graph_string
+          (graph_string_content
+            (graph_task
+              (task_name
+                (nametag))))))
+      (graph_setting
+        (recurrence)
+        (assignment_operator)
+        (unquoted_graph_string
+          (graph_string_content
+            (graph_task
+              (task_name
+                (nametag))
+              (intercycle_annotation
+                (recurrence
+                  (jinja2_expression))))
+            (graph_arrow)
+            (graph_task
+              (task_name
+                (nametag)))))))))
+
+=============================================================================
+jinja2 as setting key
+=============================================================================
+
+[section]
+    {{ custom-setting }} = 25
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    (section_name
+      (nametag))
+    (setting
+      (jinja2_expression)
+      (assignment_operator)
+      (integer))))
+
+=============================================================================
+jinja2 IN setting key
+=============================================================================
+
+[section]
+    param_{{ custom-setting }}_2 = 25
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    (section_name
+      (nametag))
+    (setting
+      (key
+        (jinja2_expression))
+      (assignment_operator)
+      (integer))))
+
+=============================================================================
+jinja2 as setting value
+=============================================================================
+
+[section]
+    param = {{ custom-setting }}
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    (section_name
+      (nametag))
+    (setting
+      (key)
+      (assignment_operator)
+      (jinja2_expression))))
+
+=============================================================================
+jinja2 as graph setting key
+=============================================================================
+
+[scheduling]
+    [[graph]]
+        {{ custom-recurrence }} = my_task[^]
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    (section_name
+      (nametag))
+    (graph_section
+      (section_name)
+      (graph_setting
+        (recurrence
+          (jinja2_expression))
+        (assignment_operator)
+        (unquoted_graph_string
+          (graph_string_content
+            (graph_task
+              (task_name
+                (nametag))
+              (intercycle_annotation
+                (recurrence)))))))))
+
+=============================================================================
+curly braces in jinja2 expression
+=============================================================================
+
+{{
+    set foo = {"1": 2, "3", []}
+}}
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (jinja2_expression))
+
+=============================================================================
+error: opening symbol in jinja2 expression
+:error
+=============================================================================
+
+{{
+    set foo = {{"1%": 2
+}}
+
+-----------------------------------------------------------------------------
+
+(pass)
+
+=============================================================================
+curly braces in jinja2 statement
+=============================================================================
+
+{%
+    set foo = {"1": 2, "3", []}
+%}
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (jinja2_statement))
+
+=============================================================================
+curly braces and percent in jinja2 statement
+=============================================================================
+
+{%
+    set foo = {"1%": 2, "3%", []}
+%}
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (jinja2_statement))
+
+=============================================================================
+error: opening symbol in jinja2 statement
+:error
+=============================================================================
+
+{%
+    set foo = {%"1%": 2
+%}
+
+-----------------------------------------------------------------------------
+
+(pass)
+
+=============================================================================
+curly braces in jinja2 comment
+=============================================================================
+
+{#
+    set foo = {"1": 2, "3", []}
+#}
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (jinja2_comment))
+
+=============================================================================
+curly braces and hash in jinja2 comment
+=============================================================================
+
+{#
+    set foo = {"1#": 2, "3#", []}
+#}
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (jinja2_comment))
+
+=============================================================================
+error: opening symbol in jinja2 comment
+:error
+=============================================================================
+
+{#
+    set foo = {#"1%": 2
+#}
+
+-----------------------------------------------------------------------------
+
+(pass)
+
+=============================================================================
+jinja2 IN graph setting key
+=============================================================================
+
+[scheduling]
+    [[graph]]
+        P2/{{ custom-recurrence }}/2 = my_task
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    (section_name
+      (nametag))
+    (graph_section
+      (section_name)
+    (graph_setting
+      (recurrence
+        (jinja2_expression))
+      (assignment_operator)
+      (unquoted_graph_string
+        (graph_string_content
+          (graph_task
+            (task_name
+              (nametag)))))))))
+
+=============================================================================
+quote directly after jinja in unquoted string
+=============================================================================
+
+[scheduling]
+INFLUXDB_V2_URL =  this is unquoted string: "{{N_DATASETS}}".
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (unquoted_string
+        (string_content
+         (jinja2_expression))))))
+
+=============================================================================
+jinja2 expression as task parameter value
+=============================================================================
+
+[runtime]
+{# Define a family for each weather station #}
+{% for station in stations %}
+    [[STATION<station={{ station["name"] }}>]]
+
+-----------------------------------------------------------------------------
+
+(workflow_configuration
+  (runtime_section
+    (section_name)
+    (jinja2_comment)
+    (jinja2_statement)
+    (task_section
+      (namespace
+        (task_name
+          (nametag)
+          (task_parameter
+            (nametag)
+            (jinja2_expression)))))))

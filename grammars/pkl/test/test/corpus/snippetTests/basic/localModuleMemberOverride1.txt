@@ -1,0 +1,227 @@
+===
+basic/localModuleMemberOverride1.pkl
+===
+
+open module localModuleMemberOverride1
+
+local class C1 {
+  x = "original"
+}
+local class C2 {
+  x = "original"
+}
+class C3 {
+  x = "original"
+}
+
+local p1 = "original"
+local p2 = "original"
+p3 = "original"
+
+local function f1() = "original"
+local function f2() = "original"
+function f3() = "original"
+
+c1 = new C1 {}.x
+c2 = new C2 {}.x
+c3 = new C3 {}.x
+
+pp1 = p1
+pp2 = p2
+pp3 = p3
+
+ff1 = f1()
+ff2 = f2()
+ff3 = f3()
+
+foo {
+  c1 = new C1 {}.x
+  c2 = new C2 {}.x
+  c3 = new C3 {}.x
+
+  pp1 = p1
+  pp2 = p2
+  pp3 = p3
+
+  ff1 = f1()
+  ff2 = f2()
+  ff3 = f3()
+}
+
+---
+
+(module
+  (moduleHeader
+    (moduleClause
+
+      (modifier)
+      (qualifiedIdentifier
+        (identifier))))
+  (clazz
+    (modifier)
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (clazz
+    (modifier)
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart)))
+  (classProperty
+    (modifier)
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart)))
+  (classMethod
+    (methodHeader
+      (modifier)
+      (identifier)
+      (parameterList))
+    (slStringLiteralExpr
+      (slStringLiteralPart)))
+  (classMethod
+    (methodHeader
+      (modifier)
+      (identifier)
+      (parameterList))
+    (slStringLiteralExpr
+      (slStringLiteralPart)))
+  (classMethod
+    (methodHeader
+      (identifier)
+      (parameterList))
+    (slStringLiteralExpr
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody))
+      (identifier)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody))
+      (identifier)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody))
+      (identifier)))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList)))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList)))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList)))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (qualifiedAccessExpr
+          (newExpr
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (objectBody))
+          (identifier)))
+      (objectProperty
+        (identifier)
+        (qualifiedAccessExpr
+          (newExpr
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (objectBody))
+          (identifier)))
+      (objectProperty
+        (identifier)
+        (qualifiedAccessExpr
+          (newExpr
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (objectBody))
+          (identifier)))
+      (objectProperty
+        (identifier)
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectProperty
+        (identifier)
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectProperty
+        (identifier)
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectProperty
+        (identifier)
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList)))
+      (objectProperty
+        (identifier)
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList)))
+      (objectProperty
+        (identifier)
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList))))))

@@ -1,0 +1,36 @@
+================================================================================
+automated transactions
+================================================================================
+
+= /Salary/
+    (Budget:Food)                           £500.00
+    (Budget:Books)                          £200.00
+
+= /Food/
+    (Budget:Food)                           -1
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (xact
+      (automated_xact
+        (query)
+        (posting
+          (account)
+          (amount
+            (commodity)
+            (quantity)))
+        (posting
+          (account)
+          (amount
+            (commodity)
+            (quantity))))))
+  (journal_item
+    (xact
+      (automated_xact
+        (query)
+        (posting
+          (account)
+          (amount
+            (negative_quantity)))))))

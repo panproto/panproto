@@ -1,0 +1,1906 @@
+# Copyright (c) 2013-2014 Sandstorm Development Group, Inc. and contributors
+# Licensed under the MIT License:
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+
+
+=======================
+Test a primitive struct
+=======================
+
+@0x9eb32e19f86ee174;
+
+struct Person {
+  id @0 :UInt32;
+  name @1 :Text;
+  email @2 :Text;
+}
+
+---
+
+(message
+  (unique_id_statement
+    (unique_id))
+  (struct
+    (type_identifier)
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (primitive_type)))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (primitive_type)))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (primitive_type)))))
+
+
+
+==========================
+Test a struct with a union
+==========================
+
+struct TestUnion {
+  union0 @0 :union {
+    # Pack union 0 under ideal conditions: there is no unused padding space prior to it.
+    u0f0s0  @4: Void;
+    u0f0s1  @5: Bool;
+    u0f0s8  @6: Int8;
+    u0f0s16 @7: Int16;
+    u0f0s32 @8: Int32;
+    u0f0s64 @9: Int64;
+    u0f0sp  @10: Text;
+
+    # Pack more stuff into union0 -- should go in same space.
+    u0f1s0  @11: Void;
+    u0f1s1  @12: Bool;
+    u0f1s8  @13: Int8;
+    u0f1s16 @14: Int16;
+    u0f1s32 @15: Int32;
+    u0f1s64 @16: Int64;
+    u0f1sp  @17: Text;
+  }
+}
+
+---
+
+(message
+  (struct
+    (type_identifier)
+    (field
+      (union
+        (type_identifier)
+        (field_version)
+        (comment)
+        (union_field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type)))
+        (union_field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type)))
+        (union_field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type)))
+        (union_field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type)))
+        (union_field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type)))
+        (union_field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type)))
+        (union_field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type)))
+        (comment)
+        (union_field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type)))
+        (union_field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type)))
+        (union_field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type)))
+        (union_field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type)))
+        (union_field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type)))
+        (union_field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type)))
+        (union_field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type)))))))
+
+
+
+===================================
+Test a struct with an unnamed union
+===================================
+
+struct TestUnnamedUnion {
+  before @0 :Text;
+
+  union {
+    foo @1 :UInt16;
+    bar @3 :UInt32;
+  }
+
+  middle @2 :UInt16;
+
+  after @4 :Text;
+}
+
+---
+
+(message
+  (struct
+    (type_identifier)
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (primitive_type)))
+    (field
+      (union
+        (union_field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type)))
+        (union_field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type)))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (primitive_type)))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (primitive_type)))))
+
+
+
+=====================================
+Test a struct with a union in a union
+=====================================
+
+struct TestUnionInUnion {
+  # There is no reason to ever do this.
+  outer :union {
+	
+    inner :union {
+      foo @0 :Int32;
+      bar @1 :Int32;
+    }
+    baz @2 :Int32;
+  }
+}
+
+---
+
+(message
+  (struct
+    (type_identifier)
+    (comment)
+    (field
+      (union
+        (type_identifier)
+        (union_field
+          (nested_union
+            (union
+              (type_identifier)
+              (union_field
+                (field_identifier)
+                (field_version)
+                (field_type
+                  (primitive_type)))
+              (union_field
+                (field_identifier)
+                (field_version)
+                (field_type
+                  (primitive_type))))))
+        (union_field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type)))))))
+
+
+
+==========================
+Test a struct with a group
+==========================
+
+struct TestGroups {
+  groups :union {
+    foo :group {
+      corge @0 :Int32;
+      grault @2 :Int64;
+      garply @8 :Text;
+    }
+    bar :group {
+      corge @3 :Int32;
+      grault @4 :Text;
+      garply @5 :Int64;
+    }
+    baz :group {
+      corge @1 :Int32;
+      grault @6 :Text;
+      garply @7 :Text;
+    }
+  }
+}
+
+---
+
+(message
+  (struct
+    (type_identifier)
+    (field
+      (union
+        (type_identifier)
+        (union_field
+          (group
+            (type_identifier)
+            (field
+              (field_identifier)
+              (field_version)
+              (field_type
+                (primitive_type)))
+            (field
+              (field_identifier)
+              (field_version)
+              (field_type
+                (primitive_type)))
+            (field
+              (field_identifier)
+              (field_version)
+              (field_type
+                (primitive_type)))))
+        (union_field
+          (group
+            (type_identifier)
+            (field
+              (field_identifier)
+              (field_version)
+              (field_type
+                (primitive_type)))
+            (field
+              (field_identifier)
+              (field_version)
+              (field_type
+                (primitive_type)))
+            (field
+              (field_identifier)
+              (field_version)
+              (field_type
+                (primitive_type)))))
+        (union_field
+          (group
+            (type_identifier)
+            (field
+              (field_identifier)
+              (field_version)
+              (field_type
+                (primitive_type)))
+            (field
+              (field_identifier)
+              (field_version)
+              (field_type
+                (primitive_type)))
+            (field
+              (field_identifier)
+              (field_version)
+              (field_type
+                (primitive_type)))))))))
+
+
+
+=====================================
+Test a struct with interleaved groups
+=====================================
+
+struct TestInterleavedGroups {
+  group1 :group {
+    foo @0 :UInt32;
+    bar @2 :UInt64;
+    union {
+      qux @4 :UInt16;
+      corge :group {
+        grault @6 :UInt64;
+        garply @8 :UInt16;
+        plugh @14 :Text;
+        xyzzy @16 :Text;
+      }
+
+      fred @12 :Text;
+    }
+
+    waldo @10 :Text;
+  }
+
+  group2 :group {
+    foo @1 :UInt32;
+    bar @3 :UInt64;
+    union {
+      qux @5 :UInt16;
+      corge :group {
+        grault @7 :UInt64;
+        garply @9 :UInt16;
+        plugh @15 :Text;
+        xyzzy @17 :Text;
+      }
+
+      fred @13 :Text;
+    }
+
+    waldo @11 :Text;
+  }
+}
+
+---
+
+(message
+  (struct
+    (type_identifier)
+    (field
+      (group
+        (type_identifier)
+        (field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type)))
+        (field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type)))
+        (field
+          (union
+            (union_field
+              (field_identifier)
+              (field_version)
+              (field_type
+                (primitive_type)))
+            (union_field
+              (group
+                (type_identifier)
+                (field
+                  (field_identifier)
+                  (field_version)
+                  (field_type
+                    (primitive_type)))
+                (field
+                  (field_identifier)
+                  (field_version)
+                  (field_type
+                    (primitive_type)))
+                (field
+                  (field_identifier)
+                  (field_version)
+                  (field_type
+                    (primitive_type)))
+                (field
+                  (field_identifier)
+                  (field_version)
+                  (field_type
+                    (primitive_type)))))
+            (union_field
+              (field_identifier)
+              (field_version)
+              (field_type
+                (primitive_type)))))
+        (field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type)))))
+    (field
+      (group
+        (type_identifier)
+        (field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type)))
+        (field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type)))
+        (field
+          (union
+            (union_field
+              (field_identifier)
+              (field_version)
+              (field_type
+                (primitive_type)))
+            (union_field
+              (group
+                (type_identifier)
+                (field
+                  (field_identifier)
+                  (field_version)
+                  (field_type
+                    (primitive_type)))
+                (field
+                  (field_identifier)
+                  (field_version)
+                  (field_type
+                    (primitive_type)))
+                (field
+                  (field_identifier)
+                  (field_version)
+                  (field_type
+                    (primitive_type)))
+                (field
+                  (field_identifier)
+                  (field_version)
+                  (field_type
+                    (primitive_type)))))
+            (union_field
+              (field_identifier)
+              (field_version)
+              (field_type
+                (primitive_type)))))
+        (field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type)))))))
+
+
+
+=================================
+Test a struct with union defaults
+=================================
+
+struct TestUnionDefaults {
+  s16s8s64s8Set @0 :TestUnion =
+      (union0 = (u0f0s16 = 321), union1 = (u1f0s8 = 123), union2 = (u2f0s64 = 12345678901234567),
+       union3 = (u3f0s8 = 55));
+  s0sps1s32Set @1 :TestUnion =
+      (union0 = (u0f1s0 = void), union1 = (u1f0sp = "foo"), union2 = (u2f0s1 = true),
+       union3 = (u3f0s32 = 12345678));
+
+  unnamed1 @2 :TestUnnamedUnion = (foo = 123);
+  unnamed2 @3 :TestUnnamedUnion = (bar = 321, before = "foo", after = "bar");
+}
+
+---
+
+(message
+  (struct
+    (type_identifier)
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)))
+      (const_value
+        (struct_shorthand
+          (property)
+          (const_value
+            (struct_shorthand
+              (property)
+              (const_value
+                (number))))
+          (property)
+          (const_value
+            (struct_shorthand
+              (property)
+              (const_value
+                (number))))
+          (property)
+          (const_value
+            (struct_shorthand
+              (property)
+              (const_value
+                (number))))
+          (property)
+          (const_value
+            (struct_shorthand
+              (property)
+              (const_value
+                (number)))))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)))
+      (const_value
+        (struct_shorthand
+          (property)
+          (const_value
+            (struct_shorthand
+              (property)
+              (const_value
+                (void))))
+          (property)
+          (const_value
+            (struct_shorthand
+              (property)
+              (const_value
+                (string
+                  (string_fragment)))))
+          (property)
+          (const_value
+            (struct_shorthand
+              (property)
+              (const_value
+                (boolean))))
+          (property)
+          (const_value
+            (struct_shorthand
+              (property)
+              (const_value
+                (number)))))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)))
+      (const_value
+        (struct_shorthand
+          (property)
+          (const_value
+            (number)))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)))
+      (const_value
+        (struct_shorthand
+          (property)
+          (const_value
+            (number))
+          (property)
+          (const_value
+            (string
+              (string_fragment)))
+          (property)
+          (const_value
+            (string
+              (string_fragment))))))))
+
+
+
+===============================
+Test a struct with nested types
+===============================
+
+struct TestNestedTypes {
+  enum NestedEnum {
+    foo @0;
+    bar @1;
+  }
+
+  struct NestedStruct {
+    enum NestedEnum {
+      baz @0;
+      qux @1;
+      quux @2;
+    }
+
+    outerNestedEnum @0 :TestNestedTypes.NestedEnum = bar;
+    innerNestedEnum @1 :NestedEnum = quux;
+  }
+
+  nestedStruct @0 :NestedStruct;
+
+  outerNestedEnum @1 :NestedEnum = bar;
+  innerNestedEnum @2 :NestedStruct.NestedEnum = quux;
+}
+
+---
+
+(message
+  (struct
+    (type_identifier)
+    (field
+      (nested_enum
+        (enum
+          (enum_identifier)
+          (enum_field
+            (enum_member)
+            (field_version))
+          (enum_field
+            (enum_member)
+            (field_version)))))
+    (field
+      (nested_struct
+        (struct
+          (type_identifier)
+          (field
+            (nested_enum
+              (enum
+                (enum_identifier)
+                (enum_field
+                  (enum_member)
+                  (field_version))
+                (enum_field
+                  (enum_member)
+                  (field_version))
+                (enum_field
+                  (enum_member)
+                  (field_version)))))
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (custom_type
+                (type_identifier)))
+            (const_value
+              (const_identifier)))
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (custom_type
+                (type_identifier)))
+            (const_value
+              (const_identifier))))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)))
+      (const_value
+        (const_identifier)))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)))
+      (const_value
+        (const_identifier)))))
+
+
+
+===================================
+Test a struct with using directives
+===================================
+
+struct TestUsing {
+  using OuterNestedEnum = TestNestedTypes.NestedEnum;
+  using TestNestedTypes.NestedStruct.NestedEnum;
+
+  outerNestedEnum @1 :OuterNestedEnum = bar;
+  innerNestedEnum @0 :NestedEnum = quux;
+}
+
+---
+
+(message
+  (struct
+    (type_identifier)
+    (using_directive
+      (replace_using
+        (type_definition)
+        (type_identifier)))
+    (using_directive
+      (type_identifier))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)))
+      (const_value
+        (const_identifier)))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)))
+      (const_value
+        (const_identifier)))))
+
+
+
+========================
+Test a struct with lists
+========================
+
+struct TestLists {
+  # Small structs, when encoded as list, will be encoded as primitive lists rather than struct
+  # lists, to save space.
+  struct Struct0  { f @0 :Void; }
+  struct Struct1  { f @0 :Bool; }
+  struct Struct8  { f @0 :UInt8; }
+  struct Struct16 { f @0 :UInt16; }
+  struct Struct32 { f @0 :UInt32; }
+  struct Struct64 { f @0 :UInt64; }
+  struct StructP  { f @0 :Text; }
+
+  # Versions of the above which cannot be encoded as primitive lists.
+  struct Struct0c  { f @0 :Void; pad @1 :Text; }
+  struct Struct1c  { f @0 :Bool; pad @1 :Text; }
+  struct Struct8c  { f @0 :UInt8; pad @1 :Text; }
+  struct Struct16c { f @0 :UInt16; pad @1 :Text; }
+  struct Struct32c { f @0 :UInt32; pad @1 :Text; }
+  struct Struct64c { f @0 :UInt64; pad @1 :Text; }
+  struct StructPc  { f @0 :Text; pad @1 :UInt64; }
+
+  list0  @0 :List(Struct0);
+  list1  @1 :List(Struct1);
+  list8  @2 :List(Struct8);
+  list16 @3 :List(Struct16);
+  list32 @4 :List(Struct32);
+  list64 @5 :List(Struct64);
+  listP  @6 :List(StructP);
+
+  int32ListList @7 :List(List(Int32));
+  textListList @8 :List(List(Text));
+  structListList @9 :List(List(TestAllTypes));
+}
+
+---
+
+(message
+  (struct
+    (type_identifier)
+    (comment)
+    (comment)
+    (field
+      (nested_struct
+        (struct
+          (type_identifier)
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (primitive_type))))))
+    (field
+      (nested_struct
+        (struct
+          (type_identifier)
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (primitive_type))))))
+    (field
+      (nested_struct
+        (struct
+          (type_identifier)
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (primitive_type))))))
+    (field
+      (nested_struct
+        (struct
+          (type_identifier)
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (primitive_type))))))
+    (field
+      (nested_struct
+        (struct
+          (type_identifier)
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (primitive_type))))))
+    (field
+      (nested_struct
+        (struct
+          (type_identifier)
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (primitive_type))))))
+    (field
+      (nested_struct
+        (struct
+          (type_identifier)
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (primitive_type))))))
+    (comment)
+    (field
+      (nested_struct
+        (struct
+          (type_identifier)
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (primitive_type)))
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (primitive_type))))))
+    (field
+      (nested_struct
+        (struct
+          (type_identifier)
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (primitive_type)))
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (primitive_type))))))
+    (field
+      (nested_struct
+        (struct
+          (type_identifier)
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (primitive_type)))
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (primitive_type))))))
+    (field
+      (nested_struct
+        (struct
+          (type_identifier)
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (primitive_type)))
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (primitive_type))))))
+    (field
+      (nested_struct
+        (struct
+          (type_identifier)
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (primitive_type)))
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (primitive_type))))))
+    (field
+      (nested_struct
+        (struct
+          (type_identifier)
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (primitive_type)))
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (primitive_type))))))
+    (field
+      (nested_struct
+        (struct
+          (type_identifier)
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (primitive_type)))
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (primitive_type))))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (list_type
+          (field_type
+            (custom_type
+              (type_identifier))))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (list_type
+          (field_type
+            (custom_type
+              (type_identifier))))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (list_type
+          (field_type
+            (custom_type
+              (type_identifier))))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (list_type
+          (field_type
+            (custom_type
+              (type_identifier))))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (list_type
+          (field_type
+            (custom_type
+              (type_identifier))))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (list_type
+          (field_type
+            (custom_type
+              (type_identifier))))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (list_type
+          (field_type
+            (custom_type
+              (type_identifier))))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (list_type
+          (field_type
+            (list_type
+              (field_type
+                (primitive_type)))))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (list_type
+          (field_type
+            (list_type
+              (field_type
+                (primitive_type)))))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (list_type
+          (field_type
+            (list_type
+              (field_type
+                (custom_type
+                  (type_identifier))))))))))
+
+
+
+=====================================
+Test a struct where field zero is bit
+=====================================
+
+# Not sure what this is even for but it's in the source as a test.
+struct TestFieldZeroIsBit {
+  bit @0 :Bool;
+  secondBit @1 :Bool = true;
+  thirdField @2 :UInt8 = 123;
+}
+
+
+---
+
+(message
+  (comment)
+  (struct
+    (type_identifier)
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (primitive_type)))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (primitive_type))
+      (const_value
+        (boolean)))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (primitive_type))
+      (const_value
+        (number)))))
+
+
+
+================================
+Test a struct with list defaults
+================================
+
+struct TestListDefaults {
+  lists @0 :TestLists = (
+      list0  = [(f = void), (f = void)],
+      list1  = [(f = true), (f = false), (f = true), (f = true)],
+      list8  = [(f = 123), (f = 45)],
+      list16 = [(f = 12345), (f = 6789)],
+      list32 = [(f = 123456789), (f = 234567890)],
+      list64 = [(f = 1234567890123456), (f = 2345678901234567)],
+      listP  = [(f = "foo"), (f = "bar")],
+      int32ListList = [[1, 2, 3], [4, 5], [12341234]],
+      textListList = [["foo", "bar"], ["baz"], ["qux", "corge"]],
+      structListList = [[(int32Field = 123), (int32Field = 456)], [(int32Field = 789)]]);
+}
+
+---
+
+(message
+  (struct
+    (type_identifier)
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)))
+      (const_value
+        (struct_shorthand
+          (property)
+          (const_value
+            (const_list
+              (const_value
+                (struct_shorthand
+                  (property)
+                  (const_value
+                    (void))))
+              (const_value
+                (struct_shorthand
+                  (property)
+                  (const_value
+                    (void))))))
+          (property)
+          (const_value
+            (const_list
+              (const_value
+                (struct_shorthand
+                  (property)
+                  (const_value
+                    (boolean))))
+              (const_value
+                (struct_shorthand
+                  (property)
+                  (const_value
+                    (boolean))))
+              (const_value
+                (struct_shorthand
+                  (property)
+                  (const_value
+                    (boolean))))
+              (const_value
+                (struct_shorthand
+                  (property)
+                  (const_value
+                    (boolean))))))
+          (property)
+          (const_value
+            (const_list
+              (const_value
+                (struct_shorthand
+                  (property)
+                  (const_value
+                    (number))))
+              (const_value
+                (struct_shorthand
+                  (property)
+                  (const_value
+                    (number))))))
+          (property)
+          (const_value
+            (const_list
+              (const_value
+                (struct_shorthand
+                  (property)
+                  (const_value
+                    (number))))
+              (const_value
+                (struct_shorthand
+                  (property)
+                  (const_value
+                    (number))))))
+          (property)
+          (const_value
+            (const_list
+              (const_value
+                (struct_shorthand
+                  (property)
+                  (const_value
+                    (number))))
+              (const_value
+                (struct_shorthand
+                  (property)
+                  (const_value
+                    (number))))))
+          (property)
+          (const_value
+            (const_list
+              (const_value
+                (struct_shorthand
+                  (property)
+                  (const_value
+                    (number))))
+              (const_value
+                (struct_shorthand
+                  (property)
+                  (const_value
+                    (number))))))
+          (property)
+          (const_value
+            (const_list
+              (const_value
+                (struct_shorthand
+                  (property)
+                  (const_value
+                    (string
+                      (string_fragment)))))
+              (const_value
+                (struct_shorthand
+                  (property)
+                  (const_value
+                    (string
+                      (string_fragment)))))))
+          (property)
+          (const_value
+            (const_list
+              (const_value
+                (const_list
+                  (const_value
+                    (number))
+                  (const_value
+                    (number))
+                  (const_value
+                    (number))))
+              (const_value
+                (const_list
+                  (const_value
+                    (number))
+                  (const_value
+                    (number))))
+              (const_value
+                (const_list
+                  (const_value
+                    (number))))))
+          (property)
+          (const_value
+            (const_list
+              (const_value
+                (const_list
+                  (const_value
+                    (string
+                      (string_fragment)))
+                  (const_value
+                    (string
+                      (string_fragment)))))
+              (const_value
+                (const_list
+                  (const_value
+                    (string
+                      (string_fragment)))))
+              (const_value
+                (const_list
+                  (const_value
+                    (string
+                      (string_fragment)))
+                  (const_value
+                    (string
+                      (string_fragment)))))))
+          (property)
+          (const_value
+            (const_list
+              (const_value
+                (const_list
+                  (const_value
+                    (struct_shorthand
+                      (property)
+                      (const_value
+                        (number))))
+                  (const_value
+                    (struct_shorthand
+                      (property)
+                      (const_value
+                        (number))))))
+              (const_value
+                (const_list
+                  (const_value
+                    (struct_shorthand
+                      (property)
+                      (const_value
+                        (number)))))))))))))
+
+
+
+===============================
+Test a struct with a late union
+===============================
+
+struct TestLateUnion {
+  # Test what happens if the unions are not the first ordinals in the struct.  At one point this
+  # was broken for the dynamic API.
+
+  foo @0 :Int32;
+  bar @1 :Text;
+  baz @2 :Int16;
+
+  theUnion @3! :union {
+    qux @4 :Text;
+    corge @5 :List(Int32);
+    grault @6 :Float32;
+  }
+
+  anotherUnion @7! :union {
+    qux @8 :Text;
+    corge @9 :List(Int32);
+    grault @10 :Float32;
+  }
+}
+
+---
+
+(message
+  (struct
+    (type_identifier)
+    (comment)
+    (comment)
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (primitive_type)))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (primitive_type)))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (primitive_type)))
+    (field
+      (union
+        (type_identifier)
+        (field_version
+          (inline_field))
+        (union_field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type)))
+        (union_field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (list_type
+              (field_type
+                (primitive_type)))))
+        (union_field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type)))))
+    (field
+      (union
+        (type_identifier)
+        (field_version
+          (inline_field))
+        (union_field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type)))
+        (union_field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (list_type
+              (field_type
+                (primitive_type)))))
+        (union_field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type)))))))
+
+
+
+===============================
+Test a struct with new versions
+===============================
+
+struct TestOldVersion {
+  # A subset of TestNewVersion.
+  old1 @0 :Int64;
+  old2 @1 :Text;
+  old3 @2 :TestOldVersion;
+}
+
+struct TestNewVersion {
+  # A superset of TestOldVersion.
+  old1 @0 :Int64;
+  old2 @1 :Text;
+  old3 @2 :TestNewVersion;
+  new1 @3 :Int64 = 987;
+  new2 @4 :Text = "baz";
+}
+
+struct TestOldUnionVersion {
+  union {
+    a @0 :Void;
+    b @1 :UInt64;
+  }
+}
+
+struct TestNewUnionVersion {
+  union {
+    a :union {
+      a0 @0 :Void;
+      a1 @2 :UInt64;
+    }
+    b @1 :UInt64;
+  }
+}
+
+---
+
+(message
+  (struct
+    (type_identifier)
+    (comment)
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (primitive_type)))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (primitive_type)))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)))))
+  (struct
+    (type_identifier)
+    (comment)
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (primitive_type)))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (primitive_type)))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (primitive_type))
+      (const_value
+        (number)))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (primitive_type))
+      (const_value
+        (string
+          (string_fragment)))))
+  (struct
+    (type_identifier)
+    (field
+      (union
+        (union_field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type)))
+        (union_field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type))))))
+  (struct
+    (type_identifier)
+    (field
+      (union
+        (union_field
+          (nested_union
+            (union
+              (type_identifier)
+              (union_field
+                (field_identifier)
+                (field_version)
+                (field_type
+                  (primitive_type)))
+              (union_field
+                (field_identifier)
+                (field_version)
+                (field_type
+                  (primitive_type))))))
+        (union_field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type)))))))
+
+
+
+================================
+Test a struct with struct unions
+================================
+
+struct TestNewUnionVersion {
+  union {
+    a :union {
+      a0 @0 :Void;
+      a1 @2 :UInt64;
+    }
+    b @1 :UInt64;
+  }
+}
+
+---
+
+(message
+  (struct
+    (type_identifier)
+    (field
+      (union
+        (union_field
+          (nested_union
+            (union
+              (type_identifier)
+              (union_field
+                (field_identifier)
+                (field_version)
+                (field_type
+                  (primitive_type)))
+              (union_field
+                (field_identifier)
+                (field_version)
+                (field_type
+                  (primitive_type))))))
+        (union_field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type)))))))
+
+
+
+================================
+Test a struct with an AnyPointer
+================================
+
+struct TestAnyPointer {
+  anyPointerField @0 :AnyPointer;
+
+  # Do not add any other fields here!  Some tests rely on anyPointerField being the last pointer
+  # in the struct.
+}
+
+---
+
+(message
+  (struct
+    (type_identifier)
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (primitive_type)))
+    (comment)
+    (comment)))
+
+
+
+===================================
+Test a struct with an inline struct
+===================================
+
+struct TestPrintInlineStructs {
+  someText @0 :Text;
+
+  structList @1 :List(InlineStruct);
+  struct InlineStruct {
+    int32Field @0 :Int32;
+    textField @1 :Text;
+  }
+}
+
+---
+
+(message
+  (struct
+    (type_identifier)
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (primitive_type)))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (list_type
+          (field_type
+            (custom_type
+              (type_identifier))))))
+    (field
+      (nested_struct
+        (struct
+          (type_identifier)
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (primitive_type)))
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (primitive_type))))))))
+
+
+
+=======================================
+Test a struct with whole float defaults
+=======================================
+
+struct TestWholeFloatDefault {
+  # At one point, these failed to compile in C++ because it would produce literals like "123f",
+  # which is not valid; it needs to be "123.0f".
+  field @0 :Float32 = 123;
+  bigField @1 :Float32 = 2e30;
+  const constant :Float32 = 456;
+  const bigConstant :Float32 = 4e30;
+}
+
+---
+
+(message
+  (struct
+    (type_identifier)
+    (comment)
+    (comment)
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (primitive_type))
+      (const_value
+        (number)))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (primitive_type))
+      (const_value
+        (float)))
+    (field
+      (const
+        (const_identifier)
+        (field_type
+          (primitive_type))
+        (const_value
+          (number))))
+    (field
+      (const
+        (const_identifier)
+        (field_type
+          (primitive_type))
+        (const_value
+          (float))))))
+
+
+
+====================
+Test an empty struct
+====================
+
+struct TestEmptyStruct {}
+
+---
+
+(message
+  (struct
+    (type_identifier)))
+
+
+
+=========================================
+Test a struct with an implied first field
+=========================================
+
+struct TestImpliedFirstField {
+  struct TextStruct {
+    text @0 :Text;
+    i @1 :UInt32 = 321;
+  }
+
+  textStruct @0 :TextStruct = "foo";
+  textStructList @1 :List(TextStruct);
+
+  intGroup :group {
+    i @2 :UInt32;
+    str @3 :Text = "corge";
+  }
+}
+
+const testImpliedFirstField :TestImpliedFirstField = (
+  textStruct = "bar",
+  textStructList = ["baz", (text = "qux", i = 123)],
+  intGroup = 123
+);
+
+
+---
+
+(message
+  (struct
+    (type_identifier)
+    (field
+      (nested_struct
+        (struct
+          (type_identifier)
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (primitive_type)))
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (primitive_type))
+            (const_value
+              (number))))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)))
+      (const_value
+        (string
+          (string_fragment))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (list_type
+          (field_type
+            (custom_type
+              (type_identifier))))))
+    (field
+      (group
+        (type_identifier)
+        (field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type)))
+        (field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type))
+          (const_value
+            (string
+              (string_fragment)))))))
+  (const
+    (const_identifier)
+    (field_type
+      (custom_type
+        (type_identifier)))
+    (const_value
+      (struct_shorthand
+        (property)
+        (const_value
+          (string
+            (string_fragment)))
+        (property)
+        (const_value
+          (const_list
+            (const_value
+              (string
+                (string_fragment)))
+            (const_value
+              (struct_shorthand
+                (property)
+                (const_value
+                  (string
+                    (string_fragment)))
+                (property)
+                (const_value
+                  (number))))))
+        (property)
+        (const_value
+          (number))))))
+
+
+
+==================
+Test struct cycles
+==================
+
+struct TestCycleANoCaps {
+  foo @0 :TestCycleBNoCaps;
+}
+
+struct TestCycleBNoCaps {
+  foo @0 :List(TestCycleANoCaps);
+  bar @1 :TestAllTypes;
+}
+
+struct TestCycleAWithCaps {
+  foo @0 :TestCycleBWithCaps;
+}
+
+struct TestCycleBWithCaps {
+  foo @0 :List(TestCycleAWithCaps);
+  bar @1 :TestInterface;
+}
+
+---
+
+(message
+  (struct
+    (type_identifier)
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)))))
+  (struct
+    (type_identifier)
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (list_type
+          (field_type
+            (custom_type
+              (type_identifier))))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)))))
+  (struct
+    (type_identifier)
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)))))
+  (struct
+    (type_identifier)
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (list_type
+          (field_type
+            (custom_type
+              (type_identifier))))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier))))))

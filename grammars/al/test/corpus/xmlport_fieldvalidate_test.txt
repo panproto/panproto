@@ -1,0 +1,55 @@
+================================================================================
+XMLPort fieldelement with FieldValidate property
+================================================================================
+
+xmlport 50200 "Test FieldValidate"
+{
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Customer; Customer)
+            {
+                fieldelement(No; Customer."No.")
+                {
+                    FieldValidate = yes;
+                }
+                fieldelement(Name; Customer.Name)
+                {
+                    FieldValidate = no;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (schema_section
+      (schema_keyword)
+      (xmlport_element
+        name: (identifier)
+        (xmlport_element
+          name: (identifier)
+          source: (identifier)
+          (xmlport_element
+            name: (identifier)
+            source: (member_expression
+              object: (identifier)
+              member: (quoted_identifier))
+            (property
+              name: (property_name)
+              value: (identifier)))
+          (xmlport_element
+            name: (identifier)
+            source: (member_expression
+              object: (identifier)
+              member: (identifier))
+            (property
+              name: (property_name)
+              value: (identifier))))))))

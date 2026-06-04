@@ -1,0 +1,190 @@
+===
+classes/lambdaConstraints1.pkl
+===
+
+import "pkl:test"
+
+class X {
+  hidden f: () -> Int
+  hidden g: (String) -> Int
+  hidden h: (String, String) -> Int
+}
+
+res1 = new X {
+  f = () -> 42
+  g = (str) -> str.length
+  h = (str1, str2) -> str1.length + str2.length
+}
+
+res2 = test.catch(() ->
+  new X {
+    f = (str) -> str.length
+  }.f
+)
+
+res3 = test.catch(() ->
+  new X {
+    g = () -> 42
+  }.g
+)
+
+res4 = test.catch(() ->
+  new X {
+    h = (str) -> str.length
+  }.h
+)
+
+---
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (modifier)
+        (identifier)
+        (typeAnnotation
+          (functionLiteralType
+            (declaredType
+              (qualifiedIdentifier
+                (identifier))))))
+      (classProperty
+        (modifier)
+        (identifier)
+        (typeAnnotation
+          (functionLiteralType
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (declaredType
+              (qualifiedIdentifier
+                (identifier))))))
+      (classProperty
+        (modifier)
+        (identifier)
+        (typeAnnotation
+          (functionLiteralType
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (declaredType
+              (qualifiedIdentifier
+                (identifier))))))))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (functionLiteralExpr
+            (parameterList)
+            (intLiteralExpr)))
+        (objectProperty
+          (identifier)
+          (functionLiteralExpr
+            (parameterList
+              (typedIdentifier
+                (identifier)))
+            (qualifiedAccessExpr
+              (unqualifiedAccessExpr
+                (identifier))
+              (identifier))))
+        (objectProperty
+          (identifier)
+          (functionLiteralExpr
+            (parameterList
+              (typedIdentifier
+                (identifier))
+              (typedIdentifier
+                (identifier)))
+            (additiveExpr
+              (qualifiedAccessExpr
+                (unqualifiedAccessExpr
+                  (identifier))
+                (identifier))
+              (qualifiedAccessExpr
+                (unqualifiedAccessExpr
+                  (identifier))
+                (identifier))))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (qualifiedAccessExpr
+            (newExpr
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))
+              (objectBody
+                (objectProperty
+                  (identifier)
+                  (functionLiteralExpr
+                    (parameterList
+                      (typedIdentifier
+                        (identifier)))
+                    (qualifiedAccessExpr
+                      (unqualifiedAccessExpr
+                        (identifier))
+                      (identifier))))))
+            (identifier))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (qualifiedAccessExpr
+            (newExpr
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))
+              (objectBody
+                (objectProperty
+                  (identifier)
+                  (functionLiteralExpr
+                    (parameterList)
+                    (intLiteralExpr)))))
+            (identifier))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (qualifiedAccessExpr
+            (newExpr
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))
+              (objectBody
+                (objectProperty
+                  (identifier)
+                  (functionLiteralExpr
+                    (parameterList
+                      (typedIdentifier
+                        (identifier)))
+                    (qualifiedAccessExpr
+                      (unqualifiedAccessExpr
+                        (identifier))
+                      (identifier))))))
+            (identifier)))))))

@@ -1,0 +1,129 @@
+================================================================================
+Double quote string - simple value
+================================================================================
+
+"value"
+"#"
+echo "only (a string)"
+echo "()"
+echo ")"
+echo "("
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (double_quote_string))
+  (command
+    name: (double_quote_string))
+  (command
+    name: (word)
+    argument: (double_quote_string))
+  (command
+    name: (word)
+    argument: (double_quote_string))
+  (command
+    name: (word)
+    argument: (double_quote_string))
+  (command
+    name: (word)
+    argument: (double_quote_string)))
+
+================================================================================
+Double quote string - multi words
+================================================================================
+
+"value of a string is anything inbetween the quotes"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (double_quote_string)))
+
+================================================================================
+Double quote string - escape sequences
+================================================================================
+
+"value of a string is anything inbetween the quotes\
+a string can span two lines"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (double_quote_string
+      (escape_sequence))))
+
+================================================================================
+Double quote string - escaped quotes
+================================================================================
+
+"string can have escaped double quotes in it: \""
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (double_quote_string
+      (escape_sequence))))
+
+================================================================================
+Double quote string - single quotes with no meaning
+================================================================================
+
+"value 'single_quote' is literal"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (double_quote_string)))
+
+================================================================================
+Double quote string - variable expansion
+================================================================================
+
+"$PATH"
+"$$DOUBLE_EXPANSION"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (double_quote_string
+      (variable_expansion
+        (variable_name))))
+  (command
+    name: (double_quote_string
+      (variable_expansion
+        (variable_expansion
+          (variable_name))))))
+
+================================================================================
+Double quote string - escaped variable expansion
+================================================================================
+
+"\$PATH"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (double_quote_string
+      (escape_sequence))))
+
+================================================================================
+Double quote string - escaped variable expansion
+================================================================================
+
+"The following is treated literally \$PATH, but this not: $PATH"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (double_quote_string
+      (escape_sequence)
+      (variable_expansion
+        (variable_name)))))

@@ -1,0 +1,63 @@
+================================================================================
+Pragma directives in if statement without begin/end block
+================================================================================
+
+codeunit 50100 "Test Pragma in If"
+{
+    procedure TestPragmaInIf()
+    var
+        AccessToken: Text;
+        UseCloudOCR: Boolean;
+        Core: Codeunit "Test Core";
+    begin
+        if UseCloudOCR then // Only request access token if cloud OCR is enabled
+#pragma warning disable AL0432 // Not able to unwrap securetext
+            AccessToken := Core.RequestAccessToken(false);
+#pragma warning restore AL0432
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (text_type)))
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (basic_type)))
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (object_reference_type
+              (codeunit_keyword)
+              (quoted_identifier)))))
+      (code_block
+        (begin_keyword)
+        (if_statement
+          (if_keyword)
+          (identifier)
+          (then_keyword)
+          (comment)
+          (pragma)
+          (assignment_statement
+            (identifier)
+            (call_expression
+              (member_expression
+                (identifier)
+                (identifier))
+              (argument_list
+                (boolean)))))
+        (pragma)
+        (end_keyword)))))

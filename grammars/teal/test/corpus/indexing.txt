@@ -1,0 +1,167 @@
+================================================================================
+Indexing with identifier
+================================================================================
+
+local a = b[c]
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    (var_declarators
+      (var
+        (identifier)))
+    (expressions
+      (index
+        (identifier)
+        (identifier)))))
+
+================================================================================
+Assigning to table entry
+================================================================================
+
+a[b] = c
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_assignment
+    (assignment_variables
+      (var
+        (index
+          (identifier)
+          (identifier))))
+    (expressions
+      (identifier))))
+
+================================================================================
+Indexing with string
+================================================================================
+
+local a = b["hi"]
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    (var_declarators
+      (var
+        (identifier)))
+    (expressions
+      (index
+        (identifier)
+        (string
+          (string_content))))))
+
+================================================================================
+Multiple indexing
+================================================================================
+
+local a = b["hi"][5]
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    (var_declarators
+      (var
+        (identifier)))
+    (expressions
+      (index
+        (index
+          (identifier)
+          (string
+            (string_content)))
+        (number)))))
+
+================================================================================
+Dot indexing
+================================================================================
+
+local a = b.c
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    (var_declarators
+      (var
+        (identifier)))
+    (expressions
+      (index
+        (identifier)
+        (identifier)))))
+
+================================================================================
+Bracket and dot indexing
+================================================================================
+
+local a = b.c[d].e.f[g]
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    (var_declarators
+      (var
+        (identifier)))
+    (expressions
+      (index
+        (index
+          (index
+            (index
+              (index
+                (identifier)
+                (identifier))
+              (identifier))
+            (identifier))
+          (identifier))
+        (identifier)))))
+
+================================================================================
+Colon indexing
+================================================================================
+
+local a = b:c()
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    initializers: (expressions
+      (function_call
+        called_object: (method_index
+          (identifier)
+          key: (identifier))
+        arguments: (arguments)))))
+
+================================================================================
+The whole dang thing
+================================================================================
+
+local a = b[c].d.e[f]:g()
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    initializers: (expressions
+      (function_call
+        called_object: (method_index
+          (index
+            (index
+              (index
+                (index
+                  (identifier)
+                  expr_key: (identifier))
+                key: (identifier))
+              key: (identifier))
+            expr_key: (identifier))
+          key: (identifier))
+        arguments: (arguments)))))

@@ -1,0 +1,62 @@
+================================================================================
+method calls
+================================================================================
+
+object.method
+object.getName
+object.|getName|
+|Object|.|getName|
+object.method()
+object.method<< _unset
+object.method1.method2
+_self.new()
+_super.new()
+_clone.init()
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (call
+      (variable)
+      (identifier)))
+  (fragment
+    (call
+      (variable)
+      (identifier)))
+  (fragment
+    (call
+      (variable)
+      (identifier)))
+  (fragment
+    (call
+      (variable)
+      (identifier)))
+  (fragment
+    (call
+      (variable)
+      (identifier)))
+  (fragment
+    (call
+      (variable)
+      (identifier)
+      (unset)))
+  (fragment
+    (call
+      (call
+        (variable)
+        (identifier))
+      (identifier)))
+  (fragment
+    (call
+      (self)
+      (identifier)))
+  (fragment
+    (call
+      (super)
+      (identifier)))
+  (fragment
+    (call
+      (clone)
+      (identifier))))

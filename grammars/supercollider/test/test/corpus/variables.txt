@@ -1,0 +1,187 @@
+====================
+constants
+====================
+YoYO{
+  const <yo=2;
+}
+---
+(source_file
+ (class_def
+  (class )
+  body: (class_def_body
+    (const name: (identifier ))
+    (literal (number (integer ))))))
+
+====================
+instance variables with setters and getters
+====================
+
+var <>hello;
+var >yo;
+var <yo;
+
+---
+(source_file
+  (variable
+    (instance_var
+      name: (identifier )))
+  (variable
+    (instance_var
+      name: (identifier )))
+  (variable
+    (instance_var
+      name: (identifier ))))
+
+====================
+class variables with setters and getters
+====================
+
+classvar <>hello;
+classvar >yo;
+classvar <yo;
+
+---
+(source_file
+  (variable
+    (classvar
+      name: (identifier )))
+  (variable
+    (classvar
+      name: (identifier )))
+  (variable
+    (classvar
+      name: (identifier ))))
+
+==================
+multiple variable assignment
+==================
+
+(
+var v1, v2, v3=1000, v4=\yo;
+)
+
+---
+(source_file
+  (code_block
+    (variable_definition_sequence
+      (variable
+        (local_var
+          name: (identifier )))
+      (variable
+        (local_var
+          name: (identifier )))
+      (variable_definition
+        name: (variable
+          (local_var
+            name: (identifier )))
+        value: (literal
+          (number
+            (integer ))))
+      (variable_definition
+        name: (variable
+          (local_var
+            name: (identifier )))
+        value: (literal
+          (symbol))))))
+
+==================
+class alias in environment var
+==================
+(
+s = Server;
+)
+---
+(source_file
+  (code_block
+    (variable_definition
+      name: (variable
+        (environment_var
+          name: (identifier )))
+      value: (class ))))
+
+==================
+variable types
+==================
+var localvar = 1;
+a = 2;
+~envvar = 3;
+classvar classy = 4;
+
+---
+(source_file
+  (variable_definition
+    name: (variable
+      (local_var
+        name: (identifier )))
+    value: (literal
+      (number
+        (integer ))))
+  (variable_definition
+    name: (variable
+      (environment_var
+        name: (identifier )))
+    value: (literal
+      (number
+        (integer ))))
+  (variable_definition
+    name: (variable
+      (environment_var
+        name: (identifier )
+        name: (identifier )))
+    value: (literal
+      (number
+        (integer ))))
+  (variable_definition
+    name: (variable
+      (classvar
+        name: (identifier )))
+    value: (literal
+      (number
+        (integer )))))
+
+==================
+binary variable operation
+==================
+var num1 = 100;
+var num2 = 4;
+var num3 = num1 + num2;
+
+---
+(source_file
+  (variable_definition
+   name: (variable
+      (local_var name:
+        (identifier )))
+    value: (literal
+      (number
+        (integer ))))
+  (variable_definition
+   name: (variable
+      (local_var name:
+        (identifier )))
+    value: (literal
+      (number
+        (integer ))))
+  (variable_definition
+   name: (variable
+      (local_var name:
+        (identifier )))
+    value: (binary_expression
+      left: (variable
+        (local_var name:
+          (identifier )))
+      right: (variable
+        (local_var name:
+          (identifier))))))
+
+==================
+multiple variable assignment
+==================
+# a, b, c = anArray;
+---
+(source_file
+  (variable_definition
+   name: (variable (environment_var name: (identifier )))
+   name: (variable (environment_var name: (identifier )))
+   name: (variable (environment_var name: (identifier )))
+   value: (variable (local_var name: (identifier)))))

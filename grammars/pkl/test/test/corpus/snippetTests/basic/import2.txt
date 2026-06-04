@@ -1,0 +1,34 @@
+===
+basic/import2.pkl
+===
+
+local i = import("imported.pkl")
+
+bar = 1
+libFoo = i.foo
+libBar = i.bar
+
+---
+
+(module
+  (classProperty
+    (modifier)
+    (identifier)
+    (importExpr
+      (stringConstant
+        (slStringLiteralPart))))
+  (classProperty
+    (identifier)
+    (intLiteralExpr))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier))))
