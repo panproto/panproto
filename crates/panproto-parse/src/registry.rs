@@ -466,6 +466,7 @@ pub enum EmitVerificationStatus {
 /// Names MUST be kept in sorted order so the binary-search lookup in
 /// [`ParserRegistry::emit_verification_status`] works.
 const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
+    
     "actionscript",
     "ada",
     "agda",
@@ -552,6 +553,7 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "jsonnet",
     "julia",
     "just",
+    "kotlin",
     "latex",
     "lua",
     "luadoc",
@@ -607,6 +609,7 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "vue",
     "xcompose",
     "yuck",
+
 ];
 
 impl ParserRegistry {

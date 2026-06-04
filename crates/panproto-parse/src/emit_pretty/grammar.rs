@@ -1955,6 +1955,17 @@ pub(crate) fn classify_external_layout_tokens(grammar: &mut Grammar) {
             // Unclassified, it emitted nothing and merged adjacent statements
             // onto one line, so `& u64(a)` `*ap` re-lexed as a multiplication.
             || name.contains("automatic_separator")
+            // The tree-sitter ASI / layout-rule families surface a statement
+            // terminator that the scanner inserts where the source wrote a
+            // NEWLINE (or end-of-construct), never a literal `;` -- the written
+            // `;` is always a separate STRING token (`_semicolon =
+            // CHOICE[_automatic_semicolon, ";"]` in JS/perl, or no `;` at all
+            // in kotlin where `_semi = _automatic_semicolon`). Emitting these
+            // as a literal `;` corrupts content: kotlin `enum {...}` (the
+            // mandatory `source_file` `_semi` after the class) accreted a
+            // spurious trailing `;`. They are newlines.
+            || name.contains("automatic_semicolon")
+            || name.contains("layout_semicolon")
         {
             grammar.external_newlines.insert(name.clone());
         } else if name.contains("semicolon") {
