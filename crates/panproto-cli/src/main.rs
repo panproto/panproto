@@ -52,7 +52,7 @@ impl From<StringencyArg> for Stringency {
 #[command(
     name = "schema",
     version,
-    about = "Schematic version control — schema migration toolkit based on generalized algebraic theories"
+    about = "Schematic version control: schema migration toolkit based on generalized algebraic theories"
 )]
 struct Cli {
     /// Enable verbose output.
@@ -952,10 +952,10 @@ enum LensAction {
         /// Accepted case-insensitively for parity with the Python and
         /// WASM bindings, both of which trim and lowercase their input.
         ///
-        /// `strict` — only kind-exact name equality.
-        /// `balanced` — alias dictionary + tight token similarity (default).
-        /// `lenient` — span-search and structural priors.
-        /// `exploratory` — lossy retraction witnesses.
+        /// `strict`: only kind-exact name equality.
+        /// `balanced`: alias dictionary + tight token similarity (default).
+        /// `lenient`: span-search and structural priors.
+        /// `exploratory`: lossy retraction witnesses.
         #[arg(long, value_name = "TIER", ignore_case = true)]
         stringency: Option<StringencyArg>,
         /// Emit up to N ranked candidate lenses instead of the single

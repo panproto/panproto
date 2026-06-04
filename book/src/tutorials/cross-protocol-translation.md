@@ -16,7 +16,7 @@ True cross-protocol translation (a JSON Schema document automatically converted 
 - both schemas in a **custom composed theory** authored via the theory DSL (see [Composing protocols by colimit](../explanation/protocol-colimits.md)), or
 - a **hand-authored lens** in the lens DSL bridging the two (see [Write a lens (DSL)](../how-to/lens-dsl.md)).
 
-The CLI's `schema lens` subcommands currently resolve `--protocol` against the built-in `atproto` only; everything multi-protocol lives in the SDK. The auto-aligning `Panproto.lens(from, to)` works at the WASM lens level but returns raw `WInstance` graphs rather than JS-native records, so it is not the right tool for a tutorial. We drive the translation from `Panproto.migration(from, to)` instead — its `liftJson`/`getJson`/`putJson` wrappers handle JSON encoding/decoding for you.
+The CLI's `schema lens` subcommands currently resolve `--protocol` against the built-in `atproto` only; everything multi-protocol lives in the SDK. The auto-aligning `Panproto.lens(from, to)` works at the WASM lens level but returns raw `WInstance` graphs rather than JS-native records, so it is not the right tool for a tutorial. We drive the translation from `Panproto.migration(from, to)` instead: its `liftJson`/`getJson`/`putJson` wrappers handle JSON encoding/decoding for you.
 
 ## Step 1: build the source schema
 
@@ -41,7 +41,7 @@ const source = atproto.schema()
 
 ## Step 2: build the target schema
 
-A second `atproto` schema for the same `user` model with different field names — `display_name` instead of `name`, `email_address` instead of `email`:
+A second `atproto` schema for the same `user` model with different field names (`display_name` instead of `name`, `email_address` instead of `email`):
 
 ```ts
 const target = atproto.schema()
@@ -55,7 +55,7 @@ const target = atproto.schema()
   .build();
 ```
 
-The shapes differ structurally — different vertex ids, different edge names — but represent the same information.
+The shapes differ structurally (different vertex ids, different edge names) but represent the same information.
 
 ## Step 3: declare the migration
 
@@ -80,7 +80,7 @@ const mig = p.migration(source, target)
   .compile();
 ```
 
-`.map(srcVertex, tgtVertex)` aligns vertices; `.mapEdge(srcEdge, tgtEdge)` aligns edges. You need both — vertex-only mappings produce a migration that drops every field on lift. For larger schemas, `Panproto.lens(from, to)` and `LensHandle.autoGenerate` will infer many of these alignments via name similarity and structural priors, but the resulting `LensHandle` operates on opaque `WInstance` bytes rather than JS-native records.
+`.map(srcVertex, tgtVertex)` aligns vertices; `.mapEdge(srcEdge, tgtEdge)` aligns edges. You need both: vertex-only mappings produce a migration that drops every field on lift. For larger schemas, `Panproto.lens(from, to)` and `LensHandle.autoGenerate` will infer many of these alignments via name similarity and structural priors, but the resulting `LensHandle` operates on opaque `WInstance` bytes rather than JS-native records.
 
 ## Step 4: convert a record
 

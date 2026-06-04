@@ -4,7 +4,7 @@ Each entry gives the formal definition first and a one-sentence intuition second
 
 ## Abstract schema
 
-A `Schema` whose constraint set contains no sort in the layout enrichment fibre — no `start-byte`, `end-byte`, `interstitial-N`, `chose-alt-fingerprint`, or `chose-alt-child-kinds`. The Rust newtype is `panproto_schema::AbstractSchema`. *Intuition:* the schema you would build by hand with `SchemaBuilder` before any parser or `decorate` has attached layout data.
+A `Schema` whose constraint set contains no sort in the layout enrichment fibre: no `start-byte`, `end-byte`, `interstitial-N`, `chose-alt-fingerprint`, or `chose-alt-child-kinds`. The Rust newtype is `panproto_schema::AbstractSchema`. *Intuition:* the schema you would build by hand with `SchemaBuilder` before any parser or `decorate` has attached layout data.
 
 ## Decorated schema
 
@@ -24,7 +24,7 @@ The family of constraint sorts (`start-byte`, `end-byte`, `interstitial-N` for a
 
 ## Layout policy
 
-The configuration object passed to `decorate` and `pretty_with_protocol` controlling whitespace, indentation, separators, newline conventions, and the line-break / indent-open / indent-close token sets that the put direction of the parse / emit lens uses. Aliased to `panproto_parse::emit_pretty::FormatPolicy`; the wire-serialisable projection is `panproto_gat::LayoutPolicySpec`. *Intuition:* the put-direction complement of the parse / emit lens — what whitespace and CHOICE-alternative defaults to apply when parsing is not there to dictate them.
+The configuration object passed to `decorate` and `pretty_with_protocol` controlling whitespace, indentation, separators, newline conventions, and the line-break / indent-open / indent-close token sets that the put direction of the parse / emit lens uses. Aliased to `panproto_parse::emit_pretty::FormatPolicy`; the wire-serialisable projection is `panproto_gat::LayoutPolicySpec`. *Intuition:* the put-direction complement of the parse / emit lens, namely what whitespace and CHOICE-alternative defaults to apply when parsing is not there to dictate them.
 
 ## Layout enricher
 
@@ -44,7 +44,7 @@ A per-language implementation of [`GrammarCassette`](https://docs.rs/panproto-pa
 
 ## Token role
 
-Structural classification of every STRING literal in a grammar rule, derived from the literal's position in the production body. Six variants of [`panproto_parse::emit_pretty::TokenRole`](https://docs.rs/panproto-parse/latest/panproto_parse/emit_pretty/enum.TokenRole.html): `BracketOpen`, `BracketClose`, `Separator`, `Keyword`, `Operator`, `Connector`, plus `Terminal` for emitted leaf vertices. Computed once at `Grammar::from_bytes` time and stored as the per-rule `token_roles` map; consumed by the layout pass via the `needs_space_by_role` table. *Intuition:* what the emitter uses instead of inspecting the token text — every spacing decision follows from the role pair, not from any character set.
+Structural classification of every STRING literal in a grammar rule, derived from the literal's position in the production body. Eight variants of [`panproto_parse::emit_pretty::TokenRole`](https://docs.rs/panproto-parse/latest/panproto_parse/emit_pretty/enum.TokenRole.html): `BracketOpen`, `BracketClose`, `Separator`, `Keyword`, `Operator`, `Connector` (a non-algebraic structural connector such as `.` or `::`), `Terminal` (text from a leaf vertex's `literal-value`), and `Immediate` (a token the grammar wraps in `IMMEDIATE_TOKEN`, glued to its neighbour with no whitespace). Computed once at `Grammar::from_bytes` time and stored as the per-rule `token_roles` map; consumed by the layout pass via the `needs_space_by_role` table. *Intuition:* what the emitter uses instead of inspecting the token text; every spacing decision follows from the role pair, not from any character set.
 
 ## Acceptance predicate
 
@@ -56,11 +56,11 @@ The walker-recorded `pre-alias-symbol` constraint capturing `tree_sitter::Node::
 
 ## Emit verification status
 
-The programmatic tier reported by [`ParserRegistry::emit_verification_status`](https://docs.rs/panproto-parse/latest/panproto_parse/struct.ParserRegistry.html#method.emit_verification_status) classifying every protocol as `Verified` (has an explicit `<lang>_emit_is_fixed_point` test in panproto's suite), `Generic` (registered with vendored `grammar.json`, no per-language test), or `Unsupported` (no grammar, emit will fail). Downstream tooling calls this upfront to refuse emit on protocols whose correctness has not been exercised. *Intuition:* panproto's own honesty signal about which protocols its test suite verifies for round-trip correctness.
+The programmatic tier reported by [`ParserRegistry::emit_verification_status`](https://docs.rs/panproto-parse/latest/panproto_parse/struct.ParserRegistry.html#method.emit_verification_status) classifying every protocol as `Verified` (every entry of the grammar author's own `test/corpus/` round-trips under the strict `emit_corpus_audit` oracle, or the protocol is pinned by a quivers backend test), `Generic` (registered with vendored `grammar.json`, no test asserts emit correctness), or `Unsupported` (no grammar, emit will fail). The verified set is the 186 names in `VERIFIED_EMIT_PROTOCOLS`. Downstream tooling calls this upfront to refuse emit on protocols whose correctness has not been exercised. *Intuition:* panproto's own honesty signal about which protocols its test suite verifies for round-trip correctness.
 
 ## Fixed-point law (emit)
 
-The correctness witness for source-code emission: `emit(parse(emit(s))) == emit(s)`. Asserted per-protocol by `<lang>_emit_is_fixed_point` regression tests in [`crates/panproto-parse/tests/emit_pretty_regressions.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-parse/tests/emit_pretty_regressions.rs). Stronger than the section law (which holds at the kind / edge multiset level); equality is byte-for-byte after the first emit. *Intuition:* the emitter has reached a fixed point of the parse / emit cycle, which is what guarantees that downstream re-parsing pipelines remain stable.
+The correctness witness for source-code emission: `emit(parse(emit(s))) == emit(s)`. Asserted per-protocol by `<lang>_emit_is_fixed_point` regression tests in [`crates/panproto-parse/tests/emit_pretty_regressions.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-parse/tests/emit_pretty_regressions.rs), and enforced over every grammar author's full `test/corpus/` by the strict `emit_corpus_audit` gate, which conjoins this fixed point with kind- and edge-multiset preservation. Stronger than the section law (which holds at the kind / edge multiset level); equality is byte-for-byte after the first emit. *Intuition:* the emitter has reached a fixed point of the parse / emit cycle, which is what guarantees that downstream re-parsing pipelines remain stable.
 
 ## Section law
 

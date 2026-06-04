@@ -20,7 +20,7 @@ For the model that the commands operate on, see
 ## `schema`
 
 ```text
-Schematic version control — schema migration toolkit based on generalized algebraic theories
+Schematic version control: schema migration toolkit based on generalized algebraic theories
 
 Usage: schema [OPTIONS] <COMMAND>
 
@@ -1332,7 +1332,7 @@ Options:
           
           Accepted case-insensitively for parity with the Python and WASM bindings, both of which trim and lowercase their input.
           
-          `strict` — only kind-exact name equality. `balanced` — alias dictionary + tight token similarity (default). `lenient` — span-search and structural priors. `exploratory` — lossy retraction witnesses.
+          `strict`: only kind-exact name equality. `balanced`: alias dictionary + tight token similarity (default). `lenient`: span-search and structural priors. `exploratory`: lossy retraction witnesses.
 
           Possible values:
           - strict:      Kind-exact, edge-name-pruned CSP search; total morphism only
