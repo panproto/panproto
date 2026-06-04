@@ -571,6 +571,7 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "lua",
     "luadoc",
     "magik",
+    "markdown_inline",
     "matlab",
     "mermaid",
     "meson",

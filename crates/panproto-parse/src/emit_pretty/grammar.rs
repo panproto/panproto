@@ -26,10 +26,11 @@
 
 use super::{
     BTreeMap, Deserialize, ParseError, collect_all_symbol_refs, external_symbol_name,
-    extract_line_comment_prefix, has_repeat_recursive, is_immediate_token, is_prefix_sigil,
-    is_quote_delimiter, is_rest_of_line_pattern, is_word_like, kind_satisfies_symbol,
-    leading_optional_sign, literal_strings, matching_close_bracket, pattern_absorbs_leading_space,
-    referenced_symbols, terminal_pattern_of, unwrap_to_seq, unwrap_to_string,
+    extract_line_comment_prefix, has_repeat_recursive, is_immediate_token, is_newline_like_pattern,
+    is_prefix_sigil, is_quote_delimiter, is_rest_of_line_pattern, is_whitespace_only_pattern,
+    is_word_like, kind_satisfies_symbol, leading_optional_sign, literal_strings,
+    matching_close_bracket, pattern_absorbs_leading_space, referenced_symbols, terminal_pattern_of,
+    unwrap_to_seq, unwrap_to_string,
 };
 
 // ═══════════════════════════════════════════════════════════════════
@@ -381,6 +382,33 @@ pub struct Grammar {
     /// comment Lit tokens.
     #[serde(skip)]
     pub line_comment_prefixes: Vec<String>,
+    /// Bare literal markers that, when emitted as the final token of the
+    /// output, must NOT be followed by the customary end-of-output newline.
+    ///
+    /// Derived from productions of the shape `SEQ[CHOICE[.. bare lit ..],
+    /// <newline-leading>]` — tree-sitter's "hard line break" idiom
+    /// (`markdown_inline`'s `hard_line_break = SEQ[CHOICE["\\" |
+    /// _whitespace_ge_2], _soft_line_break]`). A trailing backslash (or
+    /// trailing whitespace, see [`trailing_break_on_whitespace`]) is plain
+    /// content on its own; only a following newline turns it into a
+    /// line-break node. The end-of-output newline the layout fold appends
+    /// would therefore manufacture a phantom break node on re-parse, so it
+    /// is suppressed when the output ends with one of these markers.
+    ///
+    /// Restricted to SINGLE-character non-alphanumeric literals so the rule
+    /// fires only on genuine standalone break markers (`\`), never on
+    /// keyword/identifier-led line constructs (`posting`, `declaration`,
+    /// `go_directive`) whose leading literal is substantive content.
+    ///
+    /// [`trailing_break_on_whitespace`]: Self::trailing_break_on_whitespace
+    #[serde(skip)]
+    pub trailing_break_markers: Vec<String>,
+    /// Whether the grammar has a hard-line-break production whose leading
+    /// alternative is a whitespace-only PATTERN (`markdown_inline`'s
+    /// `_whitespace_ge_2`). When set, a final emitted token ending in
+    /// trailing spaces/tabs also suppresses the end-of-output newline.
+    #[serde(skip)]
+    pub trailing_break_on_whitespace: bool,
     /// External tokens that produce indent-open layout actions.
     /// Identified by tree-sitter naming convention: names ending with
     /// `_indent` or equal to `_indent`.
@@ -629,6 +657,9 @@ impl Grammar {
         grammar.token_roles = token_roles;
         grammar.indent_triggers = indent_triggers;
         grammar.line_comment_prefixes = extract_line_comment_prefixes(&grammar);
+        let (tb_markers, tb_ws) = classify_trailing_break_markers(&grammar);
+        grammar.trailing_break_markers = tb_markers;
+        grammar.trailing_break_on_whitespace = tb_ws;
         classify_external_layout_tokens(&mut grammar);
         classify_external_bracket_delimiters(&mut grammar);
         classify_external_close_text(&mut grammar);
@@ -1919,6 +1950,139 @@ pub(crate) fn extract_line_comment_prefixes(grammar: &Grammar) -> Vec<String> {
         }
     }
     prefixes
+}
+
+/// Does this production, after resolving SYMBOL references and unwrapping
+/// transparent wrappers, BEGIN with a newline-only token? Used to detect
+/// the trailing element of a hard-line-break SEQ (`_soft_line_break`,
+/// `_newline_token`, a bare `\n` STRING/PATTERN).
+fn production_is_newline_leading(
+    grammar: &Grammar,
+    prod: &Production,
+    seen: &mut std::collections::HashSet<String>,
+) -> bool {
+    match prod {
+        Production::String { value } | Production::Pattern { value } => {
+            is_newline_like_pattern(value)
+        }
+        Production::Seq { members } => members
+            .first()
+            .is_some_and(|m| production_is_newline_leading(grammar, m, seen)),
+        Production::Symbol { name } => {
+            if !seen.insert(name.clone()) {
+                return false;
+            }
+            grammar
+                .rules
+                .get(name)
+                .is_some_and(|r| production_is_newline_leading(grammar, r, seen))
+        }
+        Production::Token { content }
+        | Production::ImmediateToken { content }
+        | Production::Prec { content, .. }
+        | Production::PrecLeft { content, .. }
+        | Production::PrecRight { content, .. }
+        | Production::PrecDynamic { content, .. }
+        | Production::Field { content, .. }
+        | Production::Alias { content, .. }
+        | Production::Reserved { content, .. } => {
+            production_is_newline_leading(grammar, content, seen)
+        }
+        _ => false,
+    }
+}
+
+/// Collect the leading "hard line break" markers (see
+/// [`Grammar::trailing_break_markers`]).
+///
+/// A production `SEQ[first, .., last]` is a hard-line-break idiom when its
+/// LAST member is newline-leading. The FIRST member then carries the break
+/// marker: a CHOICE (or bare element) whose alternatives are either a
+/// single-character non-alphanumeric STRING (`\`) — a standalone break
+/// marker — or a whitespace-only PATTERN (`[ \t]+`). The former is
+/// collected literally; the latter sets the whitespace-sensitivity flag.
+pub(crate) fn classify_trailing_break_markers(grammar: &Grammar) -> (Vec<String>, bool) {
+    fn collect_marker_alts(
+        grammar: &Grammar,
+        prod: &Production,
+        lits: &mut Vec<String>,
+        ws: &mut bool,
+        seen: &mut std::collections::HashSet<String>,
+    ) {
+        match prod {
+            Production::Choice { members } => {
+                for m in members {
+                    collect_marker_alts(grammar, m, lits, ws, seen);
+                }
+            }
+            Production::Symbol { name } => {
+                // Resolve hidden break-marker symbols (`_whitespace_ge_2`)
+                // one level, cycle-guarded. A concrete named rule is line
+                // content in its own right, never a bare break marker.
+                if let Some(r) = grammar.rules.get(name).filter(|_| seen.insert(name.clone())) {
+                    collect_marker_alts(grammar, r, lits, ws, seen);
+                }
+            }
+            Production::Token { content }
+            | Production::ImmediateToken { content }
+            | Production::Prec { content, .. }
+            | Production::PrecLeft { content, .. }
+            | Production::PrecRight { content, .. }
+            | Production::PrecDynamic { content, .. }
+            | Production::Field { content, .. }
+            | Production::Alias { content, .. }
+            | Production::Reserved { content, .. } => {
+                collect_marker_alts(grammar, content, lits, ws, seen);
+            }
+            Production::String { value } => {
+                // A standalone single-character non-alphanumeric break marker
+                // (the `\` of a hard line break). Multi-character / word-like
+                // literals are substantive line content, not break markers.
+                let mut chars = value.chars();
+                if let (Some(c), None) = (chars.next(), chars.clone().next()) {
+                    if !c.is_alphanumeric() && !c.is_whitespace() {
+                        lits.push(value.clone());
+                    }
+                }
+            }
+            Production::Pattern { value } => {
+                // A whitespace-only PATTERN, possibly a top-level alternation
+                // of whitespace branches (`_whitespace_ge_2 = \t| [ \t]+`).
+                let ws_only = super::split_top_level_alternation(value)
+                    .iter()
+                    .all(|b| is_whitespace_only_pattern(b.trim()));
+                if ws_only {
+                    *ws = true;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut lits: Vec<String> = Vec::new();
+    let mut ws = false;
+    for rule in grammar.rules.values() {
+        if let Production::Seq { members } = rule {
+            if members.len() >= 2
+                && production_is_newline_leading(
+                    grammar,
+                    members.last().expect("len >= 2"),
+                    &mut std::collections::HashSet::new(),
+                )
+            {
+                collect_marker_alts(
+                    grammar,
+                    &members[0],
+                    &mut lits,
+                    &mut ws,
+                    &mut std::collections::HashSet::new(),
+                );
+            }
+        }
+    }
+    lits.sort();
+    lits.dedup();
+    (lits, ws)
 }
 
 // ═══════════════════════════════════════════════════════════════════

@@ -764,6 +764,7 @@ const CORPUS_VERIFIED: &[&str] = &[
     "lua",
     "luadoc",
     "magik",
+    "markdown_inline",
     "matlab",
     "mermaid",
     "meson",
@@ -1041,6 +1042,71 @@ fn corpus_audit_report() {
                 full_pass.len(),
                 full_pass.join(",")
             );
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+#[test]
+fn corpus_audit_all_fails() {
+    let Ok(list) = std::env::var("PP_AUDIT_ALL") else {
+        return;
+    };
+    std::thread::Builder::new()
+        .stack_size(256 * 1024 * 1024)
+        .spawn(move || {
+            let reg = ParserRegistry::new();
+            for proto in list.split(',').filter(|s| !s.is_empty()) {
+                let file = format!("sample.{proto}");
+                let (mut total, mut passed) = (0usize, 0usize);
+                for (name, src) in corpus_sources(proto) {
+                    let bytes = src.as_bytes();
+                    let Ok(s1) = reg.parse_with_protocol(proto, bytes, &file) else {
+                        continue;
+                    };
+                    let has_error = s1.vertices.values().any(|v| {
+                        matches!(v.kind.as_ref(), "ERROR" | "MISSING")
+                            || v.kind.as_ref().contains("ERROR")
+                    });
+                    if s1.vertices.is_empty() || has_error {
+                        continue;
+                    }
+                    total += 1;
+                    let Ok(e1) = reg.emit_pretty_with_protocol(proto, &s1) else {
+                        eprintln!("FAIL[{proto}/{name}] EMIT-ERR");
+                        continue;
+                    };
+                    let Ok(s2) = reg.parse_with_protocol(proto, &e1, &file) else {
+                        eprintln!(
+                            "FAIL[{proto}/{name}] REPARSE-ERR e1={:?}",
+                            String::from_utf8_lossy(&e1).chars().take(120).collect::<String>()
+                        );
+                        continue;
+                    };
+                    let e2 = reg.emit_pretty_with_protocol(proto, &s2).unwrap_or_default();
+                    let km = kind_multiset(&s1) == kind_multiset(&s2);
+                    let em = edge_multiset(&s1) == edge_multiset(&s2);
+                    if e1 == e2 && km && em {
+                        passed += 1;
+                    } else {
+                        let why = if e1 != e2 {
+                            "NOT-IDEMPOTENT"
+                        } else if !km {
+                            "KIND-DELTA"
+                        } else {
+                            "EDGE-DELTA"
+                        };
+                        eprintln!(
+                            "FAIL[{proto}/{name}] {why}\n  SRC={:?}\n  E1={:?}\n  E2={:?}",
+                            src.chars().take(160).collect::<String>(),
+                            String::from_utf8_lossy(&e1).chars().take(160).collect::<String>(),
+                            String::from_utf8_lossy(&e2).chars().take(160).collect::<String>(),
+                        );
+                    }
+                }
+                eprintln!("== {proto}: {passed}/{total} ==");
+            }
         })
         .unwrap()
         .join()

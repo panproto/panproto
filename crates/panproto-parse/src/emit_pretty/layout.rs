@@ -374,6 +374,8 @@ impl<'a> Output<'a> {
             &self.tokens,
             self.policy,
             &self.grammar.line_comment_prefixes,
+            &self.grammar.trailing_break_markers,
+            self.grammar.trailing_break_on_whitespace,
         )
     }
 }
@@ -387,6 +389,8 @@ pub(crate) fn layout(
     tokens: &[Token],
     policy: &FormatPolicy,
     line_comment_prefixes: &[String],
+    trailing_break_markers: &[String],
+    trailing_break_on_whitespace: bool,
 ) -> Vec<u8> {
     let mut bytes = Vec::new();
     let mut indent: usize = 0;
@@ -543,10 +547,41 @@ pub(crate) fn layout(
         }
     }
 
-    if !at_line_start && !last_content_was_verbatim {
+    // Append the customary end-of-output newline only when no suppressor
+    // fires: not already at line start, not directly after an exact-replay
+    // verbatim tail (scala), and not after a hard-line-break marker
+    // (markdown_inline). Each suppressor guards against the appended newline
+    // manufacturing a phantom node on re-parse.
+    if !at_line_start
+        && !last_content_was_verbatim
+        && !ends_with_trailing_break_marker(
+            &bytes,
+            trailing_break_markers,
+            trailing_break_on_whitespace,
+        )
+    {
         bytes.extend_from_slice(newline);
     }
     bytes
+}
+
+/// Whether `bytes` ends with a hard-line-break marker — a bare break
+/// literal (the `\` of `markdown_inline`'s `hard_line_break`) or, when the
+/// grammar's break idiom admits it, trailing whitespace. Appending the
+/// customary end-of-output newline after such a tail would manufacture a
+/// phantom line-break node on re-parse, so the caller suppresses it.
+fn ends_with_trailing_break_marker(
+    bytes: &[u8],
+    markers: &[String],
+    on_whitespace: bool,
+) -> bool {
+    if markers.is_empty() && !on_whitespace {
+        return false;
+    }
+    if on_whitespace && bytes.last().is_some_and(|b| *b == b' ' || *b == b'\t') {
+        return true;
+    }
+    markers.iter().any(|m| bytes.ends_with(m.as_bytes()))
 }
 
 /// True when the negated character class `[^<negated>]` ADMITS `c` — i.e.
