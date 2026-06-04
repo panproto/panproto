@@ -197,6 +197,51 @@ fn rule_min_required_children(grammar: &Grammar, rule: &Production) -> usize {
     go(grammar, rule, &mut seen)
 }
 
+/// Whether a named-ALIAS `content` can genuinely place the children of a
+/// vertex whose surface kind equals the alias `value`.
+///
+/// A named ALIAS renames its `content` production to `value`. The common
+/// shape `ALIAS { SYMBOL real_rule, value: K }` is a pure symbol-rename and
+/// is always honoured (the symbol's own rule walks the child). But when the
+/// content is a structural WRAPPER (REPEAT / SEQ / PREC over a DIFFERENT set
+/// of symbols) that merely happens to be renamed to a value that ALSO names
+/// a real rule reachable elsewhere, the demand matcher at the parent can
+/// mis-consume a child of that kind into the wrapper alias even though the
+/// wrapper cannot emit the child's structure. markdown's `document` is the
+/// canonical case: member 1 is `ALIAS(REPEAT(_block_not_section), "section")`
+/// and member 2 is `REPEAT(SYMBOL section)`; a leading heading section's
+/// `atx_heading` grandchild is reachable only through `_section1` (the real
+/// `section` rule), NOT through `_block_not_section`, so consuming it into
+/// member 1 drops the entire heading. This guard rejects that consumption so
+/// the child falls through to the member that can actually emit it.
+///
+/// Returns true (consume) when the content is a bare symbol-rename, or when
+/// the content's dispatch closure admits EVERY one of the child's child
+/// kinds. A childless (leaf) matched child is always admitted (the leaf
+/// shortcut in `emit_aliased_child` emits its captured literal).
+fn aliased_content_admits_child(
+    schema: &Schema,
+    grammar: &Grammar,
+    content: &Production,
+    child_id: &panproto_gat::Name,
+) -> bool {
+    // Pure symbol-rename: emit_aliased_child resolves the symbol's own rule,
+    // which is the correct dispatch (the dominant YAML / function_definition
+    // case). Always honour it.
+    if let Production::Symbol { .. } = content {
+        return true;
+    }
+    let edges = children_for(schema, child_id);
+    let demand: Vec<&str> = edges
+        .iter()
+        .filter_map(|e| vertex_id_kind(schema, &e.tgt))
+        .collect();
+    if demand.is_empty() {
+        return true;
+    }
+    rule_admits_count(grammar, content, &demand) == demand.len()
+}
+
 /// Choose which rule production to walk at a vertex of surface kind
 /// `kind`. Normally the vertex's own rule. But when several rules collapse
 /// to `kind` via `alias($.src, kind)` and the own rule cannot consume one
@@ -1897,6 +1942,13 @@ pub(crate) fn emit_production_inner(
                         .get(&edge.tgt)
                         .map(|v| v.kind.as_ref() == value.as_str())
                         .unwrap_or(false)
+                    // Only consume the kind-matching child when the alias's
+                    // content can actually emit its structure. A structural
+                    // wrapper alias (markdown `ALIAS(REPEAT(_block_not_section),
+                    // "section")`) must not steal a `section` child whose
+                    // grandchildren it cannot place; that child belongs to a
+                    // later member that walks the real rule.
+                        && aliased_content_admits_child(schema, grammar, content, &edge.tgt)
                 }) {
                     return emit_aliased_child(protocol, schema, grammar, &edge.tgt, content, out);
                 }
@@ -2173,6 +2225,36 @@ pub(crate) fn emit_aliased_child(
             );
             out.current_rule = old_rule;
             return result;
+        }
+    }
+
+    // An ALIAS over a CHOICE of bare SYMBOL alternatives (markdown's
+    // nested-section slot `ALIAS(CHOICE[_section6 .. _sectionN], "section")`):
+    // the alternatives are structurally indistinguishable to the demand
+    // matcher (every `_sectionK` is `SEQ[atx_heading, REPEAT(..)]`), so the
+    // CHOICE dispatch cannot pick the level tree-sitter chose. The walker
+    // recorded that choice as the vertex's `pre-alias-symbol`; resolve it
+    // directly to the matching alternative's rule, mirroring the recorded-
+    // source preference in `select_walk_rule`. Without this, a deeper heading
+    // (`### …` under `## …` under `# …`) is walked through the wrong
+    // `_sectionK` whose nested-section slot cannot place the next level, and
+    // the remaining headings drop.
+    if let Production::Choice { members } = content {
+        if let Some(src) = pre_alias_symbol(schema, child_id) {
+            let picked = members.iter().find_map(|m| match m {
+                Production::Symbol { name } if name.as_str() == src => grammar.rules.get(name),
+                _ => None,
+            });
+            if let Some(rule) = picked {
+                let edges = children_for(schema, child_id);
+                let mut cursor = ChildCursor::new(&edges);
+                let old_rule = out.current_rule.take();
+                out.current_rule = Some(src.to_owned());
+                let result =
+                    emit_production(protocol, schema, grammar, child_id, rule, &mut cursor, out);
+                out.current_rule = old_rule;
+                return result;
+            }
         }
     }
 

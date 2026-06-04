@@ -785,6 +785,7 @@ const CORPUS_VERIFIED: &[&str] = &[
     "luadoc",
     "magik",
     "make",
+    "markdown",
     "markdown_inline",
     "matlab",
     "mermaid",

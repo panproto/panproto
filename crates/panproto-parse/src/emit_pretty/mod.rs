@@ -142,6 +142,27 @@ pub fn emit_pretty(
         .map(|c| c.value.as_bytes().to_vec())
         .unwrap_or_default();
 
+    // Replay-path source-span bound. On the byte-faithful path every root
+    // records `start-byte`/`end-byte`; their union is the exact source span.
+    // The layout fold appends a customary end-of-output newline (a
+    // reformatting convenience), but when the source did NOT end with one,
+    // that appended `\n` overshoots the span and can flip a newline-sensitive
+    // re-parse (markdown `***` is a `paragraph` of literal text, but `***\n`
+    // re-lexes as a `thematic_break`). When the emitted body is exactly the
+    // reconstructed span plus that single trailing newline, strip it so the
+    // replay stays byte-exact. Canonical (forget_layout) schemas carry no
+    // byte spans, so this never touches the reformatting path.
+    let root_span_end: Option<usize> = roots
+        .iter()
+        .filter_map(|&r| {
+            schema.constraints.get(r).and_then(|cs| {
+                cs.iter()
+                    .find(|c| c.sort.as_ref() == "end-byte")
+                    .and_then(|c| c.value.parse::<usize>().ok())
+            })
+        })
+        .max();
+
     let mut out = Output::new(policy, grammar, cassette);
     for (i, root) in roots.iter().enumerate() {
         if i > 0 {
@@ -149,7 +170,12 @@ pub fn emit_pretty(
         }
         emit_vertex(protocol, schema, grammar, root, &mut out)?;
     }
-    let body = out.finish();
+    let mut body = out.finish();
+    if let Some(span_end) = root_span_end {
+        if body.len() == span_end + 1 && body.last() == Some(&b'\n') {
+            body.pop();
+        }
+    }
     if doc_prefix.is_empty() {
         Ok(body)
     } else {
