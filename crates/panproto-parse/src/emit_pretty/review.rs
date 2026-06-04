@@ -2006,6 +2006,25 @@ pub(crate) fn emit_aliased_child(
     content: &Production,
     out: &mut Output<'_>,
 ) -> Result<(), ParseError> {
+    // Interstitial replay (the byte-faithful layout fibre) — mirror of the
+    // `emit_vertex` entry guard. An aliased child reached here (a CHOICE alt
+    // whose `value` renames a SYMBOL: vhdl's `selected_concurrent_signal_
+    // assignment` is the alias of `selected_waveform_assignment`) records its
+    // own `interstitial-N` complement carrying the EXACT source text between
+    // its anonymous keyword tokens and its named children (vhdl `with … select
+    // … <= …`). Without this branch the aliased subtree falls straight to the
+    // role-table production walk, which approximates the inter-token spacing
+    // and can drop a separator the role table got wrong (`select\n t` →
+    // `selectt`). Like `emit_vertex`, replay is taken ONLY when the fibre tiles
+    // the span completely, so it is canonical-only-OFF (a forget_layout schema
+    // has no interstitials) and can never corrupt a boundary the role table got
+    // right.
+    if vertex_has_interstitials(schema, child_id) {
+        if let Some(bytes) = reconstruct_subtree_bytes(schema, child_id) {
+            out.verbatim(&bytes);
+            return Ok(());
+        }
+    }
     // Leaf shortcut: if the child has a literal-value and no
     // structural children, emit the captured text. Skip for bracket-pair
     // literals when the production resolves to a rule with those brackets.

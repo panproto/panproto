@@ -648,6 +648,7 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "uxntal",
     "v",
     "verilog",
+    "vhdl",
     "vim",
     "vue",
     "wit",

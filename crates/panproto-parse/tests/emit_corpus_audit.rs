@@ -838,6 +838,7 @@ const CORPUS_VERIFIED: &[&str] = &[
     "uxntal",
     "v",
     "verilog",
+    "vhdl",
     "vim",
     "vue",
     "wit",
