@@ -1,0 +1,172 @@
+====================================
+perform label
+====================================
+       identification division.
+       program-id. a.
+       procedure division.
+       perform aa.
+       aa.
+---
+
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (procedure_division
+      (perform_statement_call_proc
+        procedure: (perform_procedure
+          (label
+            (qualified_word
+              (WORD)))))
+      (period)
+      (paragraph_header))))
+
+====================================
+perform label thru label
+====================================
+       identification division.
+       program-id. a.
+       procedure division.
+       perform aa thru bb.
+       aa.
+       bb.
+---
+
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (procedure_division
+      (perform_statement_call_proc
+        procedure: (perform_procedure
+          (label
+            (qualified_word
+              (WORD)))
+          (THRU)
+          (label
+            (qualified_word
+              (WORD)))))
+      (period)
+      (paragraph_header)
+      (paragraph_header))))
+
+====================================
+perform label FOREVER
+====================================
+       identification division.
+       program-id. a.
+       procedure division.
+       perform aa forever.
+       aa.
+---
+
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (procedure_division
+      (perform_statement_call_proc
+        procedure: (perform_procedure
+          (label
+            (qualified_word
+              (WORD))))
+        option: (perform_option
+          (FOREVER)))
+      (period)
+      (paragraph_header))))
+
+====================================
+perform continue
+====================================
+       identification division.
+       program-id. a.
+       procedure division.
+       perform forever
+         continue
+       end-perform.
+---
+
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (procedure_division
+      (perform_statement_loop
+        option: (perform_option
+          (FOREVER)))
+      (continue_statement)
+      (END_PERFORM)
+      (period))))
+
+====================================
+perform label times
+====================================
+       identification division.
+       program-id. a.
+       procedure division.
+       perform aa 3 times.
+       aa.
+---
+
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (procedure_division
+      (perform_statement_call_proc
+        procedure: (perform_procedure
+          (label
+            (qualified_word
+              (WORD))))
+        option: (perform_option
+          times: (number
+            (integer))))
+      (period)
+      (paragraph_header))))
+
+====================================
+perform label UNTIL
+====================================
+       identification division.
+       program-id. a.
+       data division.
+       working-storage section.
+       01 c PIC 9.
+       procedure division.
+       perform aa varying c FROM 1 BY 1 UNTIL c >= 1.
+       aa.
+---
+
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (data_division
+      (working_storage_section
+        (data_description
+          (level_number)
+          (entry_name)
+          (picture_clause
+            (picture_9)))))
+    (procedure_division
+      (perform_statement_call_proc
+        procedure: (perform_procedure
+          (label
+            (qualified_word
+              (WORD))))
+        option: (perform_option
+          varying: (perform_varying
+            (qualified_word
+              (WORD))
+            from: (number
+              (integer))
+            by: (number
+              (integer))
+            until: (expr
+              (qualified_word
+                (WORD))
+              (ge)
+              (number
+                (integer))))))
+      (period)
+      (paragraph_header))))

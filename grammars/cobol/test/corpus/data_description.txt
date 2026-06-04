@@ -1,0 +1,142 @@
+====================================
+file-section
+====================================
+       identification division.
+       program-id. a.
+003300 ENVIRONMENT DIVISION.                                            NC1014.2
+003900 INPUT-OUTPUT SECTION.                                            NC1014.2
+004000 FILE-CONTROL.                                                    NC1014.2
+004100     SELECT PRINT-FILE ASSIGN TO                                  NC1014.2
+004200     "report.log".                                                NC1014.2
+004300 DATA DIVISION.                                                   NC1014.2
+004400 FILE SECTION.                                                    NC1014.2
+004500 FD  PRINT-FILE.                                                  NC1014.2
+004600 01  PRINT-REC PICTURE X(120).                                    NC1014.2
+004700 01  DUMMY-RECORD PICTURE X(120).                                 NC1014.2
+004800 WORKING-STORAGE SECTION.                                         NC1014.2
+004900 77  WRK-DS-18V00                PICTURE S9(18).                  NC1014.2
+       PROCEDURE DIVISION.
+       DISPLAY 1.
+---
+
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (input_output_section
+        (select_statement
+          file_name: (WORD)
+          (assign_clause
+            to: (string)))))
+    (data_division
+      (file_section
+        (file_description
+          (file_type
+            (FD))
+          (file_description_entry
+            (WORD))
+          (record_description_list
+            (data_description
+              (level_number)
+              (entry_name)
+              (picture_clause
+                (picture_x)))
+            (data_description
+              (level_number)
+              (entry_name)
+              (picture_clause
+                (picture_x))))))
+      (working_storage_section
+        (data_description
+          (level_number)
+          (entry_name)
+          (picture_clause
+            (picture_9)))))
+    (procedure_division
+      (display_statement
+        (number
+          (integer)))
+      (period))))
+
+====================================
+value clause
+====================================
+       identification division.
+       program-id. a.
+       DATA DIVISION.                                                   
+       WORKING-STORAGE SECTION.                                         
+       77  A06THREES-DS-03V03          PICTURE S999V999 VALUE 333.333.  
+       PROCEDURE DIVISION.
+---
+
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (data_division
+      (working_storage_section
+        (data_description
+          (level_number)
+          (entry_name)
+          (picture_clause
+            (picture_9))
+          (value_clause
+            (value_item
+              (number
+                (decimal)))))))
+    (procedure_division)))
+
+====================================
+picture decimal
+====================================
+       identification division.
+       program-id. a.
+       DATA DIVISION.                                                   
+       WORKING-STORAGE SECTION.                                         
+       77  A06THREES-DS-03V03     PICTURE SV9(5) VALUE .11111.
+       PROCEDURE DIVISION.
+---
+
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (data_division
+      (working_storage_section
+        (data_description
+          (level_number)
+          (entry_name)
+          (picture_clause
+            (picture_9))
+          (value_clause
+            (value_item
+              (number
+                (decimal)))))))
+    (procedure_division)))
+
+====================================
+computational
+====================================
+       identification division.
+       program-id. a.
+       DATA DIVISION.                                                   
+       WORKING-STORAGE SECTION.                                         
+       77  A06THREES-DS-03V03     PICTURE SV9(5) COMPUTATIONAL.
+       PROCEDURE DIVISION.
+---
+
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (data_division
+      (working_storage_section
+        (data_description
+          (level_number)
+          (entry_name)
+          (picture_clause
+            (picture_9))
+          (usage_clause
+            (COMPUTATIONAL)))))
+    (procedure_division)))

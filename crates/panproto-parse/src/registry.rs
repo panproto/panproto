@@ -491,6 +491,7 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "clarity",
     "clojure",
     "cmake",
+    "cobol",
     "commonlisp",
     "cpon",
     "cpp",
@@ -657,6 +658,7 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "vue",
     "wit",
     "xcompose",
+    "xml",
     "yuck",
     "zsh",
 ];

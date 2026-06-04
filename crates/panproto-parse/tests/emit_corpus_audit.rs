@@ -687,6 +687,7 @@ const CORPUS_VERIFIED: &[&str] = &[
     "clarity",
     "clojure",
     "cmake",
+    "cobol",
     "commonlisp",
     "cpon",
     "cpp",
@@ -847,6 +848,7 @@ const CORPUS_VERIFIED: &[&str] = &[
     "vue",
     "wit",
     "xcompose",
+    "xml",
     "yuck",
     "zsh",
 ];
