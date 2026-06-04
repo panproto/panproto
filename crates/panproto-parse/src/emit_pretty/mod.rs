@@ -149,29 +149,7 @@ pub fn emit_pretty(
         }
         emit_vertex(protocol, schema, grammar, root, &mut out)?;
     }
-    let mut body = out.finish();
-    // Drop leading whitespace from the emitted BODY. Tree-sitter assigns the
-    // root node a start-byte that consumes a single leading newline as a leading
-    // "extra" but folds any FURTHER leading blank lines into the root span,
-    // where they surface as the root's leading interstitial. The replay
-    // reproduces those in-span newlines, but a re-parse of the emitted bytes
-    // records one fewer leading interstitial, so the second emit drops it,
-    // breaking the emit fixed point on a corpus entry that opens with blank
-    // lines (rescript `\n\nlet {…}`). Leading whitespace before the first token
-    // is never syntactically meaningful, so trimming it makes emit idempotent
-    // without changing any AST. Trailing whitespace is left to the verbatim-tail
-    // logic in `layout`.
-    //
-    // The trim runs on `body` (the bytes from `root.start_byte()` onward) BEFORE
-    // the `doc-prefix` is prepended: `doc_prefix` holds the bytes in
-    // `[0, root.start_byte())` that tree-sitter excludes from the root span (a
-    // BOM, an awk `\`-continuation), which must be reproduced verbatim. Trimming
-    // after the prepend would eat a whitespace-class prefix (awk) and re-break
-    // it; trimming the body first preserves the fixed point in both directions.
-    let lead = body.iter().take_while(|b| b.is_ascii_whitespace()).count();
-    if lead > 0 {
-        body.drain(..lead);
-    }
+    let body = out.finish();
     if doc_prefix.is_empty() {
         Ok(body)
     } else {
