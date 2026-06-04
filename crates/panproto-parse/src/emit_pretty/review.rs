@@ -36,6 +36,7 @@ use super::{
     is_no_space_external, is_whitespace_external, is_whitespace_only_pattern, is_word_like,
     leaf_terminal_role, left_recursive_alts, literal_strings, literal_value, mandatory_field_names,
     member_has_leading_bracket, pattern_absorbs_leading_space, placeholder_for_pattern, prec_value,
+    repeat_body_is_whole_vertex_item, repeat_has_bracket_keyed_member,
     push_field_context, reconstruct_subtree_bytes, reduces_to_immediate_token, referenced_symbols,
     seq_bracket_triggers_indent, seq_open_bracket_index, unbounded_negated_class, unwrap_prec,
     unwrap_to_string, vertex_has_interstitials, vertex_id_kind, yield_of_production,
@@ -1475,6 +1476,23 @@ pub(crate) fn emit_production_inner(
                 || matches!(content.as_ref(), Production::Symbol { name }
                     if grammar.rules.contains_key(name) && !name.starts_with('_'));
 
+            // A REPEAT of a hidden CHOICE-of-whole-vertex items with NO
+            // grammatical separator (pkl `objectBody`'s `REPEAT(_objectMember)`,
+            // `_objectMember = CHOICE[objectProperty|objectEntry|objectElement|…]`)
+            // juxtaposes distinct sibling vertices. When an item can begin with a
+            // bracket-open, the source-level whitespace/newline boundary is
+            // significant: emitted with only a space, the next item's `["k"]` is
+            // absorbed as a SUBSCRIPT of the prior item's trailing terminal
+            // (`1 ["k"]` re-lexes as `1["k"]`). Force a newline between such
+            // iterations. Restricted to brace-delimited grammars (no
+            // synthetic-indent externals) so indent-sensitive blocks (python
+            // `block`, layout-managed via `_indent`/`_dedent`) — whose line
+            // structure already comes from the indent machinery — are untouched.
+            let item_needs_newline = !item_per_iteration
+                && grammar.external_indent_opens.is_empty()
+                && repeat_body_is_whole_vertex_item(content, grammar)
+                && repeat_has_bracket_keyed_member(content, grammar);
+
             // A REPEAT body `SEQ[item.., CHOICE[<newline-separator>|BLANK]]`
             // whose TRAILING optional slot is a statement-terminating NEWLINE
             // separator (a newline-classified external, or a newline pattern)
@@ -1499,6 +1517,9 @@ pub(crate) fn emit_production_inner(
                 let consumed_before = cursor.consumed.iter().filter(|&&c| c).count();
                 if item_per_iteration && emitted_any {
                     out.force_space();
+                }
+                if item_needs_newline && emitted_any {
+                    out.newline();
                 }
                 if trailing_newline_separator && emitted_any {
                     out.newline();

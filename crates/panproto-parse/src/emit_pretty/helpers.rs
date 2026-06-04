@@ -1149,6 +1149,123 @@ pub(crate) fn collect_inner_field_names_expanded<'p>(
     }
 }
 
+/// Whether a REPEAT body iterates over DISTINCT whole sibling vertices
+/// with no grammatical separator: each iteration produces a named-rule
+/// vertex (or a CHOICE of them), so the source separates consecutive
+/// iterations by whitespace/newline alone. Recognizes a bare named-rule
+/// SYMBOL and a hidden (`_`-prefixed) SYMBOL whose rule unwraps (through
+/// PREC/TOKEN) to a CHOICE every alternative of which is itself a
+/// whole-vertex item (pkl `objectBody`'s `REPEAT(_objectMember)`, whose
+/// `_objectMember` is `CHOICE[objectProperty|objectEntry|objectElement|…]`).
+/// Such iterations must be separator-emitted so the next item's leading
+/// bracket (`["k"]`) does not glue onto the prior item's trailing terminal
+/// and re-lex as a subscript.
+pub(crate) fn repeat_body_is_whole_vertex_item(
+    content: &Production,
+    grammar: &crate::emit_pretty::grammar::Grammar,
+) -> bool {
+    fn check(
+        p: &Production,
+        grammar: &crate::emit_pretty::grammar::Grammar,
+        seen: &mut std::collections::HashSet<String>,
+    ) -> bool {
+        match p {
+            Production::Field { .. } => true,
+            Production::Symbol { name } => {
+                if !name.starts_with('_') {
+                    return grammar.rules.contains_key(name);
+                }
+                // Hidden rule: unwrap and require a CHOICE of whole-vertex items.
+                if !seen.insert(name.clone()) {
+                    return false;
+                }
+                grammar
+                    .rules
+                    .get(name)
+                    .is_some_and(|rule| check(rule, grammar, seen))
+            }
+            Production::Choice { members } => {
+                !members.is_empty() && members.iter().all(|m| check(m, grammar, seen))
+            }
+            Production::Token { content }
+            | Production::Prec { content, .. }
+            | Production::PrecLeft { content, .. }
+            | Production::PrecRight { content, .. }
+            | Production::PrecDynamic { content, .. }
+            | Production::Reserved { content, .. } => check(content, grammar, seen),
+            _ => false,
+        }
+    }
+    let mut seen = std::collections::HashSet::new();
+    check(content, grammar, &mut seen)
+}
+
+/// Whether the REPEAT body can produce a BRACKET-KEYED MEMBER: an item rule
+/// shaped `SEQ["[", … , "]", "=" …]` — a subscript-bracketed key bound to a
+/// value (pkl `objectEntry` `["k"] = v`). Such a member, juxtaposed after a
+/// bare-expression sibling (`objectElement`) with only a space, is absorbed
+/// as a SUBSCRIPT of the prior expression's trailing terminal even across
+/// whitespace (`1 ["k"]` re-lexes as `1["k"]`), so the two must be
+/// NEWLINE-separated. The `"]" then "="` shape is what distinguishes a
+/// member binding from a bracket-leading COMMAND ARGUMENT (bash `echo [ x ]`),
+/// which is never of the form `["k"] =` and stays space-separated.
+pub(crate) fn repeat_has_bracket_keyed_member(content: &Production, grammar: &Grammar) -> bool {
+    fn is_bracket_keyed(seq_members: &[Production]) -> bool {
+        // First token must be `[`, a later token `]`, and a token after that `=`.
+        if seq_members
+            .first()
+            .and_then(first_string_of)
+            .is_none_or(|s| s != "[")
+        {
+            return false;
+        }
+        let rest: Vec<&Production> = seq_members.iter().collect();
+        let close = rest
+            .iter()
+            .position(|m| first_string_of(m).is_some_and(|s| s == "]"));
+        let Some(close_idx) = close else {
+            return false;
+        };
+        rest[close_idx + 1..]
+            .iter()
+            .any(|m| has_leading_string(m, "="))
+    }
+    fn has_leading_string(p: &Production, target: &str) -> bool {
+        match p {
+            Production::Choice { members } => members.iter().any(|m| has_leading_string(m, target)),
+            _ => first_string_of(p).is_some_and(|s| s == target),
+        }
+    }
+    fn check(
+        p: &Production,
+        grammar: &Grammar,
+        seen: &mut std::collections::HashSet<String>,
+    ) -> bool {
+        match p {
+            Production::Symbol { name } => {
+                if !seen.insert(name.clone()) {
+                    return false;
+                }
+                grammar
+                    .rules
+                    .get(name)
+                    .is_some_and(|rule| check(rule, grammar, seen))
+            }
+            Production::Choice { members } => members.iter().any(|m| check(m, grammar, seen)),
+            Production::Seq { members } => is_bracket_keyed(members),
+            Production::Token { content }
+            | Production::Prec { content, .. }
+            | Production::PrecLeft { content, .. }
+            | Production::PrecRight { content, .. }
+            | Production::PrecDynamic { content, .. }
+            | Production::Reserved { content, .. } => check(content, grammar, seen),
+            _ => false,
+        }
+    }
+    let mut seen = std::collections::HashSet::new();
+    check(content, grammar, &mut seen)
+}
+
 pub(crate) fn has_field_in(production: &Production, edge_kinds: &[&str]) -> bool {
     match production {
         Production::Field { name, .. } => edge_kinds.contains(&name.as_str()),
