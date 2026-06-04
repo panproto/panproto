@@ -824,17 +824,22 @@ const CORPUS_VERIFIED: &[&str] = &[
     "tlaplus",
     "tmux",
     "toml",
+    "tsv",
     "tsx",
     "turtle",
     "twig",
     "typescript",
+    "udev",
     "ungrammar",
+    "uxntal",
     "v",
     "verilog",
     "vim",
     "vue",
+    "wit",
     "xcompose",
     "yuck",
+    "zsh",
 ];
 
 #[test]

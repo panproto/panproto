@@ -634,17 +634,22 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "tlaplus",
     "tmux",
     "toml",
+    "tsv",
     "tsx",
     "turtle",
     "twig",
     "typescript",
+    "udev",
     "ungrammar",
+    "uxntal",
     "v",
     "verilog",
     "vim",
     "vue",
+    "wit",
     "xcompose",
     "yuck",
+    "zsh",
 ];
 
 impl ParserRegistry {
