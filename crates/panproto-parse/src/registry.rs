@@ -568,6 +568,7 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "lean",
     "ledger",
     "lilypond",
+    "liquid",
     "lua",
     "luadoc",
     "magik",

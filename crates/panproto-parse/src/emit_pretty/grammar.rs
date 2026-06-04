@@ -258,6 +258,12 @@ pub struct Grammar {
     /// Grammar name (e.g. `"rust"`, `"typescript"`).
     #[allow(dead_code)]
     pub name: String,
+    /// The grammar's start symbol: the first rule as written in
+    /// grammar.json (tree-sitter's entry point). Recovered from the raw
+    /// bytes because [`rules`](Self::rules) is a `BTreeMap` that loses the
+    /// original insertion order.
+    #[serde(skip)]
+    pub start_symbol: String,
     /// Map from rule name (a vertex kind on the schema side) to
     /// production. Entries are kept in lexical order so iteration
     /// is deterministic.
@@ -409,6 +415,21 @@ pub struct Grammar {
     /// trailing spaces/tabs also suppresses the end-of-output newline.
     #[serde(skip)]
     pub trailing_break_on_whitespace: bool,
+    /// Whether the grammar's top-level document repeat directly admits a
+    /// free-text content node whose pattern matches a bare newline
+    /// (template / markup grammars: `liquid`'s `template_content =
+    /// REPEAT1([^{]+ | ...)`, `twig`'s `content`, `eex`'s `text`). For such
+    /// grammars a lone trailing newline appended at end of output is
+    /// captured as an extra content node on re-parse, inflating the
+    /// kind-multiset, so the end-of-output newline is suppressed.
+    ///
+    /// Derived narrowly: the content rule must be a DIRECT child of the
+    /// start symbol's top-level REPEAT (through hidden symbols / CHOICE),
+    /// so the rule fires only on genuine document text, never on the
+    /// newline-admitting negated classes inside comments or string
+    /// fragments (which are nested under delimiters, not document nodes).
+    #[serde(skip)]
+    pub top_level_text_admits_newline: bool,
     /// External tokens that produce indent-open layout actions.
     /// Identified by tree-sitter naming convention: names ending with
     /// `_indent` or equal to `_indent`.
@@ -635,6 +656,11 @@ impl Grammar {
                 protocol: protocol.to_owned(),
                 reason: format!("grammar.json deserialization failed: {e}"),
             })?;
+        // The `rules` BTreeMap loses grammar.json's insertion order, but
+        // tree-sitter's START SYMBOL is the FIRST rule as written. Recover
+        // it from the raw bytes so precomputes keyed on the start symbol
+        // (top-level document text) use the right entry point.
+        grammar.start_symbol = extract_start_symbol(grammar_bytes);
         grammar.subtypes = compute_subtype_closure(&grammar);
         grammar.named_alias_map = build_named_alias_map(&grammar);
         grammar.named_alias_sources = build_named_alias_sources(&grammar);
@@ -660,6 +686,7 @@ impl Grammar {
         let (tb_markers, tb_ws) = classify_trailing_break_markers(&grammar);
         grammar.trailing_break_markers = tb_markers;
         grammar.trailing_break_on_whitespace = tb_ws;
+        grammar.top_level_text_admits_newline = classify_top_level_text_admits_newline(&grammar);
         classify_external_layout_tokens(&mut grammar);
         classify_external_bracket_delimiters(&mut grammar);
         classify_external_close_text(&mut grammar);
@@ -2083,6 +2110,159 @@ pub(crate) fn classify_trailing_break_markers(grammar: &Grammar) -> (Vec<String>
     lits.sort();
     lits.dedup();
     (lits, ws)
+}
+
+/// Extract the start symbol (first rule key) from raw grammar.json bytes.
+///
+/// tree-sitter's start symbol is the first rule as written, but the
+/// [`Grammar::rules`] `BTreeMap` reorders alphabetically. We recover the
+/// original first key with a minimal scan: locate the top-level `"rules"`
+/// object and read its first JSON string key. Returns an empty string on
+/// any malformed input (the caller then falls back to no special-casing).
+fn extract_start_symbol(bytes: &[u8]) -> String {
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return String::new();
+    };
+    let Some(rules_at) = text.find("\"rules\"") else {
+        return String::new();
+    };
+    let after = &text[rules_at + "\"rules\"".len()..];
+    // Skip to the object's opening brace.
+    let Some(brace) = after.find('{') else {
+        return String::new();
+    };
+    let mut chars = after[brace + 1..].char_indices();
+    // Find the first string key.
+    for (_, c) in chars.by_ref() {
+        if c == '"' {
+            break;
+        }
+        if !c.is_whitespace() {
+            return String::new();
+        }
+    }
+    let mut key = String::new();
+    while let Some((_, c)) = chars.next() {
+        match c {
+            // Skip the escaped character after a backslash (rule names are
+            // plain identifiers, but stay robust to escapes).
+            '\\' => {
+                chars.next();
+            }
+            '"' => return key,
+            _ => key.push(c),
+        }
+    }
+    String::new()
+}
+
+/// Does this PATTERN value match a bare newline? True when some top-level
+/// alternation branch is a negated character class (`[^...]`, optionally
+/// quantified or anchored to a following atom) that does NOT exclude `\n`
+/// or `\r` — the free-text-content idiom (`liquid`'s `[^{]+`).
+fn pattern_admits_newline(value: &str) -> bool {
+    for branch in super::split_top_level_alternation(value) {
+        let b = branch.trim();
+        if let Some(rest) = b.strip_prefix("[^") {
+            if let Some(idx) = rest.find(']') {
+                let inner = &rest[..idx];
+                // A negated class admits newline unless it explicitly lists
+                // a newline atom (`\n` / `\r`).
+                if !inner.contains("\\n") && !inner.contains("\\r") {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Determine whether the grammar's top-level document repeat directly
+/// admits a free-text content node matching a bare newline (see
+/// [`Grammar::top_level_text_admits_newline`]).
+pub(crate) fn classify_top_level_text_admits_newline(grammar: &Grammar) -> bool {
+    // The start symbol is the FIRST rule as written in grammar.json.
+    let Some(start_body) = grammar.rules.get(&grammar.start_symbol) else {
+        return false;
+    };
+
+    // Collect the concrete content kinds that are DIRECT members of the
+    // start symbol's top-level repeat, descending through SEQ / REPEAT /
+    // CHOICE / OPTIONAL and resolving hidden (`_`-prefixed) symbols. A
+    // concrete (non-hidden) symbol terminates the descent: it is a
+    // document node whose own body we then inspect for free text.
+    fn collect_content_kinds(
+        grammar: &Grammar,
+        prod: &Production,
+        out: &mut std::collections::HashSet<String>,
+        seen: &mut std::collections::HashSet<String>,
+    ) {
+        match prod {
+            Production::Seq { members } | Production::Choice { members } => {
+                for m in members {
+                    collect_content_kinds(grammar, m, out, seen);
+                }
+            }
+            Production::Repeat { content }
+            | Production::Repeat1 { content }
+            | Production::Optional { content }
+            | Production::Token { content }
+            | Production::ImmediateToken { content }
+            | Production::Prec { content, .. }
+            | Production::PrecLeft { content, .. }
+            | Production::PrecRight { content, .. }
+            | Production::PrecDynamic { content, .. }
+            | Production::Field { content, .. }
+            | Production::Reserved { content, .. } => {
+                collect_content_kinds(grammar, content, out, seen);
+            }
+            Production::Symbol { name } => {
+                if name.starts_with('_') {
+                    // Hidden rule: descend through it (inlined by tree-sitter).
+                    if seen.insert(name.clone()) {
+                        if let Some(r) = grammar.rules.get(name) {
+                            collect_content_kinds(grammar, r, out, seen);
+                        }
+                    }
+                } else {
+                    // Concrete document node: record, do not descend.
+                    out.insert(name.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut kinds = std::collections::HashSet::new();
+    collect_content_kinds(
+        grammar,
+        start_body,
+        &mut kinds,
+        &mut std::collections::HashSet::new(),
+    );
+
+    // A content kind admits a trailing newline when its body is (or is a
+    // REPEAT1 of) a free-text PATTERN matching a bare newline.
+    fn body_admits_newline_text(prod: &Production) -> bool {
+        match prod {
+            Production::Pattern { value } => pattern_admits_newline(value),
+            Production::Repeat1 { content } | Production::Repeat { content } => {
+                body_admits_newline_text(content)
+            }
+            Production::Choice { members } => members.iter().any(body_admits_newline_text),
+            Production::Token { content } | Production::ImmediateToken { content } => {
+                body_admits_newline_text(content)
+            }
+            _ => false,
+        }
+    }
+
+    kinds.iter().any(|k| {
+        grammar
+            .rules
+            .get(k)
+            .is_some_and(body_admits_newline_text)
+    })
 }
 
 // ═══════════════════════════════════════════════════════════════════

@@ -761,6 +761,7 @@ const CORPUS_VERIFIED: &[&str] = &[
     "lean",
     "ledger",
     "lilypond",
+    "liquid",
     "lua",
     "luadoc",
     "magik",
@@ -1056,6 +1057,7 @@ fn corpus_audit_all_fails() {
     std::thread::Builder::new()
         .stack_size(256 * 1024 * 1024)
         .spawn(move || {
+            use std::fmt::Write as _;
             let reg = ParserRegistry::new();
             for proto in list.split(',').filter(|s| !s.is_empty()) {
                 let file = format!("sample.{proto}");
@@ -1097,11 +1099,26 @@ fn corpus_audit_all_fails() {
                         } else {
                             "EDGE-DELTA"
                         };
+                        let mut kdelta = String::new();
+                        if !km {
+                            let m1 = kind_multiset(&s1);
+                            let m2 = kind_multiset(&s2);
+                            for (k, n1) in &m1 {
+                                let n2 = m2.get(k).copied().unwrap_or(0);
+                                if *n1 != n2 {
+                                    let _ = write!(kdelta, " {k}:{n1}->{n2}");
+                                }
+                            }
+                            for (k, n2) in &m2 {
+                                if !m1.contains_key(k) {
+                                    let _ = write!(kdelta, " {k}:0->{n2}");
+                                }
+                            }
+                        }
                         eprintln!(
-                            "FAIL[{proto}/{name}] {why}\n  SRC={:?}\n  E1={:?}\n  E2={:?}",
-                            src.chars().take(160).collect::<String>(),
-                            String::from_utf8_lossy(&e1).chars().take(160).collect::<String>(),
-                            String::from_utf8_lossy(&e2).chars().take(160).collect::<String>(),
+                            "FAIL[{proto}/{name}] {why}{kdelta}\n  SRC={:?}\n  E1(tail)={:?}",
+                            src.chars().rev().take(80).collect::<String>().chars().rev().collect::<String>(),
+                            String::from_utf8_lossy(&e1).chars().rev().take(80).collect::<String>().chars().rev().collect::<String>(),
                         );
                     }
                 }

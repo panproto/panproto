@@ -376,6 +376,7 @@ impl<'a> Output<'a> {
             &self.grammar.line_comment_prefixes,
             &self.grammar.trailing_break_markers,
             self.grammar.trailing_break_on_whitespace,
+            self.grammar.top_level_text_admits_newline,
         )
     }
 }
@@ -391,6 +392,7 @@ pub(crate) fn layout(
     line_comment_prefixes: &[String],
     trailing_break_markers: &[String],
     trailing_break_on_whitespace: bool,
+    top_level_text_admits_newline: bool,
 ) -> Vec<u8> {
     let mut bytes = Vec::new();
     let mut indent: usize = 0;
@@ -549,11 +551,14 @@ pub(crate) fn layout(
 
     // Append the customary end-of-output newline only when no suppressor
     // fires: not already at line start, not directly after an exact-replay
-    // verbatim tail (scala), and not after a hard-line-break marker
+    // verbatim tail (scala), not on a top-level free-text repeat that admits a
+    // bare newline (liquid `{% endcomment %}` must not gain a trailing
+    // `template_content`), and not after a hard-line-break marker
     // (markdown_inline). Each suppressor guards against the appended newline
     // manufacturing a phantom node on re-parse.
     if !at_line_start
         && !last_content_was_verbatim
+        && !top_level_text_admits_newline
         && !ends_with_trailing_break_marker(
             &bytes,
             trailing_break_markers,
