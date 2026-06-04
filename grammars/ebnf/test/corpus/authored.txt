@@ -1,0 +1,80 @@
+==================
+simple rule
+==================
+
+digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
+
+----
+
+(syntax)
+
+==================
+concatenation
+==================
+
+letter = "a" , "b" , "c" ;
+
+----
+
+(syntax)
+
+==================
+identifier reference
+==================
+
+number = digit , { digit } ;
+
+----
+
+(syntax)
+
+==================
+optional and repetition
+==================
+
+integer = [ "-" ] , digit , { digit } ;
+
+----
+
+(syntax)
+
+==================
+grouping
+==================
+
+term = ( factor , "*" , factor ) | factor ;
+
+----
+
+(syntax)
+
+==================
+multiple rules
+==================
+
+vowel = "a" | "e" | "i" | "o" | "u" ;
+consonant = "b" | "c" | "d" ;
+
+----
+
+(syntax)
+
+==================
+special sequence
+==================
+
+character = ? any printable character ? ;
+
+----
+
+(syntax)
+
+==================
+nested grouping with repetition
+==================
+
+list = "[" , [ element , { "," , element } ] , "]" ;
+
+----
+
+(syntax)

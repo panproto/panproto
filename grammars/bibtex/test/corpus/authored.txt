@@ -1,0 +1,108 @@
+==================
+article entry
+==================
+
+@article{smith2020,
+  author = {John Smith},
+  title = {A Great Paper},
+  journal = {Journal of Things},
+  year = {2020}
+}
+
+----
+
+(document)
+
+==================
+book entry
+==================
+
+@book{knuth1984,
+  author = {Donald E. Knuth},
+  title = {The TeXbook},
+  publisher = {Addison-Wesley},
+  year = {1984}
+}
+
+----
+
+(document)
+
+==================
+inproceedings entry
+==================
+
+@inproceedings{doe2019,
+  author = {Jane Doe and Bob Roe},
+  title = {On Conferences},
+  booktitle = {Proceedings of FOO},
+  pages = {1--10},
+  year = {2019}
+}
+
+----
+
+(document)
+
+==================
+quoted value
+==================
+
+@misc{web1,
+  title = "An Online Resource",
+  howpublished = "Available online"
+}
+
+----
+
+(document)
+
+==================
+numeric value
+==================
+
+@article{ref2,
+  title = {Numbers},
+  volume = 42,
+  year = 2021
+}
+
+----
+
+(document)
+
+==================
+string definition
+==================
+
+@string{ieee = {IEEE Transactions}}
+
+----
+
+(document)
+
+==================
+preamble
+==================
+
+@preamble{ "\newcommand{\noop}[1]{}" }
+
+----
+
+(document)
+
+==================
+multiple entries
+==================
+
+@article{a1,
+  title = {First}
+}
+
+@book{b1,
+  title = {Second}
+}
+
+----
+
+(document)

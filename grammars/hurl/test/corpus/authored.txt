@@ -1,0 +1,123 @@
+==================
+simple GET
+==================
+
+GET https://example.org/api
+
+----
+
+(hurl_file)
+
+==================
+GET with response status
+==================
+
+GET https://example.org/health
+HTTP 200
+
+----
+
+(hurl_file)
+
+==================
+request with headers
+==================
+
+GET https://example.org/api
+User-Agent: hurl/1.0
+Accept: application/json
+
+----
+
+(hurl_file)
+
+==================
+POST with json body
+==================
+
+POST https://example.org/users
+Content-Type: application/json
+{
+  "name": "Alice",
+  "age": 30
+}
+
+----
+
+(hurl_file)
+
+==================
+captures section
+==================
+
+GET https://example.org/login
+HTTP 200
+[Captures]
+token: header "X-Token"
+
+----
+
+(hurl_file)
+
+==================
+asserts section
+==================
+
+GET https://example.org/api
+HTTP 200
+[Asserts]
+jsonpath "$.count" == 5
+
+----
+
+(hurl_file)
+
+==================
+query string params
+==================
+
+GET https://example.org/search
+[QueryStringParams]
+q: hurl
+page: 1
+
+----
+
+(hurl_file)
+
+==================
+form params
+==================
+
+POST https://example.org/form
+[FormParams]
+name: bob
+email: bob@example.org
+
+----
+
+(hurl_file)
+
+==================
+options section
+==================
+
+GET https://example.org/api
+[Options]
+retry: 3
+insecure: true
+
+----
+
+(hurl_file)
+
+==================
+comment
+==================
+
+# fetch the homepage
+GET https://example.org/
+
+----
+
+(hurl_file)

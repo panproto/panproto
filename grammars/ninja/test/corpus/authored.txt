@@ -1,0 +1,104 @@
+==================
+variable binding
+==================
+
+cflags = -Wall -O2
+
+----
+
+(manifest)
+
+==================
+rule definition
+==================
+
+rule cc
+  command = gcc $cflags -c $in -o $out
+  description = CC $out
+
+----
+
+(manifest)
+
+==================
+build statement
+==================
+
+build foo.o: cc foo.c
+
+----
+
+(manifest)
+
+==================
+build with multiple inputs
+==================
+
+build app: link foo.o bar.o baz.o
+
+----
+
+(manifest)
+
+==================
+build with implicit deps
+==================
+
+build out.o: cc in.c | header.h
+
+----
+
+(manifest)
+
+==================
+build with order only deps
+==================
+
+build out.o: cc in.c || gen.h
+
+----
+
+(manifest)
+
+==================
+pool declaration
+==================
+
+pool link_pool
+  depth = 4
+
+----
+
+(manifest)
+
+==================
+default targets
+==================
+
+default app
+
+----
+
+(manifest)
+
+==================
+include and subninja
+==================
+
+include rules.ninja
+subninja sub/build.ninja
+
+----
+
+(manifest)
+
+==================
+scoped variable in build
+==================
+
+build special.o: cc special.c
+  cflags = -O0 -g
+
+----
+
+(manifest)

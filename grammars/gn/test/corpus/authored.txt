@@ -1,0 +1,112 @@
+==================
+string assignment
+==================
+
+target_name = "hello"
+
+----
+
+(source_file)
+
+==================
+list assignment
+==================
+
+sources = [
+  "main.cc",
+  "util.cc",
+]
+
+----
+
+(source_file)
+
+==================
+boolean and integer
+==================
+
+is_debug = true
+opt_level = 2
+
+----
+
+(source_file)
+
+==================
+target call with block
+==================
+
+executable("hello") {
+  sources = [ "hello.cc" ]
+}
+
+----
+
+(source_file)
+
+==================
+import statement
+==================
+
+import("//build/config/features.gni")
+
+----
+
+(source_file)
+
+==================
+if statement
+==================
+
+if (is_debug) {
+  defines = [ "DEBUG" ]
+} else {
+  defines = [ "NDEBUG" ]
+}
+
+----
+
+(source_file)
+
+==================
+list append
+==================
+
+deps = []
+deps += [ "//base" ]
+
+----
+
+(source_file)
+
+==================
+scope access
+==================
+
+config_name = invoker.config
+
+----
+
+(source_file)
+
+==================
+foreach loop
+==================
+
+foreach(file, sources) {
+  print(file)
+}
+
+----
+
+(source_file)
+
+==================
+string expansion
+==================
+
+output = "$root_out_dir/bin"
+
+----
+
+(source_file)

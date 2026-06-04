@@ -1,0 +1,120 @@
+==================
+bool config
+==================
+
+config NETWORK
+	bool "Enable networking"
+
+----
+
+(configuration)
+
+==================
+config with default and depends
+==================
+
+config SMP
+	bool "Symmetric multiprocessing"
+	default n
+	depends on ARCH_SUPPORTS_SMP
+
+----
+
+(configuration)
+
+==================
+tristate config
+==================
+
+config MODULE_FOO
+	tristate "Foo driver"
+	default m
+
+----
+
+(configuration)
+
+==================
+int config with range
+==================
+
+config LOG_BUF_SHIFT
+	int "Kernel log buffer size"
+	range 12 25
+	default 17
+
+----
+
+(configuration)
+
+==================
+string config
+==================
+
+config DEFAULT_HOSTNAME
+	string "Default hostname"
+	default "(none)"
+
+----
+
+(configuration)
+
+==================
+mainmenu
+==================
+
+mainmenu "Linux Kernel Configuration"
+
+----
+
+(configuration)
+
+==================
+menu block
+==================
+
+menu "General setup"
+
+config LOCALVERSION
+	string "Local version"
+
+endmenu
+
+----
+
+(configuration)
+
+==================
+select reverse dependency
+==================
+
+config CRYPTO_AES
+	tristate "AES cipher"
+	select CRYPTO_ALGAPI
+
+----
+
+(configuration)
+
+==================
+config with help text
+==================
+
+config DEBUG_KERNEL
+	bool "Kernel debugging"
+	help
+	  Say Y here if you want to enable kernel debugging features.
+
+----
+
+(configuration)
+
+==================
+source directive
+==================
+
+source "drivers/net/Kconfig"
+
+----
+
+(configuration)
