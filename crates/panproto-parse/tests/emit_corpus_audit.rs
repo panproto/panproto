@@ -184,6 +184,64 @@ fn audit(protocol: &str) -> Tally {
     t
 }
 
+/// Gold-standard byte-faithfulness check (`PP_SF=lang1,lang2`): for every
+/// cleanly-parsing corpus entry, assert `emit(parse(src)) == src` (modulo a
+/// single trailing newline the corpus harness may add). This is STRICTER than
+/// [`audit`], which only checks an emit fixed point + AST multiset and so
+/// passes a grammar that silently drops content living in untracked
+/// text / anonymous tokens (the todotxt / wolfram degenerate class). Used to
+/// vet byte-FP-harvest promotions before they enter `CORPUS_VERIFIED`.
+#[test]
+fn corpus_source_faithful_report() {
+    let Ok(langs) = std::env::var("PP_SF") else {
+        return;
+    };
+    let reg = ParserRegistry::new();
+    for proto in langs.split(',').filter(|s| !s.is_empty()) {
+        let file = format!("sample.{proto}");
+        let (mut total, mut faithful, mut firstbad) = (0usize, 0usize, None);
+        for (name, src) in corpus_sources(proto) {
+            let bytes = src.as_bytes();
+            let Ok(s1) = reg.parse_with_protocol(proto, bytes, &file) else {
+                continue;
+            };
+            let has_error = s1.vertices.values().any(|v| {
+                matches!(v.kind.as_ref(), "ERROR" | "MISSING") || v.kind.as_ref().contains("ERROR")
+            });
+            if s1.vertices.is_empty() || has_error {
+                continue;
+            }
+            total += 1;
+            let Ok(e1) = reg.emit_pretty_with_protocol(proto, &s1) else {
+                if firstbad.is_none() {
+                    firstbad = Some((name.clone(), "EMIT-ERR".to_string()));
+                }
+                continue;
+            };
+            // Compare modulo a single trailing newline on either side.
+            let trim = |b: &[u8]| -> Vec<u8> {
+                let mut v = b.to_vec();
+                if v.last() == Some(&b'\n') {
+                    v.pop();
+                }
+                v
+            };
+            if trim(&e1) == trim(bytes) {
+                faithful += 1;
+            } else if firstbad.is_none() {
+                let s: String = String::from_utf8_lossy(&e1).chars().take(80).collect();
+                firstbad = Some((name.clone(), format!("emit={s:?}")));
+            }
+        }
+        let verdict = if total > 0 && faithful == total {
+            "SOURCE-FAITHFUL"
+        } else {
+            "DEGENERATE/PARTIAL"
+        };
+        println!("PP_SF {proto}: {faithful}/{total} source-faithful [{verdict}] first-bad={firstbad:?}");
+    }
+}
+
 /// The **strip-complement** structural audit: the verification bar for
 /// the *canonical section* (the transpilation path).
 ///
