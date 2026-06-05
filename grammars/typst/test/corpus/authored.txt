@@ -1,0 +1,101 @@
+==================
+headings
+==================
+= Introduction
+
+== Background
+---
+(source_file)
+
+==================
+paragraph text
+==================
+This is a paragraph of plain text that spans
+a couple of lines in the source.
+---
+(source_file)
+
+==================
+emphasis
+==================
+This is *strong* and this is _emphasized_ text.
+---
+(source_file)
+
+==================
+bullet list
+==================
+- first item
+- second item
+- third item
+---
+(source_file)
+
+==================
+numbered list
+==================
++ alpha
++ beta
++ gamma
+---
+(source_file)
+
+==================
+inline raw
+==================
+Call the `print` function to write output.
+---
+(source_file)
+
+==================
+raw block
+==================
+```rust
+let x = 1;
+```
+---
+(source_file)
+
+==================
+inline math
+==================
+The identity $a^2 + b^2$ holds here.
+---
+(source_file)
+
+==================
+let binding
+==================
+#let count = 5
+---
+(source_file)
+
+==================
+set rule
+==================
+#set text(size: 12pt)
+---
+(source_file)
+
+==================
+function call markup
+==================
+#emph[emphasized content]
+---
+(source_file)
+
+==================
+line comment
+==================
+// a leading comment
+Visible text follows.
+---
+(source_file)
+
+==================
+block comment
+==================
+/* a block comment */
+More visible text.
+---
+(source_file)

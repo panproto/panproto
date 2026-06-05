@@ -700,6 +700,7 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "turtle",
     "twig",
     "typescript",
+    "typst",
     "udev",
     "ungrammar",
     "uxntal",

@@ -890,6 +890,7 @@ const CORPUS_VERIFIED: &[&str] = &[
     "turtle",
     "twig",
     "typescript",
+    "typst",
     "udev",
     "ungrammar",
     "uxntal",
