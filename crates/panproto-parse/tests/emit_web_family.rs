@@ -82,17 +82,15 @@ fn css_emit_is_fixed_point() {
 
 #[test]
 #[cfg(feature = "lang-scss")]
-#[ignore = "class-selector `.box` re-emits reordered as `box .`; selector dispatch defect"]
 fn scss_emit_is_fixed_point() {
     assert_emit_fixed_point("scss", "scss", b"$c: red;\n.box {\n  color: $c;\n}\n");
 }
 
-#[test]
-#[cfg(feature = "lang-less")]
-#[ignore = "sample/parse defect under current less grammar"]
-fn less_emit_is_fixed_point() {
-    assert_emit_fixed_point("less", "less", b"@c: red;\n.box {\n  color: @c;\n}\n");
-}
+// NOTE: `less` has no fixed-point test. The vendored tree-sitter-less
+// grammar is ABI-stale (language version 11; the loader requires 13–15),
+// so `set_language` fails before any emit logic runs. Until the grammar
+// is regenerated against a current tree-sitter ABI there is nothing to
+// assert, so no perpetually-ignored placeholder is kept here.
 
 #[test]
 #[cfg(feature = "lang-vue")]
@@ -112,14 +110,12 @@ fn svelte_emit_is_fixed_point() {
 
 #[test]
 #[cfg(feature = "lang-astro")]
-#[ignore = "frontmatter `---` fence spacing defect"]
 fn astro_emit_is_fixed_point() {
     assert_emit_fixed_point("astro", "astro", b"---\nconst x = 1;\n---\n<p>Hi</p>\n");
 }
 
 #[test]
 #[cfg(feature = "lang-tsx")]
-#[ignore = "JSX element re-emits with broken spacing (< div className = ...); JSX spacing defect"]
 fn tsx_emit_is_fixed_point() {
     assert_emit_fixed_point(
         "tsx",

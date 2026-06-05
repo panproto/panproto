@@ -1,7 +1,6 @@
 //! Coverage (M3 systems, M4 functional, M5 data, M6 markup): assert the
-//! emit fixed-point law on idiomatic source. Passing protocols are
-//! promoted to `VERIFIED_EMIT_PROTOCOLS`; protocols with a remaining
-//! emit defect are marked `#[ignore]` with the observed symptom.
+//! emit fixed-point law on idiomatic source. Every protocol here is now
+//! emit-verified (no remaining `#[ignore]`d defect cases).
 
 // Every test gates on a systems / functional / data / markup grammar,
 // none of which is in the workspace-default `group-core`. Gate the whole
@@ -117,14 +116,12 @@ fn hcl_emit_is_fixed_point() {
 
 #[test]
 #[cfg(feature = "lang-kdl")]
-#[ignore = "slashdash /- comment marker leaks into node args"]
 fn kdl_emit_is_fixed_point() {
     assert_emit_fixed_point("kdl", "kdl", b"node 1 2\n");
 }
 
 #[test]
 #[cfg(feature = "lang-ron")]
-#[ignore = "`(...)` struct wrapper lost; re-emit empty"]
 fn ron_emit_is_fixed_point() {
     assert_emit_fixed_point("ron", "ron", b"(\n    a: 1,\n)\n");
 }
@@ -208,14 +205,12 @@ fn elm_emit_is_fixed_point() {
 
 #[test]
 #[cfg(feature = "lang-purescript")]
-#[ignore = "type signature `x :: Int` re-emits as `x :: ;` (annotation dropped)"]
 fn purescript_emit_is_fixed_point() {
     assert_emit_fixed_point("purescript", "purs", b"module M where\n\nx :: Int\nx = 1\n");
 }
 
 #[test]
 #[cfg(feature = "lang-lean")]
-#[ignore = "`def x : Nat := 1` re-emits as `def x Nat:1` (`:`/`:=` mangled)"]
 fn lean_emit_is_fixed_point() {
     assert_emit_fixed_point("lean", "lean", b"def x : Nat := 1\n");
 }
@@ -229,7 +224,6 @@ fn markdown_emit_is_fixed_point() {
 
 #[test]
 #[cfg(feature = "lang-typst")]
-#[ignore = "markup close marker `]` leaks into emitted content"]
 fn typst_emit_is_fixed_point() {
     assert_emit_fixed_point("typst", "typ", b"= Heading\n\nText.\n");
 }

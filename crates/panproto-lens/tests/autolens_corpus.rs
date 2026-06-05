@@ -526,8 +526,13 @@ fn expectation(case: &CorpusCase, tier: Stringency) -> Option<ExpectedOutcome> {
 // -----------------------------------------------------------------------
 
 #[test]
-#[ignore = "diagnostic utility: run with --ignored when debugging corpus scores"]
 fn dump_all_qualities() {
+    // Diagnostic utility: set `PP_DUMP_CORPUS_QUALITIES=1` to print the per-case
+    // quality scores. The default `cargo test` run is an early-return no-op so
+    // there is no `#[ignore]` masking it.
+    let Ok(_) = std::env::var("PP_DUMP_CORPUS_QUALITIES") else {
+        return;
+    };
     let cases = all_cases();
     for case in &cases {
         for tier in [
