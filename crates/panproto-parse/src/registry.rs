@@ -716,6 +716,7 @@ const VERIFIED_EMIT_PROTOCOLS: &[&str] = &[
     "wit",
     "xcompose",
     "xml",
+    "yaml",
     "yuck",
     "zig",
     "zsh",

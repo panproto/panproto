@@ -264,6 +264,16 @@ pub struct Grammar {
     /// original insertion order.
     #[serde(skip)]
     pub start_symbol: String,
+    /// Cached least-fixpoint of the per-hidden-rule minimum mandated child
+    /// count (see `rule_min_required_children`). The table depends only on the
+    /// grammar, so it is resolved once on first use and reused: recomputing the
+    /// whole-grammar fixpoint on every emit-dispatch decision was an O(rules)
+    /// tax per decision, and on yaml (202 rules in one mutually-recursive SCC)
+    /// it dominated emit time. `OnceLock` gives interior-mutability caching
+    /// behind `&Grammar`; `#[serde(skip)]` leaves it empty on deserialize so it
+    /// fills lazily regardless of construction path.
+    #[serde(skip)]
+    pub(crate) min_children: std::sync::OnceLock<std::collections::HashMap<String, usize>>,
     /// Map from rule name (a vertex kind on the schema side) to
     /// production. Entries are kept in lexical order so iteration
     /// is deterministic.

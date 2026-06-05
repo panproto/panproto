@@ -200,31 +200,36 @@ fn rule_min_required_children(grammar: &Grammar, rule: &Production) -> usize {
             _ => 0,
         }
     }
-    // Resolve the hidden-rule fixpoint over the whole grammar once per call;
-    // the maps are small relative to the (memoized) emit walk.
-    let mut min: std::collections::HashMap<String, usize> = grammar
-        .rules
-        .keys()
-        .filter(|k| k.starts_with('_'))
-        .map(|k| (k.clone(), 0usize))
-        .collect();
-    loop {
-        let mut changed = false;
-        for (name, body) in &grammar.rules {
-            if !name.starts_with('_') {
-                continue;
+    // Resolve the hidden-rule fixpoint over the whole grammar ONCE and cache it
+    // on the grammar (it is a pure function of the grammar). Recomputing it on
+    // every emit-dispatch call was an O(rules) tax per decision and made yaml's
+    // 202-rule SCC grammar intractably slow.
+    let min = grammar.min_children.get_or_init(|| {
+        let mut min: std::collections::HashMap<String, usize> = grammar
+            .rules
+            .keys()
+            .filter(|k| k.starts_with('_'))
+            .map(|k| (k.clone(), 0usize))
+            .collect();
+        loop {
+            let mut changed = false;
+            for (name, body) in &grammar.rules {
+                if !name.starts_with('_') {
+                    continue;
+                }
+                let v = eval(grammar, body, &min);
+                if min.get(name) != Some(&v) {
+                    min.insert(name.clone(), v);
+                    changed = true;
+                }
             }
-            let v = eval(grammar, body, &min);
-            if min.get(name) != Some(&v) {
-                min.insert(name.clone(), v);
-                changed = true;
+            if !changed {
+                break;
             }
         }
-        if !changed {
-            break;
-        }
-    }
-    eval(grammar, rule, &min)
+        min
+    });
+    eval(grammar, rule, min)
 }
 
 /// Whether a named-ALIAS `content` can genuinely place the children of a

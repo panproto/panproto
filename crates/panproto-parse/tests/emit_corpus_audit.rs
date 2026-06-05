@@ -906,6 +906,7 @@ const CORPUS_VERIFIED: &[&str] = &[
     "wit",
     "xcompose",
     "xml",
+    "yaml",
     "yuck",
     "zig",
     "zsh",
