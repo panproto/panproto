@@ -1,0 +1,15 @@
+====================
+inline comments (#1)
+====================
+
+numpy==1.0 # comment
+
+---
+
+(file
+  (requirement
+    (package)
+    (version_spec
+      (version_cmp)
+      (version)))
+    (comment))

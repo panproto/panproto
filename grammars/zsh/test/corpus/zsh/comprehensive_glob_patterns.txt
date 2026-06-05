@@ -1,0 +1,299 @@
+================================================================================
+Zsh glob - qualifiers for file types
+================================================================================
+
+echo *(.)
+echo *(/)
+echo *(*)
+echo *(@)
+echo *(=)
+echo *(%)
+
+---
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (glob_pattern
+      qualifier: (zsh_glob_qualifier)))
+  (command
+    name: (command_name
+      (word))
+    argument: (glob_pattern
+      qualifier: (zsh_glob_qualifier)))
+  (command
+    name: (command_name
+      (word))
+    argument: (glob_pattern
+      qualifier: (zsh_glob_qualifier)))
+  (command
+    name: (command_name
+      (word))
+    argument: (glob_pattern
+      qualifier: (zsh_glob_qualifier)))
+  (command
+    name: (command_name
+      (word))
+    argument: (glob_pattern
+      qualifier: (zsh_glob_qualifier)))
+  (command
+    name: (command_name
+      (word))
+    argument: (glob_pattern
+      qualifier: (zsh_glob_qualifier))))
+
+================================================================================
+Zsh glob - size qualifiers
+================================================================================
+
+echo *(Lk+100)
+echo *(Lm-1)
+echo *(Lg2)
+
+---
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (glob_pattern
+      qualifier: (zsh_glob_qualifier)))
+  (command
+    name: (command_name
+      (word))
+    argument: (glob_pattern
+      qualifier: (zsh_glob_qualifier)))
+  (command
+    name: (command_name
+      (word))
+    argument: (glob_pattern
+      qualifier: (zsh_glob_qualifier))))
+
+================================================================================
+Zsh glob - time qualifiers
+================================================================================
+
+echo *(mh-1)
+echo *(mm+30)
+echo *(ms-3600)
+echo *(cD-1)
+
+---
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (glob_pattern
+      qualifier: (zsh_glob_qualifier)))
+  (command
+    name: (command_name
+      (word))
+    argument: (glob_pattern
+      qualifier: (zsh_glob_qualifier)))
+  (command
+    name: (command_name
+      (word))
+    argument: (glob_pattern
+      qualifier: (zsh_glob_qualifier)))
+  (command
+    name: (command_name
+      (word))
+    argument: (glob_pattern
+      qualifier: (zsh_glob_qualifier))))
+
+================================================================================
+Zsh glob - sorting qualifiers
+================================================================================
+
+echo *(om)
+echo *(On)
+echo *(oL)
+echo *(oc)
+
+---
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (glob_pattern
+      qualifier: (zsh_glob_qualifier)))
+  (command
+    name: (command_name
+      (word))
+    argument: (glob_pattern
+      qualifier: (zsh_glob_qualifier)))
+  (command
+    name: (command_name
+      (word))
+    argument: (glob_pattern
+      qualifier: (zsh_glob_qualifier)))
+  (command
+    name: (command_name
+      (word))
+    argument: (glob_pattern
+      qualifier: (zsh_glob_qualifier))))
+
+================================================================================
+Zsh glob - approximate matching
+================================================================================
+
+echo (#a1)approx*
+echo (#a2)fuzzy*
+echo (#a3)vague*
+
+---
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (glob_pattern
+      flags: (zsh_extended_glob_flags)))
+  (command
+    name: (command_name
+      (word))
+    argument: (glob_pattern
+      flags: (zsh_extended_glob_flags)))
+  (command
+    name: (command_name
+      (word))
+    argument: (glob_pattern
+      flags: (zsh_extended_glob_flags))))
+
+================================================================================
+Zsh glob - combined flags and qualifiers
+================================================================================
+
+echo (#i)*.txt(.)
+echo (#q)test*(N)
+echo (#l)FILE*(.om)
+
+---
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (glob_pattern
+      flags: (zsh_extended_glob_flags)
+      qualifier: (zsh_glob_qualifier)))
+  (command
+    name: (command_name
+      (word))
+    argument: (glob_pattern
+      flags: (zsh_extended_glob_flags)
+      qualifier: (zsh_glob_qualifier)))
+  (command
+    name: (command_name
+      (word))
+    argument: (glob_pattern
+      flags: (zsh_extended_glob_flags)
+      qualifier: (zsh_glob_qualifier))))
+
+================================================================================
+Zsh glob - in conditional expressions
+================================================================================
+
+[[ $file == *.txt ]]
+[[ $name != (#i)*.TMP ]]
+[[ -f *.log(.) ]]
+
+---
+
+(program
+  (test_command
+    (binary_expression
+      left: (variable_ref
+        (simple_variable_name))
+      right: (glob_pattern)))
+  (test_command
+    (binary_expression
+      left: (variable_ref
+        (simple_variable_name))
+      right: (glob_pattern
+        flags: (zsh_extended_glob_flags))))
+  (test_command
+    (unary_expression
+      operator: (test_operator)
+      (glob_pattern
+        qualifier: (zsh_glob_qualifier)))))
+
+================================================================================
+Zsh glob - modifiers
+================================================================================
+
+echo *.txt(:r)
+echo *.tar.gz(:r:r)  
+echo /path/file(:h)
+echo /path/file(:t)
+
+---
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (glob_pattern
+      modifier: (zsh_glob_modifier)))
+  (command
+    name: (command_name
+      (word))
+    argument: (glob_pattern
+      modifier: (zsh_glob_modifier)))
+  (command
+    name: (command_name
+      (word))
+    argument: (glob_pattern
+      pattern: (word)
+      modifier: (zsh_glob_modifier)))
+  (command
+    name: (command_name
+      (word))
+    argument: (glob_pattern
+      pattern: (word)
+      modifier: (zsh_glob_modifier))))
+
+================================================================================
+Zsh glob - complex real-world patterns
+================================================================================
+
+find . -name "*.c" -o -name "*.h" | grep -v test
+ls **/*.py(mh-24.L+1k)
+echo ${files[@]:#*.tmp}
+
+---
+
+(program
+  (pipeline
+    (command
+      name: (command_name
+        (word))
+      argument: (word)
+      argument: (word)
+      argument: (string
+        (string_content))
+      argument: (word)
+      argument: (word)
+      argument: (string
+        (string_content)))
+    (command
+      name: (command_name
+        (word))
+      argument: (word)
+      argument: (word)))
+  (command
+    name: (command_name
+      (word))
+    argument: (glob_pattern
+      qualifier: (zsh_glob_qualifier)))
+  (command
+    name: (command_name
+      (word))
+    argument: (expansion
+      (expansion_pattern
+        name: (simple_variable_name)
+        index: (array_at)
+        pattern: (regex)))))

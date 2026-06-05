@@ -1,0 +1,76 @@
+==================
+Built-in Functions String
+==================
+
+codeunit 50100 "Built-in Functions Test"
+{
+    local procedure TestStringFunctions()
+    var
+        Str: Text;
+        Len: Integer;
+    begin
+        Len := STRLEN('Test');
+        Str := CopyStr('Hello World', 1, 5);
+        Str := LowerCase('HELLO');
+        Str := UpperCase('hello');
+        Str := Format(42);
+    end;
+}
+
+---
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (quoted_identifier)
+    (procedure
+      (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (text_type)))
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          (identifier)
+          (call_expression
+            (identifier)
+            (argument_list
+              (string_literal))))
+        (assignment_statement
+          (identifier)
+          (call_expression
+            (identifier)
+            (argument_list
+              (string_literal)
+              (integer)
+              (integer))))
+        (assignment_statement
+          (identifier)
+          (call_expression
+            (identifier)
+            (argument_list
+              (string_literal))))
+        (assignment_statement
+          (identifier)
+          (call_expression
+            (identifier)
+            (argument_list
+              (string_literal))))
+        (assignment_statement
+          (identifier)
+          (call_expression
+            (identifier)
+            (argument_list
+              (integer))))
+        (end_keyword)))))

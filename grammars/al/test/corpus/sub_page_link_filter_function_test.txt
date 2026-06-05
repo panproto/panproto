@@ -1,0 +1,129 @@
+================================================================================
+SubPageLink property with FILTER function support
+================================================================================
+
+page 12345 "Test Page"
+{
+    layout
+    {
+        area(content)
+        {
+            part("Document Comments"; "CDC Document Delegate Comments")
+            {
+                ApplicationArea = All;
+                Caption = 'Document Comments';
+                SubPageLink = "Table ID" = FILTER(6085590),
+                              "No." = FIELD("No.");
+            }
+            part(SimpleFilter; "Simple Part")
+            {
+                ApplicationArea = All;
+                SubPageLink = "ID" = FILTER(123);
+            }
+            part(MixedCases; "Mixed Cases Part")
+            {
+                ApplicationArea = All;
+                SubPageLink = "Field1" = filter(456),
+                              "Field2" = FIELD("Related Field"),
+                              "Field3" = CONST('FixedValue');
+            }
+            part(StringFilter; "String Filter Part")
+            {
+                ApplicationArea = All;
+                SubPageLink = "Type" = FILTER('Document'),
+                              "Status" = filter("Active");
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (part_section
+          (part_keyword)
+          name: (quoted_identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (quoted_identifier)
+                (filter_keyword)
+                value: (filter_value
+                  (integer)))
+              (link_value
+                field: (quoted_identifier)
+                value: (quoted_identifier)))))
+        (part_section
+          (part_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (property_expression
+              (comparison_expression
+                left: (quoted_identifier)
+                operator: (comparison_operator)
+                right: (call_expression
+                  function: (identifier)
+                  arguments: (argument_list
+                    (integer)))))))
+        (part_section
+          (part_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (quoted_identifier)
+                (filter_keyword)
+                value: (filter_value
+                  (integer)))
+              (link_value
+                field: (quoted_identifier)
+                value: (quoted_identifier))
+              (link_value
+                field: (quoted_identifier)
+                value: (string_literal)))))
+        (part_section
+          (part_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (quoted_identifier)
+                (filter_keyword)
+                value: (filter_value
+                  (string_literal)))
+              (link_value
+                field: (quoted_identifier)
+                (filter_keyword)
+                value: (filter_value
+                  (quoted_identifier))))))))))

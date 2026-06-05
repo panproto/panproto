@@ -1,0 +1,28 @@
+==================
+import command
+==================
+
+IMPORT github.com/earthly/lib/rust
+
+---
+
+    (source_file
+      base_target: (block
+        (import_command
+          (earthfile_ref))))
+
+
+==================
+import command alias
+==================
+
+IMPORT github.com/earthly/lib/rust AS rust
+
+---
+
+    (source_file
+      base_target: (block
+        (import_command
+          (earthfile_ref)
+          alias: (identifier))))
+

@@ -1,0 +1,210 @@
+================================================================================
+Fieldgroups with preprocessor conditionals
+================================================================================
+
+table 50000 "Test Table"
+{
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; "Creation Date"; Date) { }
+        field(3; SystemCreatedAt; DateTime) { }
+    }
+    
+    fieldgroups
+    {
+#if not CLEAN24
+        fieldgroup(DropDown; "No.", "Creation Date")
+        {
+        }
+#else
+        fieldgroup(DropDown; "No.", SystemCreatedAt)
+        {
+        }
+#endif
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (code_type
+            length: (integer))))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type)))
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (basic_type))))
+    (fieldgroups_section
+      (fieldgroups_keyword)
+      (preproc_conditional_fieldgroups
+        (preproc_if
+          (preproc_open)
+          condition: (preproc_not_expression
+            (identifier)))
+        (fieldgroup_declaration
+          (fieldgroup_keyword)
+          name: (identifier)
+          fields: (field_list
+            (quoted_identifier)
+            (quoted_identifier)))
+        (preproc_else)
+        (fieldgroup_declaration
+          (fieldgroup_keyword)
+          name: (identifier)
+          fields: (field_list
+            (quoted_identifier)
+            (identifier)))
+        (preproc_endif
+          (preproc_close))))))
+
+================================================================================
+Fieldgroups with nested preprocessor conditionals
+================================================================================
+
+table 50001 "Test Table 2"
+{
+    fieldgroups
+    {
+        fieldgroup(Brick; Field1, Field2)
+        {
+        }
+        
+#if CLEAN25
+        fieldgroup(DropDown; Field1, Field2)
+        {
+        }
+#else
+    #if CLEAN24
+        fieldgroup(DropDown; Field1)
+        {
+        }
+    #else
+        fieldgroup(DropDown; Field2)
+        {
+        }
+    #endif
+#endif
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fieldgroups_section
+      (fieldgroups_keyword)
+      (fieldgroup_declaration
+        (fieldgroup_keyword)
+        name: (identifier)
+        fields: (field_list
+          (identifier)
+          (identifier)))
+      (preproc_conditional_fieldgroups
+        (preproc_if
+          (preproc_open)
+          condition: (identifier))
+        (fieldgroup_declaration
+          (fieldgroup_keyword)
+          name: (identifier)
+          fields: (field_list
+            (identifier)
+            (identifier)))
+        (preproc_else)
+        (preproc_conditional_fieldgroups
+          (preproc_if
+            (preproc_open)
+            condition: (identifier))
+          (fieldgroup_declaration
+            (fieldgroup_keyword)
+            name: (identifier)
+            fields: (field_list
+              (identifier)))
+          (preproc_else)
+          (fieldgroup_declaration
+            (fieldgroup_keyword)
+            name: (identifier)
+            fields: (field_list
+              (identifier)))
+          (preproc_endif
+            (preproc_close)))
+        (preproc_endif
+          (preproc_close))))))
+
+================================================================================
+Fieldgroups with mixed content in preprocessor
+================================================================================
+
+table 50002 "Test Table 3"
+{
+    fieldgroups
+    {
+        fieldgroup(Normal; Field1)
+        {
+        }
+        
+#if not CLEAN24
+        fieldgroup(DropDown; Field1, Field2)
+        {
+            Caption = 'Old DropDown';
+        }
+        fieldgroup(Brick; Field1)
+        {
+        }
+#endif
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fieldgroups_section
+      (fieldgroups_keyword)
+      (fieldgroup_declaration
+        (fieldgroup_keyword)
+        name: (identifier)
+        fields: (field_list
+          (identifier)))
+      (preproc_conditional_fieldgroups
+        (preproc_if
+          (preproc_open)
+          condition: (preproc_not_expression
+            (identifier)))
+        (fieldgroup_declaration
+          (fieldgroup_keyword)
+          name: (identifier)
+          fields: (field_list
+            (identifier)
+            (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal)))
+        (fieldgroup_declaration
+          (fieldgroup_keyword)
+          name: (identifier)
+          fields: (field_list
+            (identifier)))
+        (preproc_endif
+          (preproc_close))))))

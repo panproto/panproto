@@ -1,0 +1,36 @@
+===
+errors/mappingTypeCheckError4.pkl
+===
+
+num = 1
+
+res: Mapping<String, String> = new {
+  [num] = "foo"
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (intLiteralExpr))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))))
+    (newExpr
+      (objectBody
+        (objectEntry
+          (unqualifiedAccessExpr
+            (identifier))
+          (slStringLiteralExpr
+            (slStringLiteralPart)))))))

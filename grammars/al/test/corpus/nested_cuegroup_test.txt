@@ -1,0 +1,291 @@
+================================================================================
+Nested cuegroup in page
+================================================================================
+
+page 6127 "E-Document Activities"
+{
+    PageType = CardPart;
+    RefreshOnActivate = true;
+
+    layout
+    {
+        area(Content)
+        {
+            cuegroup("EDocument Activities")
+            {
+                ShowCaption = false;
+                cuegroup("OutgoingEDocument")
+                {
+                    Caption = 'Outgoing E-Document';
+
+                    field(OutgoingEDocumentProcessedCount; OutgoingEDocumentProcessedCount)
+                    {
+                        ApplicationArea = Basic, Suite;
+                        Caption = 'Processed';
+                        ToolTip = 'Specifies the number of processed e-document';
+                    }
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (cuegroup_section
+          (cuegroup_keyword)
+          name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (boolean))
+          (cuegroup_section
+            (cuegroup_keyword)
+            name: (quoted_identifier)
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (page_field
+              name: (identifier)
+              source: (identifier)
+              (property
+                name: (property_name)
+                value: (option_member_list
+                  (option_member
+                    (identifier))
+                  (option_member
+                    (identifier))))
+              (property
+                name: (property_name)
+                value: (string_literal))
+              (property
+                name: (property_name)
+                value: (string_literal)))))))))
+
+================================================================================
+Multiple nested cuegroups
+================================================================================
+
+page 50100 "Dashboard"
+{
+    PageType = CardPart;
+
+    layout
+    {
+        area(Content)
+        {
+            cuegroup("Sales Activities")
+            {
+                Caption = 'Sales';
+                
+                cuegroup("Open Documents")
+                {
+                    Caption = 'Open';
+                    
+                    field(OpenQuotes; OpenQuotes)
+                    {
+                        ApplicationArea = All;
+                        Caption = 'Quotes';
+                    }
+                    
+                    field(OpenOrders; OpenOrders)
+                    {
+                        ApplicationArea = All;
+                        Caption = 'Orders';
+                    }
+                }
+                
+                cuegroup("Posted Documents")
+                {
+                    Caption = 'Posted';
+                    
+                    field(PostedInvoices; PostedInvoices)
+                    {
+                        ApplicationArea = All;
+                        Caption = 'Invoices';
+                    }
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (cuegroup_section
+          (cuegroup_keyword)
+          name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (cuegroup_section
+            (cuegroup_keyword)
+            name: (quoted_identifier)
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (page_field
+              name: (identifier)
+              source: (identifier)
+              (property
+                name: (property_name)
+                value: (identifier))
+              (property
+                name: (property_name)
+                value: (string_literal)))
+            (page_field
+              name: (identifier)
+              source: (identifier)
+              (property
+                name: (property_name)
+                value: (identifier))
+              (property
+                name: (property_name)
+                value: (string_literal))))
+          (cuegroup_section
+            (cuegroup_keyword)
+            name: (quoted_identifier)
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (page_field
+              name: (identifier)
+              source: (identifier)
+              (property
+                name: (property_name)
+                value: (identifier))
+              (property
+                name: (property_name)
+                value: (string_literal)))))))))
+
+================================================================================
+Cuegroup with properties and nested cuegroups
+================================================================================
+
+page 50101 "Activity Cues"
+{
+    PageType = CardPart;
+    SourceTable = "Activities Cue";
+
+    layout
+    {
+        area(Content)
+        {
+            cuegroup(Control1)
+            {
+                CuegroupLayout = Wide;
+                ShowCaption = false;
+                
+                cuegroup("Sales Group")
+                {
+                    Caption = 'Sales';
+                    
+                    field(SalesThis; Rec."Sales This Month")
+                    {
+                        ApplicationArea = Basic, Suite;
+                        DrillDownPageId = "Sales Invoice List";
+                        ToolTip = 'Specifies sales invoices this month';
+                    }
+                }
+                
+                field(OverdueSales; Rec."Overdue Sales Documents")
+                {
+                    ApplicationArea = Basic, Suite;
+                    ToolTip = 'Specifies overdue sales documents';
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (quoted_identifier))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (cuegroup_section
+          (cuegroup_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (boolean))
+          (cuegroup_section
+            (cuegroup_keyword)
+            name: (quoted_identifier)
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (page_field
+              name: (identifier)
+              source: (member_expression
+                object: (identifier)
+                member: (quoted_identifier))
+              (property
+                name: (property_name)
+                value: (option_member_list
+                  (option_member
+                    (identifier))
+                  (option_member
+                    (identifier))))
+              (property
+                name: (property_name)
+                value: (quoted_identifier))
+              (property
+                name: (property_name)
+                value: (string_literal))))
+          (page_field
+            name: (identifier)
+            source: (member_expression
+              object: (identifier)
+              member: (quoted_identifier))
+            (property
+              name: (property_name)
+              value: (option_member_list
+                (option_member
+                  (identifier))
+                (option_member
+                  (identifier))))
+            (property
+              name: (property_name)
+              value: (string_literal))))))))

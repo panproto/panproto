@@ -1,0 +1,185 @@
+==================================================
+redirects
+==================================================
+
+command >> output.txt
+
+----------
+
+(program
+  (redirected_statement
+    body: (command
+      name: (command_name
+        (word)))
+    redirect: (file_redirect
+      destination: (word))))
+
+==================================================
+pipelines
+==================================================
+
+cat file.txt | grep pattern | sort | uniq
+
+----------
+
+(program
+  (pipeline
+    (command
+      name: (command_name
+        (word))
+      argument: (word))
+    (command
+      name: (command_name
+        (word))
+      argument: (word))
+    (command
+      name: (command_name
+        (word)))
+    (command
+      name: (command_name
+        (word)))))
+
+==================================================
+sleep background
+==================================================
+
+sleep 10 &
+
+----------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (number)))
+
+==================================================
+background and disown (ksh style)
+==================================================
+
+sleep 10 &!
+
+----------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (number)))
+
+==================================================
+background and disown (zsh style)
+==================================================
+
+sleep 10 &|
+
+----------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (number)))
+
+==================================================
+foreground job
+==================================================
+
+fg %1
+
+----------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (word)))
+
+==================================================
+background job
+==================================================
+
+bg %2
+
+----------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (word)))
+
+==================================================
+escaped parentheses as word characters
+==================================================
+
+find . \( -name "*.zsh" \)
+
+----------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (word)
+    argument: (word)
+    argument: (word)
+    argument: (string
+      (string_content))
+    argument: (word)))
+
+==================================================
+escaped parentheses adjacent to word
+==================================================
+
+echo \(foo\)
+
+----------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (concatenation
+      (word)
+      (word))))
+
+==================================================
+file redirect with descriptor on continuation line
+==================================================
+
+echo foo \
+    2>/dev/null
+
+----------
+
+(program
+  (redirected_statement
+    body: (command
+      name: (command_name
+        (word))
+      argument: (word))
+    redirect: (file_redirect
+      descriptor: (file_descriptor)
+      destination: (word))))
+
+==================================================
+ansi_c_string in regex match expression
+==================================================
+
+[[ "$x" =~ "^foo"$'\t'"bar" ]]
+
+----------
+
+(program
+  (test_command
+    (binary_expression
+      left: (string
+        (variable_ref
+          (simple_variable_name)))
+      right: (concatenation
+        (string
+          (string_content))
+        (ansi_c_string)
+        (string
+          (string_content))))))

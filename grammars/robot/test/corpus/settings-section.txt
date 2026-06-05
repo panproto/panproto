@@ -1,0 +1,220 @@
+================================================================================
+Empty settings section
+================================================================================
+
+*** Settings ***
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (settings_section
+      (section_header))))
+
+================================================================================
+Simple, single line settings
+================================================================================
+
+*** Settings ***
+
+Library           mytestlibrary.MyTestLibrary   foo=bar
+Resource          ../common.resource
+Variables         ../data/variables.py
+Documentation     This is some documentation text
+Metadata          This is some metadata text    This is some more metadata text
+Suite Setup       My Test Suite Setup Keyword
+Suite Teardown    My Test Suite Teardown Keyword
+Force Tags        tag1  tag2
+Default Tags      tag3  tag4
+Test Setup        My Test Setup Keyword
+Test Teardown     My Test Teardown Keyword
+Test Template     My Test Template
+Test Timeout      2 minutes
+Task Setup        My Task Setup Keyword
+Task Teardown     My Task Teardown Keyword
+Task Template     My Task Template
+Task Timeout      5 minutes
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (settings_section
+      (section_header)
+      (setting_statement
+        (setting_name)
+        (arguments
+          (argument
+            (text_chunk))
+          (argument
+            (text_chunk))))
+      (setting_statement
+        (setting_name)
+        (arguments
+          (argument
+            (text_chunk))))
+      (setting_statement
+        (setting_name)
+        (arguments
+          (argument
+            (text_chunk))))
+      (setting_statement
+        (setting_name)
+        (arguments
+          (argument
+            (text_chunk))))
+      (setting_statement
+        (setting_name)
+        (arguments
+          (argument
+            (text_chunk))
+          (argument
+            (text_chunk))))
+      (setting_statement
+        (setting_name)
+        (arguments
+          (argument
+            (text_chunk))))
+      (setting_statement
+        (setting_name)
+        (arguments
+          (argument
+            (text_chunk))))
+      (setting_statement
+        (setting_name)
+        (arguments
+          (argument
+            (text_chunk))
+          (argument
+            (text_chunk))))
+      (setting_statement
+        (setting_name)
+        (arguments
+          (argument
+            (text_chunk))
+          (argument
+            (text_chunk))))
+      (setting_statement
+        (setting_name)
+        (arguments
+          (argument
+            (text_chunk))))
+      (setting_statement
+        (setting_name)
+        (arguments
+          (argument
+            (text_chunk))))
+      (setting_statement
+        (setting_name)
+        (arguments
+          (argument
+            (text_chunk))))
+      (setting_statement
+        (setting_name)
+        (arguments
+          (argument
+            (text_chunk))))
+      (setting_statement
+        (setting_name)
+        (arguments
+          (argument
+            (text_chunk))))
+      (setting_statement
+        (setting_name)
+        (arguments
+          (argument
+            (text_chunk))))
+      (setting_statement
+        (setting_name)
+        (arguments
+          (argument
+            (text_chunk))))
+      (setting_statement
+        (setting_name)
+        (arguments
+          (argument
+            (text_chunk)))))))
+
+================================================================================
+Settings with line continuations
+================================================================================
+
+*** Settings ***
+Library           mytestlibrary.MyTestLibrary
+...               foo=bar
+...               moo=meow
+Documentation     This is some documentation text
+...
+...               The text continues over multiple lines, since this
+...               is a very well documented Robot file
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (settings_section
+      (section_header)
+      (setting_statement
+        (setting_name)
+        (arguments
+          (argument
+            (text_chunk))
+          (continuation
+            (ellipses)
+            (argument
+              (text_chunk)))
+          (continuation
+            (ellipses)
+            (argument
+              (text_chunk)))))
+      (setting_statement
+        (setting_name)
+        (arguments
+          (argument
+            (text_chunk))
+          (continuation
+            (ellipses))
+          (continuation
+            (ellipses)
+            (argument
+              (text_chunk)))
+          (continuation
+            (ellipses)
+            (argument
+              (text_chunk))))))))
+
+================================================================================
+Settings with curly braces
+================================================================================
+
+*** Settings ***
+
+Documentation     {"title": "Test Suite", "version": "1.0"}
+Metadata          json_data    {"key": "value", "nested": {"a": 1}}
+Library           MyLibrary    config={"debug": true, "timeout": 30}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (settings_section
+      (section_header)
+      (setting_statement
+        (setting_name)
+        (arguments
+          (argument
+            (text_chunk))))
+      (setting_statement
+        (setting_name)
+        (arguments
+          (argument
+            (text_chunk))
+          (argument
+            (text_chunk))))
+      (setting_statement
+        (setting_name)
+        (arguments
+          (argument
+            (text_chunk))
+          (argument
+            (text_chunk)))))))

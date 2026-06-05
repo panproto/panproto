@@ -1,0 +1,98 @@
+================================================================================
+local variable
+================================================================================
+
+a_name
+anotherName
+garçon
+piñata
+|AnotherName|
+|A_notherName|
+|0|
+|Straße|
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (variable))
+  (fragment
+    (variable))
+  (fragment
+    (variable))
+  (fragment
+    (variable))
+  (fragment
+    (variable))
+  (fragment
+    (variable))
+  (fragment
+    (variable))
+  (fragment
+    (variable)))
+
+================================================================================
+dynamic variable
+================================================================================
+
+!terminal!
+sw:!terminal!
+!garçon!
+|!terminal!|
+|!terminal|!
+!|terminal|!
+!||!
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (dynamic_variable))
+  (fragment
+    (dynamic_variable))
+  (fragment
+    (dynamic_variable))
+  (fragment
+    (dynamic_variable))
+  (fragment
+    (dynamic_variable))
+  (fragment
+    (dynamic_variable))
+  (fragment
+    (dynamic_variable)))
+
+================================================================================
+global variable
+================================================================================
+
+sw:gis_program_manager
+sw:|gis_program_manager|
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (global_variable))
+  (fragment
+    (global_variable)))
+
+================================================================================
+global reference
+================================================================================
+
+@gis_program_manager
+@|gis_program_manager|
+@sw:gis_program_manager
+@sw:|gis_program_manager|
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (global_reference))
+  (fragment
+    (global_reference))
+  (fragment
+    (global_reference))
+  (fragment
+    (global_reference)))

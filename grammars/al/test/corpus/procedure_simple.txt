@@ -1,0 +1,83 @@
+==================
+Procedure Simple
+==================
+
+codeunit 50000 "AL Built-in Functions Test"
+{
+    procedure TestRecordMethods()
+    var
+        Customer: Record Customer;
+    begin
+        // Test SETRANGE
+        Customer.SETRANGE("No.", '10000', '20000');
+        Customer.SETRANGE(Name, 'A*');
+
+        if Customer.FINDSET then
+            repeat
+                // Do something with each record
+            until Customer.NEXT = 0;
+    end;
+
+    
+    var
+        ReportParameters: Text;
+}
+
+---
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (identifier)))))
+      (code_block
+        (begin_keyword)
+        (comment)
+        (call_expression
+          function: (member_expression
+            object: (identifier)
+            member: (identifier))
+          arguments: (argument_list
+            (quoted_identifier)
+            (string_literal)
+            (string_literal)))
+        (call_expression
+          function: (member_expression
+            object: (identifier)
+            member: (identifier))
+          arguments: (argument_list
+            (identifier)
+            (string_literal)))
+        (if_statement
+          (if_keyword)
+          condition: (member_expression
+            object: (identifier)
+            member: (identifier))
+          (then_keyword)
+          then_branch: (repeat_statement
+            (repeat_keyword)
+            (comment)
+            (until_keyword)
+            condition: (comparison_expression
+              left: (member_expression
+                object: (identifier)
+                member: (identifier))
+              operator: (comparison_operator)
+              right: (integer))))
+        (end_keyword)))
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (text_type))))))

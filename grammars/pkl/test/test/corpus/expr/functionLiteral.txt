@@ -1,0 +1,22 @@
+===
+functionLiteral
+===
+
+res1 = (bar: Int) -> bar + 5
+---
+
+(module
+  (classProperty
+    (identifier)
+    (functionLiteralExpr
+      (parameterList
+        (typedIdentifier
+          (identifier)
+          (typeAnnotation
+            (declaredType
+              (qualifiedIdentifier
+                (identifier))))))
+      (additiveExpr
+        (unqualifiedAccessExpr
+          (identifier))
+        (intLiteralExpr)))))

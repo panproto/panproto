@@ -1,0 +1,381 @@
+================================================================================
+one section
+================================================================================
+
+[a section title]
+foo = bar
+
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (section_name
+      (text))
+    (setting
+      (setting_name)
+      (setting_value))))
+
+================================================================================
+setting value may be null/empty #9
+================================================================================
+
+[section 1]
+setting 1 =
+setting 2 = x
+setting 3 =
+# comment
+setting 4 = y
+setting-5 =
+
+[section 2]
+
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (section_name
+      (text))
+    (setting
+      (setting_name))
+    (setting
+      (setting_name)
+      (setting_value))
+    (setting
+      (setting_name))
+    (comment
+      (text))
+    (setting
+      (setting_name)
+      (setting_value))
+    (setting
+      (setting_name)))
+  (section
+    (section_name
+      (text))))
+
+================================================================================
+weird key names
+================================================================================
+
+# key with whitespace https://github.com/justinmk/tree-sitter-ini/issues/11
+[fruit.Date]
+taste = novel
+Trademark Issues="truly unlikely"
+ignore all white space   =   my value
+ x   =    v
+
+--------------------------------------------------------------------------------
+
+(document
+  (comment
+    (text))
+  (section
+    (section_name
+      (text))
+    (setting
+      (setting_name)
+      (setting_value))
+    (setting
+      (setting_name)
+      (setting_value))
+    (setting
+      (setting_name)
+      (setting_value))
+    (setting
+      (setting_name)
+      (setting_value))))
+
+================================================================================
+many sections, some empty
+================================================================================
+
+# comment ...
+
+[a section title]
+  foo = bar
+[section 2]
+        foo    =      bar
+
+[section 3, which is empty]
+[section4]
+2f_a3-x =  not! an equals sign...
+foo = bar
+
+# Interesting note about duplicates in tree-sitter:
+
+# https://github.com/tree-sitter/tree-sitter/issues/130
+# foo
+
+
+--foo-- = bar
+``foo`` = bar
+
+
+# a straggler comment...
+
+
+# another
+
+--------------------------------------------------------------------------------
+
+(document
+  (comment
+    (text))
+  (section
+    (section_name
+      (text))
+    (setting
+      (setting_name)
+      (setting_value)))
+  (section
+    (section_name
+      (text))
+    (setting
+      (setting_name)
+      (setting_value)))
+  (section
+    (section_name
+      (text)))
+  (section
+    (section_name
+      (text))
+    (setting
+      (setting_name)
+      (setting_value))
+    (setting
+      (setting_name)
+      (setting_value))
+    (comment
+      (text))
+    (comment
+      (text))
+    (comment
+      (text))
+    (setting
+      (setting_name)
+      (setting_value))
+    (setting
+      (setting_name)
+      (setting_value)))
+  (comment
+    (text))
+  (comment
+    (text)))
+
+================================================================================
+only comments
+================================================================================
+#      
+;
+#
+
+--------------------------------------------------------------------------------
+
+(document
+  (comment
+    (text))
+  (comment
+    (text))
+  (comment
+    (text)))
+
+================================================================================
+mixed comments #5
+================================================================================
+
+;
+# 1
+
+; comment1
+
+[section1]
+; comment2
+# comment3
+key1=val1
+
+# comment1
+[section2]
+# comment2
+; comment3
+key1=val1
+
+--------------------------------------------------------------------------------
+
+(document
+  (comment
+    (text))
+  (comment
+    (text))
+  (comment
+    (text))
+  (section
+    (section_name
+      (text))
+    (comment
+      (text))
+    (comment
+      (text))
+    (setting
+      (setting_name)
+      (setting_value)))
+  (comment
+    (text))
+  (section
+    (section_name
+      (text))
+    (comment
+      (text))
+    (comment
+      (text))
+    (setting
+      (setting_name)
+      (setting_value))))
+
+================================================================================
+one section (empty)
+================================================================================
+[section with no content]
+
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (section_name
+      (text))))
+
+================================================================================
+NOT a comment
+================================================================================
+[foo]
+bar = baz # not-a-comment
+zim = -1>3 ; not-a-comment
+
+
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (section_name
+      (text))
+    (setting
+      (setting_name)
+      (setting_value))
+    (setting
+      (setting_name)
+      (setting_value))))
+
+================================================================================
+invalid section
+================================================================================
+[not a section] a = b # not-a-comment
+
+
+--------------------------------------------------------------------------------
+
+(document
+  (ERROR
+    (text)
+    (UNEXPECTED 'a')
+    (UNEXPECTED 'b'))
+    (comment (text)))
+
+================================================================================
+~/.aws/config
+================================================================================
+# AWS config doc:
+#   https://docs.aws.amazon.com/credref/latest/refdocs/file-format.html
+
+[default]
+region = us-west-2              
+               
+output = json
+
+[profile dev-user]
+# foo
+region =                  us-east-1
+output = text
+
+[profile developers]
+role_arn = arn:aws:iam::123456789012:role/developers
+# foo
+# foo
+source_profile = dev-user
+               
+region = us-west-2
+output = json
+
+# foo
+               
+--------------------------------------------------------------------------------
+
+(document
+  (comment
+    (text))
+  (comment
+    (text))
+  (section
+    (section_name
+      (text))
+    (setting
+      (setting_name)
+      (setting_value))
+    (setting
+      (setting_name)
+      (setting_value)))
+  (section
+    (section_name
+      (text))
+    (comment
+      (text))
+    (setting
+      (setting_name)
+      (setting_value))
+    (setting
+      (setting_name)
+      (setting_value)))
+  (section
+    (section_name
+      (text))
+    (setting
+      (setting_name)
+      (setting_value))
+    (comment
+      (text))
+    (comment
+      (text))
+    (setting
+      (setting_name)
+      (setting_value))
+    (setting
+      (setting_name)
+      (setting_value))
+    (setting
+      (setting_name)
+      (setting_value)))
+  (comment
+    (text)))
+================================================================================
+global-parameters
+================================================================================
+# leading comment
+a=b
+# another comment
+[section]
+c=d
+
+--------------------------------------------------------------------------------
+
+(document
+  (comment
+      (text))
+  (setting
+    (setting_name)
+    (setting_value))
+  (comment
+      (text))
+  (section
+    (section_name
+      (text))
+    (setting
+      (setting_name)
+      (setting_value))))

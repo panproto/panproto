@@ -1,0 +1,25 @@
+===================
+or two bools
+===================
+
+var x = true || false;
+
+---
+(module
+  (variable_declaration (identifier)
+    (operator)
+    (bool) (operator) (bool))
+)
+
+===================
+or two bools
+===================
+
+var x = true && false;
+
+---
+(module
+  (variable_declaration (identifier)
+    (operator)
+    (bool) (operator) (bool))
+)

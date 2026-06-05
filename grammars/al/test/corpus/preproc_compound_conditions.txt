@@ -1,0 +1,89 @@
+========================================================================
+Preprocessor with OR condition
+========================================================================
+codeunit 1 T
+{
+#if BCONLINE or ONPREM
+    var x: Integer;
+#endif
+}
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (preproc_conditional
+      (preproc_if
+        (preproc_open)
+        condition: (preproc_or_expression
+          (identifier)
+          (identifier)))
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (preproc_endif
+        (preproc_close)))))
+
+========================================================================
+Preprocessor with AND condition
+========================================================================
+codeunit 1 T
+{
+#if FEATURE and CLEAN25
+    var x: Integer;
+#endif
+}
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (preproc_conditional
+      (preproc_if
+        (preproc_open)
+        condition: (preproc_and_expression
+          (identifier)
+          (identifier)))
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (preproc_endif
+        (preproc_close)))))
+
+========================================================================
+Preprocessor with spaced endif
+========================================================================
+codeunit 1 T
+{
+#if FEATURE
+    var x: Integer;
+# endif
+}
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (preproc_conditional
+      (preproc_if
+        (preproc_open)
+        condition: (identifier))
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (preproc_endif))))

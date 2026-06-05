@@ -1,0 +1,60 @@
+===
+objects/lateBinding2.pkl
+===
+
+v1 {
+  foo {
+    x = y
+  }
+  y = 3
+}
+
+v2 = (v1) {
+  y = 4
+}
+
+v3 = (v1) {
+  foo {
+    y = 5
+  }
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (objectBody
+          (objectProperty
+            (identifier)
+            (unqualifiedAccessExpr
+              (identifier)))))
+      (objectProperty
+        (identifier)
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (intLiteralExpr)))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (objectBody
+            (objectProperty
+              (identifier)
+              (intLiteralExpr))))))))

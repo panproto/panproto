@@ -1,0 +1,131 @@
+===============
+Combined Definitions
+===============
+
+PROGRAM_NAME='combined_definitions'
+
+DEFINE_DEVICE
+dvTP = 10001:1:0
+dvTP2 = 10002:1:0
+
+DEFINE_CONSTANT
+// Define button constants
+INTEGER SOURCE_1_BTN = 1
+INTEGER SOURCE_2_BTN = 2
+INTEGER SOURCE_3_BTN = 3
+INTEGER POWER_BTN = 10
+
+DEFINE_MUTUALLY_EXCLUSIVE
+([dvTP,SOURCE_1_BTN],[dvTP,SOURCE_2_BTN],[dvTP,SOURCE_3_BTN])
+([dvTP2,1]..[dvTP2,5])
+
+DEFINE_LATCHING
+[dvTP,POWER_BTN]
+SOURCE_TOGGLE_BTN
+
+DEFINE_TOGGLING
+[dvTP,20]
+[dvTP,21]
+
+---
+
+(source_file
+  (program_name
+    (program_name_keyword)
+    (string_literal
+      (string_content)))
+  (section
+    (define_device_section
+      (define_device_keyword)))
+  (expression_statement
+    (assignment_expression
+      left: (identifier)
+      right: (device_literal
+        device: (number_literal)
+        port: (number_literal)
+        system: (number_literal))))
+  (expression_statement
+    (assignment_expression
+      left: (identifier)
+      right: (device_literal
+        device: (number_literal)
+        port: (number_literal)
+        system: (number_literal))))
+  (section
+    (define_constant_section
+      (define_constant_keyword)))
+  (comment)
+  (declaration
+    type: (intrinsic_type
+      (primitive_type
+        (integer_keyword)))
+    declarator: (init_declarator
+      declarator: (identifier)
+      value: (number_literal)))
+  (declaration
+    type: (intrinsic_type
+      (primitive_type
+        (integer_keyword)))
+    declarator: (init_declarator
+      declarator: (identifier)
+      value: (number_literal)))
+  (declaration
+    type: (intrinsic_type
+      (primitive_type
+        (integer_keyword)))
+    declarator: (init_declarator
+      declarator: (identifier)
+      value: (number_literal)))
+  (declaration
+    type: (intrinsic_type
+      (primitive_type
+        (integer_keyword)))
+    declarator: (init_declarator
+      declarator: (identifier)
+      value: (number_literal)))
+  (section
+    (define_mutually_exclusive_section
+      (define_mutually_exclusive_keyword)))
+  (expression_statement
+    (parenthesized_expression
+      (comma_expression
+        left: (devchan_expression
+          device: (identifier)
+          channel: (identifier))
+        right: (comma_expression
+          left: (devchan_expression
+            device: (identifier)
+            channel: (identifier))
+          right: (devchan_expression
+            device: (identifier)
+            channel: (identifier))))))
+  (expression_statement
+    (parenthesized_expression
+      (devchan_range_expression
+        start: (devchan_expression
+          device: (identifier)
+          channel: (number_literal))
+        (range_operator)
+        end: (devchan_expression
+          device: (identifier)
+          channel: (number_literal)))))
+  (section
+    (define_latching_section
+      (define_latching_keyword)))
+  (expression_statement
+    (devchan_expression
+      device: (identifier)
+      channel: (identifier)))
+  (expression_statement
+    (identifier))
+  (section
+    (define_toggling_section
+      (define_toggling_keyword)))
+  (expression_statement
+    (devchan_expression
+      device: (identifier)
+      channel: (number_literal)))
+  (expression_statement
+    (devchan_expression
+      device: (identifier)
+      channel: (number_literal))))

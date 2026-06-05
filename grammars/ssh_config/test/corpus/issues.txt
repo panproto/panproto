@@ -1,0 +1,93 @@
+==================
+RemoteForward (#1)
+==================
+
+RemoteForward 2224
+RemoteForward "127.0.0.1:2225" "127.0.0.1:2225"
+RemoteForward [127.0.0.1]:2226 [127.0.0.1]:2226
+
+----
+
+(config
+  (parameter
+    port: (number))
+  (parameter
+    bind_address: (string)
+    port: (number)
+    bind_address: (string)
+    port: (number))
+  (parameter
+    bind_address: (string)
+    port: (number)
+    bind_address: (string)
+    port: (number)))
+
+=================
+LocalForward (#3)
+=================
+
+LocalForward /home/me/some.sock /var/run/socks/sock.sock
+LocalForward 8080 localhost:80
+LocalForward 8443 localhost:443
+
+----
+
+(config
+  (parameter
+    socket: (string)
+    socket: (string))
+  (parameter
+    port: (number)
+    bind_address: (string)
+    port: (number))
+  (parameter
+    port: (number)
+    bind_address: (string)
+    port: (number)))
+
+==========
+Match (#6)
+==========
+
+Match host 10.177.18.*,11.187.1.* exec "$SHELL ~/.ssh/demo.sh %h"
+
+----
+
+(config
+  (match_declaration
+    (condition
+      (pattern)
+      (pattern))
+    (condition
+      (string
+        (token)))))
+
+===============
+ProxyJump (#10)
+===============
+
+ProxyJump bar
+
+----
+
+(config
+  (parameter
+    host: (string)))
+
+================
+Match exec (#13)
+================
+
+Match exec "[ -n \"$all_proxy\" ]"
+    ProxyCommand nc -X 5 -x 127.0.0.1:15235 %h %p
+
+----
+
+(config
+  (match_declaration
+    (condition
+      argument: (string))
+    (parameter
+      argument: (string
+        (token)
+        (token)))))

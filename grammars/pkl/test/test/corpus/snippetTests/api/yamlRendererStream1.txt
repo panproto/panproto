@@ -1,0 +1,140 @@
+===
+api/yamlRendererStream1.pkl
+===
+
+local renderer = new YamlRenderer { isStream = true }
+
+local stream = new Listing {
+  "pigeon"
+  42
+  new Listing {
+    "barn owl"
+    "parrot"
+  }
+  new Mapping {
+    ["surfing"] {
+      skill = "low"
+    }
+    ["firemaking"] {
+      skill = "high"
+    }
+  }
+  new Dynamic {
+    street = "Norton St."
+    zip = 12345
+  }
+}
+
+a = renderer.renderDocument(stream)
+
+b = renderer.renderDocument(stream.toList())
+
+c = renderer.renderDocument(stream.toSet())
+
+---
+
+(module
+  (classProperty
+    (modifier)
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (trueLiteralExpr)))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectElement
+          (slStringLiteralExpr
+            (slStringLiteralPart)))
+        (objectElement
+          (intLiteralExpr))
+        (objectElement
+          (newExpr
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (objectBody
+              (objectElement
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))
+              (objectElement
+                (slStringLiteralExpr
+                  (slStringLiteralPart))))))
+        (objectElement
+          (newExpr
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (objectBody
+              (objectEntry
+                (slStringLiteralExpr
+                  (slStringLiteralPart))
+                (objectBody
+                  (objectProperty
+                    (identifier)
+                    (slStringLiteralExpr
+                      (slStringLiteralPart)))))
+              (objectEntry
+                (slStringLiteralExpr
+                  (slStringLiteralPart))
+                (objectBody
+                  (objectProperty
+                    (identifier)
+                    (slStringLiteralExpr
+                      (slStringLiteralPart))))))))
+        (objectElement
+          (newExpr
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (objectBody
+              (objectProperty
+                (identifier)
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))
+              (objectProperty
+                (identifier)
+                (intLiteralExpr))))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (unqualifiedAccessExpr
+          (identifier)))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (qualifiedAccessExpr
+          (unqualifiedAccessExpr
+            (identifier))
+          (identifier)
+          (argumentList)))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (qualifiedAccessExpr
+          (unqualifiedAccessExpr
+            (identifier))
+          (identifier)
+          (argumentList))))))

@@ -1,0 +1,80 @@
+================================================================================
+Table extension with attributed triggers test
+================================================================================
+
+tableextension 50003 "Attributed Triggers Extension" extends Item
+{
+    fields
+    {
+        field(50000; "Custom Field"; Text[50])
+        {
+            Caption = 'Custom Field';
+        }
+    }
+
+    [IntegrationEvent(true, false)]
+    trigger OnAfterValidate()
+    begin
+    end;
+
+    [Obsolete('Use new validation logic', '19.0')]
+    local procedure OnBeforeProcess(var Item: Record Item)
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (tableextension_declaration
+    (tableextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (string_literal))))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (boolean)
+            (boolean)))))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (string_literal)
+            (string_literal)))))
+    (procedure
+      modifier: (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (identifier)))))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))

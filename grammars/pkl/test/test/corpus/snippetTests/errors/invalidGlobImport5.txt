@@ -1,0 +1,20 @@
+===
+errors/invalidGlobImport5.pkl
+===
+
+import* "https://www.apple.com/**.pkl" as allPklModules
+
+res = allPklModules
+
+
+---
+
+(module
+  (importGlobClause
+    (stringConstant
+      (slStringLiteralPart))
+    (identifier))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier))))

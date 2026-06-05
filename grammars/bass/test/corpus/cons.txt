@@ -1,0 +1,37 @@
+===
+Cons
+===
+
+[]
+[:a 1]
+[:a 1 :b 2]
+[parent]
+[parent1 parent2 :a 1 :b 2]
+
+---
+
+(source
+  (cons)
+  (cons
+	(keyword
+	  (symbol))
+	(number))
+  (cons
+	(keyword
+	  (symbol))
+	(number)
+	(keyword
+	  (symbol))
+    (number))
+  (cons
+	(symbol))
+  (cons
+	(symbol)
+    (symbind
+      (symbol)
+      (keyword
+        (symbol)))
+	(number)
+	(keyword
+	  (symbol))
+	(number)))

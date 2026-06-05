@@ -1,0 +1,41 @@
+===
+errors/analyzeImportsCannotFindModule.pkl
+===
+
+import "pkl:analyze"
+import "pkl:reflect"
+import ".../input-helper/analyze/cannotFindModule.pkl"
+
+res = analyze.importGraph(Set(reflect.Module(cannotFindModule).uri))
+
+---
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList
+            (qualifiedAccessExpr
+              (qualifiedAccessExpr
+                (unqualifiedAccessExpr
+                  (identifier))
+                (identifier)
+                (argumentList
+                  (unqualifiedAccessExpr
+                    (identifier))))
+              (identifier))))))))

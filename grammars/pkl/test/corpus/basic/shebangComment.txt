@@ -1,0 +1,15 @@
+===
+shebangComment
+===
+
+#!/usr/bin/env pkl
+
+foo = 1
+
+---
+
+(module
+  (shebangComment)
+  (classProperty
+    (identifier)
+    (intLiteralExpr)))

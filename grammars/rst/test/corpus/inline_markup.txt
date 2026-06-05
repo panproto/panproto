@@ -1,0 +1,525 @@
+========
+Emphasis
+========
+
+Hello *world*. *Hello world*.
+Something *in the middle* here.
+
+I'm in the *mid*\dle.
+
+I'm a *text*
+
+*I'm* a text
+I'm *valid\\*
+*I'm not\* an emphasis.
+*I'm*.*but not me*.
+
+*Lonely*
+
+*hello**
+
+-*a*-
+
+I'm *he
+re*
+
+I'm in (*parenthesis*)
+
+I'm separated by *nsbp* chars
+
+Test for https://github.com/stsewd/tree-sitter-rst/issues/20#issuecomment-1027210703.
+Test (27:00 minute video) *review* test
+
+---
+
+(document
+  (paragraph
+    (emphasis)
+    (emphasis)
+    (emphasis))
+  (paragraph
+    (emphasis))
+  (paragraph
+    (emphasis))
+  (paragraph
+    (emphasis)
+    (emphasis)
+    (emphasis))
+  (paragraph
+    (emphasis))
+  (paragraph
+    (emphasis))
+  (paragraph
+    (emphasis))
+  (paragraph
+    (emphasis))
+  (paragraph
+    (emphasis))
+  (paragraph
+    (emphasis))
+  (paragraph
+    (standalone_hyperlink)
+    (emphasis)))
+
+===============
+Strong emphasis
+===============
+
+Hello **world**. **Hello world**.
+Something **in the middle** here.
+
+I'm a **text**
+
+**I'm** a text
+**I'm not\** a strong emphasis.
+I'm **valid\\**
+**I'm**.**but not me**.
+
+**Lonely**
+
+***hello***
+
+-**a**-
+
+I'm **he
+re**
+
+I'm in (**parenthesis**)
+
+---
+
+(document
+  (paragraph
+    (strong)
+    (strong)
+    (strong))
+  (paragraph
+    (strong))
+  (paragraph
+    (strong)
+    (strong)
+    (strong))
+  (paragraph
+    (strong))
+  (paragraph
+    (strong))
+  (paragraph
+    (strong))
+  (paragraph
+    (strong))
+  (paragraph
+    (strong)))
+
+================
+Interpreted text
+================
+
+Hello `world`. `Hello world`.
+Something `in the middle` here.
+
+I'm a `text`
+
+`I'm` a text
+`I'm\\` a interpreted text, `I'm not\`
+`I'm`.`I'm not`
+
+`lonely`
+
+`hello``
+
+`I'm a long
+interpreted_text`
+
+I'm in (`parenthesis`)
+
+I'm in [`brackets`, `too`].
+
+[`Brackets`, `again`].
+
+:`start with colon` and :`end with colon`
+
+---
+
+(document
+  (paragraph
+    (interpreted_text)
+    (interpreted_text)
+    (interpreted_text))
+  (paragraph
+    (interpreted_text))
+  (paragraph
+    (interpreted_text)
+    (interpreted_text)
+    (interpreted_text))
+  (paragraph
+    (interpreted_text))
+  (paragraph
+    (interpreted_text))
+  (paragraph
+    (interpreted_text))
+  (paragraph
+    (interpreted_text))
+  (paragraph
+    (interpreted_text)
+    (interpreted_text))
+  (paragraph
+    (interpreted_text)
+    (interpreted_text))
+  (paragraph
+    (interpreted_text)
+    (interpreted_text)))
+
+===========================
+Interpreted text with roles
+===========================
+
+:role:`interpreted text`
+
+`interpreted text`:role:
+
+I'm an :role:name:`with some content`.
+I'm also another :role-name:a-little-longer:`than usual`.
+
+::code:`not a field name`: paragraph with interpreted text
+
+:code:`not a field name`: paragraph with interpreted text
+
+:code:`I'm 
+here`
+
+Edge cases:
+
+:field\:`name`: interpreted text (standard role) requires
+                escaping the leading colon in a field name
+
+---
+
+(document
+  (paragraph
+   (interpreted_text (role)))
+  (paragraph
+   (interpreted_text (role)))
+  (paragraph
+   (interpreted_text (role))
+   (interpreted_text (role)))
+  (paragraph
+   (interpreted_text (role)))
+  (paragraph
+   (interpreted_text (role)))
+  (paragraph
+   (interpreted_text (role)))
+  (paragraph)
+  (field_list
+    (field
+      (field_name (interpreted_text))
+      (field_body (paragraph)))))
+
+===============
+Inline literals
+===============
+
+Hello ``world``. ``Hello world``.
+Something ``in the middle`` here.
+
+I'm a ``text``
+
+``I'm`` a text
+``I'm an valid\`` emphasis.
+
+``Lonely``
+
+``I'm``.``I'm not``
+
+``hello```
+
+``!!!"""###$$$%%%&&&'''((()))***+++,,,---...///:::``
+
+``;;;<<<===>>>???@@@[[[\\\]]]^^^___```{{{|||}}}~~~``
+
+``xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx``
+
+``I'm
+here``
+
+I'm in (``parenthesis``)
+
+I'm in [``brackets``, ``too``].
+
+[``Brackets``, ``again``].
+
+:``start with colon`` and :``end with colon``
+
+---
+
+(document
+ (paragraph
+  (literal)
+  (literal)
+  (literal))
+ (paragraph
+  (literal))
+ (paragraph
+  (literal)
+  (literal))
+ (paragraph
+  (literal))
+ (paragraph
+  (literal))
+ (paragraph
+  (literal))
+ (paragraph
+  (literal))
+ (paragraph
+  (literal))
+ (paragraph
+  (literal))
+ (paragraph
+  (literal))
+ (paragraph
+  (literal))
+ (paragraph
+  (literal)
+  (literal))
+ (paragraph
+  (literal)
+  (literal))
+ (paragraph
+  (literal)
+  (literal)))
+
+=======================
+Substitution references
+=======================
+
+Hello |world|. |Hello world|.
+Something |in the middle| here.
+
+I'm a |text|
+
+|I'm| a text
+|I'm not\| an reference.
+
+|Lonely|
+
+|I am|.|I'm not|
+
+This is a combination |substitution and hyperlink reference|_.  In
+addition to being replaced, the replacement text or element will
+refer to the "substitution and hyperlink reference" |target|__.
+
+|I'm
+here|
+
+I'm in (|parenthesis|)
+
+---
+
+(document
+ (paragraph
+  (substitution_reference)
+  (substitution_reference)
+  (substitution_reference))
+ (paragraph
+  (substitution_reference))
+ (paragraph
+  (substitution_reference))
+ (paragraph
+  (substitution_reference))
+ (paragraph
+  (substitution_reference))
+ (paragraph
+  (substitution_reference)
+  (substitution_reference))
+ (paragraph
+  (substitution_reference))
+ (paragraph
+  (substitution_reference)))
+
+=======================
+Inline internal targets
+=======================
+
+Hello _`world`. _`Hello world`.
+Something _`in the middle` here.
+
+I'm a _`text`
+
+_`I'm` a text
+_`I'm not\` a target.
+
+_`Lonely`
+
+_`I'm`._`I'm not`
+
+I'm in (_`parenthesis`)
+
+---
+
+(document
+  (paragraph
+    (inline_target)
+    (inline_target)
+    (inline_target))
+  (paragraph
+    (inline_target))
+  (paragraph
+    (inline_target))
+  (paragraph
+    (inline_target))
+  (paragraph
+    (inline_target))
+  (paragraph
+    (inline_target)))
+
+===================
+Footnote references
+===================
+
+Please read the manual [1]_.
+It was on monday [#monday]_, and tuesday [#]_.
+
+I'm a [1]_
+
+[1]_ a text
+[1\] not a footnote.
+
+---
+
+(document
+  (paragraph
+    (footnote_reference)
+    (footnote_reference)
+    (footnote_reference))
+  (paragraph
+    (footnote_reference))
+  (paragraph
+    (footnote_reference)))
+
+===================
+Citation references
+===================
+
+Please read the manual [manual]_.
+It was on monday [monday]_, and tuesday.
+
+I'm a [number1]_
+
+[1one]_ a text
+[not\] a citation
+
+[not#] a citation.
+Not a [cita#tion].
+Not [a--citation] citation.
+
+---
+
+(document
+  (paragraph
+    (citation_reference)
+    (citation_reference))
+  (paragraph
+    (citation_reference))
+  (paragraph
+    (citation_reference))
+  (paragraph))
+
+====================
+Hyperlink references
+====================
+
+Please read the manual_.
+See our new-book_.
+It was `on monday`_, and `tuesday`_.
+
+I'm a text_
+I'm a text__
+
+`I'm`__ a text
+`I'm not\`_ a reference.
+
+Canción_ 12áéíóú__
+
+lonely_
+
+lonely__
+
+---
+
+(document
+  (paragraph
+    (reference)
+    (reference)
+    (reference)
+    (reference))
+  (paragraph
+    (reference)
+    (reference))
+  (paragraph
+    (reference))
+  (paragraph
+    (reference)
+    (reference))
+  (paragraph
+    (reference))
+  (paragraph
+    (reference)))
+
+=====================
+Standalone hyperlinks
+=====================
+
+See http://www.python.org for info.
+
+https://www.python.org
+
+ftp://ftp.python.org/pub/python
+
+mailto:someone@somewhere.com
+
+someone@somewhere.com
+
+http://www.example.org\\using\\DOS\\paths\\
+
+This is an escaped url: https://fo\o.com.
+http://
+An email foo@bar
+This isn't a standalone_hyperlink "http:"
+
+---
+
+(document
+  (paragraph (standalone_hyperlink))
+  (paragraph (standalone_hyperlink))
+  (paragraph (standalone_hyperlink))
+  (paragraph (standalone_hyperlink))
+  (paragraph (standalone_hyperlink))
+  (paragraph (standalone_hyperlink))
+  (paragraph
+   (standalone_hyperlink)
+   (standalone_hyperlink)
+   (standalone_hyperlink)))
+
+=========================
+Unicode Punctuation Chars
+=========================
+
+Chinese full stop: I am *valid*。
+
+Chinese comma: I am *valid*，**me too**。
+
+Chinese parenthesis: I'm in （*parenthesis*）
+
+Chinese double quote: I'm in “*double quotes*” 
+
+---
+
+(document
+  (paragraph
+    (emphasis))
+  (paragraph
+    (emphasis)
+    (strong))
+  (paragraph
+    (emphasis))
+  (paragraph
+    (emphasis)))

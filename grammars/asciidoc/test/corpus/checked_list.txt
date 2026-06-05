@@ -1,0 +1,41 @@
+==============
+checked_list
+==============
+
+* [*] checked
+* [x] also checked
+* [ ] not checked
+
+-----
+
+(document
+  (block_element
+    (section_block
+      (list
+        (checked_list
+          (checked_list_item
+            (checked_list_marker
+              (unordered_list_marker
+                (list_marker_star))
+              (checked_list_marker_checked))
+            (line))))))
+  (block_element
+    (section_block
+      (list
+        (checked_list
+          (checked_list_item
+            (checked_list_marker
+              (unordered_list_marker
+                (list_marker_star))
+              (checked_list_marker_checked))
+            (line))))))
+  (block_element
+    (section_block
+      (list
+        (checked_list
+          (checked_list_item
+            (checked_list_marker
+              (unordered_list_marker
+                (list_marker_star))
+              (checked_list_marker_unchecked))
+            (line)))))))

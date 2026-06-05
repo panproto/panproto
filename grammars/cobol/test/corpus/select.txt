@@ -1,0 +1,623 @@
+====================================
+assign
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       input-output section.
+       FILE-CONTROL.
+       select f assign PRINTER.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (input_output_section
+        (select_statement
+          file_name: (WORD)
+          (assign_clause
+            to: (PRINTER)))))))
+
+====================================
+assign to
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       input-output section.
+       FILE-CONTROL.
+       select f assign to  PRINTER.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (input_output_section
+        (select_statement
+          file_name: (WORD)
+          (assign_clause
+            to: (PRINTER)))))))
+
+====================================
+assign to DISK
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       input-output section.
+       FILE-CONTROL.
+       select f assign to DISK.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (input_output_section
+        (select_statement
+          file_name: (WORD)
+          (assign_clause
+            to: (DISK)))))))
+
+====================================
+assign to string_literal
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       input-output section.
+       FILE-CONTROL.
+       select f assign to "file.txt".
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (input_output_section
+        (select_statement
+          file_name: (WORD)
+          (assign_clause
+            to: (string)))))))
+
+====================================
+assign to external
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       input-output section.
+       FILE-CONTROL.
+       select f assign to external PRINTER.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (input_output_section
+        (select_statement
+          file_name: (WORD)
+          (assign_clause
+            external_or_dynamic: (EXTERNAL)
+            to: (PRINTER)))))))
+
+====================================
+assign to dynamic
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       input-output section.
+       FILE-CONTROL.
+       select f assign to dynamic PRINTER.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (input_output_section
+        (select_statement
+          file_name: (WORD)
+          (assign_clause
+            external_or_dynamic: (DYNAMIC)
+            to: (PRINTER)))))))
+
+====================================
+assign to dynamic DISPLAY
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       input-output section.
+       FILE-CONTROL.
+       select f assign to dynamic DISPLAY.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (input_output_section
+        (select_statement
+          file_name: (WORD)
+          (assign_clause
+            external_or_dynamic: (DYNAMIC)
+            to: (DISPLAY)))))))
+
+====================================
+assign to PRINTER string_literal
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       input-output section.
+       FILE-CONTROL.
+       select f assign to PRINTER "file.txt".
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (input_output_section
+        (select_statement
+          file_name: (WORD)
+          (assign_clause
+            to: (PRINTER)
+            to: (string)))))))
+
+====================================
+assign to PRINTER string_literal qualified_word
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       input-output section.
+       FILE-CONTROL.
+       select f assign to PRINTER "file.txt" a of b c of d.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (input_output_section
+        (select_statement
+          file_name: (WORD)
+          (assign_clause
+            to: (PRINTER)
+            to: (string)
+            to: (qualified_word
+              (WORD)
+              (WORD))
+            to: (qualified_word
+              (WORD)
+              (WORD))))))))
+====================================
+access SEQUENTIAL
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       input-output section.
+       FILE-CONTROL.
+       select f access SEQUENTIAL.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (input_output_section
+        (select_statement
+          file_name: (WORD)
+          (access_mode_clause
+            (SEQUENTIAL)))))))
+====================================
+access mode SEQUENTIAL
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       input-output section.
+       FILE-CONTROL.
+       select f access mode SEQUENTIAL.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (input_output_section
+        (select_statement
+          file_name: (WORD)
+          (access_mode_clause
+            (SEQUENTIAL)))))))
+====================================
+access is SEQUENTIAL
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       input-output section.
+       FILE-CONTROL.
+       select f access is SEQUENTIAL.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (input_output_section
+        (select_statement
+          file_name: (WORD)
+          (access_mode_clause
+            (SEQUENTIAL)))))))
+====================================
+access mode is SEQUENTIAL
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       input-output section.
+       FILE-CONTROL.
+       select f access mode is SEQUENTIAL.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (input_output_section
+        (select_statement
+          file_name: (WORD)
+          (access_mode_clause
+            (SEQUENTIAL)))))))
+====================================
+access mode is DYNAMIC
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       input-output section.
+       FILE-CONTROL.
+       select f access mode is DYNAMIC.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (input_output_section
+        (select_statement
+          file_name: (WORD)
+          (access_mode_clause
+            (DYNAMIC)))))))
+====================================
+access mode is RANDOM
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       input-output section.
+       FILE-CONTROL.
+       select f access mode is RANDOM.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (input_output_section
+        (select_statement
+          file_name: (WORD)
+          (access_mode_clause
+            (RANDOM)))))))
+====================================
+alternate record
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       input-output section.
+       FILE-CONTROL.
+       select f alternate record a of b.
+       data division.
+       working-storage section.
+       01 b.
+           03 a PIC X.
+
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (input_output_section
+        (select_statement
+          file_name: (WORD)
+          (alternative_record_key
+            reference: (qualified_word
+              (WORD)
+              (WORD))))))
+    (data_division
+      (working_storage_section
+        (data_description
+          (level_number)
+          (entry_name))
+        (data_description
+          (level_number)
+          (entry_name)
+          (picture_clause
+            (picture_x)))))))
+====================================
+alternate record key
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       input-output section.
+       FILE-CONTROL.
+       select f alternate record key a of b.
+       data division.
+       working-storage section.
+       01 b.
+           03 a PIC X.
+
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (input_output_section
+        (select_statement
+          file_name: (WORD)
+          (alternative_record_key
+            reference: (qualified_word
+              (WORD)
+              (WORD))))))
+    (data_division
+      (working_storage_section
+        (data_description
+          (level_number)
+          (entry_name))
+        (data_description
+          (level_number)
+          (entry_name)
+          (picture_clause
+            (picture_x)))))))
+====================================
+alternate record is
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       input-output section.
+       FILE-CONTROL.
+       select f alternate record is a of b.
+       data division.
+       working-storage section.
+       01 b.
+           03 a PIC X.
+
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (input_output_section
+        (select_statement
+          file_name: (WORD)
+          (alternative_record_key
+            reference: (qualified_word
+              (WORD)
+              (WORD))))))
+    (data_division
+      (working_storage_section
+        (data_description
+          (level_number)
+          (entry_name))
+        (data_description
+          (level_number)
+          (entry_name)
+          (picture_clause
+            (picture_x)))))))
+====================================
+alternate record key is
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       input-output section.
+       FILE-CONTROL.
+       select f alternate record key is a of b.
+       data division.
+       working-storage section.
+       01 b.
+           03 a PIC X.
+
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (input_output_section
+        (select_statement
+          file_name: (WORD)
+          (alternative_record_key
+            reference: (qualified_word
+              (WORD)
+              (WORD))))))
+      (data_division
+      (working_storage_section
+        (data_description
+          (level_number)
+          (entry_name))
+        (data_description
+          (level_number)
+          (entry_name)
+          (picture_clause
+            (picture_x)))))))
+====================================
+alternate record duplicates
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       input-output section.
+       FILE-CONTROL.
+       select f alternate record a of b duplicates.
+       data division.
+       working-storage section.
+       01 b.
+           03 a PIC X.
+
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (input_output_section
+        (select_statement
+          file_name: (WORD)
+          (alternative_record_key
+            reference: (qualified_word
+              (WORD)
+              (WORD))
+            with_dups: (with_dups)))))
+    (data_division
+      (working_storage_section
+        (data_description
+          (level_number)
+          (entry_name))
+        (data_description
+          (level_number)
+          (entry_name)
+          (picture_clause
+            (picture_x)))))))
+====================================
+alternate record with duplicates
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       input-output section.
+       FILE-CONTROL.
+       select f alternate record a of b with duplicates.
+       data division.
+       working-storage section.
+       01 b.
+           03 a PIC X.
+
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (input_output_section
+        (select_statement
+          file_name: (WORD)
+          (alternative_record_key
+            reference: (qualified_word
+              (WORD)
+              (WORD))
+            with_dups: (with_dups)))))
+    (data_division
+      (working_storage_section
+        (data_description
+          (level_number)
+          (entry_name))
+        (data_description
+          (level_number)
+          (entry_name)
+          (picture_clause
+            (picture_x)))))))
+====================================
+sequence
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       input-output section.
+       FILE-CONTROL.
+       select f sequence aa.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (input_output_section
+        (select_statement
+          file_name: (WORD)
+          (collating_sequence_clause
+            (WORD)))))))
+====================================
+collating sequence
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       input-output section.
+       FILE-CONTROL.
+       select f collating sequence aa.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (input_output_section
+        (select_statement
+          file_name: (WORD)
+          (collating_sequence_clause
+            (WORD)))))))
+====================================
+sequence is
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       input-output section.
+       FILE-CONTROL.
+       select f sequence is aa.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (input_output_section
+        (select_statement
+          file_name: (WORD)
+          (collating_sequence_clause
+            (WORD)))))))
+====================================
+collating sequence is
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       input-output section.
+       FILE-CONTROL.
+       select f collating sequence is aa.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (input_output_section
+        (select_statement
+          file_name: (WORD)
+          (collating_sequence_clause
+            (WORD)))))))

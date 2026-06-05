@@ -1,0 +1,17 @@
+=======
+while loop
+=======
+
+while (true) {
+
+}
+
+---
+
+
+(program
+    (while_statement
+        (parenthesized_expression (true))
+        (statement_block)
+    )
+)

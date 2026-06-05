@@ -1,0 +1,344 @@
+================================================================================
+Simple fragment
+================================================================================
+
+#version 150
+ 
+out vec4 colorOut;
+ 
+void main()
+{
+    colorOut = vec4(1.0, 0.0, 0.0, 1.0);
+}
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (preproc_call
+    directive: (preproc_directive)
+    argument: (preproc_arg))
+  (declaration
+    type: (type_identifier)
+    declarator: (identifier))
+  (function_definition
+    type: (primitive_type)
+    declarator: (function_declarator
+      declarator: (identifier)
+      parameters: (parameter_list))
+    body: (compound_statement
+      (expression_statement
+        (assignment_expression
+          left: (identifier)
+          right: (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (number_literal)
+              (number_literal)
+              (number_literal)
+              (number_literal))))))))
+
+================================================================================
+Locations
+================================================================================
+
+layout(location = 0) out vec3 foo;
+layout(location = 0, binding= 2) out vec3 bar;
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (declaration
+    (layout_specification
+      (layout_qualifiers
+        (qualifier
+          (identifier)
+          (number_literal))))
+    (type_identifier)
+    (identifier))
+  (declaration
+    (layout_specification
+      (layout_qualifiers
+        (qualifier
+          (identifier)
+          (number_literal))
+        (qualifier
+          (identifier)
+          (number_literal))))
+    (type_identifier)
+    (identifier)))
+
+================================================================================
+Uniforms
+================================================================================
+
+uniform vec3 foo;
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (declaration
+    (type_identifier)
+    (identifier)))
+
+================================================================================
+In/out parameters
+================================================================================
+
+bool HitTest(in rayQueryEXT rayQuery, in Ray r)
+{
+}
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (function_definition
+    (primitive_type)
+    (function_declarator
+      (identifier)
+      (parameter_list
+        (parameter_declaration
+          (type_identifier)
+          (identifier))
+        (parameter_declaration
+          (type_identifier)
+          (identifier))))
+    (compound_statement)))
+
+================================================================================
+push_constant
+================================================================================
+
+layout(push_constant) uniform BlockName {
+int member1;
+float member2;
+} InstanceName; // optional instance name
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (declaration
+    (layout_specification
+      (layout_qualifiers
+        (qualifier
+          (identifier))))
+    (identifier)
+    (field_declaration_list
+      (field_declaration
+        (primitive_type)
+        (field_identifier))
+      (field_declaration
+        (primitive_type)
+        (field_identifier)))
+    (identifier))
+  (comment))
+
+================================================================================
+Subroutines
+================================================================================
+
+subroutine vec4 colorRedBlue();
+subroutine vec4 colorRed();
+ 
+subroutine (colorRedBlue, colorRed ) vec4 redColor() {
+ 
+    return vec4(1.0, 0.0, 0.0, 1.0);
+}
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (declaration
+    (type_identifier)
+    (function_declarator
+      (identifier)
+      (parameter_list)))
+  (declaration
+    (type_identifier)
+    (function_declarator
+      (identifier)
+      (parameter_list)))
+  (function_definition
+    (identifier)
+    (identifier)
+    (type_identifier)
+    (function_declarator
+      (identifier)
+      (parameter_list))
+    (compound_statement
+      (return_statement
+        (call_expression
+          (identifier)
+          (argument_list
+            (number_literal)
+            (number_literal)
+            (number_literal)
+            (number_literal)))))))
+
+================================================================================
+Extension attributes
+================================================================================
+
+layout(location = 0) rayPayloadInEXT PtPayload prd;
+hitAttributeEXT vec2 bary;
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (declaration
+    (layout_specification
+      (layout_qualifiers
+        (qualifier
+          (identifier)
+          (number_literal))))
+    (extension_storage_class)
+    (type_identifier)
+    (identifier))
+  (declaration
+    (extension_storage_class)
+    (type_identifier)
+    (identifier)))
+
+================================================================================
+Uniform block
+================================================================================
+
+uniform T2 {
+  mat3 foo;
+};
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (declaration
+    (identifier)
+    (field_declaration_list
+      (field_declaration
+        (type_identifier)
+        (field_identifier)))))
+
+================================================================================
+Invariant qualifier
+================================================================================
+
+invariant gl_Position;
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (declaration
+    (identifier)))
+
+================================================================================
+Field modifier
+================================================================================
+
+struct Foo {
+  flat int i;
+};
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (struct_specifier
+    (type_identifier)
+    (field_declaration_list
+      (field_declaration
+        (primitive_type)
+        (field_identifier)))))
+
+================================================================================
+input_attachment_index
+================================================================================
+
+layout (input_attachment_index = 0, set = 0, binding = 0) uniform subpassInput inputColor;
+layout (input_attachment_index = 1, set = 1, binding = 1) uniform subpassInput inputDepth;
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (declaration
+    (layout_specification
+      (layout_qualifiers
+        (qualifier
+          (identifier)
+          (number_literal))
+        (qualifier
+          (identifier)
+          (number_literal))
+        (qualifier
+          (identifier)
+          (number_literal))))
+    (type_identifier)
+    (identifier))
+  (declaration
+    (layout_specification
+      (layout_qualifiers
+        (qualifier
+          (identifier)
+          (number_literal))
+        (qualifier
+          (identifier)
+          (number_literal))
+        (qualifier
+          (identifier)
+          (number_literal))))
+    (type_identifier)
+    (identifier)))
+
+================================================================================
+version and extensions
+================================================================================
+
+#version 460
+#extension GL_EXT_ray_tracing: require
+#extension GL_GOOGLE_include_directive: enable
+#extension GL_EXT_ray_tracing: warn
+#extension GL_GOOGLE_include_directive: disable
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (preproc_call
+    (preproc_directive)
+    (preproc_arg))
+  (preproc_extension
+    (preproc_directive)
+    (identifier)
+    (extension_behavior))
+  (preproc_extension
+    (preproc_directive)
+    (identifier)
+    (extension_behavior))
+  (preproc_extension
+    (preproc_directive)
+    (identifier)
+    (extension_behavior))
+  (preproc_extension
+    (preproc_directive)
+    (identifier)
+    (extension_behavior)))
+
+================================================================================
+SSBOs Declaration
+================================================================================
+layout(binding = 1, set = 0, std430) buffer GBuffer { GBuffer g[]; } rgbuf[NFRAMES];
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (declaration
+    (layout_specification
+      (layout_qualifiers
+        (qualifier
+          (identifier)
+          (number_literal))
+        (qualifier
+          (identifier)
+          (number_literal))
+        (qualifier
+          (identifier))))
+    (identifier)
+    (field_declaration_list
+      (field_declaration
+        (type_identifier)
+        (array_declarator
+          (field_identifier))))
+    (array_declarator
+      (identifier)
+      (identifier))))

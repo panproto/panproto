@@ -1,0 +1,144 @@
+===========================
+Predicate object list path
+===========================
+
+SELECT *
+
+WHERE {
+  ?s ?p0 ?o0 ;
+     ?p1 ?o1 .
+}
+
+
+---
+
+
+(unit
+  (select_query 
+    (select_clause)
+    (where_clause
+      (group_graph_pattern
+          (triples_block
+            (triples_same_subject
+              subject: (var)
+              (property_list
+                (property
+                  (var)
+                  (object_list (var)))
+                (property
+                  (var)
+                  (object_list (var))))))))))
+
+======================
+Predicate object list
+======================
+
+CONSTRUCT WHERE {
+  ?s ?p ?o ;
+     ?p1 ?o1 .
+}
+
+---
+
+(unit
+  (construct_query
+    (triples_template
+      (triples_same_subject
+        (var)
+        (property_list
+          (property
+            (var)
+            (object_list (var)))
+          (property
+            (var)
+            (object_list (var)))))))) 
+
+
+============
+Object list
+============
+
+
+SELECT *
+
+WHERE {
+  ?s ?p ?o0 , ?o1
+}
+
+---
+
+(unit
+  (select_query 
+    (select_clause)
+    (where_clause
+      (group_graph_pattern
+          (triples_block
+            (triples_same_subject
+              subject: (var)
+              (property_list
+                (property
+                  (var)
+                  (object_list 
+                    (var)
+                    (var))))))))))
+
+===============
+Rdf collection
+===============
+
+SELECT *
+
+WHERE {
+  (?foo [:p :o] (?bar))
+}
+
+---
+
+(unit (select_query 
+  (select_clause)
+  (where_clause (group_graph_pattern (triples_block (triples_same_subject (collection
+    (var)
+    (blank_node_property_list (property_list (property
+      (path_element (prefixed_name
+        (namespace)
+        (pn_local)))
+      (object_list (prefixed_name
+        (namespace)
+        (pn_local))))))
+    (collection (var)))))))))
+
+=========
+Rdf:type
+=========
+
+SELECT *
+
+WHERE {
+  ?s a ?o .
+  [ a :o ] ?p ?o
+}
+
+---
+
+(unit
+  (select_query
+    (select_clause)
+    (where_clause
+      (group_graph_pattern
+        (triples_block
+          (triples_same_subject
+            (var)
+            (property_list
+              (property
+                (path_element)
+                (object_list (var)))))
+          (triples_same_subject
+            (blank_node_property_list
+              (property_list
+                (property
+                  (path_element)
+                  (object_list (prefixed_name (namespace) (pn_local))))))
+            (property_list
+              (property
+                (var)
+                (object_list (var))))))))))

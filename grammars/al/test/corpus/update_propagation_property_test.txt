@@ -1,0 +1,99 @@
+================================================================================
+UpdatePropagation property in part section
+================================================================================
+
+page 50000 "Test Page"
+{
+    layout
+    {
+        area(Content)
+        {
+            part(PrintService; "Test Part")
+            {
+                ApplicationArea = All;
+                UpdatePropagation = Both;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (part_section
+          (part_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (identifier)))))))
+
+================================================================================
+UpdatePropagation property with different values
+================================================================================
+
+page 50001 "Test Page 2"
+{
+    layout
+    {
+        area(Content)
+        {
+            part(Service1; "Test Part 1")
+            {
+                UpdatePropagation = Both;
+            }
+            part(Service2; "Test Part 2")  
+            {
+                UpdatePropagation = No;
+            }
+            part(Service3; "Test Part 3")
+            {
+                UpdatePropagation = Updated;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (part_section
+          (part_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))
+        (part_section
+          (part_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))
+        (part_section
+          (part_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))))))

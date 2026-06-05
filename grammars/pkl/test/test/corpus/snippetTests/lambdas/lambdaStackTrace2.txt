@@ -1,0 +1,37 @@
+===
+lambdas/lambdaStackTrace2.pkl
+===
+
+hidden f1 = () -> (() -> (() -> throw("ouch")).apply()).apply()
+
+res1 = f1.apply()
+---
+
+(module
+  (classProperty
+    (modifier)
+    (identifier)
+    (functionLiteralExpr
+      (parameterList)
+      (qualifiedAccessExpr
+        (parenthesizedExpr
+          (functionLiteralExpr
+            (parameterList)
+            (qualifiedAccessExpr
+              (parenthesizedExpr
+                (functionLiteralExpr
+                  (parameterList)
+                  (throwExpr
+                    (slStringLiteralExpr
+                      (slStringLiteralPart)))))
+              (identifier)
+              (argumentList))))
+        (identifier)
+        (argumentList))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList))))

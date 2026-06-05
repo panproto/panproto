@@ -1,0 +1,222 @@
+================================================================================
+Report extension with addfirst dataitem with target
+================================================================================
+
+reportextension 123 "My Report Extension" extends "Standard Sales Quote"
+{
+    dataset
+    {
+        addfirst(Line)
+        {
+            dataitem(ServiceCommitmentHeaderForSalesLine; "Integer")
+            {
+                DataItemTableView = sorting(Number) where(Number = const(1));
+                column(Description; Description) { }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (reportextension_declaration
+    (reportextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (addfirst_dataset_modification
+        target: (identifier)
+        (report_dataitem
+          (dataitem_keyword)
+          name: (identifier)
+          table_name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (sorting_value
+              (identifier)
+              (where_clause
+                (where_conditions
+                  (where_condition
+                    field: (identifier)
+                    value: (integer))))))
+          (report_column
+            (column_keyword)
+            name: (identifier)
+            source: (identifier)))))))
+
+================================================================================
+Report extension with addlast dataitem with target
+================================================================================
+
+reportextension 124 "Another Extension" extends "Sales Invoice"
+{
+    dataset
+    {
+        addlast(Header)
+        {
+            dataitem(ExtendedInfo; "My Table")
+            {
+                column(ExtraField; "Extra Field") { }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (reportextension_declaration
+    (reportextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (addlast_dataset_modification
+        target: (identifier)
+        (report_dataitem
+          (dataitem_keyword)
+          name: (identifier)
+          table_name: (quoted_identifier)
+          (report_column
+            (column_keyword)
+            name: (identifier)
+            source: (quoted_identifier)))))))
+
+================================================================================
+Report extension with addfirst dataitem without target (backwards compatibility)
+================================================================================
+
+reportextension 125 "Legacy Extension" extends "Customer List"
+{
+    dataset
+    {
+        addfirst
+        {
+            dataitem(NewData; Customer)
+            {
+                column(No; "No.") { }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (reportextension_declaration
+    (reportextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (addfirst_dataset_modification
+        (report_dataitem
+          (dataitem_keyword)
+          name: (identifier)
+          table_name: (identifier)
+          (report_column
+            (column_keyword)
+            name: (identifier)
+            source: (quoted_identifier)))))))
+
+================================================================================
+Report extension with modify and multiple modifications
+================================================================================
+
+reportextension 126 "Complex Extension" extends "Sales Report"
+{
+    dataset
+    {
+        modify(Header)
+        {
+            trigger OnAfterAfterGetRecord()
+            begin
+                Message('Modified');
+            end;
+        }
+        
+        addfirst(Line)
+        {
+            dataitem(PreLineInfo; "Integer")
+            {
+                DataItemTableView = where(Number = const(1));
+                column(Info; 'Pre-line info') { }
+            }
+        }
+        
+        addlast(Line)
+        {
+            dataitem(PostLineInfo; "Integer")
+            {
+                DataItemTableView = where(Number = const(1));
+                column(Info; 'Post-line info') { }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (reportextension_declaration
+    (reportextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (modify_modification
+        target: (identifier)
+        (trigger_declaration
+          (trigger_keyword)
+          name: (identifier)
+          (code_block
+            (begin_keyword)
+            (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (string_literal)))
+            (end_keyword))))
+      (addfirst_dataset_modification
+        target: (identifier)
+        (report_dataitem
+          (dataitem_keyword)
+          name: (identifier)
+          table_name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (where_clause
+              (where_conditions
+                (where_condition
+                  field: (identifier)
+                  value: (integer)))))
+          (report_column
+            (column_keyword)
+            name: (identifier)
+            source: (string_literal))))
+      (addlast_dataset_modification
+        target: (identifier)
+        (report_dataitem
+          (dataitem_keyword)
+          name: (identifier)
+          table_name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (where_clause
+              (where_conditions
+                (where_condition
+                  field: (identifier)
+                  value: (integer)))))
+          (report_column
+            (column_keyword)
+            name: (identifier)
+            source: (string_literal)))))))

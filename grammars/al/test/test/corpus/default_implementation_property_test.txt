@@ -1,0 +1,189 @@
+================================================================================
+DefaultImplementation property in enum with interface
+================================================================================
+
+enum 204 "Alt. Cust. VAT Reg. Consist." implements "Alt. Cust. VAT Reg. Consist."
+{
+    Extensible = true;
+    DefaultImplementation = "Alt. Cust. VAT Reg. Consist." = "Alt. Cust. VAT Reg. Cons.Impl.";
+
+    value(0; Default)
+    {
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (enum_declaration
+    (enum_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (implements_clause
+      (implements_keyword)
+      interface: (quoted_identifier))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (property_expression
+        (comparison_expression
+          left: (quoted_identifier)
+          operator: (comparison_operator)
+          right: (quoted_identifier))))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier))))
+
+================================================================================
+DefaultImplementation property with case variations
+================================================================================
+
+enum 100 "Test Enum" implements "ITestInterface"
+{
+    defaultimplementation = "ITestInterface" = "TestImplementation";
+    DEFAULTIMPLEMENTATION = "ITestInterface" = "AnotherImplementation";
+    Extensible = false;
+
+    value(1; TestValue)
+    {
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (enum_declaration
+    (enum_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (implements_clause
+      (implements_keyword)
+      interface: (quoted_identifier))
+    (property
+      name: (property_name)
+      value: (property_expression
+        (comparison_expression
+          left: (quoted_identifier)
+          operator: (comparison_operator)
+          right: (quoted_identifier))))
+    (property
+      name: (property_name)
+      value: (property_expression
+        (comparison_expression
+          left: (quoted_identifier)
+          operator: (comparison_operator)
+          right: (quoted_identifier))))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier))))
+
+================================================================================
+DefaultImplementation property with unquoted identifiers
+================================================================================
+
+enum 150 "Simple Enum" implements SimpleInterface
+{
+    Extensible = true;
+    DefaultImplementation = SimpleInterface = SimpleImplementation;
+
+    value(0; Empty)
+    {
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (enum_declaration
+    (enum_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (implements_clause
+      (implements_keyword)
+      interface: (identifier))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (property_expression
+        (comparison_expression
+          left: (identifier)
+          operator: (comparison_operator)
+          right: (identifier))))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier))))
+
+================================================================================
+Enum with multiple properties including DefaultImplementation
+================================================================================
+
+namespace Test.DefaultImplementation;
+
+enum 200 "Complex Enum" implements "IComplexInterface"
+{
+    Caption = 'Complex Enum Test';
+    Extensible = true;
+    DefaultImplementation = "IComplexInterface" = "ComplexImplementation";
+    Access = Public;
+    
+    value(0; None)
+    {
+        Caption = 'None';
+    }
+
+    value(1; Active)
+    {
+        Caption = 'Active State';
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (namespace_declaration
+    (namespace_keyword)
+    name: (namespace_name
+      (identifier)
+      (identifier)))
+  (enum_declaration
+    (enum_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (implements_clause
+      (implements_keyword)
+      interface: (quoted_identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (property_expression
+        (comparison_expression
+          left: (quoted_identifier)
+          operator: (comparison_operator)
+          right: (quoted_identifier))))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier)
+      (property
+        name: (property_name)
+        value: (string_literal)))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier)
+      (property
+        name: (property_name)
+        value: (string_literal)))))

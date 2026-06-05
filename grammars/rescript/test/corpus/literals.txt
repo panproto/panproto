@@ -1,0 +1,488 @@
+================================================================================
+Boolean
+================================================================================
+
+true
+false
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (true))
+  (expression_statement
+    (false)))
+
+================================================================================
+Numbers
+================================================================================
+
+04000
+400
+100n
+0xffffffffn
+0b00111n
+0o1234n
+0xa_b_c
+0o1_1
+0b1_000_000
+1_2_3
+12_3.4_5e6_7
+0b1_000_000n
+01
+00000123
+-3
+-3.0
++3
++3.0
+1L
+1_2_3L
+-1L
+-1_2_3L
+0b1_000_000L
+0xffffffffL
+0o1234L
+10l
+0xffffffffl
+-0x3.p+1
+0x1p2047
+-0x1p2047
+0x1.2p2047
+0x1p-1022
+0x0.0000_0000_0000_1p-1022
+0x1p-52
+0x1.0000_0000_0000_1
+0x1p-1023
+0xffffp0
+00007.0
+02e3
+0000.2
+00.
+000.
+01.
+001.
+002e3
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number)))
+
+================================================================================
+Negative BigInt
+================================================================================
+
+-1n
+-0xffffffffn
+-0b00111n
+-0o1234n
+-0b1_000_000n
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (expression_statement
+    (number)))
+
+================================================================================
+Strings containing comment-like content
+================================================================================
+
+"//ok\n//what"
+"/*ok\n/*what"
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (string
+      (string_fragment)
+      (escape_sequence)
+      (string_fragment)))
+  (expression_statement
+    (string
+      (string_fragment)
+      (escape_sequence)
+      (string_fragment))))
+
+================================================================================
+Quote escaping
+================================================================================
+
+""
+"\""
+"a\"b"
+"it's a tiny tiny world"
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (string))
+  (expression_statement
+    (string
+      (escape_sequence)))
+  (expression_statement
+    (string
+      (string_fragment)
+      (escape_sequence)
+      (string_fragment)))
+  (expression_statement
+    (string
+      (string_fragment))))
+
+================================================================================
+Template strings
+================================================================================
+
+``
+` `
+` \b`
+`one line`
+`multi
+  line`
+
+j`Hello`
+
+`multi
+  ${2 + 2}
+  hello
+  ${1 + 1}
+  line`
+
+`The command \`git ${format(" ")}\` exited with an unexpected code: ${exitCode}.
+The caller should either handle this error, or expect that exit code.`
+
+`//`
+
+`\\`
+
+anything`Hello`
+
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (template_string))
+  (expression_statement
+    (template_string
+      (template_string_content)))
+  (expression_statement
+    (template_string
+      (template_string_content
+        (escape_sequence))))
+  (expression_statement
+    (template_string
+      (template_string_content)))
+  (expression_statement
+    (template_string
+      (template_string_content)))
+  (expression_statement
+    (template_string
+      (template_string_content)))
+  (expression_statement
+    (template_string
+      (template_string_content
+        (template_substitution
+          (binary_expression
+            (number)
+            (number)))
+        (template_substitution
+          (binary_expression
+            (number)
+            (number))))))
+  (expression_statement
+    (template_string
+      (template_string_content
+        (escape_sequence)
+        (template_substitution
+          (call_expression
+            (value_identifier)
+            (arguments
+              (string
+                (string_fragment)))))
+        (escape_sequence)
+        (template_substitution
+          (value_identifier)))))
+  (expression_statement
+    (template_string
+      (template_string_content)))
+  (expression_statement
+    (template_string
+      (template_string_content
+        (escape_sequence))))
+  (expression_statement
+    (template_string
+      (template_string_content))))
+
+================================================================================
+Tricky template strings
+================================================================================
+
+`$`
+`$$`
+`$$$`
+`$-notAsubstitution`
+`$NotAsubstitution`
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (template_string
+      (template_string_content)))
+  (expression_statement
+    (template_string
+      (template_string_content)))
+  (expression_statement
+    (template_string
+      (template_string_content)))
+  (expression_statement
+    (template_string
+      (template_string_content)))
+  (expression_statement
+    (template_string
+      (template_string_content))))
+
+================================================================================
+Characters
+================================================================================
+'a'
+'\''
+'\\'
+'Ж'
+'😬'
+'\o021'
+'\179'
+'\u{1F600}'
+'@'
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (character))
+  (expression_statement
+    (character
+      (escape_sequence)))
+  (expression_statement
+    (character
+      (escape_sequence)))
+  (expression_statement
+    (character))
+  (expression_statement
+    (character))
+  (expression_statement
+    (character
+      (escape_sequence)))
+  (expression_statement
+    (character
+      (escape_sequence)))
+  (expression_statement
+    (character
+      (escape_sequence)))
+  (expression_statement
+    (character)))
+
+================================================================================
+Polyvars
+================================================================================
+
+#foo
+#Bar(7)
+#"baz"
+#\"qux"
+#77
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (polyvar
+      (polyvar_identifier)))
+  (expression_statement
+    (polyvar
+      (polyvar_identifier)
+      (arguments
+        (number))))
+  (expression_statement
+    (polyvar
+      (polyvar_identifier
+        (polyvar_string
+          (string_fragment)))))
+  (expression_statement
+    (polyvar
+      (polyvar_identifier
+        (polyvar_string
+          (string_fragment)))))
+  (expression_statement
+    (polyvar
+      (polyvar_identifier))))
+
+================================================================================
+Regex literal
+================================================================================
+
+/hello/
+/pattern/gi
+/\d+/
+/[a-z]/
+/foo\/bar/
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (regex
+      (regex_pattern)))
+  (expression_statement
+    (regex
+      (regex_pattern)
+      (regex_flags)))
+  (expression_statement
+    (regex
+      (regex_pattern)))
+  (expression_statement
+    (regex
+      (regex_pattern)))
+  (expression_statement
+    (regex
+      (regex_pattern))))
+
+================================================================================
+Regex literal in let binding
+================================================================================
+
+let r = /foo/g
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (let_declaration
+    (let_binding
+      (value_identifier)
+      (regex
+        (regex_pattern)
+        (regex_flags)))))
+
+================================================================================
+Regex literal as function argument
+================================================================================
+
+let code = String.replaceRegExp(signature, /\\n/g, "\n")
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (let_declaration
+    (let_binding
+      (value_identifier)
+      (call_expression
+        (value_identifier_path
+          (module_identifier)
+          (value_identifier))
+        (arguments
+          (value_identifier)
+          (regex
+            (regex_pattern)
+            (regex_flags))
+          (string
+            (escape_sequence)))))))

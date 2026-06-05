@@ -1,0 +1,76 @@
+===
+modules/supercalls2.pkl
+===
+
+open module supercalls2
+
+extends "supercalls1.pkl"
+
+hidden pigeon = super.say("Pigeon")
+function barnOwl() = super.say("Barn Owl")
+function say2(msg) = super.say(msg) + super.say(msg)
+function sameMethod() = 2 + super.sameMethod()
+sameProp = super.sameProp + "b"
+
+---
+
+(module
+  (moduleHeader
+    (moduleClause
+
+      (modifier)
+      (qualifiedIdentifier
+        (identifier)))
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (superAccessExpr
+      (identifier)
+      (argumentList
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classMethod
+    (methodHeader
+      (identifier)
+      (parameterList))
+    (superAccessExpr
+      (identifier)
+      (argumentList
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classMethod
+    (methodHeader
+      (identifier)
+      (parameterList
+        (typedIdentifier
+          (identifier))))
+    (additiveExpr
+      (superAccessExpr
+        (identifier)
+        (argumentList
+          (unqualifiedAccessExpr
+            (identifier))))
+      (superAccessExpr
+        (identifier)
+        (argumentList
+          (unqualifiedAccessExpr
+            (identifier))))))
+  (classMethod
+    (methodHeader
+      (identifier)
+      (parameterList))
+    (additiveExpr
+      (intLiteralExpr)
+      (superAccessExpr
+        (identifier)
+        (argumentList))))
+  (classProperty
+    (identifier)
+    (additiveExpr
+      (superAccessExpr
+        (identifier))
+      (slStringLiteralExpr
+        (slStringLiteralPart)))))

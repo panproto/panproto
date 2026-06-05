@@ -1,0 +1,80 @@
+========================================
+command separator: semicolon
+========================================
+
+foo=1 ; bar=2
+
+---
+
+(file
+  (environment_assignment
+    (name)
+    (value))
+  (environment_assignment
+    (name)
+    (value)))
+
+========================================
+command separator: semicolon no space
+========================================
+
+foo=1; bar=2
+
+---
+
+(file
+  (environment_assignment
+    (name)
+    (value))
+  (environment_assignment
+    (name)
+    (value)))
+
+========================================
+command separator: escaped semicolon
+========================================
+
+foo=1 \; bar=2
+
+---
+
+(file
+  (environment_assignment
+    (name)
+    (value))
+  (environment_assignment
+    (name)
+    (value)))
+
+========================================
+command separator: quoted semicolon
+========================================
+
+foo=1 ';' bar=2
+
+---
+
+(file
+  (environment_assignment
+    (name)
+    (value))
+  (environment_assignment
+    (name)
+    (value)))
+
+========================================
+command separator: newline
+========================================
+
+foo=1
+bar=2
+
+---
+
+(file
+  (environment_assignment
+    (name)
+    (value))
+  (environment_assignment
+    (name)
+    (value)))

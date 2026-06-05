@@ -1,0 +1,58 @@
+==================
+Page trigger with return type
+==================
+
+page 50000 "Test Page"
+{
+    trigger OnQueryClosePage(CloseAction: Action): Boolean
+    begin
+        if CloseAction = CloseAction::OK then
+            if not VerifyFilters() then
+                exit(false);
+
+        exit(true);
+    end;
+}
+
+---
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    (integer)
+    (quoted_identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      (identifier)
+      (parameter_list
+        (parameter
+          (identifier)
+          (type_specification
+            (basic_type))))
+      (type_specification
+        (basic_type))
+      (code_block
+        (begin_keyword)
+        (if_statement
+          (if_keyword)
+          (comparison_expression
+            (identifier)
+            (comparison_operator)
+            (qualified_enum_value
+              (identifier)
+              (identifier)))
+          (then_keyword)
+          (if_statement
+            (if_keyword)
+            (unary_expression
+              (call_expression
+                (identifier)
+                (argument_list)))
+            (then_keyword)
+            (exit_statement
+              (exit_keyword)
+              (boolean))))
+        (exit_statement
+          (exit_keyword)
+          (boolean))
+        (end_keyword)))))

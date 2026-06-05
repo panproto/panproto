@@ -1,0 +1,85 @@
+===
+mappings/duplicateComputedKey.pkl
+===
+
+import "pkl:test"
+
+res1 = test.catch(() -> new Mapping {
+  ["barn owl"] = 1
+  ["pigeon"] = 2
+  ["bar" + "n owl"] = 3
+})
+
+res2 = test.catch(() -> new Mapping {
+  ["ba" + "rn owl"] = 1
+  ["pigeon"] = 2
+  ["barn " + "owl"] = 3
+})
+
+---
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (newExpr
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (objectBody
+              (objectEntry
+                (slStringLiteralExpr
+                  (slStringLiteralPart))
+                (intLiteralExpr))
+              (objectEntry
+                (slStringLiteralExpr
+                  (slStringLiteralPart))
+                (intLiteralExpr))
+              (objectEntry
+                (additiveExpr
+                  (slStringLiteralExpr
+                    (slStringLiteralPart))
+                  (slStringLiteralExpr
+                    (slStringLiteralPart)))
+                (intLiteralExpr))))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (newExpr
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (objectBody
+              (objectEntry
+                (additiveExpr
+                  (slStringLiteralExpr
+                    (slStringLiteralPart))
+                  (slStringLiteralExpr
+                    (slStringLiteralPart)))
+                (intLiteralExpr))
+              (objectEntry
+                (slStringLiteralExpr
+                  (slStringLiteralPart))
+                (intLiteralExpr))
+              (objectEntry
+                (additiveExpr
+                  (slStringLiteralExpr
+                    (slStringLiteralPart))
+                  (slStringLiteralExpr
+                    (slStringLiteralPart)))
+                (intLiteralExpr)))))))))

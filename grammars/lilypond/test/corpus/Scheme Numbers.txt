@@ -1,0 +1,492 @@
+===
+Simple
+:language(lilypond-scheme)
+===
+
+; https://git.savannah.gnu.org/cgit/guile.git/tree/test-suite/tests/r7rs.test?h=v3.0.9#n2369
+
+1
++1
+-1
+#i1
+#I1
+#i-1
+
+---
+
+(scheme_program
+  (scheme_comment)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number))
+
+
+===
+Decimal
+:language(lilypond-scheme)
+===
+
+; https://git.savannah.gnu.org/cgit/guile.git/tree/test-suite/tests/r7rs.test?h=v3.0.9#n2376
+
+1.0
+1.
+.1
+-.1
+-.0
+-0.
+#i1.0
+#e1.0
+#e-.0
+#e-0.
+
+---
+
+(scheme_program
+  (scheme_comment)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number))
+
+
+===
+Decimal notation with suffix
+:language(lilypond-scheme)
+===
+
+; https://git.savannah.gnu.org/cgit/guile.git/tree/test-suite/tests/r7rs.test?h=v3.0.9#n2388
+
+1e2
+1E2
+1s2
+1S2
+1f2
+1F2
+1d2
+1D2
+1l2
+1L2
+
+---
+
+(scheme_program
+  (scheme_comment)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number))
+
+
+===
+NaN, Inf
+:language(lilypond-scheme)
+===
+
+; https://git.savannah.gnu.org/cgit/guile.git/tree/test-suite/tests/r7rs.test?h=v3.0.9#n2399
+
++nan.0
++NAN.0
++inf.0
++InF.0
+-inf.0
+-iNF.0
+#i+nan.0
+#i+inf.0
+#i-inf.0
+
+---
+
+(scheme_program
+  (scheme_comment)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number))
+
+
+===
+Exact ratios
+:language(lilypond-scheme)
+===
+
+; https://git.savannah.gnu.org/cgit/guile.git/tree/test-suite/tests/r7rs.test?h=v3.0.9#n2409
+
+1/2
+#e1/2
+10/2
+-1/2
+0/10
+#e0/10
+#i3/2
+
+---
+
+(scheme_program
+  (scheme_comment)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number))
+
+
+===
+Exact complex
+:language(lilypond-scheme)
+===
+
+; https://git.savannah.gnu.org/cgit/guile.git/tree/test-suite/tests/r7rs.test?h=v3.0.9#n2417
+
+1+2i
+1+2I
+1-2i
+-1+2i
+-1-2i
++i
+0+i
+0+1i
+-i
+0-i
+0-1i
++2i
+-2i
+
+---
+
+(scheme_program
+  (scheme_comment)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number))
+
+
+===
+Decimal-notation complex numbers (rectangular notation)
+:language(lilypond-scheme)
+===
+
+; https://git.savannah.gnu.org/cgit/guile.git/tree/test-suite/tests/r7rs.test?h=v3.0.9#n2434
+
+1.0+2i
+1+2.0i
+1e2+1.0i
+1s2+1.0i
+1.0+1e2i
+1.0+1s2i
+
+---
+
+(scheme_program
+  (scheme_comment)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number))
+
+
+===
+Fractional complex numbers (rectangular notation)
+:language(lilypond-scheme)
+===
+
+; https://git.savannah.gnu.org/cgit/guile.git/tree/test-suite/tests/r7rs.test?h=v3.0.9#n2441
+
+1/2+3/4i
+
+---
+
+(scheme_program
+  (scheme_comment)
+  (scheme_number))
+
+
+===
+Mixed fractional/decimal notation complex numbers (rectangular notation)
+:language(lilypond-scheme)
+===
+
+; https://git.savannah.gnu.org/cgit/guile.git/tree/test-suite/tests/r7rs.test?h=v3.0.9#n2446
+
+0.5+3/4i
+
+---
+
+(scheme_program
+  (scheme_comment)
+  (scheme_number))
+
+
+===
+Complex NaN, Inf (rectangular notation)
+:language(lilypond-scheme)
+===
+
+; https://git.savannah.gnu.org/cgit/guile.git/tree/test-suite/tests/r7rs.test?h=v3.0.9#n2449
+
++nan.0+nan.0i
++inf.0+inf.0i
+-inf.0+inf.0i
+-inf.0-inf.0i
++inf.0-inf.0i
+
+---
+
+(scheme_program
+  (scheme_comment)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number))
+
+
+===
+Complex numbers (polar notation)
+:language(lilypond-scheme)
+===
+
+; https://git.savannah.gnu.org/cgit/guile.git/tree/test-suite/tests/r7rs.test?h=v3.0.9#n2455
+
+1@2
+
+---
+
+(scheme_program
+  (scheme_comment)
+  (scheme_number))
+
+
+===
+Base prefixes
+:language(lilypond-scheme)
+===
+
+; https://git.savannah.gnu.org/cgit/guile.git/tree/test-suite/tests/r7rs.test?h=v3.0.9#n2458
+
+#x11
+#X11
+#d11
+#D11
+#o11
+#O11
+#b11
+#B11
+#o7
+#xa
+#xA
+#xf
+#x-10
+#d-10
+#o-10
+#b-10
+
+---
+
+(scheme_program
+  (scheme_comment)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number))
+
+
+===
+Combination of prefixes
+:language(lilypond-scheme)
+===
+
+; https://git.savannah.gnu.org/cgit/guile.git/tree/test-suite/tests/r7rs.test?h=v3.0.9#n2475
+
+#e#x10
+#i#x10
+
+---
+
+(scheme_program
+  (scheme_comment)
+  (scheme_number)
+  (scheme_number))
+
+
+===
+(Attempted) decimal notation with base prefixes
+:language(lilypond-scheme)
+===
+
+; https://git.savannah.gnu.org/cgit/guile.git/tree/test-suite/tests/r7rs.test?h=v3.0.9#n2478
+
+#d1.
+#d.1
+#x1e2
+#d1e2
+
+---
+
+(scheme_program
+  (scheme_comment)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number))
+
+
+===
+Fractions with prefixes
+:language(lilypond-scheme)
+===
+
+; https://git.savannah.gnu.org/cgit/guile.git/tree/test-suite/tests/r7rs.test?h=v3.0.9#n2483
+
+#x10/2
+#x11/2
+#d11/2
+#o11/2
+#b11/10
+
+---
+
+(scheme_program
+  (scheme_comment)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number))
+
+
+===
+Complex numbers with prefixes
+:language(lilypond-scheme)
+===
+
+; https://git.savannah.gnu.org/cgit/guile.git/tree/test-suite/tests/r7rs.test?h=v3.0.9#n2489
+
+#d1.0+1.0i
+#i1.0+1.0i
+#x10+11i
+#d10+11i
+#o10+11i
+#b10+11i
+#e1.0+1.0i
+
+---
+
+(scheme_program
+  (scheme_comment)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number))
+
+
+===
+R5RS
+:language(lilypond-scheme)
+===
+
+; https://github.com/6cdh/tree-sitter-scheme/blob/main/corpus/r5rs.scm
+
+1
+1.0
++1
+-1
+#d1
+#b010101011
+#B010101011
+#o7
+-i
+-1i
+1-2i
+1e123
+#b#e-1######/1########-1#######/1########i
+#e-1010#######/1#########
+
+---
+
+(scheme_program
+  (scheme_comment)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number))
+
+
+===
+R7RS
+:language(lilypond-scheme)
+===
+
+; https://github.com/6cdh/tree-sitter-scheme/blob/main/corpus/r7rs.scm
+
+0.0
+#I#d+inf.0
+#i#D10/99+99/1i
+#i#D10/99-0123.0E+1i
+
+---
+
+(scheme_program
+  (scheme_comment)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number)
+  (scheme_number))

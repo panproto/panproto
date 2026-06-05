@@ -1,6 +1,6 @@
 # Parse full ASTs
 
-panproto can parse source code in 259 languages via tree-sitter and treat the full AST as a schema instance. The resulting instance can be queried, diffed, migrated, and version-controlled like any other schema.
+panproto can parse source code in 261 languages via tree-sitter and treat the full AST as a schema instance. The resulting instance can be queried, diffed, migrated, and version-controlled like any other schema.
 
 ## Prerequisites
 
@@ -95,7 +95,7 @@ reg.override_grammar(
 schema = reg.parse_with_protocol("qvr", source_bytes, "demo.qvr")  # uses the new grammar
 ```
 
-If a parser is already registered under `name`, it is dropped first (along with any extension mappings). Cannot run while a `ParseEmitLens` produced by `reg.lens(...)` is alive: drop outstanding lens handles, or construct a fresh registry, first. The byte payloads are leaked into `'static` storage on the Rust side — intended for dev-time work, not production.
+If a parser is already registered under `name`, it is dropped first (along with any extension mappings). Cannot run while a `ParseEmitLens` produced by `reg.lens(...)` is alive: drop outstanding lens handles, or construct a fresh registry, first. The byte payloads are leaked into `'static` storage on the Rust side (intended for dev-time work, not production).
 
 ## Going the other way
 
@@ -113,23 +113,23 @@ use panproto_parse::{EmitVerificationStatus, ParserRegistry};
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
 let reg = ParserRegistry::new();
 match reg.emit_verification_status("python") {
-    EmitVerificationStatus::Verified => { /* has a fixed-point test */ }
+    EmitVerificationStatus::Verified => { /* round-trips its full corpus */ }
     EmitVerificationStatus::Generic  => { /* registered, but unverified */ }
     EmitVerificationStatus::Unsupported => { /* not registered */ }
 }
 # Ok(()) }
 ```
 
-The 16 protocols currently in the `Verified` set are listed in [`crates/panproto-parse/src/registry.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-parse/src/registry.rs) under `VERIFIED_EMIT_PROTOCOLS`. Adding a protocol requires landing a `<lang>_emit_is_fixed_point` test that asserts `emit(parse(emit(s))) == emit(s)` on representative source.
+The 255 protocols currently in the `Verified` set are listed in [`crates/panproto-parse/src/registry.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-parse/src/registry.rs) under `VERIFIED_EMIT_PROTOCOLS`. A protocol earns the tier by round-tripping its grammar author's full `test/corpus/` under the strict `emit_corpus_audit` oracle (`emit(parse(emit(s))) == emit(s)` plus vertex-kind and edge-shape multiset preservation on every entry), or by being pinned to a quivers transpile backend test.
 
 ## Verification
 
-Tree-sitter parsing is total: every byte sequence parses into *some* AST, with error nodes inserted around unparseable spans. The interstitial preservation property guarantees `emit(parse(bytes)) == bytes` for accepted inputs; `schema parse emit <file>` is the smoke test.
+Tree-sitter parsing is total: every byte sequence parses into *some* AST, with error nodes inserted around unparseable spans. The verified guarantee is a round-trip up to the vertex-kind and edge-shape multiset: `emit(parse(bytes))` re-parses to the same abstract syntax tree, which `check_parse_emit` in `panproto_parse::parse_emit_lens` asserts. Interstitial preservation makes that emit reproduce the original whitespace byte-for-byte for most inputs, but some legitimately reformat (json re-indents arrays), so byte equality is not promised universally. `schema parse emit <file>` is the smoke test.
 
 ## Common mistakes
 
 - Treating the AST as the source of truth for non-syntactic information. Type information, name resolution, control flow are not modelled by the auto-derived theories.
-- Assuming language coverage. The 259-language list is in [`crates/panproto-grammars/`](https://github.com/panproto/panproto/tree/main/crates/panproto-grammars). Languages not in the list have no parser.
+- Assuming language coverage. The 261-language list is in [`crates/panproto-grammars/`](https://github.com/panproto/panproto/tree/main/crates/panproto-grammars). Languages not in the list have no parser.
 
 ## See also
 

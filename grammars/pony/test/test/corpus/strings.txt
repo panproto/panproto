@@ -1,0 +1,99 @@
+====================
+Single Quoted String
+====================
+
+"single quoted \" use "
+
+---
+
+(source_file
+  (string
+    (string_content)
+    (escape_sequence)
+    (string_content)))
+
+===================
+Single empty String
+===================
+
+""
+use ""
+
+---
+
+(source_file
+  (string)
+  (use_statement
+    (string)))
+
+=======================
+Single Multiline String
+=======================
+
+"
+multi
+use
+"
+
+---
+
+(source_file
+  (string
+    (string_content)))
+
+===================
+Triple empty String
+===================
+
+""""""
+
+---
+
+(source_file
+      (string))
+
+=========================
+Triple multiline String
+=========================
+
+"""
+multi
+line
+use "foo"
+"""
+
+---
+
+(source_file
+  (string
+    (string_content)))
+
+=========================
+Block Quote Triple String
+=========================
+
+/**
+"""
+"""
+*/
+
+---
+
+(source_file
+  (block_comment))
+
+================================
+Block Quote before Triple String
+================================
+
+/**/
+"""
+hdfjdf
+"""
+
+---
+
+(source_file
+  (block_comment)
+  (string
+    (string_content)))

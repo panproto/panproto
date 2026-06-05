@@ -1,0 +1,75 @@
+==================
+Page Properties Phase 4A - High + Medium Priority
+==================
+
+page 50100 "Test Phase 4A Properties"
+{
+    PageType = Card;
+    SourceTable = Customer;
+    AccessByPermission = TableData Item = R;
+    PromptMode = Always;
+    RefreshOnActivate = true;
+    SaveValues = true;
+    ShowFilter = true;
+    AdditionalSearchTerms = 'Test,Sample,Phase4';
+
+    layout
+    {
+        area(content)
+        {
+            group(General)
+            {
+                field("No."; Rec."No.")
+                {
+                }
+            }
+        }
+    }
+}
+
+---
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (tabledata_permission_list
+        (tabledata_permission
+          table_name: (identifier)
+          permission: (permission_type))))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (group_section
+          (group_keyword)
+          name: (identifier)
+          (page_field
+            name: (quoted_identifier)
+            source: (member_expression
+              object: (identifier)
+              member: (quoted_identifier))))))))

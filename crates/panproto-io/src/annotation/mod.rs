@@ -7,13 +7,17 @@
 
 pub mod conllu;
 
+use crate::byte_tabular::ByteTabularCodec;
 use crate::registry::ProtocolRegistry;
 
 /// Register all annotation protocol codecs with the registry.
 #[allow(deprecated)]
 pub fn register_all(registry: &mut ProtocolRegistry) {
-    // Tab-delimited (custom codec, always legacy for now)
-    registry.register(conllu::ConlluCodec::new());
+    // CoNLL-U: tab-delimited tokens with `#` comment lines and blank-line
+    // sentence boundaries, no tree-sitter grammar. The byte-faithful tabular
+    // codec preserves comments, blank lines, multiword-token rows, `_`
+    // sentinels, and line endings verbatim, splicing only edited cells.
+    registry.register(ByteTabularCodec::new("conllu", "rows", b'\t', Some(b'#')));
 
     // Line-based (AMR PENMAN notation represented as TSV)
     #[cfg(feature = "tree-sitter")]
@@ -23,8 +27,7 @@ pub fn register_all(registry: &mut ProtocolRegistry) {
     }
     #[cfg(not(feature = "tree-sitter"))]
     {
-        use crate::tabular_codec::TabularCodec;
-        registry.register(TabularCodec::tsv("amr", "amr_graph"));
+        registry.register(ByteTabularCodec::new("amr", "amr_graph", b'\t', None));
     }
 
     #[cfg(feature = "tree-sitter")]

@@ -1,0 +1,377 @@
+==================
+Annotations
+==================
+
+@Test
+class Empty
+
+---
+
+(source_file
+  (class_declaration
+        (modifiers (annotation (user_type (type_identifier))))
+        (type_identifier)))
+
+==================
+Annotations with use-site-target
+==================
+
+class Empty(@field:Test val x: Boolean)
+
+---
+
+(source_file
+  (class_declaration
+        (type_identifier)
+        (primary_constructor (class_parameter
+            (modifiers (annotation (use_site_target) (user_type (type_identifier))))
+            (binding_pattern_kind)
+            (simple_identifier)
+            (user_type (type_identifier))))))
+
+==================
+Multi-annotations
+==================
+
+@set:[Inject VisibleForTesting]
+var x: Int
+
+---
+
+(source_file
+    (property_declaration
+        (modifiers (annotation (use_site_target) (user_type (type_identifier)) (user_type (type_identifier))))
+        (binding_pattern_kind)
+        (variable_declaration (simple_identifier) (user_type (type_identifier)))))
+
+==================
+Multiple annotations on a variable
+==================
+
+class X {
+ @A @B
+ override val s: String
+}
+
+---
+
+(source_file
+  (class_declaration
+    (type_identifier)
+    (class_body
+      (property_declaration
+        (modifiers
+          (annotation (user_type (type_identifier)))
+          (annotation (user_type (type_identifier)))
+          (member_modifier))
+        (binding_pattern_kind)
+        (variable_declaration (simple_identifier) (user_type (type_identifier)))
+      )
+    )
+  )
+)
+
+
+==================
+Multiple annotations on a function
+==================
+
+class X {
+ @A @B
+ fun s(): String
+}
+
+---
+
+(source_file
+  (class_declaration
+    (type_identifier)
+    (class_body
+      (function_declaration
+        (modifiers
+          (annotation (user_type (type_identifier)))
+          (annotation (user_type (type_identifier))))
+        (simple_identifier)
+        (function_value_parameters)
+        (user_type (type_identifier))
+      )
+    )
+  )
+)
+
+=====================
+Annotated functions
+======================
+
+@Test
+fun foo() = bar {}
+
+---
+
+(source_file
+  (function_declaration
+    (modifiers
+      (annotation
+        (user_type
+          (type_identifier))))
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (call_expression
+        (simple_identifier)
+        (call_suffix
+          (annotated_lambda
+            (lambda_literal)))))))
+
+=====================
+Functions with multiple annotations
+=====================
+
+@Another
+@Test
+fun foo() = bar {}
+
+---
+
+(source_file
+  (function_declaration
+    (modifiers
+      (annotation
+        (user_type
+          (type_identifier)))
+      (annotation
+        (user_type
+          (type_identifier))))
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (call_expression
+        (simple_identifier)
+        (call_suffix
+          (annotated_lambda
+            (lambda_literal)))))))
+
+=====================
+Functions with multiple annotations and type params
+=====================
+
+@Another("y")
+@Test("x")
+fun <T> fooFunc() = bar {}
+
+---
+
+(source_file
+  (function_declaration
+    (modifiers
+      (annotation
+        (constructor_invocation
+          (user_type
+            (type_identifier))
+          (value_arguments
+            (value_argument
+              (string_literal
+                (string_content))))))
+      (annotation
+        (constructor_invocation
+          (user_type
+            (type_identifier))
+          (value_arguments
+            (value_argument
+              (string_literal
+                (string_content)))))))
+    (type_parameters
+      (type_parameter
+        (type_identifier)))
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (call_expression
+        (simple_identifier)
+        (call_suffix
+          (annotated_lambda
+            (lambda_literal)))))))
+
+==================
+Comma in annotation property
+==================
+
+class EnvironmentSpec {
+    @Option(
+      names = ["--environment", "--env"],
+      arity = "0..1",
+      description = [
+          "Which environment to use",
+      ],
+    )
+    var environment: Environment
+}
+
+---
+
+(source_file
+  (class_declaration
+    (type_identifier)
+    (class_body
+      (property_declaration
+        (modifiers
+          (annotation
+            (constructor_invocation
+              (user_type
+                (type_identifier))
+              (value_arguments
+                (value_argument
+                  (simple_identifier)
+                  (collection_literal
+                    (string_literal (string_content))
+                    (string_literal (string_content))))
+                (value_argument
+                  (simple_identifier)
+                  (string_literal (string_content)))
+                (value_argument
+                  (simple_identifier)
+                  (collection_literal
+                    (string_literal (string_content))
+                  ))))))
+        (binding_pattern_kind)
+        (variable_declaration
+          (simple_identifier)
+          (user_type
+            (type_identifier)))
+      ))))
+
+==================
+Annotation with args before parenthesized expression
+==================
+
+fun test() {
+    @Suppress("X")
+    (x as String)
+}
+
+---
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (annotation
+          (constructor_invocation
+            (user_type (type_identifier))
+            (value_arguments
+              (value_argument
+                (string_literal (string_content))))))
+        (parenthesized_expression
+          (as_expression
+            (simple_identifier)
+            (user_type (type_identifier))))))))
+
+==================
+Annotation with args before parenthesized expression in if block
+==================
+
+class Test {
+    fun test() {
+        if (true) {
+            @Suppress("X")
+            (x as String)
+        }
+    }
+}
+
+---
+
+(source_file
+  (class_declaration
+    (type_identifier)
+    (class_body
+      (function_declaration
+        (simple_identifier)
+        (function_value_parameters)
+        (function_body
+          (statements
+            (if_expression
+              condition: (boolean_literal)
+              consequence: (control_structure_body
+                (statements
+                  (annotation
+                    (constructor_invocation
+                      (user_type (type_identifier))
+                      (value_arguments
+                        (value_argument
+                          (string_literal (string_content))))))
+                  (parenthesized_expression
+                    (as_expression
+                      (simple_identifier)
+                      (user_type (type_identifier)))))))))))))
+
+==================
+Annotation with args before parenthesized expression on same line
+==================
+
+fun test() { @Suppress("X") (x as String) }
+
+---
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (annotation
+          (constructor_invocation
+            (user_type (type_identifier))
+            (value_arguments
+              (value_argument
+                (string_literal (string_content))))))
+        (parenthesized_expression
+          (as_expression
+            (simple_identifier)
+            (user_type (type_identifier))))))))
+
+==================
+No-arg annotation before non-paren expression
+==================
+
+fun test() {
+    @Volatile
+    x
+}
+
+---
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (prefix_expression
+          (annotation
+            (user_type (type_identifier)))
+          (simple_identifier))))))
+
+==================
+Annotation on declaration still uses modifiers
+==================
+
+@Suppress("X")
+val x = 1
+
+---
+
+(source_file
+  (property_declaration
+    (modifiers
+      (annotation
+        (constructor_invocation
+          (user_type (type_identifier))
+          (value_arguments
+            (value_argument
+              (string_literal (string_content)))))))
+    (binding_pattern_kind)
+    (variable_declaration (simple_identifier))
+    (integer_literal)))

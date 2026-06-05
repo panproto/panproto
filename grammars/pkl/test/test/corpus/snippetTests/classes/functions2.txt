@@ -1,0 +1,56 @@
+===
+classes/functions2.pkl
+===
+
+a = 1
+
+class X {
+  a = 2
+  function compute() = a
+}
+
+res1 = new X {}.compute()
+
+res2 = new X { a = 3 }.compute()
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (intLiteralExpr))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (intLiteralExpr))
+      (classMethod
+        (methodHeader
+          (identifier)
+          (parameterList))
+        (unqualifiedAccessExpr
+          (identifier)))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody))
+      (identifier)
+      (argumentList)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody
+          (objectProperty
+            (identifier)
+            (intLiteralExpr))))
+      (identifier)
+      (argumentList))))

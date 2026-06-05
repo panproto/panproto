@@ -1,0 +1,196 @@
+================================================================================
+Interface procedures without semicolons
+================================================================================
+
+interface DataUpgradeSAFT
+{
+    /// <summary>
+    /// Defines if data upgrade is required.
+    /// </summary>
+    /// <returns>True if data upgrade is required, otherwise false</returns>
+    procedure IsDataUpgradeRequired(): Boolean
+
+    /// <summary>
+    /// Returns a description of what will be upgraded.
+    /// </summary>
+    procedure GetDataUpgradeDescription(): Text
+
+    /// <summary>
+    /// Shows the data which will be upgraded.
+    /// </summary>
+    procedure ReviewDataToUpgrade()
+
+    /// <summary>
+    /// Upgrades the data.
+    /// </summary>
+    /// <returns>True if data upgrade was successful, otherwise false</returns>
+    procedure UpgradeData() Result: Boolean
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (interface_declaration
+    (interface_keyword)
+    object_name: (identifier)
+    (comment)
+    (comment)
+    (comment)
+    (comment)
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (basic_type))))
+    (comment)
+    (comment)
+    (comment)
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (text_type))))
+    (comment)
+    (comment)
+    (comment)
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier))
+    (comment)
+    (comment)
+    (comment)
+    (comment)
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix
+        return_value: (identifier)
+        return_type: (type_specification
+          (basic_type))))))
+
+================================================================================
+Interface procedures with semicolons (backward compatibility)
+================================================================================
+
+interface "My Interface"
+{
+    procedure Method1();
+    procedure Method2(): Integer;
+    procedure Method3() Value: Decimal;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (interface_declaration
+    (interface_keyword)
+    object_name: (quoted_identifier)
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (basic_type))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix
+        return_value: (identifier)
+        return_type: (type_specification
+          (basic_type))))))
+
+================================================================================
+Interface procedures with attributes without semicolons
+================================================================================
+
+interface TestInterface
+{
+    [Obsolete('Use Method2 instead')]
+    procedure Method1(): Boolean
+    
+    [IntegrationEvent(true, true)]
+    procedure OnBeforeProcess(var Handled: Boolean)
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (interface_declaration
+    (interface_keyword)
+    object_name: (identifier)
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (string_literal)))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (basic_type))))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (boolean)
+            (boolean)))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (basic_type)))))))
+
+================================================================================
+Interface with namespace and mixed semicolons
+================================================================================
+
+namespace Microsoft.Finance.AuditFileExport;
+
+interface DataExport
+{
+    procedure Initialize()
+    procedure Export(): Boolean;
+    procedure GetStatus() Status: Text
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (namespace_declaration
+    (namespace_keyword)
+    name: (namespace_name
+      (identifier)
+      (identifier)
+      (identifier)))
+  (interface_declaration
+    (interface_keyword)
+    object_name: (identifier)
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (basic_type))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix
+        return_value: (identifier)
+        return_type: (type_specification
+          (text_type))))))

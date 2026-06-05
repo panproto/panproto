@@ -1,0 +1,49 @@
+===
+errors/mappingTypeCheckError10.pkl
+===
+
+foo: Mapping = new { ["foo"] = 1; ["bar"] = 2 }
+bar: Mapping<String, String> = (foo) { ["baz"] = "three" }
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (newExpr
+      (objectBody
+        (objectEntry
+          (slStringLiteralExpr
+            (slStringLiteralPart))
+          (intLiteralExpr))
+        (objectEntry
+          (slStringLiteralExpr
+            (slStringLiteralPart))
+          (intLiteralExpr)))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))))
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (objectEntry
+          (slStringLiteralExpr
+            (slStringLiteralPart))
+          (slStringLiteralExpr
+            (slStringLiteralPart)))))))

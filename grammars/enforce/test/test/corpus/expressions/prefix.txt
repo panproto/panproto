@@ -1,0 +1,24 @@
+================================================================================
+simple
+================================================================================
+void foo() {
+	+a;
+	-a;
+	!a;
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method (type_void) (identifier) (block
+	(statement_expression (expression_prefix (identifier)))
+	(statement_expression (expression_prefix (identifier)))
+	(statement_expression (expression_prefix (identifier))))))
+
+================================================================================
+double negation
+================================================================================
+void foo() {
+	!!a;
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method (type_void) (identifier) (block
+	(statement_expression (expression_prefix
+		(expression_prefix (identifier)))))))

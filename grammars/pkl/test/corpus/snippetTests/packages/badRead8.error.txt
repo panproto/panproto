@@ -1,0 +1,14 @@
+===
+packages/badRead8.error.pkl
+===
+
+res = import("package://localhost:0/badImportsWithinPackage@1.0.0#/unknownDependencyRead.pkl")
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (importExpr
+      (stringConstant
+        (slStringLiteralPart)))))

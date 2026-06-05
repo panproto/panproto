@@ -1,0 +1,316 @@
+===
+numbers
+===
+
+1
+1.0
++1
+-1
+-1.0
+.1
++.1
+1e1
+1e-1
+1_0.1_0
+0x1
+-0x1
+0x1.1
++0x1.1
+0x1p1
+-0x1_0.1_0p1_0
+
+---
+
+(program
+  (number)
+  (number)
+  (number)
+  (number)
+  (number)
+  (number)
+  (number)
+  (number)
+  (number)
+  (number)
+  (number)
+  (number)
+  (number)
+  (number)
+  (number)
+  (number))
+
+===
+strings
+===
+
+"string"
+"string\""
+"string\\"
+"\115\116\114"
+"\x32\u{33}"
+
+---
+
+(program
+  (string)
+  (string (escape_sequence))
+  (string (escape_sequence))
+  (string (escape_sequence) (escape_sequence) (escape_sequence))
+  (string (escape_sequence) (escape_sequence)))
+
+===
+colon strings
+===
+
+:test
+:*
+:#
+:?
+:-
+:+
+:9
+:_
+:/
+:<
+:>
+:=
+:^
+
+---
+
+(program
+  (string)
+  (string)
+  (string)
+  (string)
+  (string)
+  (string)
+  (string)
+  (string)
+  (string)
+  (string)
+  (string)
+  (string)
+  (string))
+
+===
+quote
+===
+
+'[]
+`123
+`(+ ,a ,b)
+`("")
+'(fn)
+(quote (each))
+'(let [x (each [y] z)])
+
+---
+(program
+  (quote
+    (quoted_sequential_table))
+  (quote
+    (number))
+  (quote
+    (quoted_list
+      (symbol)
+      (unquote
+        (symbol))
+      (unquote
+        (symbol))))
+  (quote
+    (quoted_list
+      (string)))
+  (quote
+    (quoted_list
+      (symbol)))
+  (quote
+    (quoted_list
+      (symbol)))
+  (quote
+    (quoted_list
+      (symbol)
+      (quoted_sequential_table
+        (symbol)
+        (quoted_list
+          (symbol)
+          (quoted_sequential_table
+            (symbol))
+          (symbol))))))
+
+===
+symbols
+===
+
+a
+?a
+a?
+$1
+$
+<>
+test#test#test
+.
+..
+:
+
+---
+
+(program
+  (symbol)
+  (symbol)
+  (symbol)
+  (symbol)
+  (symbol)
+  (symbol)
+  (symbol)
+  (symbol)
+  (symbol)
+  (symbol))
+
+===
+booleans + nil
+===
+
+true
+false
+nil
+
+---
+
+(program
+  (boolean)
+  (boolean)
+  (nil))
+
+===
+tables
+===
+
+{: value
+ "key" value
+ "number" 531
+ "f" (fn [x] (+ x 2))}
+{key value}
+
+---
+
+(program
+  (table
+    (table_pair
+      (binding
+        (symbol)))
+    (table_pair
+      key: (string)
+      value: (symbol))
+    (table_pair
+      key: (string) 
+      value: (number))
+    (table_pair
+      key: (string)
+      value: (fn
+               (parameters
+                 (binding
+                   (symbol)))
+               (list
+                 (symbol)
+                 (symbol)
+                 (number)))))
+  (table
+    (table_pair
+      key: (symbol)
+      value: (symbol))))
+
+===
+sequential tables
+===
+
+["abd" "def" "xyz"]
+
+---
+
+(program
+  (sequential_table
+    (string)
+    (string)
+    (string)))
+
+===
+comments
+===
+
+; this is a comment
+(fn ;
+ foo ;
+ [ ;
+ x ;
+ ] ;
+ x ;
+ ) ;
+
+---
+
+(program
+  (comment)
+  (fn
+    (comment)
+    name: (symbol)
+    (comment)
+    (parameters
+      (comment)
+      (binding
+        (symbol))
+      (comment))
+    (comment)
+    (symbol)
+    (comment))
+  (comment))
+
+===
+multi-syms
+===
+
+(string.format "%d" 1)
+
+---
+
+(program
+  (list
+    (multi_symbol
+      (symbol)
+      (symbol))
+    (string)
+    (number)))
+
+===
+vararg
+===
+
+...
+(fn [x y ...] ...)
+
+---
+
+(program
+  (vararg)
+  (fn
+    (parameters
+      (binding
+        (symbol))
+      (binding
+        (symbol))
+      (vararg))
+    (vararg)))
+
+====
+Nil Safe
+====
+
+(?. foo :bar)
+
+---
+
+(program
+  (list
+    (nil_safe)
+    (symbol)
+    (string)))

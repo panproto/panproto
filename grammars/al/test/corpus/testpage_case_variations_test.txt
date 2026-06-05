@@ -1,0 +1,98 @@
+================================================================================
+TestPage case variations
+================================================================================
+
+codeunit 50100 "Test Codeunit"
+{
+    [PageHandler]
+    procedure PageHandler1(var Page: TestPage 138)
+    begin
+    end;
+
+    [PageHandler]
+    procedure PageHandler2(var Page: Testpage 138)
+    begin
+    end;
+
+    [PageHandler]
+    procedure PageHandler3(var Page: TESTPAGE 138)
+    begin
+    end;
+
+    [PageHandler]
+    procedure PageHandler4(var Page: testpage 138)
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (object_reference_type
+              reference: (integer)))))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (object_reference_type
+              reference: (integer)))))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (object_reference_type
+              reference: (integer)))))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (object_reference_type
+              reference: (integer)))))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))

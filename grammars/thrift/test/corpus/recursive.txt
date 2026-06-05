@@ -1,0 +1,80 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements. See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership. The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License. You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+
+============================
+Test a recursive struct type
+============================
+
+struct RecList {
+  1: RecList & nextitem
+  3: i16 item
+}
+
+---
+
+(document
+  (struct_definition
+    (identifier)
+    (field
+      (field_id
+        (number))
+      (type
+        (identifier))
+      (identifier))
+    (field
+      (field_id
+        (number))
+      (type
+        (primitive))
+      (identifier))))
+
+
+
+====================================
+Test a coupled recursive struct type
+====================================
+
+struct CoRec {
+  1:  CoRec2 & other
+}
+
+struct CoRec2 {
+  1: CoRec other
+}
+
+---
+
+(document
+  (struct_definition
+    (identifier)
+    (field
+      (field_id
+        (number))
+      (type
+        (identifier))
+      (identifier)))
+  (struct_definition
+    (identifier)
+    (field
+      (field_id
+        (number))
+      (type
+        (identifier))
+      (identifier))))

@@ -1,0 +1,111 @@
+==============
+Empty module
+==============
+
+---
+
+(module)
+
+==============
+Bare prelude
+==============
+
+prelude
+
+---
+
+(module
+  (prelude))
+
+==============
+Module token then prelude
+==============
+
+module
+prelude
+
+---
+
+(module
+  (moduleTk)
+  (prelude))
+
+==============
+Single import
+==============
+
+import Foo
+
+---
+
+(module
+  (import
+    name: (identifier)))
+
+==============
+Dotted import
+==============
+
+import Foo.Bar.Baz
+
+---
+
+(module
+  (import
+    name: (identifier)))
+
+==============
+Multiple imports
+==============
+
+import Foo
+import Bar.Baz
+import Quux
+
+---
+
+(module
+  (import name: (identifier))
+  (import name: (identifier))
+  (import name: (identifier)))
+
+==============
+Public import
+==============
+
+public import Foo
+
+---
+
+(module
+  (import
+    (public)
+    name: (identifier)))
+
+==============
+Meta import
+==============
+
+meta import Foo.Bar
+
+---
+
+(module
+  (import
+    (meta)
+    name: (identifier)))
+
+==============
+Public meta import all
+==============
+
+public meta import all Foo
+
+---
+
+(module
+  (import
+    (public)
+    (meta)
+    (all)
+    name: (identifier)))

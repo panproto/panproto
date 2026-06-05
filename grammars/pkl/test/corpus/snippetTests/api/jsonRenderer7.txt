@@ -1,0 +1,53 @@
+===
+api/jsonRenderer7.pkl
+===
+
+res1 = null
+res2 = 1
+res3 = "Hello"
+res4 {
+  foo = 1
+  bar = null
+}
+
+output {
+  renderer = new JsonRenderer {
+    omitNullProperties = true
+  }
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (nullLiteralExpr))
+  (classProperty
+    (identifier)
+    (intLiteralExpr))
+  (classProperty
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (intLiteralExpr))
+      (objectProperty
+        (identifier)
+        (nullLiteralExpr))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (objectBody
+            (objectProperty
+              (identifier)
+              (trueLiteralExpr))))))))

@@ -1,0 +1,103 @@
+===
+classes/constraints8.pkl
+===
+
+import "pkl:test"
+
+const function isGreaterThan(n) = (x) -> x > n
+
+class X {
+  a: Int(isGreaterThan(5))
+  b: Int(isGreaterThan(10))
+}
+
+res1 = new X {
+  a = 6
+  b = 11
+}
+
+res2 = test.catch(() ->
+  new X {
+    a = 5
+  }.a
+)
+
+---
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (classMethod
+    (methodHeader
+      (modifier)
+      (identifier)
+      (parameterList
+        (typedIdentifier
+          (identifier))))
+    (functionLiteralExpr
+      (parameterList
+        (typedIdentifier
+          (identifier)))
+      (comparisonExpr
+        (unqualifiedAccessExpr
+          (identifier))
+        (unqualifiedAccessExpr
+          (identifier)))))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (constrainedType
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (unqualifiedAccessExpr
+              (identifier)
+              (argumentList
+                (intLiteralExpr))))))
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (constrainedType
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (unqualifiedAccessExpr
+              (identifier)
+              (argumentList
+                (intLiteralExpr))))))))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (intLiteralExpr))
+        (objectProperty
+          (identifier)
+          (intLiteralExpr)))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (qualifiedAccessExpr
+            (newExpr
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))
+              (objectBody
+                (objectProperty
+                  (identifier)
+                  (intLiteralExpr))))
+            (identifier)))))))

@@ -1,0 +1,98 @@
+==================
+simple translation
+==================
+
+msgid "Hello"
+msgstr "Bonjour"
+
+----
+
+(source_file)
+
+==================
+translator comment
+==================
+
+# This is a greeting
+msgid "Hello"
+msgstr "Hola"
+
+----
+
+(source_file)
+
+==================
+extracted comment and reference
+==================
+
+#. Label for the submit button
+#: src/ui.c:42
+msgid "Submit"
+msgstr "Enviar"
+
+----
+
+(source_file)
+
+==================
+flag comment
+==================
+
+#, fuzzy
+msgid "Welcome"
+msgstr "Bienvenue"
+
+----
+
+(source_file)
+
+==================
+plural forms
+==================
+
+msgid "one file"
+msgid_plural "%d files"
+msgstr[0] "un fichier"
+msgstr[1] "%d fichiers"
+
+----
+
+(source_file)
+
+==================
+context
+==================
+
+msgctxt "menu"
+msgid "Open"
+msgstr "Ouvrir"
+
+----
+
+(source_file)
+
+==================
+multiline string
+==================
+
+msgid ""
+"Line one\n"
+"Line two\n"
+msgstr ""
+"Ligne un\n"
+"Ligne deux\n"
+
+----
+
+(source_file)
+
+==================
+empty header entry
+==================
+
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8\n"
+
+----
+
+(source_file)

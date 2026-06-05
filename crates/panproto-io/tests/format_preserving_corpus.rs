@@ -154,3 +154,149 @@ fn byte_eq_json_nested_array() {
     let input = br#"{"matrix":[[1,2,3],[4,5,6]]}"#;
     assert_byte_equal_round_trip(&codec, &schema, input, "json_nested_array");
 }
+
+// ─── TOML corpus ──────────────────────────────────────────────────────
+
+#[test]
+fn byte_eq_toml_key_value() {
+    let codec = UnifiedCodec::toml("test").unwrap();
+    let schema = open_schema("test");
+    let input = b"key = \"value\"\nnum = 42\n";
+    assert_byte_equal_round_trip(&codec, &schema, input, "toml_key_value");
+}
+
+#[test]
+fn byte_eq_toml_table() {
+    let codec = UnifiedCodec::toml("test").unwrap();
+    let schema = open_schema("test");
+    let input = b"[server]\nhost = \"localhost\"\nport = 8080\n";
+    assert_byte_equal_round_trip(&codec, &schema, input, "toml_table");
+}
+
+#[test]
+fn byte_eq_toml_comments_and_whitespace() {
+    let codec = UnifiedCodec::toml("test").unwrap();
+    let schema = open_schema("test");
+    // Comments and irregular spacing live in the layout complement; the
+    // round-trip must preserve them byte-for-byte.
+    let input = b"# top comment\n\ntitle   =   \"demo\"  # trailing\n[deps]\nserde = \"1.0\"\n";
+    assert_byte_equal_round_trip(&codec, &schema, input, "toml_comments");
+}
+
+// ─── YAML corpus ──────────────────────────────────────────────────────
+
+#[test]
+fn byte_eq_yaml_mapping() {
+    let codec = UnifiedCodec::yaml("test").unwrap();
+    let schema = open_schema("test");
+    let input = b"name: Alice\nvalue: 42\n";
+    assert_byte_equal_round_trip(&codec, &schema, input, "yaml_mapping");
+}
+
+#[test]
+fn byte_eq_yaml_block_sequence() {
+    let codec = UnifiedCodec::yaml("test").unwrap();
+    let schema = open_schema("test");
+    let input = b"items:\n  - a\n  - b\n";
+    assert_byte_equal_round_trip(&codec, &schema, input, "yaml_block_sequence");
+}
+
+#[test]
+fn byte_eq_yaml_comments_and_indentation() {
+    let codec = UnifiedCodec::yaml("test").unwrap();
+    let schema = open_schema("test");
+    let input = b"# header\nserver:\n  host: localhost   # inline\n  ports:\n    - 80\n    - 443\n";
+    assert_byte_equal_round_trip(&codec, &schema, input, "yaml_comments");
+}
+
+// ─── CSV / TSV corpus (tabular, format-preserving functor path) ───────
+
+fn assert_tabular_byte_equal_round_trip(
+    codec: &UnifiedCodec,
+    schema: &panproto_schema::Schema,
+    input: &[u8],
+    label: &str,
+) {
+    let (instance, complement) = codec
+        .parse_functor_preserving(schema, input)
+        .unwrap_or_else(|e| panic!("[{label}] parse_functor_preserving failed: {e}"));
+    let emitted = codec
+        .emit_functor_preserving(schema, &instance, &complement)
+        .unwrap_or_else(|e| panic!("[{label}] emit_functor_preserving failed: {e}"));
+    assert!(
+        emitted == input,
+        "[{label}] tabular round-trip violated byte equality\n\
+         input:\n{}\n\nemitted:\n{}",
+        String::from_utf8_lossy(input),
+        String::from_utf8_lossy(&emitted),
+    );
+}
+
+fn tabular_schema() -> panproto_schema::Schema {
+    let proto = Protocol {
+        name: "test".into(),
+        schema_theory: "ThtestSchema".into(),
+        instance_theory: "ThtestInstance".into(),
+        ..Protocol::default()
+    };
+    SchemaBuilder::new(&proto)
+        .vertex("rows", "object", None)
+        .expect("rows vertex")
+        .build()
+        .expect("build schema")
+}
+
+#[test]
+fn byte_eq_csv_simple() {
+    let codec = UnifiedCodec::csv("test").unwrap();
+    let schema = tabular_schema();
+    // Column order must survive (the legacy functor path reordered columns).
+    let input = b"name,age\nAlice,30\nBob,25\n";
+    assert_tabular_byte_equal_round_trip(&codec, &schema, input, "csv_simple");
+}
+
+#[test]
+fn byte_eq_csv_quoted_embedded_delimiter() {
+    let codec = UnifiedCodec::csv("test").unwrap();
+    let schema = tabular_schema();
+    let input = b"name,note\nAlice,\"hello, world\"\nBob,\"a\nb\"\n";
+    assert_tabular_byte_equal_round_trip(&codec, &schema, input, "csv_quoted");
+}
+
+#[test]
+fn byte_eq_csv_no_trailing_newline_and_empty_cells() {
+    let codec = UnifiedCodec::csv("test").unwrap();
+    let schema = tabular_schema();
+    let input = b"a,b,c\n1,,3";
+    assert_tabular_byte_equal_round_trip(&codec, &schema, input, "csv_empty_cells");
+}
+
+#[test]
+fn byte_eq_tsv_simple() {
+    let codec = UnifiedCodec::tsv("test", "rows").unwrap();
+    let schema = tabular_schema();
+    let input = b"name\tage\nAlice\t30\nBob\t25\n";
+    assert_tabular_byte_equal_round_trip(&codec, &schema, input, "tsv_simple");
+}
+
+/// The format-preserving tabular path must also apply edits: changing a cell
+/// value rewrites exactly that field while keeping every other byte intact.
+#[test]
+fn tabular_edit_rewrites_one_cell() {
+    use panproto_inst::value::Value;
+    let codec = UnifiedCodec::csv("test").unwrap();
+    let schema = tabular_schema();
+    let input = b"name,age\nAlice,30\nBob,25\n";
+    let (mut instance, complement) = codec.parse_functor_preserving(&schema, input).unwrap();
+    for rows in instance.tables.values_mut() {
+        for row in rows.iter_mut() {
+            if row.get("name") == Some(&Value::Str("Alice".into())) {
+                row.insert("age".into(), Value::Str("99".into()));
+            }
+        }
+    }
+    let emitted = codec
+        .emit_functor_preserving(&schema, &instance, &complement)
+        .unwrap();
+    assert_eq!(emitted.as_slice(), b"name,age\nAlice,99\nBob,25\n");
+}

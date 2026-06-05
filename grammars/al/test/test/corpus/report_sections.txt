@@ -1,0 +1,241 @@
+========================================================================
+Report with dataset
+========================================================================
+report 50100 MyReport
+{
+    dataset
+    {
+        dataitem(Customer; Customer)
+        {
+            column(Name; Name) { }
+            column("No."; "No.") { }
+        }
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    (integer)
+    (identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        (identifier)
+        (identifier)
+        (report_column
+          (column_keyword)
+          (identifier)
+          (identifier))
+        (report_column
+          (column_keyword)
+          (quoted_identifier)
+          (quoted_identifier))))))
+
+========================================================================
+Report with nested dataitems
+========================================================================
+report 50100 R
+{
+    dataset
+    {
+        dataitem(Customer; Customer)
+        {
+            column(Name; Name) { }
+            dataitem(SalesLine; "Sales Line")
+            {
+                column(Amount; Amount) { }
+            }
+        }
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    (integer)
+    (identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        (identifier)
+        (identifier)
+        (report_column
+          (column_keyword)
+          (identifier)
+          (identifier))
+        (report_dataitem
+          (dataitem_keyword)
+          (identifier)
+          (quoted_identifier)
+          (report_column
+            (column_keyword)
+            (identifier)
+            (identifier)))))))
+
+========================================================================
+Report with requestpage
+========================================================================
+report 50100 R
+{
+    requestpage
+    {
+        Caption = 'Request Page';
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    (integer)
+    (identifier)
+    (requestpage_section
+      (requestpage_keyword)
+      (property
+        (property_name)
+        (string_literal)))))
+
+========================================================================
+Report with rendering
+========================================================================
+report 50100 R
+{
+    rendering
+    {
+        layout(RDLCLayout)
+        {
+            Type = RDLC;
+        }
+        layout(ExcelLayout)
+        {
+            Type = Excel;
+        }
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    (integer)
+    (identifier)
+    (rendering_section
+      (rendering_keyword)
+      (rendering_layout
+        (layout_keyword)
+        (identifier)
+        (property
+          (property_name)
+          (identifier)))
+      (rendering_layout
+        (layout_keyword)
+        (identifier)
+        (property
+          (property_name)
+          (identifier))))))
+
+========================================================================
+Report with labels
+========================================================================
+report 50100 R
+{
+    labels
+    {
+        TotalLbl = 'Total', Locked = true;
+        AmountLbl = 'Amount', Comment = 'Amount caption';
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    (integer)
+    (identifier)
+    (labels_section
+      (labels_keyword)
+      (label_declaration
+        (identifier)
+        (string_literal)
+        (boolean))
+      (label_declaration
+        (identifier)
+        (string_literal)
+        (string_literal)))))
+
+========================================================================
+Full report structure
+========================================================================
+report 50100 R
+{
+    Caption = 'My Report';
+
+    dataset
+    {
+        dataitem(Cust; Customer)
+        {
+            column(CustName; Name) { }
+        }
+    }
+
+    requestpage
+    {
+        Caption = 'Options';
+    }
+
+    labels
+    {
+        ReportTitle = 'Customer Report';
+    }
+
+    rendering
+    {
+        layout(Default)
+        {
+            Type = RDLC;
+        }
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    (integer)
+    (identifier)
+    (property
+      (property_name)
+      (string_literal))
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        (identifier)
+        (identifier)
+        (report_column
+          (column_keyword)
+          (identifier)
+          (identifier))))
+    (requestpage_section
+      (requestpage_keyword)
+      (property
+        (property_name)
+        (string_literal)))
+    (labels_section
+      (labels_keyword)
+      (label_declaration
+        (identifier)
+        (string_literal)))
+    (rendering_section
+      (rendering_keyword)
+      (rendering_layout
+        (layout_keyword)
+        (identifier)
+        (property
+          (property_name)
+          (identifier))))))

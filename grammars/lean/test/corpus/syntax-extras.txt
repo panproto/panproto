@@ -1,0 +1,2590 @@
+==============
+Dollar application operator
+==============
+
+#check f $ g x
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (app
+        fn: (identifier)
+        arg: (identifier)))))
+
+==============
+Cdot anonymous fn placeholder
+==============
+
+#check List.map (·.fst) xs
+
+---
+
+(module
+  (check
+    term: (app
+      fn: (app
+        fn: (identifier)
+        arg: (paren
+          (proj
+            term: (cdot)
+            field: (identifier))))
+      arg: (identifier))))
+
+==============
+Dot ident
+==============
+
+#check .none
+
+---
+
+(module
+  (check
+    term: (dot_ident
+      name: (identifier))))
+
+==============
+Rest pattern
+==============
+
+#check match x with | .foo .. => 0
+
+---
+
+(module
+  (check
+    term: (match
+      scrutinee: (identifier)
+      (match_alt
+        pattern: (app
+          fn: (dot_ident name: (identifier))
+          arg: (rest_pat))
+        body: (num_lit)))))
+
+==============
+If with named hypothesis
+==============
+
+#check if h : a = b then x else y
+
+---
+
+(module
+  (check
+    term: (if_then_else
+      hyp: (identifier)
+      cond: (binary_op
+        lhs: (identifier)
+        rhs: (identifier))
+      then: (identifier)
+      else: (identifier))))
+
+==============
+Let rec
+==============
+
+#check let rec f := 1; f
+
+---
+
+(module
+  (check
+    term: (let
+      name: (identifier)
+      value: (num_lit)
+      body: (identifier))))
+
+==============
+Let mut
+==============
+
+#check let mut x := 0; x
+
+---
+
+(module
+  (check
+    term: (let
+      name: (identifier)
+      value: (num_lit)
+      body: (identifier))))
+
+==============
+Let monadic bind
+==============
+
+#check let x ← read; x
+
+---
+
+(module
+  (check
+    term: (let
+      name: (identifier)
+      value: (identifier)
+      body: (identifier))))
+
+==============
+Unary monadic extract
+==============
+
+#check (← read)
+
+---
+
+(module
+  (check
+    term: (paren
+      (unary_op
+        rhs: (identifier)))))
+
+==============
+App with fun arg
+==============
+
+#check List.map (fun x => x + 1) xs
+
+---
+
+(module
+  (check
+    term: (app
+      fn: (app
+        fn: (identifier)
+        arg: (paren
+          (fun
+            (binders (identifier))
+            body: (binary_op
+              lhs: (identifier)
+              rhs: (num_lit)))))
+      arg: (identifier))))
+
+==============
+App with bare fun arg
+==============
+
+#check List.map fun x => x + 1
+
+---
+
+(module
+  (check
+    term: (app
+      fn: (identifier)
+      arg: (fun
+        (binders (identifier))
+        body: (binary_op
+          lhs: (identifier)
+          rhs: (num_lit))))))
+
+==============
+App with do arg
+==============
+
+#check runIO do return 0
+
+---
+
+(module
+  (check
+    term: (app
+      fn: (identifier)
+      arg: (do_block
+        inline: (app
+          fn: (identifier)
+          arg: (num_lit))))))
+
+==============
+Anonymous structure literal
+==============
+
+#check { x := 1, y := 2 }
+
+---
+
+(module
+  (check
+    term: (struct_lit
+      (struct_field
+        name: (identifier)
+        value: (num_lit))
+      (struct_field
+        name: (identifier)
+        value: (num_lit)))))
+
+==============
+Empty structure literal
+==============
+
+#check {}
+
+---
+
+(module
+  (check
+    term: (struct_lit)))
+
+==============
+Structure update
+==============
+
+#check { s with x := 5 }
+
+---
+
+(module
+  (check
+    term: (struct_lit
+      source: (identifier)
+      (struct_field
+        name: (identifier)
+        value: (num_lit)))))
+
+==============
+Array literal
+==============
+
+#check #[1, 2, 3]
+
+---
+
+(module
+  (check
+    term: (array_lit
+      (num_lit)
+      (num_lit)
+      (num_lit))))
+
+==============
+Double-backtick name literal
+==============
+
+#check ``Foo.bar
+
+---
+
+(module
+  (check
+    term: (name_lit
+      name: (identifier))))
+
+==============
+Precedence-annotated identifier
+==============
+
+#check leading_parser:leadPrec
+
+---
+
+(module
+  (check
+    term: (prec_annotated
+      name: (identifier)
+      prec: (identifier))))
+
+==============
+Numeric precedence
+==============
+
+#check trailing_parser:65
+
+---
+
+(module
+  (check
+    term: (prec_annotated
+      name: (identifier)
+      prec: (num_lit))))
+
+==============
+Match-style def
+==============
+
+def f : Nat → Nat
+  | 0 => 0
+  | n => n + 1
+
+---
+
+(module
+  (declaration
+    (def
+      name: (identifier)
+      type: (binary_op
+        lhs: (identifier)
+        rhs: (identifier))
+      (match_alt
+        pattern: (num_lit)
+        body: (num_lit))
+      (match_alt
+        pattern: (identifier)
+        body: (binary_op
+          lhs: (identifier)
+          rhs: (num_lit))))))
+
+==============
+Where-struct def body (single field)
+==============
+
+def andthen : Parser where
+  info := andthenInfo
+
+---
+
+(module
+  (declaration
+    (def
+      name: (identifier)
+      type: (identifier)
+      (where_struct
+        (struct_field
+          name: (identifier)
+          value: (identifier))))))
+
+==============
+Public section
+==============
+
+public section
+
+def x := 1
+
+---
+
+(module
+  (public_section
+    (public))
+  (declaration
+    (def
+      name: (identifier)
+      body: (num_lit))))
+
+==============
+Set option
+==============
+
+set_option pp.all true
+
+---
+
+(module
+  (set_option
+    name: (identifier)
+    value: (true_const)))
+
+==============
+Initialize
+==============
+
+builtin_initialize foo : Bar ← someValue
+
+---
+
+(module
+  (initialize
+    name: (identifier)
+    type: (identifier)
+    (identifier)))
+
+==============
+Attribute command
+==============
+
+attribute [simp, inline] foo bar
+
+---
+
+(module
+  (attribute_cmd
+    name: (identifier)
+    name: (identifier)
+    target: (identifier)
+    target: (identifier)))
+
+==============
+Attribute with args
+==============
+
+@[combinator_parenthesizer foo, expose] def bar := 1
+
+---
+
+(module
+  (declaration
+    (attributes
+      name: (identifier)
+      arg: (identifier)
+      name: (identifier))
+    (def
+      name: (identifier)
+      body: (num_lit))))
+
+==============
+Block assignment in do
+==============
+
+def main := do
+  let mut x := 0
+  x := 5
+
+---
+
+(module
+  (declaration
+    (def
+      name: (identifier)
+      body: (do_block
+        stmt: (let
+          name: (identifier)
+          value: (num_lit))
+        stmt: (block_assign
+          name: (identifier)
+          value: (num_lit))))))
+
+==============
+Multi-line string
+==============
+
+#check "first line
+second line
+third line"
+
+---
+
+(module
+  (check
+    term: (str_lit)))
+
+==============
+Less-than-and operator
+==============
+
+#check a <&&> b
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+Boolean equality
+==============
+
+#check a == b
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+Times product
+==============
+
+#check Nat × String
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+Subscripted identifier with prime
+==============
+
+#check List.foldl_α₀'
+
+---
+
+(module
+  (check
+    term: (identifier)))
+
+==============
+Raw string with multiple hash delimiters
+==============
+
+#check r##"contains "# and " inside"##
+
+---
+
+(module
+  (check
+    term: (raw_string)))
+
+==============
+Type universe with list
+==============
+
+#check Type.{u, v}
+
+---
+
+(module
+  (check
+    term: (universe_app
+      term: (type_const)
+      level: (identifier)
+      level: (identifier))))
+
+==============
+Named arg in paren
+==============
+
+#check f (x := 5)
+
+---
+
+(module
+  (check
+    term: (app
+      fn: (identifier)
+      arg: (paren
+        arg_name: (identifier)
+        arg_value: (num_lit)))))
+
+==============
+Destructured tuple binder
+==============
+
+#check fun (x, y) => x + y
+
+---
+
+(module
+  (check
+    term: (fun
+      (binders
+        (tuple_binder
+          (identifier)
+          (identifier)))
+      body: (binary_op
+        lhs: (identifier)
+        rhs: (identifier)))))
+
+==============
+Lowercase true/false
+==============
+
+#check true
+#check false
+
+---
+
+(module
+  (check term: (true_const))
+  (check term: (false_const)))
+
+==============
+Syntax quotation
+==============
+
+#check `(x + 1)
+
+---
+
+(module
+  (check
+    term: (quotation
+      (binary_op
+        lhs: (identifier)
+        rhs: (num_lit)))))
+
+==============
+Syntax quotation with category
+==============
+
+#check `(tactic| exact 1)
+
+---
+
+(module
+  (check
+    term: (quotation
+      category: (identifier)
+      (app
+        fn: (identifier)
+        arg: (num_lit)))))
+
+==============
+Match-style fun
+==============
+
+#check fun | 0 => 1 | n => n + 1
+
+---
+
+(module
+  (check
+    term: (fun
+      (match_alt
+        pattern: (num_lit)
+        body: (num_lit))
+      (match_alt
+        pattern: (identifier)
+        body: (binary_op
+          lhs: (identifier)
+          rhs: (num_lit))))))
+
+==============
+Public section with attribute
+==============
+
+@[expose] public section
+
+---
+
+(module
+  (public_section
+    (attributes
+      name: (identifier))
+    (public)))
+
+==============
+Vsub operator
+==============
+
+#check p -ᵥ q
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+Substitution operator
+==============
+
+#check h ▸ rfl
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+Noncomputable section
+==============
+
+noncomputable section
+
+---
+
+(module
+  (section
+    (decl_modifiers)))
+
+==============
+Lemma alias for theorem
+==============
+
+lemma foo (h : P) : Q := proof
+
+---
+
+(module
+  (declaration
+    (theorem
+      name: (identifier)
+      (binders
+        (explicit_binder
+          name: (identifier)
+          type: (identifier)))
+      type: (identifier)
+      body: (identifier))))
+
+==============
+Set builder
+==============
+
+#check { x : Nat | x > 0 }
+
+---
+
+(module
+  (check
+    term: (set_builder
+      binder: (identifier)
+      type: (identifier)
+      pred: (binary_op
+        lhs: (identifier)
+        rhs: (num_lit)))))
+
+==============
+Subtype
+==============
+
+#check { x : Nat // x ≠ 0 }
+
+---
+
+(module
+  (check
+    term: (subtype_lit
+      binder: (identifier)
+      type: (identifier)
+      pred: (binary_op
+        lhs: (identifier)
+        rhs: (num_lit)))))
+
+==============
+Check failure command
+==============
+
+#check_failure foo
+
+---
+
+(module
+  (check
+    term: (identifier)))
+
+==============
+Deriving instance command
+==============
+
+deriving instance DecidableEq, Repr for Foo
+
+---
+
+(module
+  (deriving_cmd
+    class: (identifier)
+    class: (identifier)
+    target: (identifier)))
+
+==============
+Public def (visibility modifier)
+==============
+
+@[expose] public def foo : Nat := 42
+
+---
+
+(module
+  (declaration
+    (attributes
+      name: (identifier))
+    (public)
+    (def
+      name: (identifier)
+      type: (identifier)
+      body: (num_lit))))
+
+==============
+Meta public def
+==============
+
+meta public def bar := 1
+
+---
+
+(module
+  (declaration
+    (meta)
+    (public)
+    (def
+      name: (identifier)
+      body: (num_lit))))
+
+==============
+Tuple destructuring let
+==============
+
+#check let (a, b) := pair; a + b
+
+---
+
+(module
+  (check
+    term: (let
+      name: (tuple_binder
+        (identifier)
+        (identifier))
+      value: (identifier)
+      body: (binary_op
+        lhs: (identifier)
+        rhs: (identifier)))))
+
+==============
+Macro postfix percent
+==============
+
+#check decl_name%
+
+---
+
+(module
+  (check
+    term: (pct_macro
+      name: (identifier))))
+
+==============
+Modulo with spaces is still modulo
+==============
+
+#check a % b
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+Range literal
+==============
+
+#check [start : stop]
+
+---
+
+(module
+  (check
+    term: (range_lit
+      start: (identifier)
+      stop: (identifier))))
+
+==============
+Range with step
+==============
+
+#check [0 : 100 : 2]
+
+---
+
+(module
+  (check
+    term: (range_lit
+      start: (num_lit)
+      stop: (num_lit)
+      step: (num_lit))))
+
+==============
+Range with only stop
+==============
+
+#check [: 10]
+
+---
+
+(module
+  (check
+    term: (range_lit
+      stop: (num_lit))))
+
+==============
+Array indexing
+==============
+
+#check arr[i]
+
+---
+
+(module
+  (check
+    term: (subscript
+      term: (identifier)
+      index: (identifier))))
+
+==============
+Application with bracket arg
+==============
+
+#check f [1, 2, 3]
+
+---
+
+(module
+  (check
+    term: (app
+      fn: (identifier)
+      arg: (list_lit
+        (num_lit)
+        (num_lit)
+        (num_lit)))))
+
+==============
+Optional array indexing
+==============
+
+#check arr[i]?
+
+---
+
+(module
+  (check
+    term: (subscript
+      term: (identifier)
+      index: (identifier))))
+
+==============
+Panicking array indexing
+==============
+
+#check arr[i]!
+
+---
+
+(module
+  (check
+    term: (subscript
+      term: (identifier)
+      index: (identifier))))
+
+==============
+Private structure constructor
+==============
+
+structure Foo where
+  private mk ::
+  val : Nat
+
+---
+
+(module
+  (declaration
+    (structure
+      name: (identifier)
+      (ctor
+        (decl_modifiers)
+        name: (identifier))
+      (field
+        name: (identifier)
+        type: (identifier)))))
+
+==============
+Assertion commands
+==============
+
+assert_not_exists Finset
+assert_not_imported Mathlib.Data.Foo
+#exit
+
+---
+
+(module
+  (assert_cmd
+    target: (identifier))
+  (assert_cmd
+    target: (identifier))
+  (assert_cmd))
+
+==============
+Instance-implicit field
+==============
+
+class Foo where
+  [bar : Bar]
+  baz : Nat
+
+---
+
+(module
+  (declaration
+    (structure
+      name: (identifier)
+      (field
+        name: (identifier)
+        type: (identifier))
+      (field
+        name: (identifier)
+        type: (identifier)))))
+
+==============
+Singleton set notation
+==============
+
+#check {p}
+
+---
+
+(module
+  (check
+    term: (struct_lit
+      elem: (identifier))))
+
+==============
+Divides operator
+==============
+
+#check a ∣ b
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+Explicit args mode
+==============
+
+#check @foo
+
+---
+
+(module
+  (check
+    term: (explicit_mode
+      term: (identifier))))
+
+==============
+Explicit args mode with application
+==============
+
+#check @foo a b
+
+---
+
+(module
+  (check
+    term: (app
+      fn: (app
+        fn: (explicit_mode
+          term: (identifier))
+        arg: (identifier))
+      arg: (identifier))))
+
+==============
+Scalar multiplication
+==============
+
+#check r • v
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+Inline tactic semicolon chain
+==============
+
+example : Nat := by exact 0; rfl
+
+---
+
+(module
+  (declaration
+    (example
+      type: (identifier)
+      body: (by
+        inline: (app
+          fn: (identifier)
+          arg: (num_lit))
+        inline: (identifier)))))
+
+==============
+Postfix operator opposite
+==============
+
+#check Aᵒᵖ
+
+---
+
+(module
+  (check
+    term: (postfix_op
+      term: (identifier))))
+
+==============
+Postfix operator inverse
+==============
+
+#check x⁻¹
+
+---
+
+(module
+  (check
+    term: (postfix_op
+      term: (identifier))))
+
+==============
+Cardinality prefix
+==============
+
+#check #X
+
+---
+
+(module
+  (check
+    term: (unary_op
+      rhs: (identifier))))
+
+==============
+Mathlib linear-map arrow
+==============
+
+#check Nat →ₗ Nat
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+Tensor product operator
+==============
+
+#check A ⊗ B
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+Coercion prefix up arrow
+==============
+
+#check ↥X
+
+---
+
+(module
+  (check
+    term: (unary_op
+      rhs: (identifier))))
+
+==============
+Sup operator
+==============
+
+#check A ⊔ B
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+Inf operator
+==============
+
+#check A ⊓ B
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+Operator section
+==============
+
+#check (↑)
+
+---
+
+(module
+  (check
+    term: (paren)))
+
+==============
+Fun with anonymous-constructor destructuring binder
+==============
+
+#check fun ⟨x, y⟩ => x
+
+---
+
+(module
+  (check
+    term: (fun
+      (binders
+        (anon_ctor_binder
+          (identifier)
+          (identifier)))
+      body: (identifier))))
+
+==============
+Fun with nested anon-ctor destructuring
+==============
+
+#check fun ⟨a, ⟨b, c⟩⟩ => b
+
+---
+
+(module
+  (check
+    term: (fun
+      (binders
+        (anon_ctor_binder
+          (identifier)
+          (anon_ctor_binder
+            (identifier)
+            (identifier))))
+      body: (identifier))))
+
+==============
+Function-style where_struct field with binders
+==============
+
+instance : Foo where
+  choice s hs := bar s hs
+  gc := baz
+
+---
+
+(module
+  (declaration
+    (instance
+      type: (identifier)
+      (where_struct
+        (struct_field
+          name: (identifier)
+          (binders
+            (identifier)
+            (identifier))
+          value: (app
+            fn: (app
+              fn: (identifier)
+              arg: (identifier))
+            arg: (identifier)))
+        (struct_field
+          name: (identifier)
+          value: (identifier))))))
+
+==============
+Multi-line where_struct does not eat next field
+==============
+
+def f : F where
+  a := g x <| h
+  b := y
+
+---
+
+(module
+  (declaration
+    (def
+      name: (identifier)
+      type: (identifier)
+      (where_struct
+        (struct_field
+          name: (identifier)
+          value: (binary_op
+            lhs: (app
+              fn: (identifier)
+              arg: (identifier))
+            rhs: (identifier)))
+        (struct_field
+          name: (identifier)
+          value: (identifier))))))
+
+==============
+Universe app on regular identifier
+==============
+
+#check Eq.ndrecOn.{u1, u2}
+
+---
+
+(module
+  (check
+    term: (universe_app
+      term: (identifier)
+      level: (identifier)
+      level: (identifier))))
+
+==============
+Attribute on section
+==============
+
+@[expose] section
+
+---
+
+(module
+  (section
+    (attributes
+      name: (identifier))))
+
+==============
+Big-operator binder
+==============
+
+#check ⨆ b, f b
+
+---
+
+(module
+  (check
+    term: (big_op_binder
+      (binders
+        (identifier))
+      body: (app
+        fn: (identifier)
+        arg: (identifier)))))
+
+==============
+Big-operator binder with membership constraint
+==============
+
+#check ⨆ b ∈ s, a ⊓ b
+
+---
+
+(module
+  (check
+    term: (big_op_binder
+      (binders
+        (identifier))
+      (identifier)
+      body: (binary_op
+        lhs: (identifier)
+        rhs: (identifier)))))
+
+==============
+Sum binder
+==============
+
+#check ∑ x, f x
+
+---
+
+(module
+  (check
+    term: (big_op_binder
+      (binders
+        (identifier))
+      body: (app
+        fn: (identifier)
+        arg: (identifier)))))
+
+==============
+Field with binders (function-style)
+==============
+
+class F where
+  foo (a : α) (s : Set α) : a ⊓ s ≤ b
+
+---
+
+(module
+  (declaration
+    (structure
+      name: (identifier)
+      (field
+        name: (identifier)
+        (binders
+          (explicit_binder
+            name: (identifier)
+            type: (identifier))
+          (explicit_binder
+            name: (identifier)
+            type: (app
+              fn: (identifier)
+              arg: (identifier))))
+        type: (binary_op
+          lhs: (identifier)
+          rhs: (binary_op
+            lhs: (identifier)
+            rhs: (identifier)))))))
+
+==============
+Anonymous subterm
+==============
+
+#check ‹Frame α›
+
+---
+
+(module
+  (check
+    term: (anon_subterm
+      (app
+        fn: (identifier)
+        arg: (identifier)))))
+
+==============
+Set builder without type
+==============
+
+#check {c | c ⊓ a ≤ b}
+
+---
+
+(module
+  (check
+    term: (set_builder
+      binder: (identifier)
+      pred: (binary_op
+        lhs: (identifier)
+        rhs: (binary_op
+          lhs: (identifier)
+          rhs: (identifier))))))
+
+==============
+Forall with membership
+==============
+
+#check ∀ b ∈ s, P b
+
+---
+
+(module
+  (check
+    term: (forall
+      (binders
+        (identifier))
+      bound: (identifier)
+      body: (app
+        fn: (identifier)
+        arg: (identifier)))))
+
+==============
+Forall with non-equality
+==============
+
+#check ∀ b ≠ ⊥, P b
+
+---
+
+(module
+  (check
+    term: (forall
+      (binders
+        (identifier))
+      bound: (bot_const)
+      body: (app
+        fn: (identifier)
+        arg: (identifier)))))
+
+==============
+Heyting implication
+==============
+
+#check a ⇨ b
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+Structure with indented fields
+==============
+
+class PartialOrder (α : Sort u) where
+  rel : α → α → Prop
+  rel_refl : ∀ {x}, rel x x
+
+---
+
+(module
+  (declaration
+    (structure
+      name: (identifier)
+      (binders
+        (explicit_binder
+          name: (identifier)
+          type: (sort_const
+            (identifier))))
+      (field
+        name: (identifier)
+        type: (binary_op
+          lhs: (identifier)
+          rhs: (binary_op
+            lhs: (identifier)
+            rhs: (prop_const))))
+      (field
+        name: (identifier)
+        type: (forall
+          (binders
+            (implicit_binder
+              name: (identifier)))
+          body: (app
+            fn: (app
+              fn: (identifier)
+              arg: (identifier))
+            arg: (identifier)))))))
+
+==============
+Sigma binder
+==============
+
+#check Σ i, F i
+
+---
+
+(module
+  (check
+    term: (sigma
+      (binders
+        (identifier))
+      body: (app
+        fn: (identifier)
+        arg: (identifier)))))
+
+==============
+Quotient literal
+==============
+
+#check ⟦x⟧
+
+---
+
+(module
+  (check
+    term: (quotient_lit
+      (identifier))))
+
+==============
+Bottom constant
+==============
+
+#check ⊥
+
+---
+
+(module
+  (check
+    term: (bot_const)))
+
+==============
+Top constant
+==============
+
+#check ⊤
+
+---
+
+(module
+  (check
+    term: (top_const)))
+
+==============
+Set option scoped with `in`
+==============
+
+set_option pp.all true in
+def x := 1
+
+---
+
+(module
+  (set_option
+    name: (identifier)
+    value: (true_const)
+    body: (declaration
+      (def
+        name: (identifier)
+        body: (num_lit)))))
+
+==============
+Order embedding arrow
+==============
+
+#check X ↪o Y
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+Long right arrow
+==============
+
+#check A ⟶ B
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+Declaration with universe parameters
+==============
+
+abbrev Eq.ndrec.{u1, u2} : Foo := rfl
+
+---
+
+(module
+  (declaration
+    (abbrev
+      name: (identifier)
+      level: (identifier)
+      level: (identifier)
+      type: (identifier)
+      body: (identifier))))
+
+==============
+Multi-element set literal
+==============
+
+#check {⊥, a, b}
+
+---
+
+(module
+  (check
+    term: (struct_lit
+      elem: (bot_const)
+      elem: (identifier)
+      elem: (identifier))))
+
+==============
+Covby operator
+==============
+
+#check ⊥ ⋖ a
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (bot_const)
+      rhs: (identifier))))
+
+==============
+Heyting negation
+==============
+
+#check ￢a
+
+---
+
+(module
+  (check
+    term: (unary_op
+      rhs: (identifier))))
+
+==============
+Set cross product
+==============
+
+#check s ×ˢ t
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+Mathematical double-struck identifier
+==============
+
+#check 𝟙 X
+
+---
+
+(module
+  (check
+    term: (app
+      fn: (identifier)
+      arg: (identifier))))
+
+==============
+Add decl doc command
+==============
+
+add_decl_doc extrinsicFix
+
+---
+
+(module
+  (decl_doc_cmd
+    name: (identifier)))
+
+==============
+Grind pattern command
+==============
+
+grind_pattern Subtype.property => self.val
+
+---
+
+(module
+  (grind_pattern_cmd
+    name: (identifier)
+    pattern: (identifier)))
+
+==============
+PSigma type operator
+==============
+
+#check α ×' β
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+Tactic combinator <;>
+==============
+
+example := by convert x <;> apply foo
+
+---
+
+(module
+  (declaration
+    (example
+      body: (by
+        inline: (binary_op
+          lhs: (app
+            fn: (identifier)
+            arg: (identifier))
+          rhs: (app
+            fn: (identifier)
+            arg: (identifier)))))))
+
+==============
+letI for instance
+==============
+
+#check letI x := foo; bar
+
+---
+
+(module
+  (check
+    term: (let
+      name: (identifier)
+      value: (identifier)
+      body: (identifier))))
+
+==============
+haveI for instance
+==============
+
+#check haveI x := foo; bar
+
+---
+
+(module
+  (check
+    term: (have
+      name: (identifier)
+      value: (identifier)
+      body: (identifier))))
+
+==============
+Instance with priority
+==============
+
+instance (priority := 100) Foo : Bar := rfl
+
+---
+
+(module
+  (declaration
+    (instance
+      value: (num_lit)
+      name: (identifier)
+      type: (identifier)
+      body: (identifier))))
+
+==============
+Iff with exists on rhs
+==============
+
+#check p ↔ ∃ x, q x
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (exists
+        (binders
+          (identifier))
+        body: (app
+          fn: (identifier)
+          arg: (identifier))))))
+
+==============
+Empty set constant
+==============
+
+#check ∅
+
+---
+
+(module
+  (check
+    term: (empty_const)))
+
+==============
+Image operator
+==============
+
+#check f '' s
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+Preimage operator
+==============
+
+#check f ⁻¹' s
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+Alias command
+==============
+
+alias foo := bar
+
+---
+
+(module
+  (alias_cmd
+    name: (identifier)
+    value: (identifier)))
+
+==============
+Alias command with iff destructure
+==============
+
+alias ⟨l, r⟩ := bot_covBy_iff
+
+---
+
+(module
+  (alias_cmd
+    name: (anon_ctor
+      (identifier)
+      (identifier))
+    value: (identifier)))
+
+==============
+Have with anon-ctor destructure
+==============
+
+#check have ⟨b, hb⟩ := exists_ne; b
+
+---
+
+(module
+  (check
+    term: (have
+      name: (anon_ctor_binder
+        (identifier)
+        (identifier))
+      value: (identifier)
+      body: (identifier))))
+
+==============
+Infix notation declaration
+==============
+
+@[inherit_doc] infixr:30 " ⊕ " => Sum
+
+---
+
+(module
+  (notation_decl_cmd
+    (attributes
+      name: (identifier))
+    prec: (num_lit)
+    op: (str_lit)
+    target: (identifier)))
+
+==============
+Postfix notation declaration
+==============
+
+postfix:max "⁻¹" => Inv.inv
+
+---
+
+(module
+  (notation_decl_cmd
+    prec: (identifier)
+    op: (str_lit)
+    target: (identifier)))
+
+==============
+Subset-like comparison operators
+==============
+
+#check a ⊑ b
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+Approx equal operator
+==============
+
+#check a ≈ b
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+Open with scoped command
+==============
+
+open IO (Error) in
+def foo := 1
+
+---
+
+(module
+  (open
+    namespace: (identifier)
+    only: (identifier)
+    body: (declaration
+      (def
+        name: (identifier)
+        body: (num_lit)))))
+
+==============
+Universe app with numeric level
+==============
+
+#check NonemptyType.{0}
+
+---
+
+(module
+  (check
+    term: (universe_app
+      term: (identifier)
+      level: (num_lit))))
+
+==============
+Explicit args mode on fun
+==============
+
+#check @fun x => x
+
+---
+
+(module
+  (check
+    term: (explicit_mode
+      term: (fun
+        (binders (identifier))
+        body: (identifier)))))
+
+==============
+Field in parens
+==============
+
+structure Foo where
+  of ::
+  (carrier : Type*)
+
+---
+
+(module
+  (declaration
+    (structure
+      name: (identifier)
+      (ctor
+        name: (identifier))
+      (field
+        name: (identifier)
+        type: (type_const)))))
+
+==============
+Borrow ref prefix
+==============
+
+#check (@& Nat) → Nat
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (paren
+        (unary_op
+          rhs: (identifier)))
+      rhs: (identifier))))
+
+==============
+Let with anon-ctor destructure
+==============
+
+#check let ⟨j, hJ⟩ := hcNe; j
+
+---
+
+(module
+  (check
+    term: (let
+      name: (anon_ctor_binder
+        (identifier)
+        (identifier))
+      value: (identifier)
+      body: (identifier))))
+
+==============
+Forall with subset constraint
+==============
+
+#check ∀ c ⊆ S, IsChain c
+
+---
+
+(module
+  (check
+    term: (forall
+      (binders
+        (identifier))
+      bound: (identifier)
+      body: (app
+        fn: (identifier)
+        arg: (identifier)))))
+
+==============
+Notation declaration
+==============
+
+scoped notation "⊥" => bot
+
+---
+
+(module
+  (notation_decl_cmd
+    op: (str_lit)
+    target: (identifier)))
+
+==============
+Scoped notation with namespace
+==============
+
+scoped[Heyting] prefix:120 "∂ " => Coheyting.boundary
+
+---
+
+(module
+  (notation_decl_cmd
+    namespace: (identifier)
+    prec: (num_lit)
+    op: (str_lit)
+    target: (identifier)))
+
+==============
+Boundary prefix operator
+==============
+
+#check ∂ a
+
+---
+
+(module
+  (check
+    term: (unary_op
+      rhs: (identifier))))
+
+==============
+Category morphism composition
+==============
+
+#check f ≫ g
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+Functor arrow
+==============
+
+#check C ⥤ D
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+Functor composition
+==============
+
+#check F ⋙ G
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+Multi-source struct update
+==============
+
+#check { src1, src2 with }
+
+---
+
+(module
+  (check
+    term: (struct_lit
+      source: (identifier)
+      source: (identifier))))
+
+==============
+Struct update with no new fields
+==============
+
+#check { src with }
+
+---
+
+(module
+  (check
+    term: (struct_lit
+      source: (identifier))))
+
+==============
+Obtain pattern-bind
+==============
+
+#check obtain ⟨a, b⟩ := foo; a
+
+---
+
+(module
+  (check
+    term: (let
+      name: (anon_ctor_binder
+        (identifier)
+        (identifier))
+      value: (identifier)
+      body: (identifier))))
+
+==============
+Down-coercion prefix
+==============
+
+#check ⇑f
+
+---
+
+(module
+  (check
+    term: (unary_op
+      rhs: (identifier))))
+
+==============
+Goal marker atom
+==============
+
+example := by rw [foo] at h ⊢
+
+---
+
+(module
+  (declaration
+    (example
+      body: (by
+        inline: (app
+          fn: (app
+            fn: (app
+              fn: (app
+                fn: (identifier)
+                arg: (list_lit
+                  (identifier)))
+              arg: (identifier))
+            arg: (identifier))
+          arg: (goal_const))))))
+
+==============
+Suffices block
+==============
+
+example := by
+  suffices g : T from proof
+  apply foo
+
+---
+
+(module
+  (declaration
+    (example
+      body: (by
+        stmt: (suffices
+          name: (identifier)
+          type: (identifier)
+          value: (identifier))
+        stmt: (app
+          fn: (identifier)
+          arg: (identifier))))))
+
+==============
+Where with elision marker
+==============
+
+instance (n : Nat) : OfNat Nat n where ...
+
+---
+
+(module
+  (declaration
+    (instance
+      (explicit_binder
+        name: (identifier)
+        type: (identifier))
+      type: (app
+        fn: (app
+          fn: (identifier)
+          arg: (identifier))
+        arg: (identifier))
+      (where_struct))))
+
+==============
+Scoped and local declaration modifiers
+==============
+
+scoped instance Foo : Bar := rfl
+
+---
+
+(module
+  (declaration
+    (decl_modifiers)
+    (instance
+      name: (identifier)
+      type: (identifier)
+      body: (identifier))))
+
+==============
+Tactic case
+==============
+
+example := by
+  case step x hx ih => exact ih
+
+---
+
+(module
+  (declaration
+    (example
+      body: (by
+        stmt: (tactic_case
+          name: (identifier)
+          arg: (identifier)
+          arg: (identifier)
+          arg: (identifier)
+          body: (app
+            fn: (identifier)
+            arg: (identifier)))))))
+
+==============
+Struct field with implicit binder
+==============
+
+instance : Foo where
+  le_pred_of_lt {a b} h := bar
+
+---
+
+(module
+  (declaration
+    (instance
+      type: (identifier)
+      (where_struct
+        (struct_field
+          name: (identifier)
+          (binders
+            (implicit_binder
+              name: (identifier)
+              name: (identifier))
+            (identifier))
+          value: (identifier))))))
+
+==============
+Direct sum operators
+==============
+
+#check α ⊕ β
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+Lex sum operator
+==============
+
+#check α ⊕ₗ β
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+Lex pair operator
+==============
+
+#check α ×ₗ β
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+Pipe operator with have
+==============
+
+#check f <| have h := proof; body
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (have
+        name: (identifier)
+        value: (identifier)
+        body: (identifier)))))
+
+==============
+by_cases tactic
+==============
+
+example := by by_cases h : foo
+
+---
+
+(module
+  (declaration
+    (example
+      body: (by
+        inline: (by_cases
+          name: (identifier)
+          type: (identifier))))))
+
+==============
+Subscript with proof
+==============
+
+#check arr[i]'h
+
+---
+
+(module
+  (check
+    term: (subscript
+      term: (identifier)
+      index: (identifier)
+      proof: (identifier))))
+
+==============
+Named arg with trailing tuple
+==============
+
+#check (attr := simps, implicit_reducible)
+
+---
+
+(module
+  (check
+    term: (paren
+      arg_name: (identifier)
+      arg_value: (identifier)
+      (identifier))))
+
+==============
+Grind attribute with direction
+==============
+
+@[grind =] theorem foo : a = a := rfl
+
+---
+
+(module
+  (declaration
+    (attributes
+      name: (identifier))
+    (theorem
+      name: (identifier)
+      type: (binary_op
+        lhs: (identifier)
+        rhs: (identifier))
+      body: (identifier))))
+
+==============
+Deriving clause inside indent block
+==============
+
+structure Task (α : Type u) where
+  pure ::
+  get : α
+  deriving Inhabited, Nonempty
+
+---
+
+(module
+  (declaration
+    (structure
+      name: (identifier)
+      (binders
+        (explicit_binder
+          name: (identifier)
+          type: (type_const
+            (identifier))))
+      (ctor
+        name: (identifier))
+      (field
+        name: (identifier)
+        type: (identifier))
+      (identifier)
+      (identifier))))
+
+
+==============
+Let rec with binders
+==============
+
+#check let rec go (j : Nat) (h : Bool) : Nat := j; go 0 true
+
+---
+
+(module
+  (check
+    term: (let
+      name: (identifier)
+      (binders
+        (explicit_binder
+          name: (identifier)
+          type: (identifier))
+        (explicit_binder
+          name: (identifier)
+          type: (identifier)))
+      type: (identifier)
+      value: (identifier)
+      body: (app
+        fn: (app
+          fn: (identifier)
+          arg: (num_lit))
+        arg: (true_const)))))
+
+==============
+Public meta section
+==============
+
+public meta section
+
+---
+
+(module
+  (public_section
+    (public)
+    (meta)))
+
+==============
+m! string macro
+==============
+
+#check m!"hello {name}"
+
+---
+
+(module
+  (check
+    term: (interpolated_str
+      (interpolation
+        (identifier)))))

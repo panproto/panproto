@@ -1,0 +1,112 @@
+================================================================================
+Try Statement: With Capture
+================================================================================
+
+try
+    disp ok
+catch me
+    disp 'not ok'
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (try_statement
+    (block
+      (command
+        (command_name)
+        (command_argument)))
+    (catch_clause
+      (identifier)
+      (block
+        (command
+          (command_name)
+          (command_argument))))))
+
+================================================================================
+Try Statement: Without Capture
+================================================================================
+
+try
+    disp ok
+catch
+    disp 'not ok'
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (try_statement
+    (block
+      (command
+        (command_name)
+        (command_argument)))
+    (catch_clause
+      (block
+        (command
+          (command_name)
+          (command_argument))))))
+
+================================================================================
+Try Statement: Without Catch
+================================================================================
+
+try
+    disp ok
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (try_statement
+    (block
+      (command
+        (command_name)
+        (command_argument)))))
+
+================================================================================
+Try Statement: Onliners
+================================================================================
+
+try disp ok; end
+try,, disp ok; catch,,, disp not ok; end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (try_statement
+    (block
+      (command
+        (command_name)
+        (command_argument))))
+  (try_statement
+    (block
+      (command
+        (command_name)
+        (command_argument)))
+    (catch_clause
+      (block
+        (command
+          (command_name)
+          (command_argument)
+          (command_argument))))))
+
+================================================================================
+Try Statement: Comment after catch identifier
+================================================================================
+
+try
+    foo()
+catch err % comment
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (try_statement
+    (block
+      (function_call
+        (identifier)))
+    (catch_clause
+      (identifier)
+      (comment))))

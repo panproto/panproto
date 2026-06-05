@@ -1,0 +1,215 @@
+================================================================================
+ValuesAllowed property with mixed string literals and identifiers
+================================================================================
+
+table 123 TestTable
+{
+    fields
+    {
+        field(1; "Test Field"; Option)
+        {
+            ValuesAllowed = " ", "G/L Account", Item, Resource, "Fixed Asset", "Charge (Item)", "Amount Distribution Code", "Allocation Account";
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (option_type))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (identifier))
+            (option_member
+              (identifier))
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (quoted_identifier))))))))
+
+================================================================================
+ValuesAllowed property with only string literals
+================================================================================
+
+table 456 StringOnlyTable
+{
+    fields
+    {
+        field(1; "Status Field"; Option)
+        {
+            ValuesAllowed = "Open", "Pending", "Closed", "Cancelled";
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (option_type))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (quoted_identifier))))))))
+
+================================================================================
+ValuesAllowed property with only identifiers
+================================================================================
+
+table 789 IdentifierOnlyTable
+{
+    fields
+    {
+        field(1; "Type Field"; Option)
+        {
+            ValuesAllowed = Item, Resource, Service, FixedAsset;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (option_type))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (identifier))
+            (option_member
+              (identifier))
+            (option_member
+              (identifier))
+            (option_member
+              (identifier))))))))
+
+================================================================================
+ValuesAllowed property in page field
+================================================================================
+
+page 101 TestPage
+{
+    layout
+    {
+        area(content)
+        {
+            field("Type Field"; "Type Field")
+            {
+                ApplicationArea = All;
+                ValuesAllowed = "Customer", "Vendor", Item, "G/L Account";
+                ToolTip = 'Select the type of entity.';
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (quoted_identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (option_member_list
+              (option_member
+                (quoted_identifier))
+              (option_member
+                (quoted_identifier))
+              (option_member
+                (identifier))
+              (option_member
+                (quoted_identifier))))
+          (property
+            name: (property_name)
+            value: (string_literal)))))))
+
+================================================================================
+ValuesAllowed property with single value
+================================================================================
+
+table 999 SingleValueTable
+{
+    fields
+    {
+        field(1; "Single Value"; Option)
+        {
+            ValuesAllowed = "DefaultValue";
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (option_type))
+        (property
+          name: (property_name)
+          value: (quoted_identifier))))))

@@ -1,0 +1,103 @@
+===
+packages/packages1.pkl
+===
+
+amends ".../snippetTest.pkl"
+
+import "package://localhost:0/birds@0.5.0#/Bird.pkl"
+import "package://localhost:0/fruit@1.0.5#/Fruit.pkl"
+
+examples {
+  ["basic imports"] {
+    new Bird { 
+      name = "Pigeon"
+      favoriteFruit = new Fruit {
+        name = "Banana"
+      }
+    }
+    import("package://localhost:0/birds@0.5.0#/catalog/Swallow.pkl")
+    import("package://localhost:0/birds@0.5.0#/catalog/Ostrich.pkl")
+  }
+  ["importing while specifying checksum"] {
+    import("package://localhost:0/birds@0.5.0::sha256:6f18af649b47986530cd6dc39abe17888db2701bc5381c385fb86a32fda2685e#/catalog/Swallow.pkl")
+  }
+  ["reads"] {
+    read("package://localhost:0/birds@0.5.0#/Bird.pkl")
+    read("package://localhost:0/birds@0.5.0#/catalog/Swallow.pkl")
+    read("package://localhost:0/birds@0.5.0#/catalog/Ostrich.pkl")
+  }
+}
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (newExpr
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))
+              (objectBody
+                (objectProperty
+                  (identifier)
+                  (slStringLiteralExpr
+                    (slStringLiteralPart)))
+                (objectProperty
+                  (identifier)
+                  (newExpr
+                    (declaredType
+                      (qualifiedIdentifier
+                        (identifier)))
+                    (objectBody
+                      (objectProperty
+                        (identifier)
+                        (slStringLiteralExpr
+                          (slStringLiteralPart)))))))))
+          (objectElement
+            (importExpr
+              (stringConstant
+                (slStringLiteralPart))))
+          (objectElement
+            (importExpr
+              (stringConstant
+                (slStringLiteralPart))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (importExpr
+              (stringConstant
+                (slStringLiteralPart))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (readExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))))
+          (objectElement
+            (readExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))))
+          (objectElement
+            (readExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart)))))))))

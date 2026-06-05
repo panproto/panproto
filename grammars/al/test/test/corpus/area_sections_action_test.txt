@@ -1,0 +1,160 @@
+================================================================================
+Page actions with area(sections) for RoleCenter pages
+================================================================================
+
+page 123 "Test RoleCenter"
+{
+    PageType = RoleCenter;
+    
+    actions
+    {
+        area(sections)
+        {
+            group(Document)
+            {
+                Caption = 'Document Management';
+                action("DocumentJournal")
+                {
+                    ApplicationArea = all;
+                    Caption = 'Document Journal';
+                    RunObject = page "Document List";
+                }
+                action("Document Search")
+                {
+                    ApplicationArea = all;
+                    Caption = 'Document Search';
+                    RunObject = page "Document Search";
+                }
+            }
+            group(Purchase)
+            {
+                Caption = 'Purchase';
+                action("Purchase Orders")
+                {
+                    ApplicationArea = all;
+                    Caption = 'Purchase Orders';
+                    RunObject = page "Purchase Order List";
+                }
+                action(Vendors)
+                {
+                    ApplicationArea = all;
+                    Caption = 'Vendors';
+                    RunObject = page "Vendor List";
+                }
+            }
+        }
+        area(processing)
+        {
+            group("Data Export")
+            {
+                Caption = 'Data Export';
+                action("Export Data")
+                {
+                    ApplicationArea = all;
+                    Caption = 'Export Data';
+                    RunObject = report "Export Report";
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_group_section
+          (group_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (action_declaration
+            name: (quoted_identifier)
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (object_reference_value
+                (page_keyword)
+                (quoted_identifier))))
+          (action_declaration
+            name: (quoted_identifier)
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (object_reference_value
+                (page_keyword)
+                (quoted_identifier)))))
+        (action_group_section
+          (group_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (action_declaration
+            name: (quoted_identifier)
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (object_reference_value
+                (page_keyword)
+                (quoted_identifier))))
+          (action_declaration
+            name: (identifier)
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (object_reference_value
+                (page_keyword)
+                (quoted_identifier))))))
+      (action_area_section
+        (area_keyword)
+        (action_group_section
+          (group_keyword)
+          name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (action_declaration
+            name: (quoted_identifier)
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (object_reference_value
+                (report_keyword)
+                (quoted_identifier)))))))))

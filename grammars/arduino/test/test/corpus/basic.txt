@@ -1,0 +1,54 @@
+================================================================================
+primitive types
+================================================================================
+
+byte b = 0b100;
+
+word w = 10000;
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (declaration
+    (primitive_type)
+    (init_declarator
+      (identifier)
+      (number_literal)))
+  (declaration
+    (primitive_type)
+    (init_declarator
+      (identifier)
+      (number_literal))))
+
+================================================================================
+PROGMEM qualifier
+================================================================================
+
+const PROGMEM uint16_t charSet[] = {};
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (declaration
+    (type_qualifier)
+    (type_qualifier)
+    (primitive_type)
+    (init_declarator
+      (array_declarator
+        (identifier))
+      (initializer_list))))
+
+================================================================================
+binary formatter
+================================================================================
+
+byte b = B10010;
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (declaration
+    (primitive_type)
+    (init_declarator
+      (identifier)
+      (number_literal))))

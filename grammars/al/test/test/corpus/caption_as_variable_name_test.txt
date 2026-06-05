@@ -1,0 +1,41 @@
+================================================================================
+Caption as variable name
+================================================================================
+
+page 50100 "Test Page"
+{
+    var
+        FormulaTxt: Text[1024];
+        Caption: Text[1024];
+        caption: Code[20];
+        CAPTION: Integer;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (text_type
+            length: (integer))))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (text_type
+            length: (integer))))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (code_type
+            length: (integer))))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type))))))

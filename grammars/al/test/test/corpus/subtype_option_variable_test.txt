@@ -1,0 +1,57 @@
+================================================================================
+SubType variable with Option type (from CDCDocumentFileList.Page.al)
+================================================================================
+
+page 123 "Test Page"
+{
+    var
+        No: Code[20];
+        SubType: Option Quote,"Order",Invoice,"Credit Memo","Blanket Order","Return Order";
+        RefNo: Integer;
+        InvoiceTxt: Label 'Invoice';
+        CrMemoTxt: Label 'Credit Memo';
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (code_type
+            length: (integer))))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (option_type
+            (option_member_list
+              (option_member
+                (identifier))
+              (option_member
+                (quoted_identifier))
+              (option_member
+                (identifier))
+              (option_member
+                (quoted_identifier))
+              (option_member
+                (quoted_identifier))
+              (option_member
+                (quoted_identifier))))))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (basic_type)
+        value: (string_literal))
+      (variable_declaration
+        name: (identifier)
+        type: (basic_type)
+        value: (string_literal)))))

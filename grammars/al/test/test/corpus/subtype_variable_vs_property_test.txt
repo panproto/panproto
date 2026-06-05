@@ -1,0 +1,50 @@
+================================================================================
+SubType variable declaration vs property usage
+================================================================================
+
+page 123 "Test SubType Contexts"
+{
+    // SubType as property (should work)
+    SubType = Install;
+    
+    var
+        // SubType as variable name (should work)  
+        SubType: Option Quote,"Order",Invoice,"Credit Memo","Blanket Order","Return Order";
+        AnotherVar: Text;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (comment)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (var_section
+      (var_keyword)
+      (comment)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (option_type
+            (option_member_list
+              (option_member
+                (identifier))
+              (option_member
+                (quoted_identifier))
+              (option_member
+                (identifier))
+              (option_member
+                (quoted_identifier))
+              (option_member
+                (quoted_identifier))
+              (option_member
+                (quoted_identifier))))))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (text_type))))))

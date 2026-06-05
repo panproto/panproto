@@ -1,0 +1,103 @@
+================================================================================
+AutoCalcField property in report columns
+================================================================================
+
+report 38 "Trial Balance by Period"
+{
+    dataset
+    {
+        dataitem("Integer"; "Integer")
+        {
+            column(ColumnValuesAsText_1_; ColumnValuesAsText[1])
+            {
+                AutoCalcField = false;
+            }
+            column(ColumnValuesAsText_2_; ColumnValuesAsText[2])
+            {
+                AutoCalcField = true;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (quoted_identifier)
+        table_name: (quoted_identifier)
+        (report_column
+          (column_keyword)
+          name: (identifier)
+          source: (subscript_expression
+            object: (identifier)
+            index: (integer))
+          (property
+            name: (property_name)
+            value: (boolean)))
+        (report_column
+          (column_keyword)
+          name: (identifier)
+          source: (subscript_expression
+            object: (identifier)
+            index: (integer))
+          (property
+            name: (property_name)
+            value: (boolean)))))))
+
+================================================================================
+AutoCalcField with case variations
+================================================================================
+
+report 50000 "Test Report"
+{
+    dataset
+    {
+        dataitem(GLAccount; "G/L Account")
+        {
+            column(Balance; Balance)
+            {
+                autocalcfield = false;
+            }
+            column(NetChange; "Net Change")
+            {
+                AUTOCALCFIELD = true;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)
+        (report_column
+          (column_keyword)
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (boolean)))
+        (report_column
+          (column_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (boolean)))))))

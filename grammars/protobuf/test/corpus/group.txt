@@ -1,0 +1,33 @@
+================================================================================
+Group field
+================================================================================
+
+syntax = "proto2";
+
+message Outer {
+  repeated group Inner = 1 {
+    required int32 ival = 1;
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (syntax)
+  (message
+    (message_name
+      (identifier))
+    (message_body
+      (group
+        (message_name
+          (identifier))
+        (field_number
+          (int_lit
+            (decimal_lit)))
+        (message_body
+          (field
+            (type)
+            (identifier)
+            (field_number
+              (int_lit
+                (decimal_lit)))))))))

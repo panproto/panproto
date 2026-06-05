@@ -1,0 +1,2781 @@
+==================
+Arithmetic
+==================
+
+x = 5 + 3
+y = x * 2
+z = (x + y) / 4
+
+---
+
+(source_file
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (number_literal)
+        (number_literal))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (identifier)
+        (number_literal))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (parenthesized_expression
+          (binary_expression
+            (identifier)
+            (identifier)))
+        (number_literal)))))
+
+==================
+Logical
+==================
+
+flag = (x > 10) && (y < 5)
+result = (a || b) && !c
+
+---
+
+(source_file
+  (expression_statement
+    (assignment_expression
+      left: (identifier)
+      right: (binary_expression
+        left: (parenthesized_expression
+          (binary_expression
+            left: (identifier)
+            right: (number_literal)))
+        right: (parenthesized_expression
+          (binary_expression
+            left: (identifier)
+            right: (number_literal))))))
+  (expression_statement
+    (assignment_expression
+      left: (identifier)
+      right: (binary_expression
+        left: (parenthesized_expression
+          (binary_expression
+            left: (identifier)
+            right: (identifier)))
+        right: (unary_expression
+          argument: (identifier))))))
+
+==================
+String
+==================
+
+message = "'Hello, World!'"
+combined = "'Value: ',x"
+command = "'COMMAND-',CMD_TYPE,',',PARAM"
+"'Device: ', status.name, ' Power: ', ITOA(status.isPowered)"
+
+---
+
+(source_file
+  (expression_statement
+    (assignment_expression
+      left: (identifier)
+      right: (string_expression
+        (string_literal
+          (string_content)))))
+  (expression_statement
+    (assignment_expression
+      left: (identifier)
+      right: (string_expression
+        (string_literal
+          (string_content))
+        (identifier))))
+  (expression_statement
+    (assignment_expression
+      left: (identifier)
+      right: (string_expression
+        (string_literal
+          (string_content))
+        (identifier)
+        (string_literal
+          (string_content))
+        (identifier))))
+  (expression_statement
+    (string_expression
+      (string_literal
+        (string_content))
+      (field_expression
+        argument: (identifier)
+        field: (field_identifier))
+      (string_literal
+        (string_content))
+      (call_expression
+        function: (system_function
+          (itoa))
+        arguments: (argument_list
+          (field_expression
+            argument: (identifier)
+            field: (field_identifier)))))))
+
+==================
+Update
+==================
+
+counter++
+value--
+
+---
+
+(source_file
+  (expression_statement
+    (update_expression
+      argument: (identifier)))
+  (expression_statement
+    (update_expression
+      argument: (identifier))))
+
+================================================================================
+Comma
+================================================================================
+
+i--, j--;
+(i--, j--);
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (comma_expression
+      (update_expression
+        (identifier))
+      (update_expression
+        (identifier))))
+  (expression_statement
+    (parenthesized_expression
+      (comma_expression
+        (update_expression
+          (identifier))
+        (update_expression
+          (identifier))))))
+
+==================
+Unary
+==================
+
+negated = -5
+bitwise_not = ~mask
+positive = +value
+not_flag = !condition
+
+---
+
+(source_file
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (number_literal)))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (unary_expression
+        (identifier))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (unary_expression
+        (identifier))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (unary_expression
+        (identifier)))))
+
+==================
+Call
+==================
+
+result = calculate(x, y)
+doSomething()
+nested = outer(inner(x), y)
+
+---
+
+(source_file
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (identifier)
+        (argument_list
+          (identifier)
+          (identifier)))))
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list)))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (identifier)
+        (argument_list
+          (call_expression
+            (identifier)
+            (argument_list
+              (identifier)))
+          (identifier))))))
+
+==================
+Field
+==================
+
+name = person.fullName
+value = device.port.status
+nested = obj.field1.field2
+obj.method()
+
+---
+
+(source_file
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (field_expression
+        (identifier)
+        (field_identifier))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (field_expression
+        (field_expression
+          (identifier)
+          (field_identifier))
+        (field_identifier))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (field_expression
+        (field_expression
+          (identifier)
+          (field_identifier))
+        (field_identifier))))
+  (expression_statement
+    (call_expression
+      (field_expression
+        (identifier)
+        (field_identifier))
+      (argument_list))))
+
+==================
+Subscript
+==================
+
+item = array[5]
+matrix = grid[row][col]
+value = items[index + 1]
+
+---
+
+(source_file
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (subscript_expression
+        (identifier)
+        (number_literal))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (subscript_expression
+        (subscript_expression
+          (identifier)
+          (identifier))
+        (identifier))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (subscript_expression
+        (identifier)
+        (binary_expression
+          (identifier)
+          (number_literal))))))
+
+==================
+Devchan
+==================
+
+status = [dvTP, 1]
+[dvDevice, CHAN] = true
+[panel, BTN_VOLUME] = [mixer, VOL_LEVEL]
+
+---
+
+(source_file
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (devchan_expression
+        (identifier)
+        (number_literal))))
+  (expression_statement
+    (assignment_expression
+      (devchan_expression
+        (identifier)
+        (identifier))
+      (system_constant
+        (true))))
+  (expression_statement
+    (assignment_expression
+      (devchan_expression
+        (identifier)
+        (identifier))
+      (devchan_expression
+        (identifier)
+        (identifier)))))
+
+==================
+Boolean Literals
+==================
+
+isEnabled = TRUE
+flag = FALSE
+result = (x > 5) == TRUE
+
+---
+
+(source_file
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (system_constant
+        (true))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (system_constant
+        (false))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (parenthesized_expression
+          (binary_expression
+            (identifier)
+            (number_literal)))
+        (system_constant
+          (true))))))
+
+==================
+Character and Hex Literals
+==================
+
+letter = 'A'
+hex_value = $FF
+mixed = $1A + 20
+ascii_code = 'Z'
+
+---
+
+(source_file
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (string_literal
+        (string_content))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (number_literal)))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (number_literal)
+        (number_literal))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (string_literal
+        (string_content)))))
+
+==================
+Device
+==================
+
+device = 5001:1:0
+address = 10001:2:0
+system = deviceID:1:systemID
+
+---
+
+(source_file
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (device_literal
+        (number_literal)
+        (number_literal)
+        (number_literal))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (device_literal
+        (number_literal)
+        (number_literal)
+        (number_literal))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (device_literal
+        (identifier)
+        (number_literal)
+        (identifier)))))
+
+==================
+Complex Nested
+==================
+
+result = (a + b) * (c / d)
+complex = -(x * y) + (z && !flag)
+combined = func(a.field, [device, chan]) + value[i++]
+
+---
+
+(source_file
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (parenthesized_expression
+          (binary_expression
+            (identifier)
+            (identifier)))
+        (parenthesized_expression
+          (binary_expression
+            (identifier)
+            (identifier))))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (unary_expression
+          (parenthesized_expression
+            (binary_expression
+              (identifier)
+              (identifier))))
+        (parenthesized_expression
+          (binary_expression
+            (identifier)
+            (unary_expression
+              (identifier)))))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (call_expression
+          (identifier)
+          (argument_list
+            (field_expression
+              (identifier)
+              (field_identifier))
+            (devchan_expression
+              (identifier)
+              (identifier))))
+        (subscript_expression
+          (identifier)
+          (update_expression
+            (identifier)))))))
+
+==================
+Bitwise
+==================
+
+// Basic bitwise operations
+mask1 = value & $FF
+mask2 = value | $80
+flags = flag1 ^ flag2
+shifted_left = data1 << 4
+shifted_right = data1 >> 2
+
+// Combined bitwise operations
+result = (value & $0F) | ($80 >> 1)
+combined = (flags & mask) ^ ~control
+complex = ((data1 & $FF) << 8) | (data2 & $FF)
+
+---
+
+(source_file
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (identifier)
+        (number_literal))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (identifier)
+        (number_literal))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (identifier)
+        (identifier))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (identifier)
+        (number_literal))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (identifier)
+        (number_literal))))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (parenthesized_expression
+          (binary_expression
+            (identifier)
+            (number_literal)))
+        (parenthesized_expression
+          (binary_expression
+            (number_literal)
+            (number_literal))))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (parenthesized_expression
+          (binary_expression
+            (identifier)
+            (identifier)))
+        (unary_expression
+          (identifier)))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (parenthesized_expression
+          (binary_expression
+            (parenthesized_expression
+              (binary_expression
+                (identifier)
+                (number_literal)))
+            (number_literal)))
+        (parenthesized_expression
+          (binary_expression
+            (identifier)
+            (number_literal)))))))
+
+===============================
+Bitwise Words
+===============================
+
+// Basic bitwise operations
+mask1 = value band $FF
+mask2 = value bor $80
+flags = flag1 bxor flag2
+shifted_left = data1 lshift 4
+shifted_right = data1 rshift 2
+
+// Combined bitwise operations
+result = (value band $0F) bor ($80 rshift 1)
+combined = (flags band mask) bxor bnot control
+complex = ((data1 band $FF) lshift 8) bor (data2 band $FF)
+
+---
+
+(source_file
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (identifier)
+        (band)
+        (number_literal))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (identifier)
+        (bor)
+        (number_literal))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (identifier)
+        (bxor)
+        (identifier))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (identifier)
+        (lshift)
+        (number_literal))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (identifier)
+        (rshift)
+        (number_literal))))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (parenthesized_expression
+          (binary_expression
+            (identifier)
+            (band)
+            (number_literal)))
+        (bor)
+        (parenthesized_expression
+          (binary_expression
+            (number_literal)
+            (rshift)
+            (number_literal))))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (parenthesized_expression
+          (binary_expression
+            (identifier)
+            (band)
+            (identifier)))
+        (bxor)
+        (unary_expression
+          (bnot)
+          (identifier)))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (parenthesized_expression
+          (binary_expression
+            (parenthesized_expression
+              (binary_expression
+                (identifier)
+                (band)
+                (number_literal)))
+            (lshift)
+            (number_literal)))
+        (bor)
+        (parenthesized_expression
+          (binary_expression
+            (identifier)
+            (band)
+            (number_literal)))))))
+
+===============
+Devchan range
+===============
+
+([vdvObject, 1]..[vdvObject,100])
+[dvRelays, 1]..[dvRelays,8]
+
+---
+
+(source_file
+  (expression_statement
+    (parenthesized_expression
+      (devchan_range_expression
+        (devchan_expression
+          (identifier)
+          (number_literal))
+        (range_operator)
+        (devchan_expression
+          (identifier)
+          (number_literal)))))
+  (expression_statement
+    (devchan_range_expression
+      (devchan_expression
+        (identifier)
+        (number_literal))
+      (range_operator)
+      (devchan_expression
+        (identifier)
+        (number_literal)))))
+
+=================
+Parenthesized
+=================
+
+(vdvObject, dvTP1, dvTP2)
+([vdvObject, 1], [vdvObject, 2])
+([dvRelays, 5], [dvRelays, 6])
+
+---
+
+(source_file
+  (expression_statement
+    (parenthesized_expression
+      (comma_expression
+        (identifier)
+        (comma_expression
+          (identifier)
+          (identifier)))))
+  (expression_statement
+    (parenthesized_expression
+      (comma_expression
+        (devchan_expression
+          (identifier)
+          (number_literal))
+        (devchan_expression
+          (identifier)
+          (number_literal)))))
+  (expression_statement
+    (parenthesized_expression
+      (comma_expression
+        (devchan_expression
+          (identifier)
+          (number_literal))
+        (devchan_expression
+          (identifier)
+          (number_literal))))))
+
+======================
+Array Operations
+======================
+
+// Array assignments
+myArray[0] = 123
+myArray[i + 1] = x * 2
+
+// Array subscripts in expressions
+myVar = myArray[5]
+result = myArray[i] + myArray[j]
+
+// Multi-dimensional access
+matrix[0][1] = 42
+value = grid[x][y][z]
+
+---
+
+(source_file
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (subscript_expression
+        (identifier)
+        (number_literal))
+      (number_literal)))
+  (expression_statement
+    (assignment_expression
+      (subscript_expression
+        (identifier)
+        (binary_expression
+          (identifier)
+          (number_literal)))
+      (binary_expression
+        (identifier)
+        (number_literal))))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (subscript_expression
+        (identifier)
+        (number_literal))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (subscript_expression
+          (identifier)
+          (identifier))
+        (subscript_expression
+          (identifier)
+          (identifier)))))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (subscript_expression
+        (subscript_expression
+          (identifier)
+          (number_literal))
+        (number_literal))
+      (number_literal)))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (subscript_expression
+        (subscript_expression
+          (subscript_expression
+            (identifier)
+            (identifier))
+          (identifier))
+        (identifier)))))
+
+==================
+Device Reference
+==================
+
+state = [dvTP, 1]
+state = [dvTP, BUTTON_1]
+state = [vdvDevice, CHANNEL_ON]
+
+---
+
+(source_file
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (devchan_expression
+        (identifier)
+        (number_literal))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (devchan_expression
+        (identifier)
+        (identifier))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (devchan_expression
+        (identifier)
+        (identifier)))))
+
+==================
+Device Assignment
+==================
+
+[dvTP, 1] = true
+
+---
+
+(source_file
+  (expression_statement
+    (assignment_expression
+      (devchan_expression
+        (identifier)
+        (number_literal))
+      (system_constant
+        (true)))))
+
+==================
+Device Operations
+==================
+
+ON[dvTP,1]
+OFF[dvTP,2]
+TO[dvTP,3]
+MIN_TO[dvTP,4]
+TOTAL_OFF[dvTP,5]
+PULSE[dvTP,6]
+
+---
+
+(source_file
+  (devchan_operation_statement
+    (devchan_operation
+      (devchan_on_keyword))
+    (devchan_expression
+      (identifier)
+      (number_literal)))
+  (devchan_operation_statement
+    (devchan_operation
+      (devchan_off_keyword))
+    (devchan_expression
+      (identifier)
+      (number_literal)))
+  (devchan_operation_statement
+    (devchan_operation
+      (devchan_to_keyword))
+    (devchan_expression
+      (identifier)
+      (number_literal)))
+  (devchan_operation_statement
+    (devchan_operation
+      (devchan_min_to_keyword))
+    (devchan_expression
+      (identifier)
+      (number_literal)))
+  (devchan_operation_statement
+    (devchan_operation
+      (devchan_total_off_keyword))
+    (devchan_expression
+      (identifier)
+      (number_literal)))
+  (devchan_operation_statement
+    (devchan_operation
+      (devchan_pulse_keyword))
+    (devchan_expression
+      (identifier)
+      (number_literal))))
+
+==================
+Device Literals
+==================
+
+10001:1:0
+5001:1:2
+5001:2:3
+0:3:0
+0:1:0
+5002:14:0
+33201:1:0
+41001:1:0
+
+---
+
+(source_file
+  (expression_statement
+    (device_literal
+      device: (number_literal)
+      port: (number_literal)
+      system: (number_literal)))
+  (expression_statement
+    (device_literal
+      device: (number_literal)
+      port: (number_literal)
+      system: (number_literal)))
+  (expression_statement
+    (device_literal
+      device: (number_literal)
+      port: (number_literal)
+      system: (number_literal)))
+  (expression_statement
+    (device_literal
+      device: (number_literal)
+      port: (number_literal)
+      system: (number_literal)))
+  (expression_statement
+    (device_literal
+      device: (number_literal)
+      port: (number_literal)
+      system: (number_literal)))
+  (expression_statement
+    (device_literal
+      device: (number_literal)
+      port: (number_literal)
+      system: (number_literal)))
+  (expression_statement
+    (device_literal
+      device: (number_literal)
+      port: (number_literal)
+      system: (number_literal)))
+  (expression_statement
+    (device_literal
+      device: (number_literal)
+      port: (number_literal)
+      system: (number_literal))))
+
+============================
+Device Expressions
+============================
+
+0:first_local_port:1
+0:first_local_port+1:1
+dvPort.NUMBER:dvPort.PORT:dvPort.SYSTEM
+
+---
+
+(source_file
+  (expression_statement
+    (device_literal
+      (number_literal)
+      (system_constant
+        (first_local_port))
+      (number_literal)))
+  (expression_statement
+    (device_literal
+      (number_literal)
+      (binary_expression
+        (system_constant
+          (first_local_port))
+        (number_literal))
+      (number_literal)))
+  (expression_statement
+    (device_literal
+      (field_expression
+        (identifier)
+        (field_identifier))
+      (field_expression
+        (identifier)
+        (field_identifier))
+      (field_expression
+        (identifier)
+        (field_identifier)))))
+
+=========================
+Deep Field Access
+=========================
+
+result = system.devices[getIndex()].config.settings[2].enabled
+
+---
+
+(source_file
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (field_expression
+        (subscript_expression
+          (field_expression
+            (field_expression
+              (subscript_expression
+                (field_expression
+                  (identifier)
+                  (field_identifier))
+                (call_expression
+                  (identifier)
+                  (argument_list)))
+              (field_identifier))
+            (field_identifier))
+          (number_literal))
+        (field_identifier)))))
+
+=============================
+Complex Device Literals
+=============================
+
+target_device = (BASE_ID + offset):(PORT_ARRAY[index]):SYSTEM_ID
+
+---
+
+(source_file
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (device_literal
+        (parenthesized_expression
+          (binary_expression
+            (identifier)
+            (identifier)))
+        (parenthesized_expression
+          (subscript_expression
+            (identifier)
+            (identifier)))
+        (identifier)))))
+
+==============================
+String Literal Escape
+==============================
+
+'This is a ''quoted'' word in a string'
+'Don''t forget this syntax'
+
+// Basic single quote escaping
+message = 'This isn''t a problem'
+query = 'SQL Query: SELECT * FROM ''Users'''
+empty = ''
+singleQuote = ''''
+
+// Multiple escaped quotes
+text = 'She said, ''Hello,'' and then ''Goodbye'''
+
+// Quotes at edges
+edgeCase = '''Start'' and ''End'''
+
+// Only escaped quotes
+onlyEscaped = ''''''
+
+---
+
+(source_file
+  (expression_statement
+    (string_literal
+      (string_content)
+      (escape_sequence)
+      (string_content)
+      (escape_sequence)
+      (string_content)))
+  (expression_statement
+    (string_literal
+      (string_content)
+      (escape_sequence)
+      (string_content)))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (string_literal
+        (string_content)
+        (escape_sequence)
+        (string_content))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (string_literal
+        (string_content)
+        (escape_sequence)
+        (string_content)
+        (escape_sequence))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (string_literal)))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (string_literal
+        (escape_sequence))))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (string_literal
+        (string_content)
+        (escape_sequence)
+        (string_content)
+        (escape_sequence)
+        (string_content)
+        (escape_sequence)
+        (string_content)
+        (escape_sequence))))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (string_literal
+        (escape_sequence)
+        (string_content)
+        (escape_sequence)
+        (string_content)
+        (escape_sequence)
+        (string_content)
+        (escape_sequence))))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (string_literal
+        (escape_sequence)
+        (escape_sequence)))))
+
+===============================
+String Literals as Function Arguments
+===============================
+
+// Function calls with escaped quotes in arguments
+SendString(dvDevice, 'Here''s a message')
+ProcessQuery('SELECT * FROM ''Table''')
+ShowDialog('Warning', 'Don''t press ''OK'' unless you''re sure!')
+
+// Mixed with other arguments
+SetName(userID, 'O''Brien', isActive)
+
+---
+
+(source_file
+  (comment)
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (identifier)
+        (string_literal
+          (string_content)
+          (escape_sequence)
+          (string_content)))))
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (string_literal
+          (string_content)
+          (escape_sequence)
+          (string_content)
+          (escape_sequence)))))
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (string_literal
+          (string_content))
+        (string_literal
+          (string_content)
+          (escape_sequence)
+          (string_content)
+          (escape_sequence)
+          (string_content)
+          (escape_sequence)
+          (string_content)
+          (escape_sequence)
+          (string_content)))))
+  (comment)
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (identifier)
+        (string_literal
+          (string_content)
+          (escape_sequence)
+          (string_content))
+        (identifier)))))
+
+===============================
+String Literals in Declarations
+===============================
+
+// String literals in declarations
+DEFINE_VARIABLE
+CHAR message[] = 'User ''Admin'' logged in'
+CHAR empty[] = ''
+CHAR singleQuote[] = ''''
+
+// In structure initialization
+UserInfo user = {'John O''Malley', 42, TRUE}
+
+---
+
+(source_file
+  (comment)
+  (section
+    (define_variable_section
+      (define_variable_keyword)))
+  (declaration
+    (intrinsic_type
+      (primitive_type
+        (char_keyword)))
+    (init_declarator
+      (array_declarator
+        (identifier))
+      (string_literal
+        (string_content)
+        (escape_sequence)
+        (string_content)
+        (escape_sequence)
+        (string_content))))
+  (declaration
+    (intrinsic_type
+      (primitive_type
+        (char_keyword)))
+    (init_declarator
+      (array_declarator
+        (identifier))
+      (string_literal)))
+  (declaration
+    (intrinsic_type
+      (primitive_type
+        (char_keyword)))
+    (init_declarator
+      (array_declarator
+        (identifier))
+      (string_literal
+        (escape_sequence))))
+  (comment)
+  (declaration
+    (type_identifier)
+    (init_declarator
+      (identifier)
+      (initializer_list
+        (string_literal
+          (string_content)
+          (escape_sequence)
+          (string_content))
+        (number_literal)
+        (system_constant
+          (true))))))
+
+===============================
+String Literals in Module and Program Names
+===============================
+
+// String literals in module and program definitions
+PROGRAM_NAME = 'NetLinx ''Master'' Control'
+MODULE_NAME = 'Room''s UI Module'
+
+// In module definitions
+DEFINE_MODULE 'User''s Authentication Module' AuthModule(vdvAuth, dvTP)
+
+---
+
+(source_file
+  (comment)
+  (program_name
+    (program_name_keyword)
+    (string_literal
+      (string_content)
+      (escape_sequence)
+      (string_content)
+      (escape_sequence)
+      (string_content)))
+  (module_name
+    (module_name_keyword)
+    (string_literal
+      (string_content)
+      (escape_sequence)
+      (string_content)))
+  (comment)
+  (define_module
+    (define_module_keyword)
+    (module_definition
+      (string_literal
+        (string_content)
+        (escape_sequence)
+        (string_content))
+      (identifier)
+      (argument_list
+        (identifier)
+        (identifier)))))
+
+===============================
+String Literals with Edge Cases
+===============================
+
+// Edge cases
+emptyWithSpace = ' '
+consecutive = 'First''Second''Third'
+mixed = 'Normal text with ''quoted'' portions and more ''quotes'''
+
+// String literal containing only two single quotes (one escaped quote)
+justOneQuote = ''''
+
+---
+
+(source_file
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (string_literal
+        (string_content))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (string_literal
+        (string_content)
+        (escape_sequence)
+        (string_content)
+        (escape_sequence)
+        (string_content))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (string_literal
+        (string_content)
+        (escape_sequence)
+        (string_content)
+        (escape_sequence)
+        (string_content)
+        (escape_sequence)
+        (string_content)
+        (escape_sequence))))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (string_literal
+        (escape_sequence)))))
+
+======================================
+Comment Sequences in String Literals
+======================================
+
+'//'
+"'//'"
+'/*'
+'/**/'
+"'(*'"
+'(**)'
+
+---
+
+(source_file
+  (expression_statement
+    (string_literal
+      (string_content)))
+  (expression_statement
+    (string_expression
+      (string_literal
+        (string_content))))
+  (expression_statement
+    (string_literal
+      (string_content)))
+  (expression_statement
+    (string_literal
+      (string_content)))
+  (expression_statement
+    (string_expression
+      (string_literal
+        (string_content))))
+  (expression_statement
+    (string_literal
+      (string_content))))
+
+=================================
+Floating Point Literals
+=================================
+
+// Basic floating point values
+x = 3.14
+y = -2.5
+z = +0.75
+
+// Scientific notation
+sci1 = 1.25e3
+sci2 = 4.56E2
+sci3 = 7.89e+10
+sci4 = 1.23E-4
+
+// Edge cases
+edge1 = .5        // No leading digit
+edge2 = 5.        // No trailing digits
+edge3 = 0.0
+edge4 = 123.456
+edge5 = -.75      // Negative with no leading digit
+edge6 = +.25      // Positive with no leading digit
+
+// Float in expressions
+result1 = 1.5 + 2.5
+result2 = 10.0 / 2.0
+result3 = 3.0 * 1.5
+result4 = 5.75 - 2.25
+
+// Float in function calls
+SetLevel(vdvDevice, 1, 0.75)
+AdjustVolume(dvAudio, -1.5)
+CalculateOffset(3.14159, 2.71828)
+
+// Float in declarations
+DEFINE_VARIABLE
+float pi = 3.14159
+double e = 2.71828
+float values[] = {1.1, 2.2, 3.3, 4.4}
+
+---
+
+(source_file
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (number_literal)))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (number_literal)))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (number_literal)))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (number_literal)))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (number_literal)))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (number_literal)))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (number_literal)))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (number_literal)))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (number_literal)))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (number_literal)))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (number_literal)))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (number_literal)))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (number_literal)))
+  (comment)
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (number_literal)
+        (number_literal))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (number_literal)
+        (number_literal))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (number_literal)
+        (number_literal))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (number_literal)
+        (number_literal))))
+  (comment)
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (identifier)
+        (number_literal)
+        (number_literal))))
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (identifier)
+        (number_literal))))
+  (expression_statement
+    (call_expression
+      (identifier)
+      (argument_list
+        (number_literal)
+        (number_literal))))
+  (comment)
+  (section
+    (define_variable_section
+      (define_variable_keyword)))
+  (declaration
+    (intrinsic_type
+      (primitive_type
+        (float_keyword)))
+    (init_declarator
+      (identifier)
+      (number_literal)))
+  (declaration
+    (intrinsic_type
+      (primitive_type
+        (double_keyword)))
+    (init_declarator
+      (identifier)
+      (number_literal)))
+  (declaration
+    (intrinsic_type
+      (primitive_type
+        (float_keyword)))
+    (init_declarator
+      (array_declarator
+        (identifier))
+      (initializer_list
+        (number_literal)
+        (number_literal)
+        (number_literal)
+        (number_literal)))))
+
+=================================
+Compiler Variables
+=================================
+
+__FILE__
+__date__
+__ldate__
+__TIME__
+__line__
+__name__
+
+---
+
+(source_file
+  (expression_statement
+    (compiler_variable))
+  (expression_statement
+    (compiler_variable))
+  (expression_statement
+    (compiler_variable))
+  (expression_statement
+    (compiler_variable))
+  (expression_statement
+    (compiler_variable))
+  (expression_statement
+    (compiler_variable)))
+
+===================================
+System Variables
+===================================
+
+day
+date
+LDATE
+time
+push_device
+push_channel
+push_devchan
+release_channel
+release_device
+release_devchan
+system_number
+
+---
+
+(source_file
+  (expression_statement
+    (system_variable
+      (day)))
+  (expression_statement
+    (system_variable
+      (date)))
+  (expression_statement
+    (system_variable
+      (ldate)))
+  (expression_statement
+    (system_variable
+      (time)))
+  (expression_statement
+    (system_variable
+      (push_device)))
+  (expression_statement
+    (system_variable
+      (push_channel)))
+  (expression_statement
+    (system_variable
+      (push_devchan)))
+  (expression_statement
+    (system_variable
+      (release_channel)))
+  (expression_statement
+    (system_variable
+      (release_device)))
+  (expression_statement
+    (system_variable
+      (release_devchan)))
+  (expression_statement
+    (system_variable
+      (system_number))))
+
+===================================
+System Constants
+===================================
+
+// Boolean constants
+result1 = TRUE
+result2 = FALSE
+
+// Timeline constants
+timeline_create(1, 500, TIMELINE_ABSOLUTE, TIMELINE_REPEAT)
+timeline_create(2, 1000, TIMELINE_RELATIVE, TIMELINE_ONCE)
+
+// Network constants
+selector = IP_TCP
+connection_type = IP_UDP_2WAY
+flag = URL_FLG_TCP
+
+// File handling constants
+file_mode1 = FILE_READ_ONLY
+file_mode2 = FILE_RW_NEW
+file_mode3 = FILE_RW_APPEND
+
+// Device constants
+id = FIRST_VIRTUAL_DEVICE + 10
+port = FIRST_LOCAL_PORT
+dynamic_id = DYNAMIC_VIRTUAL_DEVICE
+
+// XML options
+xml_option = XML_ENCODE_CHAR_AS_LIST | XML_ENCODE_TYPES
+
+// Duet device types
+dev_type = DUET_DEV_TYPE_DISPLAY_DEVICE
+audio_type = DUET_DEV_TYPE_AUDIO_PROCESSOR
+
+// Clock manager constants
+mode = CLKMGR_MODE_NETWORK
+standby = NORMAL_STANDBY
+wake = NORMAL_WAKE
+
+// Network settings
+ttl = IP_TTL_SUBNET
+nodelay = IP_NODELAY_ON
+
+// Log levels
+log_level = AMX_DEBUG
+login_result = NETLINX_LOGIN_SUCCESS
+
+// Data constants
+data_format = DATA_FORMAT_ISO8601
+type = DATA_TYPE_DATETIME
+error = ERR_INVALID_PARAMETER
+
+---
+
+(source_file
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (system_constant
+        (true))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (system_constant
+        (false))))
+  (comment)
+  (expression_statement
+    (call_expression
+      (system_function
+        (timeline_create))
+      (argument_list
+        (number_literal)
+        (number_literal)
+        (system_constant
+          (timeline_absolute))
+        (system_constant
+          (timeline_repeat)))))
+  (expression_statement
+    (call_expression
+      (system_function
+        (timeline_create))
+      (argument_list
+        (number_literal)
+        (number_literal)
+        (system_constant
+          (timeline_relative))
+        (system_constant
+          (timeline_once)))))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (system_constant
+        (ip_tcp))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (system_constant
+        (ip_udp_2way))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (system_constant
+        (url_flg_tcp))))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (system_constant
+        (file_read_only))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (system_constant
+        (file_rw_new))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (system_constant
+        (file_rw_append))))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (system_constant
+          (first_virtual_device))
+        (number_literal))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (system_constant
+        (first_local_port))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (system_constant
+        (dynamic_virtual_device))))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (system_constant
+          (xml_encode_char_as_list))
+        (system_constant
+          (xml_encode_types)))))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (system_constant
+        (duet_dev_type_display_device))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (system_constant
+        (duet_dev_type_audio_processor))))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (system_constant
+        (clkmgr_mode_network))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (system_constant
+        (normal_standby))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (system_constant
+        (normal_wake))))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (system_constant
+        (ip_ttl_subnet))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (system_constant
+        (ip_nodelay_on))))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (system_constant
+        (amx_debug))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (system_constant
+        (netlinx_login_success))))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (system_constant
+        (data_format_iso8601))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (system_constant
+        (data_type_datetime))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (system_constant
+        (err_invalid_parameter)))))
+
+===================================
+System Built-in Functions
+===================================
+
+// String conversion functions
+value1 = ATOI('123')
+value2 = ATOL('1234567')
+value3 = ATOF('3.14159')
+str1 = ITOA(42)
+str2 = ITOHEX(255)
+num = HEXTOI('FF')
+str3 = FTOA(3.14159)
+
+// String manipulation
+pos = FIND_STRING('Hello World', 'World')
+left = LEFT_STRING('Hello World', 5)
+right = RIGHT_STRING('Hello World', 5)
+middle = MID_STRING('Hello World', 3, 5)
+removed = REMOVE_STRING('Hello World', 6, 5)
+len = LENGTH_STRING('Hello')
+max_len = MAX_LENGTH_STRING(str_var)
+SET_LENGTH_STRING(str_var, 10)
+cmp = COMPARE_STRING('Hello', 'World')
+upper = UPPER_STRING('Hello')
+lower = LOWER_STRING('HELLO')
+
+// Time and date
+day = DATE_TO_DAY(date)
+month = DATE_TO_MONTH(date)
+year = DATE_TO_YEAR(date)
+hour = TIME_TO_HOUR(time)
+minute = TIME_TO_MINUTE(time)
+second = TIME_TO_SECOND(time)
+weekday = DAY_OF_WEEK(date)
+SET_PULSE_TIME(dvTP, 1, 3000)
+SET_TIMER(timer_var, 5000)
+
+// Array functions
+arr_len = LENGTH_ARRAY(my_array)
+max_arr_len = MAX_LENGTH_ARRAY(my_array)
+SET_LENGTH_ARRAY(my_array, 10)
+
+// Device functions
+DO_PUSH(dvTP, 1)
+DO_PUSH_TIMED(dvTP, 2, 3000)
+DO_RELEASE(dvTP, 1)
+id = DEVICE_ID(dvTP)
+DEVICE_STANDBY(dvTP)
+DEVICE_WAKE(dvTP)
+
+// Timeline functions
+TIMELINE_CREATE(1, 500, TIMELINE_ABSOLUTE, TIMELINE_REPEAT)
+TIMELINE_KILL(1)
+TIMELINE_PAUSE(1)
+TIMELINE_RESTART(1)
+TIMELINE_SET(1, 5, 250)
+val = TIMELINE_GET(1, 5)
+running = TIMELINE_ACTIVE(1)
+
+// Network functions
+IP_CLIENT_OPEN(dvDevice, 1, '192.168.1.100', 23, IP_TCP)
+IP_CLIENT_CLOSE(dvDevice, 1)
+IP_SERVER_OPEN(dvDevice, 1, 23, IP_TCP)
+IP_SERVER_CLOSE(dvDevice, 1)
+TLS_CLIENT_OPEN(dvDevice, 2, '192.168.1.100', 443, TLS_VALIDATE_CERTIFICATE)
+TLS_CLIENT_CLOSE(dvDevice, 2)
+
+// Math functions
+abs = ABS_VALUE(-42)
+max = MAX_VALUE(10, 20)
+min = MIN_VALUE(10, 20)
+sqrt_val = SQRT_VALUE(16)
+pow_val = POWER_VALUE(2, 8)
+exp_val = EXP_VALUE(2)
+log_val = LOG_VALUE(100)
+log10_val = LOG10_VALUE(100)
+
+// System functions
+REBOOT()
+id = GET_UNIQUE_ID()
+sn = GET_SERIAL_NUMBER()
+sys_num = GET_SYSTEM_NUMBER()
+SET_SYSTEM_NUMBER(1)
+build = GET_MASTER_BUILD()
+
+---
+
+(source_file
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (atoi))
+        (argument_list
+          (string_literal
+            (string_content))))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (atol))
+        (argument_list
+          (string_literal
+            (string_content))))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (atof))
+        (argument_list
+          (string_literal
+            (string_content))))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (itoa))
+        (argument_list
+          (number_literal)))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (itohex))
+        (argument_list
+          (number_literal)))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (hextoi))
+        (argument_list
+          (string_literal
+            (string_content))))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (ftoa))
+        (argument_list
+          (number_literal)))))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (find_string))
+        (argument_list
+          (string_literal
+            (string_content))
+          (string_literal
+            (string_content))))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (left_string))
+        (argument_list
+          (string_literal
+            (string_content))
+          (number_literal)))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (right_string))
+        (argument_list
+          (string_literal
+            (string_content))
+          (number_literal)))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (mid_string))
+        (argument_list
+          (string_literal
+            (string_content))
+          (number_literal)
+          (number_literal)))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (remove_string))
+        (argument_list
+          (string_literal
+            (string_content))
+          (number_literal)
+          (number_literal)))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (length_string))
+        (argument_list
+          (string_literal
+            (string_content))))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (max_length_string))
+        (argument_list
+          (identifier)))))
+  (expression_statement
+    (call_expression
+      (system_function
+        (set_length_string))
+      (argument_list
+        (identifier)
+        (number_literal))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (compare_string))
+        (argument_list
+          (string_literal
+            (string_content))
+          (string_literal
+            (string_content))))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (upper_string))
+        (argument_list
+          (string_literal
+            (string_content))))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (lower_string))
+        (argument_list
+          (string_literal
+            (string_content))))))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier
+        (day))
+      (call_expression
+        (system_function
+          (date_to_day))
+        (argument_list
+          (system_variable
+            (date))))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (date_to_month))
+        (argument_list
+          (system_variable
+            (date))))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (date_to_year))
+        (argument_list
+          (system_variable
+            (date))))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (time_to_hour))
+        (argument_list
+          (system_variable
+            (time))))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (time_to_minute))
+        (argument_list
+          (system_variable
+            (time))))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (time_to_second))
+        (argument_list
+          (system_variable
+            (time))))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (day_of_week))
+        (argument_list
+          (system_variable
+            (date))))))
+  (expression_statement
+    (call_expression
+      (system_function
+        (set_pulse_time))
+      (argument_list
+        (identifier)
+        (number_literal)
+        (number_literal))))
+  (expression_statement
+    (call_expression
+      (system_function
+        (set_timer))
+      (argument_list
+        (identifier)
+        (number_literal))))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (length_array))
+        (argument_list
+          (identifier)))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (max_length_array))
+        (argument_list
+          (identifier)))))
+  (expression_statement
+    (call_expression
+      (system_function
+        (set_length_array))
+      (argument_list
+        (identifier)
+        (number_literal))))
+  (comment)
+  (expression_statement
+    (call_expression
+      (system_function
+        (do_push))
+      (argument_list
+        (identifier)
+        (number_literal))))
+  (expression_statement
+    (call_expression
+      (system_function
+        (do_push_timed))
+      (argument_list
+        (identifier)
+        (number_literal)
+        (number_literal))))
+  (expression_statement
+    (call_expression
+      (system_function
+        (do_release))
+      (argument_list
+        (identifier)
+        (number_literal))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (device_id))
+        (argument_list
+          (identifier)))))
+  (expression_statement
+    (call_expression
+      (system_function
+        (device_standby))
+      (argument_list
+        (identifier))))
+  (expression_statement
+    (call_expression
+      (system_function
+        (device_wake))
+      (argument_list
+        (identifier))))
+  (comment)
+  (expression_statement
+    (call_expression
+      (system_function
+        (timeline_create))
+      (argument_list
+        (number_literal)
+        (number_literal)
+        (system_constant
+          (timeline_absolute))
+        (system_constant
+          (timeline_repeat)))))
+  (expression_statement
+    (call_expression
+      (system_function
+        (timeline_kill))
+      (argument_list
+        (number_literal))))
+  (expression_statement
+    (call_expression
+      (system_function
+        (timeline_pause))
+      (argument_list
+        (number_literal))))
+  (expression_statement
+    (call_expression
+      (system_function
+        (timeline_restart))
+      (argument_list
+        (number_literal))))
+  (expression_statement
+    (call_expression
+      (system_function
+        (timeline_set))
+      (argument_list
+        (number_literal)
+        (number_literal)
+        (number_literal))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (timeline_get))
+        (argument_list
+          (number_literal)
+          (number_literal)))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (timeline_active))
+        (argument_list
+          (number_literal)))))
+  (comment)
+  (expression_statement
+    (call_expression
+      (system_function
+        (ip_client_open))
+      (argument_list
+        (identifier)
+        (number_literal)
+        (string_literal
+          (string_content))
+        (number_literal)
+        (system_constant
+          (ip_tcp)))))
+  (expression_statement
+    (call_expression
+      (system_function
+        (ip_client_close))
+      (argument_list
+        (identifier)
+        (number_literal))))
+  (expression_statement
+    (call_expression
+      (system_function
+        (ip_server_open))
+      (argument_list
+        (identifier)
+        (number_literal)
+        (number_literal)
+        (system_constant
+          (ip_tcp)))))
+  (expression_statement
+    (call_expression
+      (system_function
+        (ip_server_close))
+      (argument_list
+        (identifier)
+        (number_literal))))
+  (expression_statement
+    (call_expression
+      (system_function
+        (tls_client_open))
+      (argument_list
+        (identifier)
+        (number_literal)
+        (string_literal
+          (string_content))
+        (number_literal)
+        (system_constant
+          (tls_validate_certificate)))))
+  (expression_statement
+    (call_expression
+      (system_function
+        (tls_client_close))
+      (argument_list
+        (identifier)
+        (number_literal))))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (abs_value))
+        (argument_list
+          (number_literal)))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (max_value))
+        (argument_list
+          (number_literal)
+          (number_literal)))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (min_value))
+        (argument_list
+          (number_literal)
+          (number_literal)))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (sqrt_value))
+        (argument_list
+          (number_literal)))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (power_value))
+        (argument_list
+          (number_literal)
+          (number_literal)))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (exp_value))
+        (argument_list
+          (number_literal)))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (log_value))
+        (argument_list
+          (number_literal)))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (log10_value))
+        (argument_list
+          (number_literal)))))
+  (comment)
+  (expression_statement
+    (call_expression
+      (system_function
+        (reboot))
+      (argument_list)))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (get_unique_id))
+        (argument_list))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (get_serial_number))
+        (argument_list))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (get_system_number))
+        (argument_list))))
+  (expression_statement
+    (call_expression
+      (system_function
+        (set_system_number))
+      (argument_list
+        (number_literal))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (system_function
+          (get_master_build))
+        (argument_list)))))
+
+===================================
+Logical Word Operators
+===================================
+
+// Basic logical word operations
+result1 = x or y
+result2 = a and b
+result3 = c xor d
+result4 = not e
+
+// Complex logical word expressions
+complex1 = (a or b) and not c
+complex2 = not (x and y) or z
+complex3 = a and b or c and d
+
+// Mixed with comparison operators
+comparison1 = (x > 5) or (y < 10)
+comparison2 = (a == 1) and (b != 2)
+comparison3 = not (value > threshold)
+
+// Nested logic with parentheses
+nested1 = ((a and b) or (c and d)) and not e
+nested2 = not (a or not (b and c))
+
+// Mixed with bitwise word operators
+mixed1 = (a band $0F) or (b band $F0)
+mixed2 = (flag1 and flag2) or (data1 bxor mask)
+
+// With function calls
+func_test1 = TIMELINE_ACTIVE(1) and not TIMELINE_ACTIVE(2)
+func_test2 = LENGTH_ARRAY(arr1) > 0 or LENGTH_ARRAY(arr2) > 0
+
+// Chained expressions
+chained = a or b or c or d
+chained2 = w and x and y and z
+
+---
+
+(source_file
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (identifier)
+        (or)
+        (identifier))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (identifier)
+        (and)
+        (identifier))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (identifier)
+        (xor)
+        (identifier))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (unary_expression
+        (not)
+        (identifier))))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (parenthesized_expression
+          (binary_expression
+            (identifier)
+            (or)
+            (identifier)))
+        (and)
+        (unary_expression
+          (not)
+          (identifier)))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (unary_expression
+          (not)
+          (parenthesized_expression
+            (binary_expression
+              (identifier)
+              (and)
+              (identifier))))
+        (or)
+        (identifier))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (binary_expression
+          (identifier)
+          (and)
+          (identifier))
+        (or)
+        (binary_expression
+          (identifier)
+          (and)
+          (identifier)))))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (parenthesized_expression
+          (binary_expression
+            (identifier)
+            (number_literal)))
+        (or)
+        (parenthesized_expression
+          (binary_expression
+            (identifier)
+            (number_literal))))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (parenthesized_expression
+          (binary_expression
+            (identifier)
+            (number_literal)))
+        (and)
+        (parenthesized_expression
+          (binary_expression
+            (identifier)
+            (number_literal))))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (unary_expression
+        (not)
+        (parenthesized_expression
+          (binary_expression
+            (identifier)
+            (identifier))))))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (parenthesized_expression
+          (binary_expression
+            (parenthesized_expression
+              (binary_expression
+                (identifier)
+                (and)
+                (identifier)))
+            (or)
+            (parenthesized_expression
+              (binary_expression
+                (identifier)
+                (and)
+                (identifier)))))
+        (and)
+        (unary_expression
+          (not)
+          (identifier)))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (unary_expression
+        (not)
+        (parenthesized_expression
+          (binary_expression
+            (identifier)
+            (or)
+            (unary_expression
+              (not)
+              (parenthesized_expression
+                (binary_expression
+                  (identifier)
+                  (and)
+                  (identifier)))))))))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (parenthesized_expression
+          (binary_expression
+            (identifier)
+            (band)
+            (number_literal)))
+        (or)
+        (parenthesized_expression
+          (binary_expression
+            (identifier)
+            (band)
+            (number_literal))))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (parenthesized_expression
+          (binary_expression
+            (identifier)
+            (and)
+            (identifier)))
+        (or)
+        (parenthesized_expression
+          (binary_expression
+            (identifier)
+            (bxor)
+            (identifier))))))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (call_expression
+          (system_function
+            (timeline_active))
+          (argument_list
+            (number_literal)))
+        (and)
+        (unary_expression
+          (not)
+          (call_expression
+            (system_function
+              (timeline_active))
+            (argument_list
+              (number_literal)))))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (binary_expression
+          (call_expression
+            (system_function
+              (length_array))
+            (argument_list
+              (identifier)))
+          (number_literal))
+        (or)
+        (binary_expression
+          (call_expression
+            (system_function
+              (length_array))
+            (argument_list
+              (identifier)))
+          (number_literal)))))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (binary_expression
+          (binary_expression
+            (identifier)
+            (or)
+            (identifier))
+          (or)
+          (identifier))
+        (or)
+        (identifier))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (binary_expression
+        (binary_expression
+          (binary_expression
+            (identifier)
+            (and)
+            (identifier))
+          (and)
+          (identifier))
+        (and)
+        (identifier)))))

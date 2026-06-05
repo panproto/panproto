@@ -1,0 +1,404 @@
+========================================
+string: raw
+========================================
+
+foo=\033
+
+---
+
+(file
+  (environment_assignment
+    (name)
+    (value
+      (backslash_escape))))
+
+========================================
+string: single quotes
+========================================
+
+foo='"'
+
+---
+
+(file
+  (environment_assignment
+    (name)
+    (value
+      (str_single_quotes))))
+
+========================================
+string: single quotes hash sign
+========================================
+
+foo='#'
+
+---
+
+(file
+  (environment_assignment
+    (name)
+    (value
+      (str_single_quotes))))
+
+========================================
+string: single quotes hash sign 1
+========================================
+
+foo='#1'
+
+---
+
+(file
+  (environment_assignment
+    (name)
+    (value
+      (str_single_quotes))))
+
+========================================
+string: single quotes hash sign 2
+========================================
+
+foo='#12'
+
+---
+
+(file
+  (environment_assignment
+    (name)
+    (value
+      (str_single_quotes))))
+
+========================================
+string: double quotes
+========================================
+
+foo="\u09aF\u0123abCD\777\;\\\a"
+
+---
+
+(file
+  (environment_assignment
+    (name)
+    (value
+      (str_double_quotes
+        (backslash_escape)
+        (backslash_escape)
+        (backslash_escape)
+        (backslash_escape)
+        (backslash_escape)
+        (backslash_escape)))))
+
+========================================
+string: mixed
+========================================
+
+foo=\033'1'"2"
+
+---
+
+(file
+  (environment_assignment
+    (name)
+    (value
+      (backslash_escape)
+      (str_single_quotes)
+      (str_double_quotes))))
+
+========================================
+string: multi line
+========================================
+
+foo="a\
+b\
+c"
+
+---
+
+(file
+  (environment_assignment
+    (name)
+    (value
+      (str_double_quotes))))
+
+========================================
+string: variable
+========================================
+
+foo='#S#{var}'
+
+---
+
+(file
+  (environment_assignment
+    (name)
+    (value
+      (str_single_quotes
+        (expr_single_quotes
+          (name))
+        (expr_single_quotes
+          (name))))))
+
+========================================
+string: user option
+========================================
+
+foo='#{@var}'
+
+---
+
+(file
+  (environment_assignment
+    (name)
+    (value
+      (str_single_quotes
+        (expr_single_quotes
+          (name))))))
+
+========================================
+string: style
+========================================
+
+foo='#[bold,fg=#000000,italic]'
+
+---
+
+(file
+  (environment_assignment
+    (name)
+    (value
+      (str_single_quotes
+        (expr_single_quotes
+          (attribute)
+          (attribute)
+          (hash_rgb)
+          (attribute))))))
+
+========================================
+string: shell command
+========================================
+
+foo='#(ls)'
+
+---
+
+(file
+  (environment_assignment
+    (name)
+    (value
+      (str_single_quotes
+        (expr_single_quotes
+          (shell))))))
+
+========================================
+string: shell command args
+========================================
+
+foo='#(date --debug +%Y-%m-%d)'
+
+---
+
+(file
+  (environment_assignment
+    (name)
+    (value
+      (str_single_quotes
+        (expr_single_quotes
+          (shell))))))
+
+========================================
+string: comparison
+========================================
+
+foo='#{==:#{var1}#{var2},#{var3}}'
+
+---
+
+(file
+  (environment_assignment
+    (name)
+    (value
+      (str_single_quotes
+        (expr_single_quotes
+          (operator)
+          (expr_single_quotes
+            (name))
+          (expr_single_quotes
+            (name))
+          (expr_single_quotes
+            (name)))))))
+
+========================================
+string: comparison empty else
+========================================
+
+foo='#{==:#{var},}'
+
+---
+
+(file
+  (environment_assignment
+    (name)
+    (value
+      (str_single_quotes
+        (expr_single_quotes
+          (operator)
+          (expr_single_quotes
+            (name)))))))
+
+========================================
+string: ternary
+========================================
+
+foo="#{?var1,#{var1},#{var2}}"
+
+---
+
+(file
+  (environment_assignment
+    (name)
+    (value
+      (str_double_quotes
+        (expr_double_quotes
+          (name)
+          (expr_double_quotes
+            (name))
+          (expr_double_quotes
+            (name)))))))
+
+========================================
+string: ternary empty if
+========================================
+
+foo="#{?var1,,#{var2}}"
+
+---
+
+(file
+  (environment_assignment
+    (name)
+    (value
+      (str_double_quotes
+        (expr_double_quotes
+          (name)
+          (expr_double_quotes
+            (name)))))))
+
+========================================
+string: ternary empty else
+========================================
+
+foo="#{?var1,#{var2},}"
+
+---
+
+(file
+  (environment_assignment
+    (name)
+    (value
+      (str_double_quotes
+        (expr_double_quotes
+          (name)
+          (expr_double_quotes
+            (name)))))))
+
+========================================
+string: format hash escape
+========================================
+
+foo='#[foo=a#,bar=b]'
+
+---
+
+(file
+  (environment_assignment
+    (name)
+    (value
+      (str_single_quotes
+        (expr_single_quotes
+          (attribute)
+          (attribute))))))
+
+========================================
+string: format with format
+========================================
+
+foo="#{?#{==:#{var1},#{var2}},#{var3},#{var4}}"
+
+---
+
+(file
+  (environment_assignment
+    (name)
+    (value
+      (str_double_quotes
+        (expr_double_quotes
+          (expr_double_quotes
+            (operator)
+            (expr_double_quotes
+              (name))
+            (expr_double_quotes
+              (name)))
+          (expr_double_quotes
+            (name))
+          (expr_double_quotes
+            (name)))))))
+
+========================================
+string: format with style
+========================================
+
+foo="#{?#{==:#[bold#,fg=#000000,italic],},,}"
+
+---
+
+(file
+  (environment_assignment
+    (name)
+    (value
+      (str_double_quotes
+        (expr_double_quotes
+          (expr_double_quotes
+            (operator)
+            (expr_double_quotes
+              (attribute)
+              (attribute)
+              (hash_rgb)
+              (attribute))))))))
+
+========================================
+string: style with format
+========================================
+
+foo='#[#{?foo,fg=#000000,}]'
+
+---
+
+(file
+  (environment_assignment
+    (name)
+    (value
+      (str_single_quotes
+        (expr_single_quotes
+          (expr_single_quotes
+            (name)
+            (hash_rgb)))))))
+
+========================================
+string: style with format value
+========================================
+
+foo="#[fg=#{?foo,#000000,#111111}]"
+
+---
+
+(file
+  (environment_assignment
+    (name)
+    (value
+      (str_double_quotes
+        (expr_double_quotes
+          (attribute)
+          (expr_double_quotes
+            (name)
+            (hash_rgb)
+            (hash_rgb)))))))

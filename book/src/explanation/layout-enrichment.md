@@ -6,9 +6,9 @@ When panproto parses source code, it does two things at once. It records the *st
 
 The two parts live together in one schema, but they are separable: you can strip the layout and have a perfectly good abstract description of the program, or you can keep it and round-trip back to source bytes. `decorate` is the operation that takes the abstract description and rebuilds the layout on top.
 
-The reason this matters: any tool that wants to *generate* source code from a panproto schema (a code refactorer, a reverse bridge from a domain model to a target language, a migration that materialises a new file) needs to produce a schema with the layout fibre attached. Before `decorate`, generators had to manually populate the layout constraints — disguised string concatenation, brittle to grammar revisions. With `decorate`, the operation is mechanical: write the abstract content, hand it to a grammar, get a schema the emitter can render byte-for-byte.
+The reason this matters: any tool that wants to *generate* source code from a panproto schema (a code refactorer, a reverse bridge from a domain model to a target language, a migration that materialises a new file) needs to produce a schema with the layout fibre attached. Before `decorate`, generators had to manually populate the layout constraints: disguised string concatenation, brittle to grammar revisions. With `decorate`, the operation is mechanical: write the abstract content, hand it to a grammar, get a schema the emitter can render byte-for-byte.
 
-This page is the categorical framing: the parse / emit pair as a Grothendieck-style fibration, the section law that ties `decorate` and `forget_layout` together, and the cross-crate registry that makes the parse-side machinery available to the lens layer. For the operational mechanics of the emitter itself — how it derives spacing, dispatches CHOICE alternatives, and resolves external tokens through the cassette system — see [Source-code emission](./emit-pretty.md).
+This page is the categorical framing: the parse / emit pair as a Grothendieck-style fibration, the section law that ties `decorate` and `forget_layout` together, and the cross-crate registry that makes the parse-side machinery available to the lens layer. For the operational mechanics of the emitter itself (how it derives spacing, dispatches CHOICE alternatives, and resolves external tokens through the cassette system), see [Source-code emission](./emit-pretty.md).
 
 ## The forgetful U and its section
 
@@ -49,7 +49,7 @@ Across the broader panproto type system, layout is one of several *enrichments* 
 
 The base of the fibration is the abstract schema. The fibre over each vertex is the layout data that vertex carries. The total space is the decorated schema. `forget_layout` is the cartesian projection back to the base. `decorate` is a section of that projection, picking out one chosen layout-data assignment for each vertex.
 
-The `EnrichmentKind` enum in `panproto-gat` is the classifying tag. Today there is one variant, `Layout`. The infrastructure is shaped so other enrichments — provenance witnesses, refinement evidence, anything else that extends the schema without changing its underlying GAT theory — can slot in alongside without re-engineering the lens framework.
+The `EnrichmentKind` enum in `panproto-gat` is the classifying tag. Today there is one variant, `Layout`. The infrastructure is shaped so other enrichments (provenance witnesses, refinement evidence, anything else that extends the schema without changing its underlying GAT theory) can slot in alongside without re-engineering the lens framework.
 
 Two pieces of machinery name this fibration directly:
 

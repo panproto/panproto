@@ -1,0 +1,103 @@
+================================================================================
+Page with action groups and variable properties
+================================================================================
+
+page 50001 "Test Page Actions"
+{
+    Caption = 'Test Actions Page';
+    PageType = Card;
+    SourceTable = Customer;
+
+    actions
+    {
+        area(processing)
+        {
+            group(TestGroup)
+            {
+                Caption = 'Test Actions';
+                Image = "Action";
+                action(TestAction)
+                {
+                    ApplicationArea = All;
+                    Caption = 'Test Action';
+                    Enabled = ActionsEnabled;
+                    Visible = ShowAction;
+                    Image = Action;
+
+                    trigger OnAction()
+                    begin
+                        // Simple test
+                    end;
+                }
+            }
+        }
+    }
+
+    var
+        ActionsEnabled: Boolean;
+        ShowAction: Boolean;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_group_section
+          (group_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (quoted_identifier))
+          (action_declaration
+            name: (identifier)
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (keyword_identifier))
+            (trigger_declaration
+              (trigger_keyword)
+              name: (identifier)
+              (code_block
+                (begin_keyword)
+                (comment)
+                (end_keyword)))))))
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type))))))

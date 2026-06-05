@@ -1,0 +1,60 @@
+===
+lambdas/amendLambdaTooFewArgsError.pkl
+===
+
+hidden abc = (a, b, c) -> new Dynamic { one = a; two = b; three = c }
+hidden amendAbc = (abc) { amended = "amended" }
+res1 = amendAbc.apply(1, 2)
+
+---
+
+(module
+  (classProperty
+    (modifier)
+    (identifier)
+    (functionLiteralExpr
+      (parameterList
+        (typedIdentifier
+          (identifier))
+        (typedIdentifier
+          (identifier))
+        (typedIdentifier
+          (identifier)))
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody
+          (objectProperty
+            (identifier)
+            (unqualifiedAccessExpr
+              (identifier)))
+          (objectProperty
+            (identifier)
+            (unqualifiedAccessExpr
+              (identifier)))
+          (objectProperty
+            (identifier)
+            (unqualifiedAccessExpr
+              (identifier)))))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (intLiteralExpr)
+        (intLiteralExpr)))))

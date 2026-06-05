@@ -1,0 +1,59 @@
+========================================
+set: flags
+========================================
+
+set -g @plugin tmux-plugins/tpm
+
+---
+
+(file
+  (set_option_directive
+    (command)
+    (command_line_option)
+    (option)
+    (value)))
+
+========================================
+set: single quote
+========================================
+
+set -g word-separators ' -_@'
+
+---
+
+(file
+  (set_option_directive
+    (command)
+    (command_line_option)
+    (option)
+    (value
+      (str_single_quotes))))
+
+========================================
+set: set-option
+========================================
+
+set-option -g automatic-rename on
+
+---
+
+(file
+  (set_option_directive
+    (command)
+    (command_line_option)
+    (option)
+    (value)))
+
+========================================
+set: set-option optional value
+========================================
+
+set -g status-position
+
+---
+
+(file
+  (set_option_directive
+    (command)
+    (command_line_option)
+    (option)))

@@ -1,0 +1,60 @@
+====
+simple string
+====
+
+s1: "\n \" foo"
+s3: "日本語"
+s4: "\u65e5本\U00008a9e"
+s5: #"raw " '''string ""#
+s6: string
+
+---
+
+(source_file 
+    (field (label (identifier)) (value (string (escape_char) (escape_char)))) 
+    (field (label (identifier)) (value (string))) 
+    (field (label (identifier)) (value (string (escape_unicode) (escape_unicode)))) 
+    (field (label (identifier)) (value (string)))
+    (field (label (identifier)) (value (primitive_type))))
+
+===
+multiline string
+===
+
+s1: """
+	Hello world! \/\/"""
+s2: """
+	Hello world
+	\U00008a9e !
+	"
+	"""
+s3: #"""
+    Hello world \a foo
+    """#
+
+---
+
+(source_file 
+ (field (label (identifier)) (value (string))) 
+ (field (label (identifier)) (value (string))) 
+ (field (label (identifier)) (value (string))))
+
+===
+string interpolation
+===
+
+s1: "Hello, \( name )!"
+s2: """
+	Hello "\( name )" !
+	"""
+s3: #"""
+	Hello "\#( name )" !
+    \(.)
+	"""#
+
+---
+
+(source_file 
+    (field (label (identifier)) (value (string (interpolation (identifier)))))
+    (field (label (identifier)) (value (string (interpolation (identifier))))) 
+    (field (label (identifier)) (value (string (raw_interpolation (identifier))))))

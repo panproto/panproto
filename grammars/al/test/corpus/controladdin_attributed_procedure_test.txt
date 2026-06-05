@@ -1,0 +1,327 @@
+================================================================================
+ControlAddin with attributed procedure - Obsolete
+================================================================================
+
+controladdin "Microsoft.Dynamics.Nav.Client.PowerBIManagement"
+{
+    [Obsolete('This method is deprecated. Please use EmbedReport instead.', '24.0')]
+    procedure InitializeReport(ReportLink: Text; ReportId: Text; AuthToken: Text; PowerBIApi: Text);
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (controladdin_declaration
+    (controladdin_keyword)
+    object_name: (quoted_identifier)
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (string_literal)
+            (string_literal)))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (text_type)))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (text_type)))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (text_type)))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (text_type))))
+      (interface_procedure_suffix))))
+
+================================================================================
+ControlAddin with multiple attributed procedures
+================================================================================
+
+controladdin "Test Control"
+{
+    MinimumHeight = 240;
+    MinimumWidth = 170;
+    MaximumHeight = 300;
+    MaximumWidth = 250;
+
+    [Obsolete('Use NewMethod instead', '23.0')]
+    procedure OldMethod(Value: Text);
+
+    [NonDebuggable]
+    procedure DebugMethod();
+
+    procedure RegularMethod(Count: Integer);
+
+    [TryFunction]
+    [Obsolete('Deprecated', '24.0')]
+    procedure ComplexMethod(Input: Text; Output: Integer);
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (controladdin_declaration
+    (controladdin_keyword)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (integer))
+    (property
+      name: (property_name)
+      value: (integer))
+    (property
+      name: (property_name)
+      value: (integer))
+    (property
+      name: (property_name)
+      value: (integer))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (string_literal)
+            (string_literal)))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (text_type))))
+      (interface_procedure_suffix))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (interface_procedure_suffix))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (string_literal)
+            (string_literal)))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (text_type)))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (interface_procedure_suffix))))
+
+================================================================================
+ControlAddin with preprocessor conditional attributes
+================================================================================
+
+controladdin "Conditional Control"
+{
+#if CLEAN24
+    [Obsolete('Will be removed in v25', '24.0')]
+#else
+    [Obsolete('Deprecated since v23', '23.0')]
+#endif
+    procedure ConditionalMethod(Value: Text);
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (controladdin_declaration
+    (controladdin_keyword)
+    object_name: (quoted_identifier)
+    (preproc_conditional_controladdin
+      (preproc_if
+        (preproc_open)
+        condition: (identifier))
+      (attribute_item
+        attribute: (attribute_content
+          name: (identifier)
+          arguments: (attribute_arguments
+            (attribute_argument_list
+              (string_literal)
+              (string_literal)))))
+      (preproc_else)
+      (attribute_item
+        attribute: (attribute_content
+          name: (identifier)
+          arguments: (attribute_arguments
+            (attribute_argument_list
+              (string_literal)
+              (string_literal)))))
+      (preproc_endif
+        (preproc_close)))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (text_type))))
+      (interface_procedure_suffix))))
+
+================================================================================
+Real-world ControlAddin with Obsolete procedures
+================================================================================
+
+controladdin "Microsoft.Dynamics.Nav.Client.PowerBIManagement"
+{
+    ObsoleteState = Pending;
+    ObsoleteTag = '24.0';
+    ObsoleteReason = 'This control add-in is deprecated. Please use the control add-ins in the Power BI Embed app instead.';
+    
+    RequestedHeight = 320;
+    MinimumHeight = 180;
+    RequestedWidth = 310;
+    MinimumWidth = 200;
+    
+    Scripts = 'https://telemetry.powerbi.com/telemetry.min.js',
+              'https://go.microsoft.com/fwlink/?linkid=2156649';
+    StyleSheets = 'https://go.microsoft.com/fwlink/?linkid=2156648';
+    StartupScript = 'https://go.microsoft.com/fwlink/?linkid=2156650';
+
+    event ControlAddInReady();
+    event ErrorOccurred(Operation: Text; ErrorText: Text);
+    
+    [Obsolete('This method is deprecated. Please use EmbedReport instead.', '24.0')]
+    procedure InitializeReport(ReportLink: Text; ReportId: Text; AuthToken: Text; PowerBIApi: Text);
+    
+    procedure EmbedReport(ReportLink: Text; ReportId: Text; AuthToken: Text; PageName: Text);
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (controladdin_declaration
+    (controladdin_keyword)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (integer))
+    (property
+      name: (property_name)
+      value: (integer))
+    (property
+      name: (property_name)
+      value: (integer))
+    (property
+      name: (property_name)
+      value: (integer))
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (string_literal))
+        (option_member
+          (string_literal))))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (event_declaration
+      (event_keyword)
+      name: (identifier))
+    (event_declaration
+      (event_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (text_type)))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (text_type)))))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (string_literal)
+            (string_literal)))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (text_type)))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (text_type)))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (text_type)))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (text_type))))
+      (interface_procedure_suffix))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (text_type)))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (text_type)))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (text_type)))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (text_type))))
+      (interface_procedure_suffix))))

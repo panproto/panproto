@@ -1,0 +1,87 @@
+================================================================================
+Layout addlast modification with closing brace inside #if (no #else)
+================================================================================
+pageextension 50100 "My Extension" extends "My Page"
+{
+    layout
+    {
+        addlast(General)
+        {
+#if not CLEAN28
+            field(MyField; MyField)
+            {
+                Caption = 'My Field';
+            }
+        }
+#endif
+    }
+}
+--------------------------------------------------------------------------------
+(source_file
+  (pageextension_declaration
+    (pageextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (addlast_modification
+        target: (identifier)
+        (preproc_split_brace_close_if_only
+          (preproc_if
+            (preproc_open)
+            condition: (preproc_not_expression
+              (identifier)))
+          (page_field
+            name: (identifier)
+            source: (identifier)
+            (property
+              name: (property_name)
+              value: (string_literal)))
+          (preproc_endif
+            (preproc_close)))))))
+
+================================================================================
+Layout addfirst modification with closing brace inside #if (no #else)
+================================================================================
+pageextension 50101 "My Extension2" extends "My Page"
+{
+    layout
+    {
+        addfirst(Content)
+        {
+#if not CLEAN24
+            field(AnotherField; AnotherField)
+            {
+                ApplicationArea = All;
+            }
+        }
+#endif
+    }
+}
+--------------------------------------------------------------------------------
+(source_file
+  (pageextension_declaration
+    (pageextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (addfirst_modification
+        target: (identifier)
+        (preproc_split_brace_close_if_only
+          (preproc_if
+            (preproc_open)
+            condition: (preproc_not_expression
+              (identifier)))
+          (page_field
+            name: (identifier)
+            source: (identifier)
+            (property
+              name: (property_name)
+              value: (identifier)))
+          (preproc_endif
+            (preproc_close)))))))

@@ -1,0 +1,86 @@
+================================================================================
+While Statement - simple
+================================================================================
+
+while true;;; end
+
+while true; printf; end
+
+while false
+    printf
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (while_statement
+    condition: (command
+      name: (word)))
+  (while_statement
+    condition: (command
+      name: (word))
+    (command
+      name: (word)))
+  (while_statement
+    condition: (command
+      name: (word))
+    (command
+      name: (word))))
+
+================================================================================
+While Statement - with conditional execution
+================================================================================
+
+while false || true;
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (while_statement
+    condition: (conditional_execution
+      (command
+        name: (word))
+      (command
+        name: (word)))))
+
+================================================================================
+While Statement - flow control
+================================================================================
+
+while true; break; end
+
+while true;
+    continue;
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (while_statement
+    condition: (command
+      name: (word))
+    (break))
+  (while_statement
+    condition: (command
+      name: (word))
+    (continue)))
+
+================================================================================
+While Statement - break
+================================================================================
+
+while true
+    begin
+        break
+    end
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (while_statement
+    condition: (command
+      name: (word))
+    (begin_statement
+      (break))))

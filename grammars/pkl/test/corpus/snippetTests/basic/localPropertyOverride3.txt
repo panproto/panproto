@@ -1,0 +1,52 @@
+===
+basic/localPropertyOverride3.pkl
+===
+
+
+foo1 {
+  local l = "origi" + "nal"
+  x = l
+}
+
+foo2 = (foo1) {
+  local l = "over" + "ridden"
+  y = l
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (modifier)
+        (identifier)
+        (additiveExpr
+          (slStringLiteralExpr
+            (slStringLiteralPart))
+          (slStringLiteralExpr
+            (slStringLiteralPart))))
+      (objectProperty
+        (identifier)
+        (unqualifiedAccessExpr
+          (identifier)))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (modifier)
+          (identifier)
+          (additiveExpr
+            (slStringLiteralExpr
+              (slStringLiteralPart))
+            (slStringLiteralExpr
+              (slStringLiteralPart))))
+        (objectProperty
+          (identifier)
+          (unqualifiedAccessExpr
+            (identifier)))))))

@@ -1,0 +1,123 @@
+===
+classes/class2.pkl
+===
+
+class Person {
+  name: String = "X"
+  age: Int = 40
+  friends: List<Person>
+  address: Address
+}
+
+class Address {
+  street: String = "Howdy St"
+}
+
+pigeon = new Person {
+  name = "Pigeon Who"
+  age = 30
+  friends = List(
+    new Person {
+      name = "Emma"
+    },
+    new Person {
+      name = "Tony"
+    }
+  )
+  address {
+    street = "Pigeon St."
+  }
+}
+
+---
+
+(module
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))
+        (slStringLiteralExpr
+          (slStringLiteralPart)))
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))
+        (intLiteralExpr))
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))
+            (typeArgumentList
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))))))
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart)))
+        (objectProperty
+          (identifier)
+          (intLiteralExpr))
+        (objectProperty
+          (identifier)
+          (unqualifiedAccessExpr
+            (identifier)
+            (argumentList
+              (newExpr
+                (declaredType
+                  (qualifiedIdentifier
+                    (identifier)))
+                (objectBody
+                  (objectProperty
+                    (identifier)
+                    (slStringLiteralExpr
+                      (slStringLiteralPart)))))
+              (newExpr
+                (declaredType
+                  (qualifiedIdentifier
+                    (identifier)))
+                (objectBody
+                  (objectProperty
+                    (identifier)
+                    (slStringLiteralExpr
+                      (slStringLiteralPart))))))))
+        (objectProperty
+          (identifier)
+          (objectBody
+            (objectProperty
+              (identifier)
+              (slStringLiteralExpr
+                (slStringLiteralPart)))))))))

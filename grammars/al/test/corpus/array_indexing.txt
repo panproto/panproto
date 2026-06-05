@@ -1,0 +1,90 @@
+==================
+Array Indexing Expressions
+==================
+
+codeunit 50117 "Array Indexing Test"
+{
+    procedure Process()
+    var
+        Tab: array[10] of Integer;
+        LF: array[10] of Integer;
+        CR: array[10] of Integer;
+    begin
+        Tab[1] := 9;
+        LF[1] := 10;
+        CR[1] := 13;
+        
+        Tab[2] := Tab[1] + 5;
+        LF[3] := LF[1] * 2;
+    end;
+}
+
+---
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (array_type
+              (integer)
+              (type_specification
+                (basic_type)))))
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (array_type
+              (integer)
+              (type_specification
+                (basic_type)))))
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (array_type
+              (integer)
+              (type_specification
+                (basic_type))))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          (subscript_expression
+            (identifier)
+            (integer))
+          (integer))
+        (assignment_statement
+          (subscript_expression
+            (identifier)
+            (integer))
+          (integer))
+        (assignment_statement
+          (subscript_expression
+            (identifier)
+            (integer))
+          (integer))
+        (assignment_statement
+          (subscript_expression
+            (identifier)
+            (integer))
+          (additive_expression
+            (subscript_expression
+              (identifier)
+              (integer))
+            (integer)))
+        (assignment_statement
+          (subscript_expression
+            (identifier)
+            (integer))
+          (multiplicative_expression
+            (subscript_expression
+              (identifier)
+              (integer))
+            (integer)))
+        (end_keyword)))))

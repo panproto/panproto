@@ -1,0 +1,148 @@
+==================
+XMLPort Properties
+==================
+
+xmlport 50000 "Test XMLPort"
+{
+    Caption = 'Test XMLPort';
+    Direction = Export;
+    Format = Xml;
+    UseRequestPage = false;
+    InherentPermissions = X;
+    InherentEntitlements = X;
+    CaptionML = ENU = 'Test XMLPort', DAN = 'Test XMLPort';
+    Description = 'Test XMLPort description';
+
+    schema
+    {
+        textelement(Root)
+        {
+            XmlName = 'Root';
+            MinOccurs = Once;
+            MaxOccurs = Unbounded;
+            NamespacePrefix = 'ns';
+
+            tableelement(Customer; Customer)
+            {
+                XmlName = 'Customer';
+                AutoReplace = true;
+                AutoSave = true;
+                AutoUpdate = true;
+                LinkFields = "No."=FIELD("No.");
+                LinkTable = Customer;
+                LinkTableForceInsert = true;
+                Unbound = false;
+                RequestFilterFields = "No.", Name;
+                RequestFilterHeading = 'Customer Filter';
+                RequestFilterHeadingML = ENU = 'Customer Filter', DAN = 'Kundefilter';
+            }
+        }
+    }
+}
+
+---
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (ml_value_list
+        (ml_value_pair
+          language: (identifier)
+          value: (string_literal))
+        (ml_value_pair
+          language: (identifier)
+          value: (string_literal))))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (schema_section
+      (schema_keyword)
+      (xmlport_element
+        name: (identifier)
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (identifier))
+        (property
+          name: (property_name)
+          value: (identifier))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (xmlport_element
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (property_expression
+              (comparison_expression
+                left: (quoted_identifier)
+                operator: (comparison_operator)
+                right: (call_expression
+                  function: (identifier)
+                  arguments: (argument_list
+                    (quoted_identifier))))))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (option_member_list
+              (option_member
+                (quoted_identifier))
+              (option_member
+                (identifier))))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (ml_value_list
+              (ml_value_pair
+                language: (identifier)
+                value: (string_literal))
+              (ml_value_pair
+                language: (identifier)
+                value: (string_literal)))))))))

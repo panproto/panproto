@@ -1,0 +1,21 @@
+===
+classes/invalidInstantiation2.pkl
+===
+
+abstract class Base
+
+res1 = new Base {}
+
+---
+
+(module
+  (clazz
+    (modifier)
+    (identifier))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody))))

@@ -1,0 +1,134 @@
+===
+UI
+===
+
+declare name "UITester";
+
+vbox = vgroup("vbox", 
+  checkbox("check1"),
+  checkbox("check2"),
+  nentry("knob0[style:knob]", 60, 0, 127, 0.1));
+
+sliders = hgroup("sliders",
+  vslider("vslider1", 60, 0, 127, 0.1),
+  vslider("vslider2", 60, 0, 127, 0.1),
+  vslider("vslider3", 60, 0, 127, 0.1));
+
+knobs = hgroup("knobs",
+  vslider("knob1[style:knob]", 60, 0, 127, 0.1),
+  vslider("knob2[style:knob]", 60, 0, 127, 0.1),
+  vslider("knob3[style:knob]", 60, 0, 127, 0.1));
+
+smallhbox1 = hgroup("small box 1",
+  vslider("vslider5 [unit:Hz]", 60, 0, 127, 0.1),
+  vslider("vslider6 [unit:Hz]", 60, 0, 127, 0.1),
+  vslider("knob4[style:knob]", 60, 0, 127, 0.1),
+  nentry("num1 [unit:f]", 60, 0, 127, 0.1),
+  vbargraph("vbar1", 0, 127));
+
+vmisc = vgroup("vmisc",
+  vslider("vslider4 [unit:Hz]", 60, 0, 127, 0.1),
+  button("button"),
+  hslider("hslider [unit:Hz]", 60, 0, 127, 0.1),
+  smallhbox1,
+  hbargraph("hbar", 0, 127));
+
+hmisc = hgroup("hmisc",
+  vslider("vslider4 [unit:f]", 60, 0, 127, 0.1),
+  button("button"),
+  hslider("hslider", 60, 0, 127, 0.1),
+  nentry("num [unit:f]", 60, 0, 127, 0.1),
+  vbargraph("vbar", 0, 127),
+  hbargraph("hbar", 0, 127));
+
+process = tgroup("grp 1", vbox, sliders, knobs, vmisc, hmisc);
+
+---
+(program
+  (global_metadata key: (identifier) value: (string))
+  (definition
+    variable: (identifier)
+    value: (group
+      type: (vgroup_type)
+      label: (string)
+      expression: (parallel
+        left: (checkbox label: (string))
+        right: (parallel
+          left: (checkbox label: (string))
+          right: (numeric_widget type: (nentry_type) label: (string) init: (int) min: (int) max: (int) step: (real))))))
+  (definition
+    variable: (identifier)
+    value: (group
+      type: (hgroup_type)
+      label: (string)
+      expression: (parallel
+        left: (numeric_widget type: (vslider_type) label: (string) init: (int) min: (int) max: (int) step: (real))
+        right: (parallel
+          left: (numeric_widget type: (vslider_type) label: (string) init: (int) min: (int) max: (int) step: (real))
+          right: (numeric_widget type: (vslider_type) label: (string) init: (int) min: (int) max: (int) step: (real))))))
+  (definition
+    variable: (identifier)
+    value: (group
+      type: (hgroup_type)
+      label: (string)
+      expression: (parallel
+        left: (numeric_widget type: (vslider_type) label: (string) init: (int) min: (int) max: (int) step: (real))
+        right: (parallel
+          left: (numeric_widget type: (vslider_type) label: (string) init: (int) min: (int) max: (int) step: (real))
+          right: (numeric_widget type: (vslider_type) label: (string) init: (int) min: (int) max: (int) step: (real))))))
+  (definition
+    variable: (identifier)
+    value: (group
+      type: (hgroup_type)
+      label: (string)
+      expression: (parallel
+        left: (numeric_widget type: (vslider_type) label: (string) init: (int) min: (int) max: (int) step: (real))
+        right: (parallel
+          left: (numeric_widget type: (vslider_type) label: (string) init: (int) min: (int) max: (int) step: (real))
+          right: (parallel
+            left: (numeric_widget type: (vslider_type) label: (string) init: (int) min: (int) max: (int) step: (real))
+            right: (parallel
+              left: (numeric_widget type: (nentry_type) label: (string) init: (int) min: (int) max: (int) step: (real))
+              right: (bargraph type: (vbargraph_type) label: (string) min: (int) max: (int))))))))
+  (definition
+    variable: (identifier)
+    value: (group
+      type: (vgroup_type)
+      label: (string)
+      expression: (parallel
+        left: (numeric_widget type: (vslider_type) label: (string) init: (int) min: (int) max: (int) step: (real))
+        right: (parallel
+          left: (button label: (string))
+          right: (parallel
+            left: (numeric_widget type: (hslider_type) label: (string) init: (int) min: (int) max: (int) step: (real))
+            right: (parallel
+              left: (identifier)
+              right: (bargraph type: (hbargraph_type) label: (string) min: (int) max: (int))))))))
+  (definition
+    variable: (identifier)
+    value: (group
+      type: (hgroup_type)
+      label: (string)
+      expression: (parallel
+        left: (numeric_widget type: (vslider_type) label: (string) init: (int) min: (int) max: (int) step: (real))
+        right: (parallel
+          left: (button label: (string))
+          right: (parallel
+            left: (numeric_widget type: (hslider_type) label: (string) init: (int) min: (int) max: (int) step: (real))
+            right: (parallel
+              left: (numeric_widget type: (nentry_type) label: (string) init: (int) min: (int) max: (int) step: (real))
+              right: (parallel
+                left: (bargraph type: (vbargraph_type) label: (string) min: (int) max: (int))
+                right: (bargraph type: (hbargraph_type) label: (string) min: (int) max: (int)))))))))
+  (definition
+    variable: (identifier)
+    value: (group
+      type: (tgroup_type)
+      label: (string)
+      expression: (parallel
+        left: (identifier)
+        right: (parallel
+          left: (identifier)
+          right: (parallel
+            left: (identifier)
+            right: (parallel left: (identifier) right: (identifier))))))))

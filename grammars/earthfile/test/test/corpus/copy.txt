@@ -1,0 +1,194 @@
+==================
+copy command
+==================
+
+foo:
+    COPY foo bar
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (copy_command
+            src: (string
+              (unquoted_string))
+            dest: (string
+              (unquoted_string))))))
+
+
+==================
+copy command multi sources
+==================
+
+foo:
+    COPY "foo" bar hop
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (copy_command
+            src: (string
+              (double_quoted_string))
+            src: (string
+              (unquoted_string))
+            dest: (string
+              (unquoted_string))))))
+
+
+==================
+copy command with options
+==================
+
+foo:
+    COPY --dir --keep-ts --platform=linux/arm64 foo bar
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (copy_command
+            options: (options
+              (dir)
+              (keep_ts)
+              (platform
+                value: (string
+                  (unquoted_string))))
+            src: (string
+              (unquoted_string))
+            dest: (string
+              (unquoted_string))))))
+
+
+==================
+copy command target artifacts
+==================
+
+foo:
+    COPY (+build/foo --from=+debian) +build/bar /
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (copy_command
+            src: (target_artifact_build_args
+              (target_ref
+                name: (identifier))
+              (unquoted_string)
+              (build_args
+                (build_arg
+                  name: (variable)
+                  value: (string
+                    (unquoted_string)))))
+            src: (target_artifact
+              (target_ref
+                name: (identifier))
+              (unquoted_string))
+            dest: (string
+              (unquoted_string))))))
+
+
+==================
+copy command target artifacts with expansions
+==================
+
+foo:
+    COPY \
+        +build/${foo} \
+        +${target}/foo \
+        ${target}/foo \
+        ${artifact} \
+        (+$target/$foo --from=bar) \
+        ($target/$foo --from=bar) \
+        /
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (copy_command
+            (line_continuation)
+            src: (target_artifact
+              (target_ref
+                name: (identifier))
+              (unquoted_string
+                (expansion
+                  (variable))))
+            (line_continuation)
+            src: (string
+              (unquoted_string
+                (expansion
+                  (variable))))
+            (line_continuation)
+            src: (string
+              (unquoted_string
+                (expansion
+                  (variable))))
+            (line_continuation)
+            src: (string
+              (unquoted_string
+                (expansion
+                  (variable))))
+            (line_continuation)
+            src: (target_artifact_build_args
+              (string
+                (unquoted_string
+                  (expansion
+                    (variable))
+                  (expansion
+                    (variable))))
+              (build_args
+                (build_arg
+                  name: (variable)
+                  value: (string
+                    (unquoted_string)))))
+            (line_continuation)
+            src: (target_artifact_build_args
+              (string
+                (unquoted_string
+                  (expansion
+                    (variable))
+                  (expansion
+                    (variable))))
+              (build_args
+                (build_arg
+                  name: (variable)
+                  value: (string
+                    (unquoted_string)))))
+            (line_continuation)
+            dest: (string
+              (unquoted_string))))))
+
+==================
+copy command with from option
+==================
+
+foo:
+    COPY --from=some-image /path/to/file ./
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (copy_command
+            options: (options
+              (from
+                value: (string
+                  (unquoted_string))))
+            src: (string
+              (unquoted_string))
+            dest: (string
+              (unquoted_string))))))

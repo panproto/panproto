@@ -1,0 +1,101 @@
+==================
+empty module
+==================
+
+(module)
+
+----
+
+(source_file)
+
+==================
+function with params and result
+==================
+
+(module
+  (func $add (param $a i32) (param $b i32) (result i32)
+    local.get $a
+    local.get $b
+    i32.add))
+
+----
+
+(source_file)
+
+==================
+exported function
+==================
+
+(module
+  (func (export "square") (param $x i32) (result i32)
+    local.get $x
+    local.get $x
+    i32.mul))
+
+----
+
+(source_file)
+
+==================
+global and memory
+==================
+
+(module
+  (global $g (mut i32) (i32.const 0))
+  (memory 1))
+
+----
+
+(source_file)
+
+==================
+if block
+==================
+
+(module
+  (func (param $c i32) (result i32)
+    local.get $c
+    (if (result i32)
+      (then (i32.const 1))
+      (else (i32.const 0)))))
+
+----
+
+(source_file)
+
+==================
+loop and branch
+==================
+
+(module
+  (func
+    (loop $l
+      br $l)))
+
+----
+
+(source_file)
+
+==================
+imports and types
+==================
+
+(module
+  (import "env" "log" (func $log (param i32)))
+  (type $t (func (param i32) (result i32))))
+
+----
+
+(source_file)
+
+==================
+data and table
+==================
+
+(module
+  (memory 1)
+  (data (i32.const 0) "hello"))
+
+----
+
+(source_file)

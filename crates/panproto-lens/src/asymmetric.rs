@@ -5,7 +5,7 @@
 //! direction restores the original source instance from a (possibly modified)
 //! view plus the complement.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use panproto_gat::Name;
 use panproto_inst::{Fan, Node, WInstance, wtype_restrict};
@@ -563,8 +563,23 @@ pub fn put(lens: &Lens, view: &WInstance, complement: &Complement) -> Result<WIn
     }
 
     // Rebuild arcs: start with original parent relationships for view nodes,
-    // then add back dropped arcs
+    // then add back dropped arcs.
+    //
+    // A given child can be reached through two distinct restoration paths:
+    // its `original_parent` entry (restored below for surviving view nodes)
+    // and a `dropped_arcs` entry (restored when a sort containing that arc
+    // was dropped). When a combinator both drops a sort and keeps that
+    // sort's child in the view (e.g. `hoist_field`, which drops the
+    // intermediate `profile` sort while hoisting its `name` child), the same
+    // `(parent, child)` arc is produced by both paths. Emitting it twice
+    // gives the parent two identical outgoing arcs, which the JSON encoder
+    // reads as a repeated-edge list signal and serializes as a duplicated
+    // `Value::List` instead of the original record. We therefore dedupe by
+    // `(parent, child)`: a W-type instance has at most one arc per
+    // parent/child pair, and genuine list nodes are distinguished by having
+    // multiple arcs to *distinct* children, which this key preserves.
     let mut arcs = Vec::new();
+    let mut seen_pairs: HashSet<(u32, u32)> = HashSet::new();
 
     // For view nodes, use the original parent mapping to restore arcs
     for (&child_id, &original_parent) in &complement.original_parent {
@@ -580,7 +595,8 @@ pub fn put(lens: &Lens, view: &WInstance, complement: &Complement) -> Result<WIn
             child_id,
             &complement.contraction_choices,
             &complement.arc_edges,
-        ) {
+        ) && seen_pairs.insert((arc.0, arc.1))
+        {
             arcs.push(arc);
         }
     }
@@ -588,7 +604,10 @@ pub fn put(lens: &Lens, view: &WInstance, complement: &Complement) -> Result<WIn
     // Add dropped arcs back (they connect dropped nodes)
     for arc in &complement.dropped_arcs {
         let (parent, child, _) = arc;
-        if nodes.contains_key(parent) && nodes.contains_key(child) {
+        if nodes.contains_key(parent)
+            && nodes.contains_key(child)
+            && seen_pairs.insert((*parent, *child))
+        {
             arcs.push(arc.clone());
         }
     }

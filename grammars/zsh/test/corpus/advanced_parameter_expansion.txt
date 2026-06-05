@@ -1,0 +1,610 @@
+================================================================================
+Nested parameter expansion - sequential operations
+================================================================================
+
+echo ${${var#head}%tail}
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (expansion
+      (expansion_pattern
+        name: (expansion
+          (expansion_pattern
+            name: (simple_variable_name)
+            pattern: (regex)))
+        pattern: (regex)))))
+
+================================================================================
+Nested parameter expansion - path manipulation
+================================================================================
+
+echo ${${path%/*}/file.txt/more.txt}
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (expansion
+      (expansion_pattern
+        name: (expansion
+          (expansion_pattern
+            name: (simple_variable_name)
+            pattern: (regex)))
+        pattern: (regex)
+        replacement: (regex)))))
+
+================================================================================
+Triple nested parameter expansion
+================================================================================
+
+echo ${${${path%/*}#*/}%.txt}
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (expansion
+      (expansion_pattern
+        name: (expansion
+          (expansion_pattern
+            name: (expansion
+              (expansion_pattern
+                name: (simple_variable_name)
+                pattern: (regex)))
+            pattern: (regex)))
+        pattern: (regex)))))
+
+================================================================================
+Parameter expansion with arithmetic offset
+================================================================================
+
+echo ${var:$((start + 1))}
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (expansion
+      (expansion_substring
+        name: (simple_variable_name)
+        offset: (arithmetic_expansion
+          (binary_expression
+            left: (word)
+            right: (number)))))))
+
+================================================================================
+Parameter expansion with multiple arithmetic expressions
+================================================================================
+
+echo ${array:$((index * 2)):$((length / 2))}
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (expansion
+      (expansion_substring
+        name: (simple_variable_name)
+        offset: (arithmetic_expansion
+          (binary_expression
+            left: (word)
+            right: (number)))
+        length: (arithmetic_expansion
+          (binary_expression
+            left: (word)
+            right: (number)))))))
+
+================================================================================
+Complex nested expansion with arithmetic
+================================================================================
+
+echo ${${data:$((start)):$((end - start))}%.*}
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (expansion
+      (expansion_pattern
+        name: (expansion
+          (expansion_substring
+            name: (simple_variable_name)
+            offset: (arithmetic_expansion
+              (word))
+            length: (arithmetic_expansion
+              (binary_expression
+                left: (word)
+                right: (word)))))
+        pattern: (regex)))))
+
+================================================================================
+Nested expansion with variable patterns and replacements
+================================================================================
+
+echo ${path/${HOME}/~}
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (expansion
+      (expansion_pattern
+        name: (simple_variable_name)
+        pattern: (expansion
+          name: (simple_variable_name))
+        replacement: (regex)))))
+
+================================================================================
+array subscript with arithmetic
+================================================================================
+
+echo ${array[$((i + 1))]}
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (expansion
+      name: (simple_variable_name)
+      index: (arithmetic_expansion
+        (binary_expression
+          left: (word)
+          right: (number))))))
+
+================================================================================
+Modifier outside brace
+================================================================================
+
+pretty_dotfiles_dir=`print -D $dotfiles_dir:P`
+
+--------------------------------------------------------------------------------
+
+(program
+  (variable_assignment
+    name: (variable_name)
+    value: (command_substitution
+      (command
+        name: (command_name
+          (word))
+        argument: (word)
+        argument: (concatenation
+          (variable_ref
+            (simple_variable_name)
+            modifier: (expansion_modifier))
+          (word))))))
+
+================================================================================
+Path concat
+================================================================================
+
+export PATH="$PNPM_HOME:$PATH"
+
+--------------------------------------------------------------------------------
+
+(program
+  (declaration_command
+    (variable_assignment
+      name: (variable_name)
+      value: (string
+        (variable_ref
+          (simple_variable_name)
+          modifier: (expansion_modifier))
+        (variable_ref
+          (simple_variable_name))))))
+
+================================================================================
+Global replace
+================================================================================
+
+echo "${ZSH_THEME_GIT_PROMPT_PREFIX}${ref:gs/%/%%}${upstream:gs/%/%%}$(parse_git_dirty)${ZSH_THEME_GIT_PROMPT_SUFFIX}"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (string
+      (expansion
+        name: (simple_variable_name))
+      (expansion
+        (expansion_with_modifier
+          name: (simple_variable_name)
+          modifier: (expansion_modifier
+            search: (regex)
+            replace: (regex))))
+      (expansion
+        (expansion_with_modifier
+          name: (simple_variable_name)
+          modifier: (expansion_modifier
+            search: (regex)
+            replace: (regex))))
+      (command_substitution
+        (command
+          name: (command_name
+            (word))))
+      (expansion
+        name: (simple_variable_name)))))
+
+================================================================================
+String literal expand
+================================================================================
+
+local status_regex=$'(^|\n)'"$status_prefix"
+
+--------------------------------------------------------------------------------
+
+(program
+  (declaration_command
+    (variable_assignment
+      name: (variable_name)
+      value: (concatenation
+        (ansi_c_string)
+        (string
+          (variable_ref
+            (simple_variable_name)))))))
+
+================================================================================
+Raw exists check
+================================================================================
+
+$+commands[brew]
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (variable_ref
+        (expansion_style)
+        (simple_variable_name)
+        index: (word)))))
+
+================================================================================
+Multiple modifiers
+================================================================================
+
+[[ -n "$ZSH" ]] || export ZSH="${${(%):-%x}:a:h}"
+
+--------------------------------------------------------------------------------
+
+(program
+  (list
+    (test_command
+      (unary_expression
+        operator: (test_operator)
+        (string
+          (variable_ref
+            (simple_variable_name)))))
+    (declaration_command
+      (variable_assignment
+        name: (variable_name)
+        value: (string
+          (expansion
+            (expansion_with_modifier
+              name: (expansion
+                flags: (expansion_flags)
+                (expansion_default
+                  default: (expansion_default_list
+                    (word))))
+              modifier: (expansion_modifier))))))))
+
+================================================================================
+zstyle examples
+================================================================================
+
+zstyle -s :omz:plugins:keychain agents agents
+zstyle -a :omz:plugins:keychain identities identities
+zstyle -a :omz:plugins:keychain options options
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (word)
+    argument: (concatenation
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word))
+    argument: (word)
+    argument: (word))
+  (command
+    name: (command_name
+      (word))
+    argument: (word)
+    argument: (concatenation
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word))
+    argument: (word)
+    argument: (word))
+  (command
+    name: (command_name
+      (word))
+    argument: (word)
+    argument: (concatenation
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word))
+    argument: (word)
+    argument: (word)))
+
+================================================================================
+Blank replacement
+================================================================================
+
+remote=${$(__git_prompt_git rev-parse --verify ${hook_com[branch]}@{upstream} --symbolic-full-name 2>/dev/null)/refs\/remotes\/}
+
+--------------------------------------------------------------------------------
+
+(program
+  (variable_assignment
+    name: (variable_name)
+    value: (expansion
+      (expansion_pattern
+        name: (command_substitution
+          (redirected_statement
+            body: (command
+              name: (command_name
+                (word))
+              argument: (word)
+              argument: (word)
+              argument: (concatenation
+                (expansion
+                  name: (simple_variable_name)
+                  index: (word))
+                (word))
+              argument: (concatenation
+                (word)
+                (word)
+                (word))
+              argument: (word))
+            redirect: (file_redirect
+              descriptor: (file_descriptor)
+              destination: (word))))
+        pattern: (regex)))))
+
+================================================================================
+Host replace
+================================================================================
+
+SHORT_HOST="${HOST/.*/}"
+
+--------------------------------------------------------------------------------
+
+(program
+  (variable_assignment
+    name: (variable_name)
+    value: (string
+      (expansion
+        (expansion_pattern
+          name: (simple_variable_name)
+          pattern: (regex))))))
+
+================================================================================
+Arithmetic expand with style
+================================================================================
+
+(( $+commands[keychain] )) || return
+
+--------------------------------------------------------------------------------
+
+(program
+  (list
+    (command
+      name: (command_name
+        (arithmetic_expansion
+          (variable_ref
+            (expansion_style)
+            (simple_variable_name)
+            index: (word)))))
+    (command
+      name: (command_name
+        (word)))))
+
+================================================================================
+Remove with dollar
+================================================================================
+
+local file="${line#M$'\t'}"
+
+--------------------------------------------------------------------------------
+
+(program
+  (declaration_command
+    (variable_assignment
+      name: (variable_name)
+      value: (string
+        (expansion
+          (expansion_pattern
+            name: (simple_variable_name)
+            pattern: (regex)))))))
+
+================================================================================
+Replace after string in expansion
+================================================================================
+
+local fzf_ver=${"$(fzf --version)"#fzf }
+
+--------------------------------------------------------------------------------
+
+(program
+  (declaration_command
+    (variable_assignment
+      name: (variable_name)
+      value: (expansion
+        (expansion_pattern
+          name: (string
+            (command_substitution
+              (command
+                name: (command_name
+                  (word))
+                argument: (word))))
+          pattern: (regex))))))
+
+================================================================================
+heredoc with quoted command substitution
+================================================================================
+
+xargs echo <<< "$(cat ~/foo.txt)"
+
+--------------------------------------------------------------------------------
+
+(program
+  (redirected_statement
+    body: (command
+      name: (command_name
+        (word))
+      argument: (word))
+    redirect: (herestring_redirect
+      (string
+        (command_substitution
+          (command
+            name: (command_name
+              (word))
+            argument: (word)))))))
+
+================================================================================
+arg with colons
+================================================================================
+
+(( ${+functions[foo::bar]} ))
+(( ${+functions[foo:bar]} ))
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (arithmetic_expansion
+        (expansion
+          style: (expansion_style)
+          name: (simple_variable_name)
+          index: (concatenation
+            (word)
+            (word)
+            (word)
+            (word))))))
+  (command
+    name: (command_name
+      (arithmetic_expansion
+        (expansion
+          style: (expansion_style)
+          name: (simple_variable_name)
+          index: (concatenation
+            (word)
+            (word)
+            (word)))))))
+
+================================================================================
+expand range with vars
+================================================================================
+
+    local -A edge_set=()
+    for _hid in ${(k)in_degree}; do
+        local _reqs=(${=_ZDOT_HOOK_REQUIRES[$_hid]})
+        for _ph in $_reqs; do
+            # Find who provides this phase in current context
+            for _ctx in "${current_contexts[@]}"; do
+                local _prov="${_ZDOT_PHASE_PROVIDERS_BY_CONTEXT[${_ctx}:${_ph}]}"
+                if [[ -n "$_prov" ]]; then
+                    edge_set["${_prov}:${_hid}"]=1
+                fi
+            done
+        done
+    done
+
+--------------------------------------------------------------------------------
+
+(program
+  (declaration_command
+    (word)
+    (variable_assignment
+      (variable_name)
+      (array)))
+  (for_statement
+    (simple_variable_name)
+    (expansion
+      (expansion_flags)
+      (simple_variable_name))
+    (do_group
+      (declaration_command
+        (variable_assignment
+          (variable_name)
+          (array
+            (expansion
+              (expansion_style)
+              (simple_variable_name)
+              (variable_ref
+                (simple_variable_name))))))
+      (for_statement
+        (simple_variable_name)
+        (variable_ref
+          (simple_variable_name))
+        (do_group
+          (comment)
+          (for_statement
+            (simple_variable_name)
+            (string
+              (expansion
+                (simple_variable_name)
+                (array_at)))
+            (do_group
+              (declaration_command
+                (variable_assignment
+                  (variable_name)
+                  (string
+                    (expansion
+                      (simple_variable_name)
+                      (concatenation
+                        (expansion
+                          (simple_variable_name))
+                        (word)
+                        (expansion
+                          (simple_variable_name)))))))
+              (if_statement
+                (test_command
+                  (unary_expression
+                    (test_operator)
+                    (string
+                      (variable_ref
+                        (simple_variable_name)))))
+                (variable_assignment
+                  (subscript
+                    (variable_name)
+                    (string
+                      (expansion
+                        (simple_variable_name))
+                      (string_content)
+                      (expansion
+                        (simple_variable_name))))
+                  (number))))))))))

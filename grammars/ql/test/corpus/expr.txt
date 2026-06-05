@@ -1,0 +1,266 @@
+====
+cast
+====
+
+select (Foo) f
+
+---
+(ql (moduleMember (select (asExprs (asExpr (prefix_cast (typeExpr (className)) (variable (varName (simpleId)))))))))
+========
+dontcare
+========
+
+select foo(_)
+
+---
+(ql (moduleMember (select (asExprs (asExpr (call_or_unqual_agg_expr (aritylessPredicateExpr (literalId)) (call_body (underscore))))))))
+====
+unop
+====
+
+select - 5, + 5
+
+---
+ (ql (moduleMember (select (asExprs (asExpr (unary_expr (unop) (literal (integer)))) (asExpr (unary_expr (unop) (literal (integer))))))))
+=====
+binop
+=====
+
+select 5 + 5, 5 - 5, 5 * 5, 5 / 5, 5 % 5
+
+---
+
+(ql (moduleMember
+  (select
+    (asExprs
+      (asExpr (add_expr (literal (integer)) (addop) (literal (integer))))
+      (asExpr (add_expr (literal (integer)) (addop) (literal (integer))))
+      (asExpr (mul_expr (literal (integer)) (mulop) (literal (integer))))
+      (asExpr (mul_expr (literal (integer)) (mulop) (literal (integer))))
+      (asExpr (mul_expr (literal (integer)) (mulop) (literal (integer))))))))
+
+===========
+set literal
+===========
+
+select [1,2,4]
+
+---
+
+(ql (moduleMember
+  (select
+    (asExprs
+      (asExpr
+        (set_literal
+          (literal (integer))
+          (literal (integer))
+          (literal (integer))))))))
+
+====================
+uniqueness aggregate
+====================
+
+select unique(int x | x = 1 | x)
+
+---
+
+(ql (moduleMember
+  (select
+    (asExprs
+      (asExpr
+        (aggregate
+          (aggId)
+          (full_aggregate_body
+            (varDecl (typeExpr (primitiveType)) (varName (simpleId)))
+            (comp_term (variable (varName (simpleId))) (compop) (literal (integer)))
+            (asExprs (asExpr (variable (varName (simpleId))))))))))))
+
+================
+binop precedence
+================
+
+select
+  // left associative
+  5 + 5 - 5,
+  5 - 5 + 5,
+  // mul binds tighter
+  5 + 5 * 5,
+  5 + 5 / 5,
+  5 * 5 + 5,
+  5 / 5 + 5,
+  // left associative
+  5 / 5 * 5,
+  5 * 5 / 5,
+  // mod tighter,
+  5 * 5 % 5,
+  5 % 5 * 5
+
+---
+
+(ql (moduleMember (select (line_comment)
+  (asExprs
+    (asExpr (add_expr (add_expr (literal (integer)) (addop) (literal (integer))) (addop) (literal (integer))))
+    (asExpr (add_expr (add_expr (literal (integer)) (addop) (literal (integer))) (addop) (literal (integer))))
+    (line_comment)
+    (asExpr (add_expr (literal (integer)) (addop) (mul_expr (literal (integer)) (mulop) (literal (integer)))))
+    (asExpr (add_expr (literal (integer)) (addop) (mul_expr (literal (integer)) (mulop) (literal (integer)))))
+    (asExpr (add_expr (mul_expr (literal (integer)) (mulop) (literal (integer))) (addop) (literal (integer))))
+    (asExpr (add_expr (mul_expr (literal (integer)) (mulop) (literal (integer))) (addop) (literal (integer))))
+    (line_comment)
+    (asExpr (mul_expr (mul_expr (literal (integer)) (mulop) (literal (integer))) (mulop) (literal (integer))))
+    (asExpr (mul_expr (mul_expr (literal (integer)) (mulop) (literal (integer))) (mulop) (literal (integer))))
+    (line_comment)
+    (asExpr (mul_expr (mul_expr (literal (integer)) (mulop) (literal (integer))) (mulop) (literal (integer))))
+    (asExpr (mul_expr (mul_expr (literal (integer)) (mulop) (literal (integer))) (mulop) (literal (integer))))))))
+
+===========================
+unary minus and prefix cast
+===========================
+
+where x = -(float) -7
+select 0
+
+---
+
+(ql (moduleMember
+  (select
+    (comp_term
+      (variable (varName (simpleId)))
+      (compop)
+      (unary_expr
+        (unop)
+        (prefix_cast
+          (typeExpr (primitiveType))
+          (unary_expr
+            (unop)
+            (literal (integer))))))
+    (asExprs (asExpr (literal (integer)))))))
+
+========================
+unary minus and non-cast
+========================
+
+where x = -(foo) -7
+select 0
+
+---
+
+(ql (moduleMember
+  (select
+    (comp_term
+      (variable (varName (simpleId)))
+      (compop)
+      (add_expr
+        (unary_expr
+          (unop)
+          (par_expr (variable (varName (simpleId)))))
+        (addop)
+        (literal (integer))))
+    (asExprs (asExpr (literal (integer)))))))
+
+==============================
+unary minus and multiplication
+==============================
+
+where x = -a * b
+select 0
+
+---
+
+(ql (moduleMember
+  (select
+    (comp_term
+      (variable (varName (simpleId)))
+      (compop)
+      (mul_expr
+        (unary_expr
+        (unop)
+          (variable (varName (simpleId))))
+        (mulop)
+        (variable (varName (simpleId)))))
+    (asExprs (asExpr (literal (integer)))))))
+
+========================
+expression-level pragmas
+========================
+
+from int i
+where i = pragma[only_bind_out](5)
+select i
+
+---
+
+(ql (moduleMember (select
+  (varDecl (typeExpr (primitiveType)) (varName (simpleId)))
+  (comp_term
+    (variable (varName (simpleId)))
+    (compop)
+    (expr_annotation
+      (annotName)
+      (annotName)
+      (literal (integer))))
+  (asExprs (asExpr (variable (varName (simpleId))))))))
+
+===========================
+unary minus and prefix cast
+===========================
+
+where x = -(float) -7
+select 0
+
+---
+
+(ql (moduleMember
+  (select
+    (comp_term
+      (variable (varName (simpleId)))
+      (compop)
+      (unary_expr
+        (unop)
+        (prefix_cast
+          (typeExpr (primitiveType))
+          (unary_expr
+            (unop)
+            (literal (integer))))))
+    (asExprs (asExpr (literal (integer)))))))
+
+========================
+unary minus and non-cast
+========================
+
+where x = -(foo) -7
+select 0
+
+---
+
+(ql (moduleMember
+  (select
+    (comp_term
+      (variable (varName (simpleId)))
+      (compop)
+      (add_expr
+        (unary_expr
+          (unop)
+          (par_expr (variable (varName (simpleId)))))
+        (addop)
+        (literal (integer))))
+    (asExprs (asExpr (literal (integer)))))))
+
+
+===============================
+set literal with trailing comma
+===============================
+
+where x in [1,2,]
+select x
+
+---
+
+(ql (moduleMember
+  (select
+    (in_expr
+      (variable (varName (simpleId)))
+      (set_literal
+        (literal (integer))
+        (literal (integer))))
+    (asExprs (asExpr (variable (varName (simpleId))))))))

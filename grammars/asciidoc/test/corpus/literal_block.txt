@@ -1,0 +1,174 @@
+================
+literal_block
+================
+
+....
+function createElement(node) {
+    if (typeof node == "string") { <0>
+        return document.createTextNode(node)
+    }
+
+    const $el = document.createElement(node.type) <.>
+
+    node.children <.>
+        .map(createElement)
+        .forEach($el.appendChild.bind($el));
+
+    return $el;
+}
+....
+<.> createTextNode
+<.> 😄createElement
+<.> 🐸createElement
+
+..rawblock
+....
+rawblock
+....
+
+    line of code // <1>
+    line of code # <2>
+    line of code ;; <3>
+    line of code <!--4-->
+<1> A callout behind a line comment for C-style languages.
+<2> A callout behind a line comment for Ruby, Python, Perl, etc.
+<3> A callout behind a line comment for Clojure.
+<4> A callout behind a line comment for XML or SGML languages like HTML.
+
+-------------------
+
+(document
+  (block_element
+    (section_block
+      (literal_block
+        (literal_block_marker)
+        (literal_block_body
+          (callout_marker)
+          (callout_marker)
+          (callout_marker))
+        (literal_block_marker)
+        (callout_list
+          (callout_list_item
+            (callout_list_marker)
+            (line))
+          (callout_list_item
+            (callout_list_marker)
+            (line))
+          (callout_list_item
+            (callout_list_marker)
+            (line))))))
+  (block_element
+    (section_block
+      (paragraph
+        (line))))
+  (block_element
+    (section_block
+      (literal_block
+        (literal_block_marker)
+        (literal_block_body)
+        (literal_block_marker))))
+  (block_element
+    (section_block
+      (ident_block
+        (ident_block_line
+          (ident_marker)
+          (callout_marker)))))
+  (block_element
+    (section_block
+      (ident_block
+        (ident_block_line
+          (ident_marker)
+          (callout_marker)))))
+  (block_element
+    (section_block
+      (ident_block
+        (ident_block_line
+          (ident_marker)
+          (callout_marker)))))
+  (block_element
+    (section_block
+      (ident_block
+        (ident_block_line
+          (ident_marker)
+          (callout_marker))
+        (callout_list
+          (callout_list_item
+            (callout_list_marker)
+            (line))
+          (callout_list_item
+            (callout_list_marker)
+            (line))
+          (callout_list_item
+            (callout_list_marker)
+            (line))
+          (callout_list_item
+            (callout_list_marker)
+            (line)))))))
+
+================
+variable length literal blocks
+================
+
+....
+standard block
+....
+
+.....
+five dot block
+.....
+
+........
+eight dot block
+........
+
+....
+........
+....
+
+-------------------
+
+(document
+  (block_element
+    (section_block
+      (literal_block
+        (literal_block_marker)
+        (literal_block_body)
+        (literal_block_marker))))
+  (block_element
+    (section_block
+      (literal_block
+        (literal_block_marker)
+        (literal_block_body)
+        (literal_block_marker))))
+  (block_element
+    (section_block
+      (literal_block
+        (literal_block_marker)
+        (literal_block_body)
+        (literal_block_marker))))
+  (block_element
+    (section_block
+      (literal_block
+        (literal_block_marker)
+        (literal_block_body)
+        (literal_block_marker)))))
+
+================
+leading space is indent block not paragraph (no hard break possible)
+================
+
+ text +
+next line
+
+-------------------
+
+(document
+  (block_element
+    (section_block
+      (ident_block
+        (ident_block_line
+          (ident_marker)))))
+  (block_element
+    (section_block
+      (paragraph
+        (line)))))

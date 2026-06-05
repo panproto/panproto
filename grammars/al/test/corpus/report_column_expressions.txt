@@ -1,0 +1,118 @@
+================================================================================
+Report column with method call expression
+================================================================================
+
+report 50000 TestReport
+{
+    dataset
+    {
+        dataitem("Integer"; "Integer")
+        {
+            column(CompanyName; COMPANYPROPERTY.DisplayName())
+            {
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (quoted_identifier)
+        table_name: (quoted_identifier)
+        (report_column
+          (column_keyword)
+          name: (identifier)
+          source: (call_expression
+            function: (member_expression
+              object: (identifier)
+              member: (identifier))
+            arguments: (argument_list)))))))
+
+================================================================================
+Report column with function call
+================================================================================
+
+report 50001 TestReport
+{
+    dataset
+    {
+        dataitem("Integer"; "Integer")
+        {
+            column(TodayFormatted; Format(Today, 0, 4))
+            {
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (quoted_identifier)
+        table_name: (quoted_identifier)
+        (report_column
+          (column_keyword)
+          name: (identifier)
+          source: (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (identifier)
+              (integer)
+              (integer))))))))
+
+================================================================================
+Report column with field caption
+================================================================================
+
+report 50002 TestReport
+{
+    dataset
+    {
+        dataitem(DefaultDim1; "Default Dimension")
+        {
+            column(ValuePosting_DefaultDim1Caption; DefaultDim1.FieldCaption("Value Posting"))
+            {
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)
+        (report_column
+          (column_keyword)
+          name: (identifier)
+          source: (call_expression
+            function: (member_expression
+              object: (identifier)
+              member: (identifier))
+            arguments: (argument_list
+              (quoted_identifier))))))))

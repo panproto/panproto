@@ -1,0 +1,67 @@
+===
+objects/super1.pkl
+===
+
+parent {
+  x = 1
+  y = 2
+}
+
+child = (parent) {
+  x = super.x + super.y + super.x
+  y = 3
+}
+
+grandChild = (child) {
+  x = 5
+  y = super.x * 3
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (intLiteralExpr))
+      (objectProperty
+        (identifier)
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (additiveExpr
+            (additiveExpr
+              (superAccessExpr
+                (identifier))
+              (superAccessExpr
+                (identifier)))
+            (superAccessExpr
+              (identifier))))
+        (objectProperty
+          (identifier)
+          (intLiteralExpr)))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (intLiteralExpr))
+        (objectProperty
+          (identifier)
+          (multiplicativeExpr
+            (superAccessExpr
+              (identifier))
+            (intLiteralExpr)))))))

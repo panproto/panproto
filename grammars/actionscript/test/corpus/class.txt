@@ -1,0 +1,158 @@
+===========
+Empty class
+===========
+
+class A {
+
+}
+
+---
+
+(program
+    (class_declaration (identifier) (statement_block))
+)
+
+======================
+Class with inheritance
+======================
+
+class A extends B {
+
+}
+
+---
+
+(program
+    (class_declaration
+        (identifier)
+        (identifier)
+        (statement_block)
+    )
+)
+
+=====================
+Class with interfaces
+=====================
+
+class A implements C, D {
+   
+}
+
+---
+
+(program
+    (class_declaration
+        (identifier)
+        (identifier)
+        (identifier)
+        (statement_block)
+    )
+)
+
+======================================
+Class with inheritrance and interfaces
+======================================
+
+class A extends B implements C {
+
+}
+
+---
+
+(program
+    (class_declaration
+        (identifier)
+        (identifier)
+        (identifier)
+        (statement_block)
+    )
+)
+
+================
+With simple body
+================
+
+class Hello {
+    function world(s: String): void {
+
+    }
+}
+
+---
+
+(program
+    (class_declaration
+        (identifier)
+        (statement_block
+            (function_declaration
+                (identifier)
+                (function_parameters
+                    (identifier) (type_hint (identifier))
+                )
+                (type_hint  (identifier))
+                (statement_block)
+            )
+        )
+    )
+)
+
+====================
+With class attributs
+====================
+
+public final class World {
+
+}
+
+---
+
+(program
+    (class_declaration
+        (class_attribut)
+        (class_attribut)
+        (identifier)
+        (statement_block)
+    )
+)
+
+===============
+With annotation
+===============
+
+[ExcludeClass]
+public class A {
+
+}
+
+---
+
+(program
+    (class_declaration
+        (annotation (identifier))
+        (class_attribut)
+        (identifier)
+        (statement_block)
+    )
+)
+
+=========================
+With mutliple annotations
+=========================
+
+[ExcludeClass]
+[ExcludeClass]
+public class A {
+
+}
+
+---
+
+(program
+    (class_declaration
+        (annotation (identifier))
+        (annotation (identifier))
+        (class_attribut)
+        (identifier)
+        (statement_block)
+    )
+)

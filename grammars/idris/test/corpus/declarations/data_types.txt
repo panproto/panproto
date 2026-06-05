@@ -1,0 +1,338 @@
+================================================================================
+Data type 1
+================================================================================
+
+data Nat = Z | S Nat
+
+--------------------------------------------------------------------------------
+
+(idris
+  (data
+    (data_name)
+    (exp_name
+      (caname))
+    (exp_name
+      (caname))
+    (exp_name
+      (caname))))
+
+================================================================================
+Data type 2
+================================================================================
+
+data List a = Nil | (::) a (List a)
+
+--------------------------------------------------------------------------------
+
+(idris
+  (data
+    (data_name)
+    (loname)
+    (exp_name
+      (caname))
+    (exp_name
+      (operator))
+    (exp_name
+      (loname))
+    (exp_parens
+      (exp_name
+        (caname))
+      (exp_name
+        (loname)))))
+
+================================================================================
+Data type 3
+================================================================================
+
+data List : Type -> Type where 
+  Nil : List a
+  (::) : a -> List a -> List a
+
+--------------------------------------------------------------------------------
+
+(idris
+  (data
+    (data_name)
+    (type_signature
+      (colon)
+      (exp_name
+        (caname))
+      (arrow_separator)
+      (exp_name
+        (caname)))
+    (where)
+    (data_body
+      (signature
+        (caname)
+        (colon)
+        (exp_name
+          (caname))
+        (exp_name
+          (loname)))
+      (signature
+        (operator)
+        (colon)
+        (exp_name
+          (loname))
+        (arrow_separator)
+        (exp_name
+          (caname))
+        (exp_name
+          (loname))
+        (arrow_separator)
+        (exp_name
+          (caname))
+        (exp_name
+          (loname))))))
+
+================================================================================
+Data types 4
+================================================================================
+
+data STLCR : List (Ty, Ty) -> List Ty -> Ty -> Type where
+  Add, Sub, Mul : (m, n : STLCR r g TyInt) -> STLCR r g TyInt
+
+--------------------------------------------------------------------------------
+
+(idris
+  (data
+    (data_name)
+    (type_signature
+      (colon)
+      (exp_name
+        (caname))
+      (exp_tuple
+        (exp_name
+          (caname))
+        (tuple_operator)
+        (exp_name
+          (caname)))
+      (arrow_separator)
+      (exp_name
+        (caname))
+      (exp_name
+        (caname))
+      (arrow_separator)
+      (exp_name
+        (caname))
+      (arrow_separator)
+      (exp_name
+        (caname)))
+    (where)
+    (data_body
+      (signature
+        (caname)
+        (comma)
+        (caname)
+        (comma)
+        (caname)
+        (colon)
+        (type_parens
+          (type_var
+            (loname)
+            (comma)
+            (loname)
+            (colon)
+            (exp_name
+              (caname))
+            (exp_name
+              (loname))
+            (exp_name
+              (loname))
+            (exp_name
+              (caname))))
+        (arrow_separator)
+        (exp_name
+          (caname))
+        (exp_name
+          (loname))
+        (exp_name
+          (loname))
+        (exp_name
+          (caname))))))
+
+================================================================================
+Data type with totality
+================================================================================
+
+total
+data Infer : Scoped where
+  Ann : (t, ty : Check f g) -> Infer f g
+  Star : Infer f g
+
+--------------------------------------------------------------------------------
+
+(idris
+  (data
+    (totality)
+    (data_name)
+    (type_signature
+      (colon)
+      (exp_name
+        (caname)))
+    (where)
+    (data_body
+      (signature
+        (caname)
+        (colon)
+        (type_parens
+          (type_var
+            (loname)
+            (comma)
+            (loname)
+            (colon)
+            (exp_name
+              (caname))
+            (exp_name
+              (loname))
+            (exp_name
+              (loname))))
+        (arrow_separator)
+        (exp_name
+          (caname))
+        (exp_name
+          (loname))
+        (exp_name
+          (loname)))
+      (signature
+        (caname)
+        (colon)
+        (exp_name
+          (caname))
+        (exp_name
+          (loname))
+        (exp_name
+          (loname))))))
+
+================================================================================
+Search options
+================================================================================
+
+data Elem : (x : a) -> (xs : List a) -> Type where
+     [search x]
+
+--------------------------------------------------------------------------------
+
+(idris
+  (data
+    (data_name)
+    (type_signature
+      (colon)
+      (type_parens
+        (type_var
+          (loname)
+          (colon)
+          (exp_name
+            (loname))))
+      (arrow_separator)
+      (type_parens
+        (type_var
+          (loname)
+          (colon)
+          (exp_name
+            (caname))
+          (exp_name
+            (loname))))
+      (arrow_separator)
+      (exp_name
+        (caname)))
+    (where)
+    (data_body
+      (search_options
+        (loname)))))
+
+================================================================================
+Search options multiple
+================================================================================
+
+public export
+data Equal : forall a, b . a -> b -> Type where
+     [search a b]
+
+--------------------------------------------------------------------------------
+
+(idris
+  (data
+    (visibility)
+    (data_name)
+    (type_signature
+      (colon)
+      (forall)
+      (comma)
+      (exp_name
+        (loname))
+      (arrow_separator)
+      (exp_name
+        (loname))
+      (arrow_separator)
+      (exp_name
+        (caname)))
+    (where)
+    (data_body
+      (search_options
+        (loname)
+        (loname)))))
+
+================================================================================
+Search options no hints
+================================================================================
+
+data MyShow : Type -> Type where
+     [noHints]
+     MkMyShow : (myshow : a -> String) -> MyShow a
+
+--------------------------------------------------------------------------------
+
+(idris
+  (data
+    (data_name)
+    (type_signature
+      (colon)
+      (exp_name
+        (caname))
+      (arrow_separator)
+      (exp_name
+        (caname)))
+    (where)
+    (data_body
+      (search_options
+        (no_hints))
+      (signature
+        (caname)
+        (colon)
+        (type_parens
+          (type_var
+            (loname)
+            (colon)
+            (exp_name
+              (loname))
+            (arrow_separator)
+            (exp_name
+              (caname))))
+        (arrow_separator)
+        (exp_name
+          (caname))
+        (exp_name
+          (loname))))))
+
+================================================================================
+External type
+================================================================================
+
+data Ptr : Type -> Type where [external]
+
+--------------------------------------------------------------------------------
+
+(idris
+  (data
+    (data_name)
+    (type_signature
+      (colon)
+      (exp_name
+        (caname))
+      (arrow_separator)
+      (exp_name
+        (caname)))
+    (where)
+    (data_body
+      (external))))

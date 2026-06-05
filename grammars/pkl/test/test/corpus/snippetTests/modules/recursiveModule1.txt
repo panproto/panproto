@@ -1,0 +1,51 @@
+===
+modules/recursiveModule1.pkl
+===
+
+import "recursiveModule2.pkl"
+
+class Foo {
+  bar: recursiveModule2.Bar?
+}
+
+foo: Foo = new {
+  bar {
+    foo = new Foo {}
+  }
+}
+
+---
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (nullableType
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)
+                (identifier))))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (newExpr
+      (objectBody
+        (objectProperty
+          (identifier)
+          (objectBody
+            (objectProperty
+              (identifier)
+              (newExpr
+                (declaredType
+                  (qualifiedIdentifier
+                    (identifier)))
+                (objectBody)))))))))

@@ -1,0 +1,105 @@
+==================
+save image
+==================
+
+foo:
+    SAVE IMAGE ghcr.io/glehmann/foo
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (save_image_command
+            images: (images
+              (image_spec
+                name: (image_name)))))))
+
+
+==================
+save image with options
+==================
+
+foo:
+    SAVE IMAGE --push ghcr.io/glehmann/foo:latest ghcr.io/glehmann/foo:1.2.3
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (save_image_command
+            options: (options
+              (push))
+            images: (images
+              (image_spec
+                name: (image_name)
+                tag: (image_tag))
+              (image_spec
+                name: (image_name)
+                tag: (image_tag)))))))
+
+
+==================
+save image cache hint
+==================
+
+foo:
+    SAVE IMAGE --cache-hint
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (save_image_command
+            options: (options
+              (cache_hint))))))
+
+
+==================
+save image with quoted string
+==================
+
+foo:
+    SAVE IMAGE "ghcr.io/$org/foo"
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (save_image_command
+            images: (images
+              (string
+                (double_quoted_string
+                  (expansion
+                    (variable)))))))))
+
+==================
+save image with quoted name and tag
+==================
+
+foo:
+    SAVE IMAGE "ghcr.io/$org/foo":$tag
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (save_image_command
+            images: (images
+              (string
+                (double_quoted_string
+                  (expansion
+                    (variable)))
+                (unquoted_string)
+                (unquoted_string
+                  (expansion
+                    (variable)))))))))

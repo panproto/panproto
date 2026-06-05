@@ -1,0 +1,35 @@
+===========
+comment
+===========
+
+// A single-line comment.
+
+//
+
+////
+block comment
+
+# not title
+////
+
+https://www.abcdefg.com
+
+-----
+
+(document
+  (block_element
+    (line_comment
+      (line_comment_marker)
+      (body)))
+  (block_element
+    (line_comment
+      (line_comment_marker)))
+  (block_element
+    (block_comment
+      (block_comment_start_marker)
+      (body)
+      (block_comment_end_marker)))
+  (block_element
+    (section_block
+      (paragraph
+        (line)))))

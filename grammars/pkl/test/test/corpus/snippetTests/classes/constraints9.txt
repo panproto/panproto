@@ -1,0 +1,92 @@
+===
+classes/constraints9.pkl
+===
+
+import "pkl:test"
+
+class X {
+  a: Int("not a boolean")
+  b: Int((x) -> "not a boolean")
+}
+
+res1 = test.catch(() ->
+  new X {
+    a = 1
+  }.a
+)
+
+res2 = test.catch(() ->
+  new X {
+    b = 1
+  }.b
+)
+
+---
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (constrainedType
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (constrainedType
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (functionLiteralExpr
+              (parameterList
+                (typedIdentifier
+                  (identifier)))
+              (slStringLiteralExpr
+                (slStringLiteralPart))))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (qualifiedAccessExpr
+            (newExpr
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))
+              (objectBody
+                (objectProperty
+                  (identifier)
+                  (intLiteralExpr))))
+            (identifier))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (qualifiedAccessExpr
+            (newExpr
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))
+              (objectBody
+                (objectProperty
+                  (identifier)
+                  (intLiteralExpr))))
+            (identifier)))))))

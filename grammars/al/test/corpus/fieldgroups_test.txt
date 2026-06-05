@@ -1,0 +1,198 @@
+================================================================================
+Basic fieldgroup declaration
+================================================================================
+
+table 50100 "Customer Extension"
+{
+    fields
+    {
+        field(1; "Customer No."; Code[20])
+        {
+        }
+        field(2; "Credit Limit"; Decimal)
+        {
+        }
+        field(3; "Payment Terms"; Code[10])
+        {
+        }
+    }
+    
+    fieldgroups
+    {
+        fieldgroup(DropDown; "Customer No.", "Credit Limit")
+        {
+        }
+        
+        fieldgroup(Brick; "Customer No.", "Payment Terms")
+        {
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (code_type
+            length: (integer))))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type)))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (code_type
+            length: (integer)))))
+    (fieldgroups_section
+      (fieldgroups_keyword)
+      (fieldgroup_declaration
+        (fieldgroup_keyword)
+        name: (identifier)
+        fields: (field_list
+          (quoted_identifier)
+          (quoted_identifier)))
+      (fieldgroup_declaration
+        (fieldgroup_keyword)
+        name: (identifier)
+        fields: (field_list
+          (quoted_identifier)
+          (quoted_identifier))))))
+
+================================================================================
+Fieldgroup with single field
+================================================================================
+
+table 50101 "Item Extension"
+{
+    fields
+    {
+        field(1; Description; Text[100])
+        {
+        }
+    }
+    
+    fieldgroups
+    {
+        fieldgroup(DropDown; Description)
+        {
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))))
+    (fieldgroups_section
+      (fieldgroups_keyword)
+      (fieldgroup_declaration
+        (fieldgroup_keyword)
+        name: (identifier)
+        fields: (field_list
+          (identifier))))))
+
+================================================================================
+Multiple fieldgroups with mixed identifiers
+================================================================================
+
+table 50102 "Mixed Fieldgroups"
+{
+    fields
+    {
+        field(1; "No."; Code[20])
+        {
+        }
+        field(2; Name; Text[100])
+        {
+        }
+        field(3; "Search Name"; Code[100])
+        {
+        }
+    }
+    
+    fieldgroups
+    {
+        fieldgroup(DropDown; "No.", Name, "Search Name")
+        {
+        }
+        
+        fieldgroup(Brick; Name)
+        {
+        }
+        
+        fieldgroup(FieldList; "No.", "Search Name")
+        {
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (code_type
+            length: (integer))))
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (text_type
+            length: (integer))))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (code_type
+            length: (integer)))))
+    (fieldgroups_section
+      (fieldgroups_keyword)
+      (fieldgroup_declaration
+        (fieldgroup_keyword)
+        name: (identifier)
+        fields: (field_list
+          (quoted_identifier)
+          (identifier)
+          (quoted_identifier)))
+      (fieldgroup_declaration
+        (fieldgroup_keyword)
+        name: (identifier)
+        fields: (field_list
+          (identifier)))
+      (fieldgroup_declaration
+        (fieldgroup_keyword)
+        name: (identifier)
+        fields: (field_list
+          (quoted_identifier)
+          (quoted_identifier))))))

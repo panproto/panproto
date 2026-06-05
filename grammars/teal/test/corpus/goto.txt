@@ -1,0 +1,31 @@
+
+==============================
+Label
+==============================
+
+::hello::
+
+---
+
+(program (label))
+
+==============================
+Goto
+==============================
+
+goto nowhere
+
+---
+
+(program (goto (identifier)))
+
+==============================
+Goto + Label
+==============================
+
+::somewhere::
+goto somewhere
+
+---
+
+(program (label) (goto (identifier)))

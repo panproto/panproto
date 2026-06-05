@@ -1,0 +1,105 @@
+==================
+simple assignment
+==================
+
+DESCRIPTION = "My example recipe"
+
+----
+
+(recipe)
+
+==================
+multiple assignments
+==================
+
+SUMMARY = "Hello world program"
+LICENSE = "MIT"
+PV = "1.0"
+
+----
+
+(recipe)
+
+==================
+append and prepend
+==================
+
+DEPENDS += "zlib"
+RDEPENDS:${PN} = "bash"
+
+----
+
+(recipe)
+
+==================
+variable expansion
+==================
+
+SRC_URI = "file://${WORKDIR}/hello.c"
+
+----
+
+(recipe)
+
+==================
+inherit directive
+==================
+
+inherit autotools
+
+----
+
+(recipe)
+
+==================
+require and include
+==================
+
+require recipes-core/common.inc
+
+----
+
+(recipe)
+
+==================
+shell function
+==================
+
+do_install() {
+    install -d ${D}${bindir}
+}
+
+----
+
+(recipe)
+
+==================
+conditional weak assignment
+==================
+
+FOO ?= "default"
+BAR ??= "weakest"
+
+----
+
+(recipe)
+
+==================
+export statement
+==================
+
+export CFLAGS = "-O2"
+
+----
+
+(recipe)
+
+==================
+addtask
+==================
+
+addtask configure after do_patch before do_compile
+
+----
+
+(recipe)

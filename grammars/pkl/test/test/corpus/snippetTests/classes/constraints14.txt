@@ -1,0 +1,39 @@
+===
+classes/constraints14.pkl
+===
+
+amends ".../input-helper/classes/MyClass.pkl"
+
+myClass {
+  emails {
+    "foo@bar.com"
+  }
+}
+
+others {
+  import(".../input-helper/classes/myClass1.pkl")
+}
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (objectBody
+          (objectElement
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectElement
+        (importExpr
+          (stringConstant
+            (slStringLiteralPart)))))))

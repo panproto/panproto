@@ -1,0 +1,187 @@
+===
+basic/localMethodDynamicBinding.pkl
+===
+
+class X {
+  x = 1
+  y = compute()
+  local function compute() = x
+}
+
+res1 = new X {}
+
+res2 = (res1) {
+  x = 2
+}
+
+class X2 {
+  x = 1
+  nested {
+    y = compute()
+    local function compute() = x
+  }
+}
+
+res3 = new X2 {}
+
+res4 = (res3) {
+  x = 2
+}
+
+res5 {
+  x = 1
+  y = compute()
+  local function compute() = x
+}
+
+res6 = (res5) {
+  x = 2
+}
+
+res7 {
+  x = 1
+  nested {
+    y = compute()
+    local function compute() = x
+  }
+}
+
+res8 = (res7) {
+  x = 2
+}
+
+---
+
+(module
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (intLiteralExpr))
+      (classProperty
+        (identifier)
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList)))
+      (classMethod
+        (methodHeader
+          (modifier)
+          (identifier)
+          (parameterList))
+        (unqualifiedAccessExpr
+          (identifier)))))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody)))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (intLiteralExpr)))))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (intLiteralExpr))
+      (classProperty
+        (identifier)
+        (objectBody
+          (objectProperty
+            (identifier)
+            (unqualifiedAccessExpr
+              (identifier)
+              (argumentList)))
+          (objectMethod
+            (methodHeader
+              (modifier)
+              (identifier)
+              (parameterList))
+            (unqualifiedAccessExpr
+              (identifier)))))))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody)))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (intLiteralExpr)))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (intLiteralExpr))
+      (objectProperty
+        (identifier)
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList)))
+      (objectMethod
+        (methodHeader
+          (modifier)
+          (identifier)
+          (parameterList))
+        (unqualifiedAccessExpr
+          (identifier)))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (intLiteralExpr)))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (intLiteralExpr))
+      (objectProperty
+        (identifier)
+        (objectBody
+          (objectProperty
+            (identifier)
+            (unqualifiedAccessExpr
+              (identifier)
+              (argumentList)))
+          (objectMethod
+            (methodHeader
+              (modifier)
+              (identifier)
+              (parameterList))
+            (unqualifiedAccessExpr
+              (identifier)))))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (intLiteralExpr))))))

@@ -1,0 +1,56 @@
+===
+listings/cacheStealing.pkl
+===
+
+foo1: Listing<String> = new { "hello" }
+foo2: Listing<String|Int> = foo1
+
+res1 = foo1.isDistinct
+res2 = foo2.isDistinct
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))))
+    (newExpr
+      (objectBody
+        (objectElement
+          (slStringLiteralExpr
+            (slStringLiteralPart))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (unionType
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))))))
+    (unqualifiedAccessExpr
+      (identifier)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier))))

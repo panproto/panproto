@@ -1,0 +1,26 @@
+===
+types/typeAliasContext.pkl
+===
+
+import "helpers/originalTypealias.pkl"
+
+res: originalTypealias.Birds = new { "Jimmy Bird" }
+
+---
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)
+          (identifier))))
+    (newExpr
+      (objectBody
+        (objectElement
+          (slStringLiteralExpr
+            (slStringLiteralPart)))))))

@@ -1,0 +1,124 @@
+================================================================================
+CASE TRUE OF with IN expressions and array indexing
+================================================================================
+
+codeunit 123 "Character Validation Test"
+{
+    procedure ValidatePasswordComplexity()
+    var
+        Text: Text;
+        i: Integer;
+        ContainsCapitalLetters: Boolean;
+        ContainsLowercaseLetters: Boolean;
+        ContainsDigits: Boolean;
+    begin
+        FOR i := 1 TO STRLEN(Text) DO BEGIN
+            CASE TRUE OF
+                Text[i] IN ['A' .. 'Z']:
+                    ContainsCapitalLetters := TRUE;
+                Text[i] IN ['a' .. 'z']:
+                    ContainsLowercaseLetters := TRUE;
+                Text[i] IN ['0' .. '9']:
+                    ContainsDigits := TRUE;
+                ELSE BEGIN
+                    // Special character
+                END
+            END;
+        END;
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (text_type)))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type)))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type)))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type)))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (for_statement
+          (for_keyword)
+          variable: (identifier)
+          start: (integer)
+          direction: (to_keyword)
+          end: (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (identifier)))
+          (do_keyword)
+          body: (code_block
+            (begin_keyword)
+            (case_statement
+              (case_keyword)
+              expression: (boolean)
+              (of_keyword)
+              (case_branch
+                left: (subscript_expression
+                  object: (identifier)
+                  index: (identifier))
+                operator: (in_keyword)
+                right: (list_literal
+                  (range_expression
+                    left: (string_literal)
+                    right: (string_literal)))
+                body: (assignment_statement
+                  left: (identifier)
+                  right: (boolean)))
+              (case_branch
+                left: (subscript_expression
+                  object: (identifier)
+                  index: (identifier))
+                operator: (in_keyword)
+                right: (list_literal
+                  (range_expression
+                    left: (string_literal)
+                    right: (string_literal)))
+                body: (assignment_statement
+                  left: (identifier)
+                  right: (boolean)))
+              (case_branch
+                left: (subscript_expression
+                  object: (identifier)
+                  index: (identifier))
+                operator: (in_keyword)
+                right: (list_literal
+                  (range_expression
+                    left: (string_literal)
+                    right: (string_literal)))
+                body: (assignment_statement
+                  left: (identifier)
+                  right: (boolean)))
+              (case_else_branch
+                (else_keyword)
+                (code_block
+                  (begin_keyword)
+                  (comment)
+                  (end_keyword))))
+            (end_keyword)))
+        (end_keyword)))))

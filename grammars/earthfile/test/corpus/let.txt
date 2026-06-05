@@ -1,0 +1,18 @@
+==================
+let command
+==================
+
+foo:
+  LET foo=bar
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (let_command
+            name: (variable)
+            value: (string
+              (unquoted_string))))))
+

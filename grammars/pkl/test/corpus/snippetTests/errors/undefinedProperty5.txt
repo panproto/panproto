@@ -1,0 +1,160 @@
+===
+errors/undefinedProperty5.pkl
+===
+
+class Zebra {
+  party: Party
+}
+
+class Party {
+  time: Mapping<Foo, Int>
+}
+
+class Foo {
+  bar: Bar
+}
+
+class Bar {
+  num: Mapping<Alpha, Boolean>
+}
+
+class Alpha {
+  beta: Bravo
+}
+
+class Bravo {
+  charlie: Charlie
+}
+
+class Charlie {
+  delta: Int
+}
+
+zebra: Zebra = new {
+  party {
+    time {
+      [new Foo {
+        bar {
+          num {
+            [new Alpha {}] = true
+          }
+        }
+      }] = 1
+    }
+  }
+}
+
+---
+
+(module
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))
+            (typeArgumentList
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))))))))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))
+            (typeArgumentList
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))))))))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (newExpr
+      (objectBody
+        (objectProperty
+          (identifier)
+          (objectBody
+            (objectProperty
+              (identifier)
+              (objectBody
+                (objectEntry
+                  (newExpr
+                    (declaredType
+                      (qualifiedIdentifier
+                        (identifier)))
+                    (objectBody
+                      (objectProperty
+                        (identifier)
+                        (objectBody
+                          (objectProperty
+                            (identifier)
+                            (objectBody
+                              (objectEntry
+                                (newExpr
+                                  (declaredType
+                                    (qualifiedIdentifier
+                                      (identifier)))
+                                  (objectBody))
+                                (trueLiteralExpr))))))))
+                  (intLiteralExpr))))))))))

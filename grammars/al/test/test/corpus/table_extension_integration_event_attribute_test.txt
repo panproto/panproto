@@ -1,0 +1,99 @@
+================================================================================
+Table extension with IntegrationEvent attributes test
+================================================================================
+
+tableextension 50001 "Test Extension" extends "Test Table"
+{
+    [IntegrationEvent(false, false)]
+    local procedure OnAfterTransferFromAsmHeader(var ReqLine: Record "Requisition Line"; AsmHeader: Record "Assembly Header")
+    begin
+    end;
+
+    [IntegrationEvent(true, true)]
+    local procedure OnAfterSetReplenishmentSystem(var RequisitionLine: Record "Requisition Line"; Item: Record Item)
+    begin
+    end;
+
+    [IntegrationEvent(false, true, true)]
+    procedure OnGlobalEvent()
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (tableextension_declaration
+    (tableextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (boolean)
+            (boolean)))))
+    (procedure
+      modifier: (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier))))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier)))))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (boolean)
+            (boolean)))))
+    (procedure
+      modifier: (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier))))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (identifier)))))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (boolean)
+            (boolean)
+            (boolean)))))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))

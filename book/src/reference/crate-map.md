@@ -24,7 +24,7 @@ The `panproto-*` crates in the workspace, with one-line descriptions and depende
 | Crate | Description |
 |---|---|
 | `panproto-io` | Parse/emit codecs that bridge native formats (JSON, Avro, Protobuf, ...) to `panproto-inst`. |
-| `panproto-parse` | Tree-sitter full-AST parsing across 259 languages, with interstitial preservation. Hosts the put-direction (`decorate`) of the parse / emit lens and the `LayoutEnricher` adapter installed in `panproto-lens`'s enrichment registry. |
+| `panproto-parse` | Tree-sitter full-AST parsing across 261 languages, with interstitial preservation. Hosts the put-direction (`decorate`) of the parse / emit lens and the `LayoutEnricher` adapter installed in `panproto-lens`'s enrichment registry. |
 | `panproto-grammars` | Pre-compiled tree-sitter grammars used by `panproto-parse`. |
 | `panproto-grammars-all` | Umbrella grammar companion pack for the Python wheel. |
 | `panproto-grammars-functional` | Functional-language grammar pack. |

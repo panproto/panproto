@@ -1,0 +1,80 @@
+==================
+save artifact
+==================
+
+foo:
+    SAVE ARTIFACT /foo
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (save_artifact_command
+            src: (string
+              (unquoted_string))))))
+
+
+==================
+save artifact with dest
+==================
+
+foo:
+    SAVE ARTIFACT /foo /bar
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (save_artifact_command
+            src: (string
+              (unquoted_string))
+            dest: (string
+              (unquoted_string))))))
+
+
+==================
+save artifact with dest as local
+==================
+
+foo:
+    SAVE ARTIFACT /foo /bar AS LOCAL /bar
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (save_artifact_command
+            src: (string
+              (unquoted_string))
+            dest: (string
+              (unquoted_string))
+            local_dest: (string
+              (unquoted_string))))))
+
+
+==================
+save artifact with options
+==================
+
+foo:
+    SAVE ARTIFACT --keep-ts --force /foo
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (save_artifact_command
+            options: (options
+              (keep_ts)
+              (force))
+            src: (string
+              (unquoted_string))))))
+

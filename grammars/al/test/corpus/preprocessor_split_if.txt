@@ -1,0 +1,202 @@
+================================================================================
+Preprocessor split if statement (condition inside, body outside)
+================================================================================
+
+codeunit 50000 "Test Split If"
+{
+    procedure TestMethod()
+    begin
+#if not CLEAN26
+        if CanPassValue(Name, Value) then
+#endif
+            InsertAttribute(Buffer, ParentBuffer, Number, Depth + 1, Name, Value);
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (preproc_split_if_statement
+          (preproc_if
+            (preproc_open)
+            condition: (preproc_not_expression
+              (identifier)))
+          (if_keyword)
+          condition: (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (identifier)
+              (identifier)))
+          (then_keyword)
+          (preproc_endif
+            (preproc_close))
+          then_branch: (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (identifier)
+              (identifier)
+              (identifier)
+              (additive_expression
+                left: (identifier)
+                right: (integer))
+              (identifier)
+              (identifier))))
+        (end_keyword)))))
+
+================================================================================
+Multiple preprocessor split if statements
+================================================================================
+
+codeunit 50001 "Multiple Split If"
+{
+    procedure ComplexMethod()
+    var
+        XMLBuffer: Record "XML Buffer";
+        AttributeNumber: Integer;
+    begin
+        XMLBuffer.Reset();
+        XMLBuffer.SetRange("Parent Entry No.", ParentXMLBuffer."Entry No.");
+        XMLBuffer.SetRange(Type, XMLBuffer.Type::Attribute);
+        XMLBuffer.SetRange(Name, XmlReader.Name);
+        if XMLBuffer.FindFirst() then
+            exit;
+            
+#if not CLEAN26
+        if CanPassValue(XmlReader.Name, XmlReader.Value) then
+#endif
+            InsertAttribute(XMLBuffer, ParentXMLBuffer, AttributeNumber, XmlReader.Depth + 1, XmlReader.Name, XmlReader.Value);
+            
+#if not CLEAN27
+        if ShouldProcessElement() then
+#endif
+            ProcessElement();
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier))))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (member_expression
+            object: (identifier)
+            member: (identifier))
+          arguments: (argument_list))
+        (call_expression
+          function: (member_expression
+            object: (identifier)
+            member: (identifier))
+          arguments: (argument_list
+            (quoted_identifier)
+            (member_expression
+              object: (identifier)
+              member: (quoted_identifier))))
+        (call_expression
+          function: (member_expression
+            object: (identifier)
+            member: (identifier))
+          arguments: (argument_list
+            (identifier)
+            (qualified_enum_value
+              enum_type: (member_expression
+                object: (identifier)
+                member: (identifier))
+              value: (identifier))))
+        (call_expression
+          function: (member_expression
+            object: (identifier)
+            member: (identifier))
+          arguments: (argument_list
+            (identifier)
+            (member_expression
+              object: (identifier)
+              member: (identifier))))
+        (if_statement
+          (if_keyword)
+          condition: (call_expression
+            function: (member_expression
+              object: (identifier)
+              member: (identifier))
+            arguments: (argument_list))
+          (then_keyword)
+          then_branch: (exit_statement
+            (exit_keyword)))
+        (preproc_split_if_statement
+          (preproc_if
+            (preproc_open)
+            condition: (preproc_not_expression
+              (identifier)))
+          (if_keyword)
+          condition: (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (member_expression
+                object: (identifier)
+                member: (identifier))
+              (member_expression
+                object: (identifier)
+                member: (identifier))))
+          (then_keyword)
+          (preproc_endif
+            (preproc_close))
+          then_branch: (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (identifier)
+              (identifier)
+              (identifier)
+              (additive_expression
+                left: (member_expression
+                  object: (identifier)
+                  member: (identifier))
+                right: (integer))
+              (member_expression
+                object: (identifier)
+                member: (identifier))
+              (member_expression
+                object: (identifier)
+                member: (identifier)))))
+        (preproc_split_if_statement
+          (preproc_if
+            (preproc_open)
+            condition: (preproc_not_expression
+              (identifier)))
+          (if_keyword)
+          condition: (call_expression
+            function: (identifier)
+            arguments: (argument_list))
+          (then_keyword)
+          (preproc_endif
+            (preproc_close))
+          then_branch: (call_expression
+            function: (identifier)
+            arguments: (argument_list)))
+        (end_keyword)))))

@@ -1,0 +1,356 @@
+==================
+empty for statement
+==================
+
+sub init()
+    for x=0 to 10
+    end for
+end sub
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (for_statement
+        (for_start)
+        (assignment_statement
+          (variable_declarator
+            (identifier))
+          (literal
+            (number)))
+        (for_to)
+        (literal
+          (number))
+        (end_statement
+          (end_for))))
+    (end_statement
+      (end_sub))))
+
+==================
+for statement
+==================
+
+sub init()
+    for x=0 to 10 step 2
+        print("hi")
+    end for
+end sub
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (for_statement
+        (for_start)
+        (assignment_statement
+          (variable_declarator
+            (identifier))
+          (literal
+            (number)))
+        (for_to)
+        (literal
+          (number))
+        (for_step)
+        (literal
+          (number))
+        (block
+          (print_statement
+            (print)
+            (prefix_exp
+              (left_paren)
+              (literal
+                (string
+                  (string_contents)))
+              (right_paren))))
+        (end_statement
+          (end_for))))
+    (end_statement
+      (end_sub))))
+
+==================
+for each statement
+==================
+
+sub init()
+    x = { y: "hello", b: "world" }
+    for each element in x
+        print(element)
+    end for
+end sub
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (assignment_statement
+        (variable_declarator
+          (identifier))
+        (literal
+          (assoc_array
+            (assoc_array_element
+              (identifier)
+              (literal
+                (string
+                  (string_contents))))
+            (assoc_array_element
+              (identifier)
+              (literal
+                (string
+                  (string_contents)))))))
+      (for_statement
+        (for_start)
+        (for_each)
+        (prefix_exp
+          (identifier))
+        (for_in)
+        (prefix_exp
+          (identifier))
+        (block
+          (print_statement
+            (print)
+            (prefix_exp
+              (left_paren)
+              (prefix_exp
+                (identifier))
+              (right_paren))))
+        (end_statement
+          (end_for))))
+    (end_statement
+      (end_sub))))
+
+==================
+for statement with step
+==================
+
+sub init()
+    for x = 1 to 10 step 2
+        print(x)
+    end for
+end sub
+
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (for_statement
+        (for_start)
+        (assignment_statement
+          (variable_declarator
+            (identifier))
+          (literal
+            (number)))
+        (for_to)
+        (literal
+          (number))
+        (for_step)
+        (literal
+          (number))
+        (block
+          (print_statement
+            (print)
+            (prefix_exp
+              (left_paren)
+              (prefix_exp
+                (identifier))
+              (right_paren))))
+        (end_statement
+          (end_for))))
+    (end_statement
+      (end_sub))))
+
+==================
+for each statement with array
+==================
+
+sub init()
+    arr = [1, 2, 3, 4, 5]
+    for each item in arr
+        print(item)
+    end for
+end sub
+
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (assignment_statement
+        (variable_declarator
+          (identifier))
+        (literal
+          (array
+            (literal
+              (number))
+            (literal
+              (number))
+            (literal
+              (number))
+            (literal
+              (number))
+            (literal
+              (number)))))
+      (for_statement
+        (for_start)
+        (for_each)
+        (prefix_exp
+          (identifier))
+        (for_in)
+        (prefix_exp
+          (identifier))
+        (block
+          (print_statement
+            (print)
+            (prefix_exp
+              (left_paren)
+              (prefix_exp
+                (identifier))
+              (right_paren))))
+        (end_statement
+          (end_for))))
+    (end_statement
+      (end_sub))))
+
+==================
+nested for statements
+==================
+
+sub init()
+    for i = 1 to 5
+        for j = 1 to 3
+            print(i + j)
+        end for
+    end for
+end sub
+
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (for_statement
+        (for_start)
+        (assignment_statement
+          (variable_declarator
+            (identifier))
+          (literal
+            (number)))
+        (for_to)
+        (literal
+          (number))
+        (block
+          (for_statement
+            (for_start)
+            (assignment_statement
+              (variable_declarator
+                (identifier))
+              (literal
+                (number)))
+            (for_to)
+            (literal
+              (number))
+            (block
+              (print_statement
+                (print)
+                (prefix_exp
+                  (left_paren)
+                  (binary_expression
+                    (arithmetic_expression
+                      (additive_expression
+                        (prefix_exp
+                          (identifier))
+                        (prefix_exp
+                          (identifier)))))
+                  (right_paren))))
+            (end_statement
+              (end_for))))
+        (end_statement
+          (end_for))))
+    (end_statement
+      (end_sub))))
+
+==================
+for statement with exit for
+==================
+
+sub init()
+    for x=0 to 10
+        exit for
+    end for
+end sub
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (for_statement
+        (for_start)
+        (assignment_statement
+          (variable_declarator
+            (identifier))
+          (literal
+            (number)))
+        (for_to)
+        (literal
+          (number))
+        (block
+          (exit_for_statement))
+        (end_statement
+          (end_for))))
+    (end_statement
+      (end_sub))))
+
+==================
+for statement with exit for and NEXT keyword
+==================
+
+sub init()
+    for x=0 to 10
+        exit for
+    next
+end sub
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (for_statement
+        (for_start)
+        (assignment_statement
+          (variable_declarator
+            (identifier))
+          (literal
+            (number)))
+        (for_to)
+        (literal
+          (number))
+        (block
+          (exit_for_statement))
+        (end_statement
+          (end_for))))
+    (end_statement
+      (end_sub))))

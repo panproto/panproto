@@ -1,0 +1,21 @@
+================================================================================
+thisthread
+================================================================================
+
+_thisthread.sleep(10)
+
+_thisthread.background_priority
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (call
+      (thisthread)
+      (identifier)
+      (number)))
+  (fragment
+    (call
+      (thisthread)
+      (identifier))))

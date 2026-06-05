@@ -1,0 +1,20 @@
+===
+basic/fixedProperty5.pkl
+===
+
+myObj = new {
+  fixed bar = "bar"
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (newExpr
+      (objectBody
+        (objectProperty
+          (modifier)
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart)))))))

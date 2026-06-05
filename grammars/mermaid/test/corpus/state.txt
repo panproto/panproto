@@ -1,0 +1,404 @@
+==========================
+Simple state diagram
+==========================
+stateDiagram-v2
+    [*] --> Still
+    Still --> [*]
+
+    Still --> Moving
+    Moving --> Still
+    Moving --> Crash
+    Crash --> [*]
+
+---
+
+(source_file
+  (diagram_state
+    (state_stmt_arrow
+      (state_name)
+      (state_arrow)
+      (state_name))
+    (state_stmt_arrow
+      (state_name)
+      (state_arrow)
+      (state_name))
+    (state_stmt_arrow
+      (state_name)
+      (state_arrow)
+      (state_name))
+    (state_stmt_arrow
+      (state_name)
+      (state_arrow)
+      (state_name))
+    (state_stmt_arrow
+      (state_name)
+      (state_arrow)
+      (state_name))
+    (state_stmt_arrow
+      (state_name)
+      (state_arrow)
+      (state_name))))
+
+
+==========================
+States
+==========================
+stateDiagram-v2
+    s1
+    state "This is a state description" as s2
+    s2 : This is a state description
+
+---
+
+(source_file
+  (diagram_state
+    (state_stmt_simple
+      (state_name))
+    (state_stmt_simple
+      (state_alias
+        (state_description)
+        (state_id)))
+    (state_stmt_simple
+      (state_name)
+      (state_description))))
+
+==========================
+Transitions
+==========================
+stateDiagram-v2
+    s1 --> s2
+    s1 --> s2: A transition
+    [*] --> s1
+    s1 --> [*]
+
+---
+
+(source_file
+  (diagram_state
+    (state_stmt_arrow
+      (state_name)
+      (state_arrow)
+      (state_name))
+    (state_stmt_arrow
+      (state_name)
+      (state_arrow)
+      (state_name)
+      (state_description))
+    (state_stmt_arrow
+      (state_name)
+      (state_arrow)
+      (state_name))
+    (state_stmt_arrow
+      (state_name)
+      (state_arrow)
+      (state_name))))
+
+==========================
+Composite state
+==========================
+stateDiagram-v2
+    [*] --> First
+    state First {
+        [*] --> second
+        second --> [*]
+    }
+
+    state First {
+        [*] --> Second
+
+        state Second {
+            [*] --> second
+            second --> Third
+
+            state Third {
+                [*] --> third
+                third --> [*]
+            }
+        }
+    }
+
+---
+
+(source_file
+  (diagram_state
+    (state_stmt_arrow
+      (state_name)
+      (state_arrow)
+      (state_name))
+    (state_stmt_composite
+      (state_name)
+      (state_composite_body
+        (state_stmt_arrow
+          (state_name)
+          (state_arrow)
+          (state_name))
+        (state_stmt_arrow
+          (state_name)
+          (state_arrow)
+          (state_name))))
+    (state_stmt_composite
+      (state_name)
+      (state_composite_body
+        (state_stmt_arrow
+          (state_name)
+          (state_arrow)
+          (state_name))
+        (state_stmt_composite
+          (state_name)
+          (state_composite_body
+            (state_stmt_arrow
+              (state_name)
+              (state_arrow)
+              (state_name))
+            (state_stmt_arrow
+              (state_name)
+              (state_arrow)
+              (state_name))
+            (state_stmt_composite
+              (state_name)
+              (state_composite_body
+                (state_stmt_arrow
+                  (state_name)
+                  (state_arrow)
+                  (state_name))
+                (state_stmt_arrow
+                  (state_name)
+                  (state_arrow)
+                  (state_name))))))))))
+
+==========================
+Choice
+==========================
+stateDiagram-v2
+    state if_state <<choice>>
+    [*] --> IsPositive
+    IsPositive --> if_state
+    if_state --> False: if n < 0
+    if_state --> True : if n >= 0
+
+    state fork_state <<fork>>
+    [*] --> fork_state
+    fork_state --> State2
+    fork_state --> State3
+
+    state join_state <<join>>
+    State2 --> join_state
+    State3 --> join_state
+    join_state --> State4
+    State4 --> [*]
+
+---
+
+(source_file
+  (diagram_state
+    (state_stmt_annotation
+      (state_name)
+      (state_annotation_choice))
+    (state_stmt_arrow
+      (state_name)
+      (state_arrow)
+      (state_name))
+    (state_stmt_arrow
+      (state_name)
+      (state_arrow)
+      (state_name))
+    (state_stmt_arrow
+      (state_name)
+      (state_arrow)
+      (state_name)
+      (state_description))
+    (state_stmt_arrow
+      (state_name)
+      (state_arrow)
+      (state_name)
+      (state_description))
+    (state_stmt_annotation
+      (state_name)
+      (state_annotation_fork))
+    (state_stmt_arrow
+      (state_name)
+      (state_arrow)
+      (state_name))
+    (state_stmt_arrow
+      (state_name)
+      (state_arrow)
+      (state_name))
+    (state_stmt_arrow
+      (state_name)
+      (state_arrow)
+      (state_name))
+    (state_stmt_annotation
+      (state_name)
+      (state_annotation_join))
+    (state_stmt_arrow
+      (state_name)
+      (state_arrow)
+      (state_name))
+    (state_stmt_arrow
+      (state_name)
+      (state_arrow)
+      (state_name))
+    (state_stmt_arrow
+      (state_name)
+      (state_arrow)
+      (state_name))
+    (state_stmt_arrow
+      (state_name)
+      (state_arrow)
+      (state_name))))
+
+==========================
+Note
+==========================
+
+stateDiagram-v2
+    State1: The state with a note
+    %% note right of State1
+    %%     Important information! You can write
+    %%     notes.
+    %% end note
+    State1 --> State2
+    note left of State2 : This is the note to the left.
+
+---
+
+(source_file
+  (diagram_state
+    (state_stmt_simple
+      (state_name)
+      (state_description))
+    (comment)
+    (comment)
+    (comment)
+    (comment)
+    (state_stmt_arrow
+      (state_name)
+      (state_arrow)
+      (state_name))
+    (state_note
+      (state_note_placement
+        (note_placement_left))
+      (state_name)
+      (note_content))))
+
+==========================
+Concurrency
+==========================
+
+stateDiagram-v2
+    [*] --> Active
+
+    state Active {
+        [*] --> NumLockOff
+        NumLockOff --> NumLockOn : EvNumLockPressed
+        NumLockOn --> NumLockOff : EvNumLockPressed
+        --
+        [*] --> CapsLockOff
+        CapsLockOff --> CapsLockOn : EvCapsLockPressed
+        CapsLockOn --> CapsLockOff : EvCapsLockPressed
+        --
+        [*] --> ScrollLockOff
+        ScrollLockOff --> ScrollLockOn : EvScrollLockPressed
+        ScrollLockOn --> ScrollLockOff : EvScrollLockPressed
+    }
+
+---
+
+(source_file
+  (diagram_state
+    (state_stmt_arrow
+      (state_name)
+      (state_arrow)
+      (state_name))
+    (state_stmt_composite
+      (state_name)
+      (state_composite_body
+        (state_stmt_arrow
+          (state_name)
+          (state_arrow)
+          (state_name))
+        (state_stmt_arrow
+          (state_name)
+          (state_arrow)
+          (state_name)
+          (state_description))
+        (state_stmt_arrow
+          (state_name)
+          (state_arrow)
+          (state_name)
+          (state_description))
+        (state_division)
+        (state_stmt_arrow
+          (state_name)
+          (state_arrow)
+          (state_name))
+        (state_stmt_arrow
+          (state_name)
+          (state_arrow)
+          (state_name)
+          (state_description))
+        (state_stmt_arrow
+          (state_name)
+          (state_arrow)
+          (state_name)
+          (state_description))
+        (state_division)
+        (state_stmt_arrow
+          (state_name)
+          (state_arrow)
+          (state_name))
+        (state_stmt_arrow
+          (state_name)
+          (state_arrow)
+          (state_name)
+          (state_description))
+        (state_stmt_arrow
+          (state_name)
+          (state_arrow)
+          (state_name)
+          (state_description))))))
+
+==========================
+Direction
+==========================
+
+stateDiagram
+    direction LR
+    [*] --> A
+    A --> B
+    B --> C
+    state B {
+      direction LR
+      a --> b
+    }
+    B --> D
+
+---
+
+(source_file
+  (diagram_state
+    (direction_lr)
+    (state_stmt_arrow
+      (state_name)
+      (state_arrow)
+      (state_name))
+    (state_stmt_arrow
+      (state_name)
+      (state_arrow)
+      (state_name))
+    (state_stmt_arrow
+      (state_name)
+      (state_arrow)
+      (state_name))
+    (state_stmt_composite
+      (state_name)
+      (state_composite_body
+        (direction_lr)
+        (state_stmt_arrow
+          (state_name)
+          (state_arrow)
+          (state_name))))
+    (state_stmt_arrow
+      (state_name)
+      (state_arrow)
+      (state_name))))

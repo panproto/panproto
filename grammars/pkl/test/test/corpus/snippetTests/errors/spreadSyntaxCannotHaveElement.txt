@@ -1,0 +1,38 @@
+===
+errors/spreadSyntaxCannotHaveElement.pkl
+===
+
+local source {
+  1
+  2
+  3
+}
+
+res: Mapping = new {
+  ...source
+}
+
+---
+
+(module
+  (classProperty
+    (modifier)
+    (identifier)
+    (objectBody
+      (objectElement
+        (intLiteralExpr))
+      (objectElement
+        (intLiteralExpr))
+      (objectElement
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (newExpr
+      (objectBody
+        (objectSpread
+          (unqualifiedAccessExpr
+            (identifier)))))))

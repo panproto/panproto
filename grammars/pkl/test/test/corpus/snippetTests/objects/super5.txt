@@ -1,0 +1,69 @@
+===
+objects/super5.pkl
+===
+
+res1 {
+  x = 42
+}
+
+res2 = (res1) {
+  x = (() -> super.x).apply() + 1
+}
+
+res3 = (res2) {
+  x = (() -> (() -> super.x).apply()).apply() + 1
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (additiveExpr
+            (qualifiedAccessExpr
+              (parenthesizedExpr
+                (functionLiteralExpr
+                  (parameterList)
+                  (superAccessExpr
+                    (identifier))))
+              (identifier)
+              (argumentList))
+            (intLiteralExpr))))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (additiveExpr
+            (qualifiedAccessExpr
+              (parenthesizedExpr
+                (functionLiteralExpr
+                  (parameterList)
+                  (qualifiedAccessExpr
+                    (parenthesizedExpr
+                      (functionLiteralExpr
+                        (parameterList)
+                        (superAccessExpr
+                          (identifier))))
+                    (identifier)
+                    (argumentList))))
+              (identifier)
+              (argumentList))
+            (intLiteralExpr)))))))

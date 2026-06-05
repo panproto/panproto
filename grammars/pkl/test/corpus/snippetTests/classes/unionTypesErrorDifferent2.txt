@@ -1,0 +1,52 @@
+===
+classes/unionTypesErrorDifferent2.pkl
+===
+
+class X {
+  a: Boolean|List<Int>(length > 3)
+}
+
+res1 = new X {
+  a = List(1, 2, 3)
+}
+
+---
+
+(module
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (unionType
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (constrainedType
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier))
+                (typeArgumentList
+                  (declaredType
+                    (qualifiedIdentifier
+                      (identifier)))))
+              (comparisonExpr
+                (unqualifiedAccessExpr
+                  (identifier))
+                (intLiteralExpr))))))))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (unqualifiedAccessExpr
+            (identifier)
+            (argumentList
+              (intLiteralExpr)
+              (intLiteralExpr)
+              (intLiteralExpr))))))))

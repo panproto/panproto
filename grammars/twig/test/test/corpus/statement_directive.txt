@@ -1,0 +1,476 @@
+================================================================================
+Set
+================================================================================
+
+{% set foo = 'foo' %}
+
+--------------------------------------------------------------------------------
+
+(template
+  (statement_directive
+    (assignment_statement
+      (keyword)
+      (variable)
+      (string)))
+  (content))
+
+================================================================================
+Several variables set
+================================================================================
+
+{% set foo, bar = 'foo', 'bar' %}
+
+--------------------------------------------------------------------------------
+
+(template
+  (statement_directive
+    (assignment_statement
+      (keyword)
+      (variable)
+      (variable)
+      (string)
+      (string)))
+  (content))
+
+================================================================================
+Block set
+================================================================================
+
+{% set foo %}
+
+--------------------------------------------------------------------------------
+
+(template
+  (statement_directive
+    (assignment_statement
+      (keyword)
+      (variable)))
+  (content))
+
+================================================================================
+Apply
+================================================================================
+
+{% apply upper %}
+    This text becomes uppercase
+{% endapply %}
+
+--------------------------------------------------------------------------------
+
+(template
+  (statement_directive
+    (tag_statement
+      (tag)
+      (variable)))
+  (content)
+  (statement_directive
+    (tag_statement
+      (tag)))
+  (content))
+
+================================================================================
+For
+================================================================================
+
+{% for i in range(1, 3) %}
+    {{ i }},
+{% endfor %}
+
+--------------------------------------------------------------------------------
+
+(template
+  (statement_directive
+    (for_statement
+      (repeat)
+      (variable)
+      (keyword)
+      (function_call
+        (function_identifier)
+        (arguments
+          (argument
+            (argument_value
+              (number)))
+          (argument
+            (argument_value
+              (number)))))))
+  (output_directive
+    (variable))
+  (content)
+  (statement_directive
+    (tag_statement
+      (repeat)))
+  (content))
+
+================================================================================
+if
+================================================================================
+
+{% if users|length > 0 %}
+    <ul>
+    </ul>
+{% endif %}
+
+--------------------------------------------------------------------------------
+
+(template
+  (statement_directive
+    (if_statement
+      (conditional)
+      (binary_expression
+        (variable)
+        (filter
+          (filter_identifier))
+        (operator)
+        (number))))
+  (content)
+  (statement_directive
+    (tag_statement
+      (conditional)))
+  (content))
+
+================================================================================
+Block
+================================================================================
+
+{% block head %}
+  <link rel="stylesheet" href="style.css"/>
+  <title>{% block title %}{% endblock %} - My Webpage</title>
+{% endblock %}
+
+--------------------------------------------------------------------------------
+
+(template
+  (statement_directive
+    (tag_statement
+      (tag)
+      (variable)))
+  (content)
+  (statement_directive
+    (tag_statement
+      (tag)
+      (variable)))
+  (statement_directive
+    (tag_statement
+      (tag)))
+  (content)
+  (statement_directive
+    (tag_statement
+      (tag)))
+  (content))
+
+================================================================================
+extends
+================================================================================
+
+{% extends "base.html" %}
+
+--------------------------------------------------------------------------------
+
+(template
+  (statement_directive
+    (tag_statement
+      (tag)
+      (interpolated_string)))
+  (content))
+
+================================================================================
+Cache
+================================================================================
+
+{% cache "cache key" tags(['cms', 'blog']) %}
+    Some code
+{% endcache %}
+
+--------------------------------------------------------------------------------
+
+(template
+  (statement_directive
+    (tag_statement
+      (tag)
+      (interpolated_string)
+      (function_call
+        (function_identifier)
+        (arguments
+          (argument
+            (argument_value
+              (array
+                (string)
+                (string))))))))
+  (content)
+  (statement_directive
+    (tag_statement
+      (tag)))
+  (content))
+
+================================================================================
+Include
+================================================================================
+
+{% include 'sidebar.html' ignore missing with {'foo': 'bar'} only %}
+
+--------------------------------------------------------------------------------
+
+(template
+  (statement_directive
+    (tag_statement
+      (tag)
+      (string)
+      (attribute)
+      (attribute)
+      (hash
+        (hash_key
+          (string))
+        (hash_value
+          (string)))
+      (attribute)))
+  (content))
+
+================================================================================
+with
+================================================================================
+
+{% with { foo: 42 } only %}
+
+--------------------------------------------------------------------------------
+
+(template
+  (statement_directive
+    (tag_statement
+      (tag)
+      (hash
+        (hash_key
+          (name))
+        (hash_value
+          (number)))
+      (attribute)))
+  (content))
+
+================================================================================
+macro
+================================================================================
+
+{% macro input(name, value, type = "text", size = 20) %}
+
+--------------------------------------------------------------------------------
+
+(template
+  (statement_directive
+    (macro_statement
+      (tag)
+      (method)
+      (parameters
+        (parameter)
+        (parameter)
+        (parameter
+          (interpolated_string))
+        (parameter
+          (number)))))
+  (content))
+
+================================================================================
+import
+================================================================================
+
+{% import "forms.html" as forms %}
+
+--------------------------------------------------------------------------------
+
+(template
+  (statement_directive
+    (import_statement
+      (tag)
+      (interpolated_string)
+      (keyword)
+      (name)))
+  (content))
+
+================================================================================
+from
+================================================================================
+
+{% from "macros.twig" import hello %}
+
+--------------------------------------------------------------------------------
+
+(template
+  (statement_directive
+    (from_statement
+      (tag)
+      (interpolated_string)
+      (keyword)
+      (name)))
+  (content))
+
+================================================================================
+from with as
+================================================================================
+
+{% from 'forms.html' import input as input_field, textarea %}
+
+--------------------------------------------------------------------------------
+
+(template
+  (statement_directive
+    (from_statement
+      (tag)
+      (string)
+      (keyword)
+      (name)
+      (keyword)
+      (name)
+      (name)))
+  (content))
+
+================================================================================
+same as
+================================================================================
+
+{% if foo.attribute is same as(false) %}
+
+--------------------------------------------------------------------------------
+
+(template
+  (statement_directive
+    (if_statement
+      (conditional)
+      (test_expression
+        (variable)
+        (operator)
+        (test)
+        (arguments
+          (argument
+            (argument_value
+              (boolean)))))))
+  (content))
+
+================================================================================
+constant
+================================================================================
+
+{% if post.status is constant('PUBLISHED', post) %}
+
+--------------------------------------------------------------------------------
+
+(template
+  (statement_directive
+    (if_statement
+      (conditional)
+      (test_expression
+        (variable)
+        (operator)
+        (test)
+        (arguments
+          (argument
+            (argument_value
+              (string)))
+          (argument
+            (argument_value
+              (variable)))))))
+  (content))
+
+================================================================================
+empty
+================================================================================
+
+{% if foo is not empty %}
+
+--------------------------------------------------------------------------------
+
+(template
+  (statement_directive
+    (if_statement
+      (conditional)
+      (test_expression
+        (variable)
+        (operator)
+        (test))))
+  (content))
+
+================================================================================
+test and binary
+================================================================================
+
+{% if prototype is defined and not prototype.rendered %}
+
+--------------------------------------------------------------------------------
+
+(template
+  (statement_directive
+    (if_statement
+      (conditional)
+      (test_expression
+        (variable)
+        (operator)
+        (test)
+        (binary_operator)
+        (unary_expression
+          (operator)
+          (variable)))))
+  (content))
+
+================================================================================
+multiple for
+================================================================================
+
+{% for group_label, choice in options %}
+
+--------------------------------------------------------------------------------
+
+(template
+  (statement_directive
+    (for_statement
+      (repeat)
+      (variable)
+      (variable)
+      (keyword)
+      (variable)))
+  (content))
+
+================================================================================
+Empty string
+================================================================================
+
+{% set foo = '' %}
+
+--------------------------------------------------------------------------------
+
+(template
+  (statement_directive
+    (assignment_statement
+      (keyword)
+      (variable)
+      (string)))
+  (content))
+
+================================================================================
+Empty interpolated string
+================================================================================
+
+{% set foo = "" %}
+
+--------------------------------------------------------------------------------
+
+(template
+  (statement_directive
+    (assignment_statement
+      (keyword)
+      (variable)
+      (interpolated_string)))
+  (content))
+
+================================================================================
+Empty interpolated string w/ expression
+================================================================================
+
+{% set foo = "test: #{test}" %}
+
+--------------------------------------------------------------------------------
+
+(template
+  (statement_directive
+    (assignment_statement
+      (keyword)
+      (variable)
+      (interpolated_string
+        (variable))))
+  (content))

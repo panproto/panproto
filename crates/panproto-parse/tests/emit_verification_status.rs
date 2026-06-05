@@ -94,11 +94,11 @@ fn verified_for_quivers_javascript_backend() {
 /// no per-language test in panproto's suite. The API must report
 /// `Generic` so downstream tooling can opt into the safety check.
 #[test]
-#[cfg(feature = "lang-haskell")]
-fn generic_for_untested_haskell() {
+#[cfg(feature = "lang-ruby")]
+fn generic_for_untested_ruby() {
     let reg = ParserRegistry::new();
     assert_eq!(
-        reg.emit_verification_status("haskell"),
+        reg.emit_verification_status("ruby"),
         EmitVerificationStatus::Generic
     );
 }

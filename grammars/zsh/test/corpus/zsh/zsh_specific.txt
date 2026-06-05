@@ -1,0 +1,83 @@
+==================================================
+subprocess
+==================================================
+
+
+diff =(sort file1) =(sort file2)
+
+----------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (process_substitution
+      (command
+        name: (command_name
+          (word))
+        argument: (word)))
+    argument: (process_substitution
+      (command
+        name: (command_name
+          (word))
+        argument: (word)))))
+
+==================================================
+array expand
+==================================================
+
+echo ${array[(i)pattern]}
+
+----------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (expansion
+      name: (simple_variable_name)
+      flags: (zsh_array_subscript_flags)
+      index: (word))))
+
+==================================================
+test with globs
+==================================================
+
+[[ foo.txt == *.txt(#qN) ]]
+
+----------
+
+(program
+  (test_command
+    (binary_expression
+      left: (word)
+      right: (glob_pattern
+        qualifier: (zsh_glob_qualifier)))))
+
+==================================================
+newer than
+==================================================
+
+[[ file1 -nt file2 ]]
+
+----------
+
+(program
+  (test_command
+    (binary_expression
+      left: (word)
+      operator: (test_operator)
+      right: (word))))
+
+==================================================
+local array declare
+==================================================
+
+local -a array
+
+----------
+
+(program
+  (declaration_command
+    argument: (word)
+    argument: (word)))

@@ -1,0 +1,159 @@
+================================================================================
+TableRelation with semicolon inside #if branch (Pattern 1: else if in preproc)
+================================================================================
+
+table 1 T
+{
+    fields
+    {
+        field(1; F; Code[20])
+        {
+            TableRelation = if (Type = const(Item)) Item
+                else if (Type = const(Resource)) Resource
+#if BC24
+                else if (Type = const("Alloc")) "Alloc Account" where("Account Type" = const(Fixed));
+#else
+                ELSE IF (Type = CONST("Alloc")) "G/L Account";
+#endif
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (code_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (table_relation_expression
+            (if_table_relation
+              (where_conditions
+                (where_condition
+                  field: (identifier)
+                  value: (identifier)))
+              then_relation: (simple_table_relation
+                table: (identifier))
+              else_relation: (table_relation_expression
+                (if_table_relation
+                  (where_conditions
+                    (where_condition
+                      field: (identifier)
+                      value: (identifier)))
+                  then_relation: (simple_table_relation
+                    table: (identifier))))))
+          value: (preproc_conditional_table_relation
+            (preproc_if
+              (preproc_open)
+              condition: (identifier))
+            (else_table_relation_fragment
+              else_relation: (table_relation_expression
+                (if_table_relation
+                  (where_conditions
+                    (where_condition
+                      field: (identifier)
+                      value: (quoted_identifier)))
+                  then_relation: (simple_table_relation
+                    table: (quoted_identifier)
+                    (where_clause
+                      (where_conditions
+                        (where_condition
+                          field: (quoted_identifier)
+                          value: (identifier))))))))
+            (preproc_else)
+            (else_table_relation_fragment
+              else_relation: (table_relation_expression
+                (if_table_relation
+                  (where_conditions
+                    (where_condition
+                      field: (identifier)
+                      value: (quoted_identifier)))
+                  then_relation: (simple_table_relation
+                    table: (quoted_identifier)))))
+            (preproc_endif
+              (preproc_close))))))))
+
+================================================================================
+TableRelation with semicolon inside #if branch (Pattern 2: else before preproc)
+================================================================================
+
+table 1 T
+{
+    fields
+    {
+        field(1; F; Code[20])
+        {
+            TableRelation = if (Type = const(Item)) Item
+                else
+#if BC24
+                if (Type = const("Alloc")) "Alloc Account" where("Account Type" = const(Fixed));
+#else
+                IF (Type = CONST("Alloc")) "G/L Account";
+#endif
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (code_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (if_table_relation
+            (where_conditions
+              (where_condition
+                field: (identifier)
+                value: (identifier)))
+            then_relation: (simple_table_relation
+              table: (identifier))
+            else_relation: (table_relation_expression
+              (preproc_conditional_table_relation
+                (preproc_if
+                  (preproc_open)
+                  condition: (identifier))
+                (table_relation_expression
+                  (if_table_relation
+                    (where_conditions
+                      (where_condition
+                        field: (identifier)
+                        value: (quoted_identifier)))
+                    then_relation: (simple_table_relation
+                      table: (quoted_identifier)
+                      (where_clause
+                        (where_conditions
+                          (where_condition
+                            field: (quoted_identifier)
+                            value: (identifier)))))))
+                (preproc_else)
+                (table_relation_expression
+                  (if_table_relation
+                    (where_conditions
+                      (where_condition
+                        field: (identifier)
+                        value: (quoted_identifier)))
+                    then_relation: (simple_table_relation
+                      table: (quoted_identifier))))
+                (preproc_endif
+                  (preproc_close))))))))))

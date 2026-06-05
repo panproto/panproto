@@ -1,0 +1,298 @@
+================================================================================
+If statement
+================================================================================
+
+if (x > 0) { y; }
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (if_statement
+    condition: (expression
+      (chuck_expression
+        (arrow_expression
+          (decl_expression
+            (conditional_expression
+              (logical_or_expression
+                (logical_and_expression
+                  (bitwise_or_expression
+                    (bitwise_xor_expression
+                      (bitwise_and_expression
+                        (equality_expression
+                          (relational_expression
+                            (relational_expression
+                              (shift_expression
+                                (additive_expression
+                                  (multiplicative_expression
+                                    (tilda_expression
+                                      (cast_expression
+                                        (unary_expression
+                                          (dur_expression
+                                            (postfix_expression
+                                              (identifier))))))))))
+                            (shift_expression
+                              (additive_expression
+                                (multiplicative_expression
+                                  (tilda_expression
+                                    (cast_expression
+                                      (unary_expression
+                                        (dur_expression
+                                          (postfix_expression
+                                            (int_literal)))))))))))))))))))))
+    consequence: (code_segment
+      (expression_statement
+        (expression
+          (chuck_expression
+            (arrow_expression
+              (decl_expression
+                (conditional_expression
+                  (logical_or_expression
+                    (logical_and_expression
+                      (bitwise_or_expression
+                        (bitwise_xor_expression
+                          (bitwise_and_expression
+                            (equality_expression
+                              (relational_expression
+                                (shift_expression
+                                  (additive_expression
+                                    (multiplicative_expression
+                                      (tilda_expression
+                                        (cast_expression
+                                          (unary_expression
+                                            (dur_expression
+                                              (postfix_expression
+                                                (identifier)))))))))))))))))))))))))
+
+================================================================================
+While loop
+================================================================================
+
+while (true) { 1::second => now; }
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (while_statement
+    condition: (expression
+      (chuck_expression
+        (arrow_expression
+          (decl_expression
+            (conditional_expression
+              (logical_or_expression
+                (logical_and_expression
+                  (bitwise_or_expression
+                    (bitwise_xor_expression
+                      (bitwise_and_expression
+                        (equality_expression
+                          (relational_expression
+                            (shift_expression
+                              (additive_expression
+                                (multiplicative_expression
+                                  (tilda_expression
+                                    (cast_expression
+                                      (unary_expression
+                                        (dur_expression
+                                          (postfix_expression
+                                            (identifier)))))))))))))))))))))
+    body: (code_segment
+      (expression_statement
+        (expression
+          (chuck_expression
+            left: (chuck_expression
+              (arrow_expression
+                (decl_expression
+                  (conditional_expression
+                    (logical_or_expression
+                      (logical_and_expression
+                        (bitwise_or_expression
+                          (bitwise_xor_expression
+                            (bitwise_and_expression
+                              (equality_expression
+                                (relational_expression
+                                  (shift_expression
+                                    (additive_expression
+                                      (multiplicative_expression
+                                        (tilda_expression
+                                          (cast_expression
+                                            (unary_expression
+                                              (dur_expression
+                                                (dur_expression
+                                                  (postfix_expression
+                                                    (int_literal)))
+                                                (postfix_expression
+                                                  (identifier))))))))))))))))))))
+            operator: (chuck_operator)
+            right: (arrow_expression
+              (decl_expression
+                (conditional_expression
+                  (logical_or_expression
+                    (logical_and_expression
+                      (bitwise_or_expression
+                        (bitwise_xor_expression
+                          (bitwise_and_expression
+                            (equality_expression
+                              (relational_expression
+                                (shift_expression
+                                  (additive_expression
+                                    (multiplicative_expression
+                                      (tilda_expression
+                                        (cast_expression
+                                          (unary_expression
+                                            (dur_expression
+                                              (postfix_expression
+                                                (identifier)))))))))))))))))))))))))
+
+================================================================================
+For loop
+================================================================================
+
+for (0 => int i; i < 10; i++) { }
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (for_statement
+    initializer: (expression_statement
+      (expression
+        (chuck_expression
+          left: (chuck_expression
+            (arrow_expression
+              (decl_expression
+                (conditional_expression
+                  (logical_or_expression
+                    (logical_and_expression
+                      (bitwise_or_expression
+                        (bitwise_xor_expression
+                          (bitwise_and_expression
+                            (equality_expression
+                              (relational_expression
+                                (shift_expression
+                                  (additive_expression
+                                    (multiplicative_expression
+                                      (tilda_expression
+                                        (cast_expression
+                                          (unary_expression
+                                            (dur_expression
+                                              (postfix_expression
+                                                (int_literal))))))))))))))))))))
+          operator: (chuck_operator)
+          right: (arrow_expression
+            (decl_expression
+              (variable_declaration
+                (type_decl
+                  (type_decl_a
+                    (id_dot
+                      (identifier))))
+                (var_decl_list
+                  (var_decl
+                    name: (identifier)))))))))
+    condition: (expression_statement
+      (expression
+        (chuck_expression
+          (arrow_expression
+            (decl_expression
+              (conditional_expression
+                (logical_or_expression
+                  (logical_and_expression
+                    (bitwise_or_expression
+                      (bitwise_xor_expression
+                        (bitwise_and_expression
+                          (equality_expression
+                            (relational_expression
+                              (relational_expression
+                                (shift_expression
+                                  (additive_expression
+                                    (multiplicative_expression
+                                      (tilda_expression
+                                        (cast_expression
+                                          (unary_expression
+                                            (dur_expression
+                                              (postfix_expression
+                                                (identifier))))))))))
+                              (shift_expression
+                                (additive_expression
+                                  (multiplicative_expression
+                                    (tilda_expression
+                                      (cast_expression
+                                        (unary_expression
+                                          (dur_expression
+                                            (postfix_expression
+                                              (int_literal))))))))))))))))))))))
+    update: (expression
+      (chuck_expression
+        (arrow_expression
+          (decl_expression
+            (conditional_expression
+              (logical_or_expression
+                (logical_and_expression
+                  (bitwise_or_expression
+                    (bitwise_xor_expression
+                      (bitwise_and_expression
+                        (equality_expression
+                          (relational_expression
+                            (shift_expression
+                              (additive_expression
+                                (multiplicative_expression
+                                  (tilda_expression
+                                    (cast_expression
+                                      (unary_expression
+                                        (dur_expression
+                                          (postfix_expression
+                                            (postfix_expression
+                                              (identifier))))))))))))))))))))))
+    body: (code_segment)))
+
+================================================================================
+Repeat loop
+================================================================================
+
+repeat (5) { x; }
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (loop_statement
+    count: (expression
+      (chuck_expression
+        (arrow_expression
+          (decl_expression
+            (conditional_expression
+              (logical_or_expression
+                (logical_and_expression
+                  (bitwise_or_expression
+                    (bitwise_xor_expression
+                      (bitwise_and_expression
+                        (equality_expression
+                          (relational_expression
+                            (shift_expression
+                              (additive_expression
+                                (multiplicative_expression
+                                  (tilda_expression
+                                    (cast_expression
+                                      (unary_expression
+                                        (dur_expression
+                                          (postfix_expression
+                                            (int_literal)))))))))))))))))))))
+    body: (code_segment
+      (expression_statement
+        (expression
+          (chuck_expression
+            (arrow_expression
+              (decl_expression
+                (conditional_expression
+                  (logical_or_expression
+                    (logical_and_expression
+                      (bitwise_or_expression
+                        (bitwise_xor_expression
+                          (bitwise_and_expression
+                            (equality_expression
+                              (relational_expression
+                                (shift_expression
+                                  (additive_expression
+                                    (multiplicative_expression
+                                      (tilda_expression
+                                        (cast_expression
+                                          (unary_expression
+                                            (dur_expression
+                                              (postfix_expression
+                                                (identifier)))))))))))))))))))))))))

@@ -1,0 +1,136 @@
+===
+basic/constModifier3.pkl
+===
+
+const function foo(num: Int(isBetween(0, 32))): Int = num
+const function foo2(num: Int(this.isBetween(0, 32))): Int = num
+const function foo3(str: String(length > 5)): String = str
+const function foo4(str: String(this.length > 5)): String = str
+
+
+res = foo(25)
+res2 = foo2(26)
+res3 = foo3("hihihi")
+res4 = foo4("hihihi")
+
+---
+
+(module
+  (classMethod
+    (methodHeader
+      (modifier)
+      (identifier)
+      (parameterList
+        (typedIdentifier
+          (identifier)
+          (typeAnnotation
+            (constrainedType
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))
+              (unqualifiedAccessExpr
+                (identifier)
+                (argumentList
+                  (intLiteralExpr)
+                  (intLiteralExpr)))))))
+      (typeAnnotation
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))))
+    (unqualifiedAccessExpr
+      (identifier)))
+  (classMethod
+    (methodHeader
+      (modifier)
+      (identifier)
+      (parameterList
+        (typedIdentifier
+          (identifier)
+          (typeAnnotation
+            (constrainedType
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))
+              (qualifiedAccessExpr
+                (thisExpr)
+                (identifier)
+                (argumentList
+                  (intLiteralExpr)
+                  (intLiteralExpr)))))))
+      (typeAnnotation
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))))
+    (unqualifiedAccessExpr
+      (identifier)))
+  (classMethod
+    (methodHeader
+      (modifier)
+      (identifier)
+      (parameterList
+        (typedIdentifier
+          (identifier)
+          (typeAnnotation
+            (constrainedType
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))
+              (comparisonExpr
+                (unqualifiedAccessExpr
+                  (identifier))
+                (intLiteralExpr))))))
+      (typeAnnotation
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))))
+    (unqualifiedAccessExpr
+      (identifier)))
+  (classMethod
+    (methodHeader
+      (modifier)
+      (identifier)
+      (parameterList
+        (typedIdentifier
+          (identifier)
+          (typeAnnotation
+            (constrainedType
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))
+              (comparisonExpr
+                (qualifiedAccessExpr
+                  (thisExpr)
+                  (identifier))
+                (intLiteralExpr))))))
+      (typeAnnotation
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))))
+    (unqualifiedAccessExpr
+      (identifier)))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList
+        (slStringLiteralExpr
+          (slStringLiteralPart))))))

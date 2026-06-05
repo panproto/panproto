@@ -1,0 +1,136 @@
+================================================================================
+Page extension with IntegrationEvent attributed procedure
+================================================================================
+
+pageextension 6085592 "CDC General Ledger Entries" extends "General Ledger Entries"
+{
+    local procedure CDCFilterDocument(var Document: Record "CDC Document"; TableNo: Integer; DocumentType: Option; DocumentNo: Code[20])
+    begin
+        Document.SetRange("Created Doc. Table No.", TableNo);
+    end;
+
+    [IntegrationEvent(false, false)]
+    local procedure CDCOnUpdateCaptureUIOnElseCase(GLEntry: Record "G/L Entry"; var Document: Record "CDC Document"; var CDCHasDCDocument: Boolean)
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pageextension_declaration
+    (pageextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)
+    (procedure
+      modifier: (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier))))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type)))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (option_type)))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (code_type
+              length: (integer)))))
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (member_expression
+            object: (identifier)
+            member: (identifier))
+          arguments: (argument_list
+            (quoted_identifier)
+            (identifier)))
+        (end_keyword)))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (boolean)
+            (boolean)))))
+    (procedure
+      modifier: (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier))))
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier))))
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))
+
+================================================================================
+Page extension with EventSubscriber attributed procedure
+================================================================================
+
+pageextension 54321 "Test Page Extension" extends "Test Base Page"
+{
+    [EventSubscriber(ObjectType::Codeunit, 1520, 'OnAddWorkflowEventsToLibrary', '', true, false)]
+    local procedure HandleWorkflowEvents()
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pageextension_declaration
+    (pageextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (qualified_enum_value
+              enum_type: (identifier)
+              value: (identifier))
+            (integer)
+            (string_literal)
+            (string_literal)
+            (boolean)
+            (boolean)))))
+    (procedure
+      modifier: (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))

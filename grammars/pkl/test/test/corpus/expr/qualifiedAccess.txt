@@ -1,0 +1,102 @@
+===
+qualifiedAccess
+===
+
+res1 = foo.bar
+
+res2 = foo
+  .bar
+
+res3 = foo.bar()
+
+res4 = foo
+  .bar()
+
+res5 = foo?.bar
+
+res6 = foo
+  ?.bar
+
+res7 = foo?.bar()
+
+res8 = foo
+  ?.bar()
+
+res10 = foo.bar
+
+res11 = "foo" + List("bar").join("")
+---
+
+(module
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)))
+  (classProperty
+    (identifier)
+    (additiveExpr
+      (slStringLiteralExpr
+        (slStringLiteralPart))
+      (qualifiedAccessExpr
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList
+            (slStringLiteralExpr
+              (slStringLiteralPart))))
+        (identifier)
+        (argumentList
+          (slStringLiteralExpr))))))

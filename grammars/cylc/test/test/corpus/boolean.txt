@@ -1,0 +1,54 @@
+================================================================================
+boolean
+================================================================================
+
+[section]
+    end = True
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (boolean))))
+
+================================================================================
+boolean followed by whitespaces
+================================================================================
+
+[section]
+    end = True    
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (boolean))))
+
+================================================================================
+boolean followed by comment
+================================================================================
+
+[section]
+    end = True # yes
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (boolean)
+      (comment))))

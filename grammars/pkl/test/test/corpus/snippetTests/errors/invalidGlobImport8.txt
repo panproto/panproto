@@ -1,0 +1,22 @@
+===
+errors/invalidGlobImport8.pkl
+===
+
+import* "../../input-helper/globtest/**.pkl" as globbedImports
+
+res: globbedImports.Foo
+
+---
+
+(module
+  (importGlobClause
+    (stringConstant
+      (slStringLiteralPart))
+    (identifier))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)
+          (identifier))))))

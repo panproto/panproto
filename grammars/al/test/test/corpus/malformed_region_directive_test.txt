@@ -1,0 +1,28 @@
+================================================================================
+Correct region directive syntax
+================================================================================
+
+codeunit 50100 "Test"
+{
+    #region TODO: This is correct
+    procedure Test()
+    begin
+    end;
+    #endregion
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (preproc_region)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (preproc_endregion)))

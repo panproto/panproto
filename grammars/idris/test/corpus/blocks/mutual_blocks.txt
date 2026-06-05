@@ -1,0 +1,30 @@
+================================================================================
+Declaration Order and mutual blocks
+================================================================================
+
+mutual
+  even : Nat -> Bool
+
+  odd : Nat -> Bool
+
+--------------------------------------------------------------------------------
+
+(idris
+  (mutual
+    (mutual_body
+      (signature
+        (loname)
+        (colon)
+        (exp_name
+          (caname))
+        (arrow_separator)
+        (exp_name
+          (caname)))
+      (signature
+        (loname)
+        (colon)
+        (exp_name
+          (caname))
+        (arrow_separator)
+        (exp_name
+          (caname))))))

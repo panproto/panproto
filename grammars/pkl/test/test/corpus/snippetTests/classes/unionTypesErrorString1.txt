@@ -1,0 +1,43 @@
+===
+classes/unionTypesErrorString1.pkl
+===
+
+class X {
+  a: "foo" | "bar" | "baz"
+}
+
+res1 = new X {
+  a = "foox"
+}
+
+---
+
+(module
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (unionType
+            (unionType
+              (stringLiteralType
+                (stringConstant
+                  (slStringLiteralPart)))
+              (stringLiteralType
+                (stringConstant
+                  (slStringLiteralPart))))
+            (stringLiteralType
+              (stringConstant
+                (slStringLiteralPart))))))))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart)))))))

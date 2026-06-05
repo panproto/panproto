@@ -1,0 +1,65 @@
+============
+Hello World
+============
+
+|0100 ( init )
+
+	;hello-word ;print-text JSR2
+
+BRK
+
+@print-text ( str* -- )
+
+	&while
+		( send ) LDAk #18 DEO
+		( loop ) INC2 LDAk ,&while JCN
+	POP2
+
+JMP2r
+
+@hello-word "Hello 20 "World! 00
+
+---
+
+(program
+  (memory_execution
+    (absolute_pad_operation
+      (number))
+    (comment)
+    (rune
+      (rune_char)
+      (identifier))
+    (rune
+      (rune_char)
+      (identifier))
+    (opcode)
+    (opcode))
+  (subroutine
+    (label
+      (identifier))
+    (comment)
+    (rune
+      (rune_char)
+      (identifier))
+    (comment)
+    (opcode)
+    (hex_literal
+      (hex_lit_value))
+    (opcode)
+    (comment)
+    (opcode)
+    (opcode)
+    (rune
+      (rune_char)
+      (rune_char)
+      (identifier))
+    (opcode)
+    (opcode)
+    (opcode))
+  (subroutine
+    (label
+      (identifier))
+    (raw_ascii)
+    (number)
+    (raw_ascii)
+    (number)))

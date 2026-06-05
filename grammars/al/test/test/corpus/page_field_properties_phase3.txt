@@ -1,0 +1,64 @@
+==================
+Page Field Properties Phase 3 - High Priority
+==================
+
+page 50005 "Test Field Properties Phase 3"
+{
+    PageType = Card;
+    SourceTable = Customer;
+
+    layout
+    {
+        area(content)
+        {
+            field(Price; Rec.Price) 
+            { 
+                DecimalPlaces = 2:5;
+                LookupPageId = "Price List";
+                OptionCaption = 'Low,Medium,High';
+                TableRelation = Item."No.";
+            }
+        }
+    }
+}
+
+---
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (identifier))
+          (property
+            name: (property_name)
+            value: (decimal_range_value
+              min: (integer)
+              max: (integer)))
+          (property
+            name: (property_name)
+            value: (quoted_identifier))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (table_relation_value
+              (table_relation_expression
+                (simple_table_relation
+                  table: (identifier)
+                  table: (quoted_identifier))))))))))

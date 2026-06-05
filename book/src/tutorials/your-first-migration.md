@@ -37,7 +37,7 @@ const v2 = proto.schema()
   .build();
 ```
 
-The only change: `age` is renamed to `years` (a structural rename of both vertex id and edge name). We deliberately keep this minimal — adding a *new* required field with no v1 source would make `lift` produce records that do not satisfy v2, which the existence check would flag in Step 4.
+The only change: `age` is renamed to `years` (a structural rename of both vertex id and edge name). We deliberately keep this minimal: adding a *new* required field with no v1 source would make `lift` produce records that do not satisfy v2, which the existence check would flag in Step 4.
 
 ## Step 2: declare the migration
 
@@ -58,7 +58,7 @@ const builder = p.migration(v1, v2)
 const mig = builder.compile();
 ```
 
-`MigrationBuilder` is fluent: `.map(srcVertex, tgtVertex)` aligns vertices and `.mapEdge(srcEdge, tgtEdge)` aligns edges. Vertex mappings alone are not enough — without the edge maps the lift drops every field and you get back `{}`. `.compile()` returns a `CompiledMigration` exposing `.lift()`, `.get()`, and `.put()` (a migration is a lens). For value-level transforms that compute one field from another, reach for the lens DSL or `panproto-lens-dsl` from the SDK.
+`MigrationBuilder` is fluent: `.map(srcVertex, tgtVertex)` aligns vertices and `.mapEdge(srcEdge, tgtEdge)` aligns edges. Vertex mappings alone are not enough: without the edge maps the lift drops every field and you get back `{}`. `.compile()` returns a `CompiledMigration` exposing `.lift()`, `.get()`, and `.put()` (a migration is a lens). For value-level transforms that compute one field from another, reach for the lens DSL or `panproto-lens-dsl` from the SDK.
 
 ## Step 3: classify the change
 
@@ -71,7 +71,7 @@ console.log('non-breaking changes:', report.nonBreakingChanges);
 
 `Panproto.diffFull(old, new)` returns a `FullDiffReport`; calling `.classify(protocol)` returns a `CompatReport` with three booleans (`isCompatible`, `isBackwardCompatible`, `isBreaking`) and two arrays (`breakingChanges`, `nonBreakingChanges`). For human-readable output call `report.toText()`; for a machine-readable summary `report.toJson()`.
 
-For this rename, `isCompatible` is `false`: the diff classifies the removal of `user.age`/edge `age` as breaking, even though the migration we declared explicitly carries the field forward under a new name. The classifier looks only at the structural diff, not at the migration mapping — so a "rename" between schemas registers as a removal plus an addition. Whether that is a problem for *your* downstream consumers depends on whether they have been told about the migration.
+For this rename, `isCompatible` is `false`: the diff classifies the removal of `user.age`/edge `age` as breaking, even though the migration we declared explicitly carries the field forward under a new name. The classifier looks only at the structural diff, not at the migration mapping, so a "rename" between schemas registers as a removal plus an addition. Whether that is a problem for *your* downstream consumers depends on whether they have been told about the migration.
 
 ## Step 4: check before you lift
 
@@ -84,7 +84,7 @@ if (!existence.valid) {
 }
 ```
 
-`Panproto.checkExistence(src, tgt, builder)` runs the existence-condition test: for every required v2 field, is the mapping populated from a v1 source? It returns an `ExistenceReport` with `valid: boolean` and `errors: ExistenceError[]`. Each error is a serde-tagged object — for example `{ "RequiredFieldMissing": { "vertex": "user", "field": "name" } }` — so inspect them as structured data rather than expecting a `message` string. Inspect `valid` before lifting; an invalid report means the lift will produce data that does not satisfy the v2 schema.
+`Panproto.checkExistence(src, tgt, builder)` runs the existence-condition test: for every required v2 field, is the mapping populated from a v1 source? It returns an `ExistenceReport` with `valid: boolean` and `errors: ExistenceError[]`. Each error is a serde-tagged object (for example `{ "RequiredFieldMissing": { "vertex": "user", "field": "name" } }`), so inspect them as structured data rather than expecting a `message` string. Inspect `valid` before lifting; an invalid report means the lift will produce data that does not satisfy the v2 schema.
 
 ## Step 5: lift the data
 

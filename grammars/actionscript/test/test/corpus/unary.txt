@@ -1,0 +1,150 @@
+===
+pos
+===
+
+a = +a;
+
+---
+
+(program
+    (expression_statement (assignment_expression
+        (identifier)
+        (unary_expression (identifier)))
+    )
+)
+
+===
+inv
+===
+
+a = -a;
+
+---
+
+(program
+    (expression_statement (assignment_expression
+        (identifier)
+        (unary_expression (identifier)))
+    )
+)
+
+===
+not
+===
+
+a = !a;
+
+---
+
+(program
+    (expression_statement (assignment_expression
+        (identifier)
+        (unary_expression (identifier)))
+    )
+)
+
+===
+neg
+===
+
+a = -a;
+
+---
+
+(program
+    (expression_statement (assignment_expression
+        (identifier)
+        (unary_expression (identifier)))
+    )
+)
+
+======
+delete
+======
+
+delete a[0];
+
+---
+
+(program
+    (expression_statement
+        (unary_expression (subscript_expression (identifier) (number)))
+    )
+)
+
+======
+typeof
+======
+
+typeof "Hello, World";
+
+---
+
+(program
+    (expression_statement
+        (unary_expression (string))
+    )
+)
+
+====
+void
+====
+
+void [1];
+
+---
+
+
+(program
+    (expression_statement
+        (unary_expression (array (number)))
+    )
+)
+
+===
+inc
+===
+
+i++;
+
+---
+
+(program
+    (expression_statement (update_expression (identifier)))
+)
+
+===
+dec
+===
+
+i--;
+
+---
+
+(program
+    (expression_statement (update_expression (identifier)))
+)
+
+====
+binc
+====
+
+++i;
+
+---
+
+(program
+    (expression_statement (update_expression (identifier)))
+)
+
+====
+bdec
+====
+
+--i;
+
+---
+
+(program
+    (expression_statement (update_expression (identifier)))
+)

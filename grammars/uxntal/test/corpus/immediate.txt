@@ -1,0 +1,23 @@
+================
+Immediate Runes
+================
+
+|0000
+
+!&acc
+
+?routine
+
+---
+
+(program
+  (memory_execution
+    (absolute_pad_operation
+      (number))
+    (rune
+      (rune_char)
+      (rune_char)
+      (identifier))
+    (rune
+      (rune_char)
+      (identifier))))

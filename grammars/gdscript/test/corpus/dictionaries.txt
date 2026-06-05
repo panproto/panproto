@@ -1,0 +1,66 @@
+===============================
+Lua-style dicts: identifier key
+===============================
+
+{ key = "value" }
+
+---
+
+(source
+  (expression_statement
+    (dictionary
+      (pair
+        (identifier)
+        (string)))))
+
+===========================
+Lua-style dicts: string key
+===========================
+
+{ "key" = "value" }
+
+---
+
+(source
+  (expression_statement
+    (dictionary
+      (pair
+        (string)
+        (string)))))
+
+============================
+Lua-style dicts: nested dict
+============================
+
+var players: Dictionary = {
+	"1" = {
+		name = "Player1",
+		health = 75,
+		armor = 35,
+	},
+	"2" = {
+		name = "Player2",
+		health = 100,
+		armor = 25,
+	}
+}
+
+---
+
+(source
+  (variable_statement
+    name: (name)
+    type: (type (identifier))
+    value: (dictionary
+      (pair
+        left: (string)
+        value: (dictionary
+          (pair left: (identifier) value: (string))
+          (pair left: (identifier) value: (integer))
+          (pair left: (identifier) value: (integer))))
+      (pair
+        left: (string)
+        value: (dictionary
+          (pair left: (identifier) value: (string))
+          (pair left: (identifier) value: (integer))
+          (pair left: (identifier) value: (integer)))))))

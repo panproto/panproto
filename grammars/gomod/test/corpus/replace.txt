@@ -1,0 +1,75 @@
+==================
+Replace directive
+==================
+
+replace golang.org/x/net v1.2.3 => example.com/fork/net v1.4.5
+
+---
+
+(source_file
+  (replace_directive
+    (replace_spec
+      (module_path)
+      (version)
+      (module_path)
+      (version))))
+
+==================
+Replace directive parens
+==================
+
+
+replace (
+    golang.org/x/net v1.2.3 => example.com/fork/net v1.4.5
+    golang.org/x/net => example.com/fork/net v1.4.5
+    golang.org/x/net v1.2.3 => ./fork/net
+    golang.org/x/net => ./fork/net
+)
+
+---
+
+(source_file
+  (replace_directive
+    (replace_spec
+      (module_path)
+      (version)
+      (module_path)
+      (version))
+    (replace_spec
+      (module_path)
+      (module_path)
+      (version))
+    (replace_spec
+      (module_path)
+      (version)
+      (file_path))
+    (replace_spec
+      (module_path)
+      (file_path))))
+
+==================
+Comments in block
+==================
+
+replace (
+	 //comment1
+    golang.org/x/net v1.2.3 => example.com/fork/net v1.4.5
+	 // comment2
+    golang.org/x/net => example.com/fork/net v1.4.5
+)
+
+---
+
+(source_file
+  (replace_directive
+    (comment)
+    (replace_spec
+      (module_path)
+      (version)
+      (module_path)
+      (version))
+    (comment)
+    (replace_spec
+      (module_path)
+      (module_path)
+      (version))))

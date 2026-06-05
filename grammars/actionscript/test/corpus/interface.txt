@@ -1,0 +1,89 @@
+=====
+empty
+=====
+
+interface A {
+
+}
+
+---
+
+(program
+    (interface_declaration (identifier))
+)
+
+================
+with inheritance
+================
+
+interface A extends B, C {
+
+}
+
+---
+
+(program
+    (interface_declaration
+        (identifier)
+        (identifier)
+        (identifier)
+    )
+)
+
+===========
+simple body
+===========
+
+interface A {
+    function set helloWorld(): void;
+}
+
+---
+
+(program
+    (interface_declaration
+        (identifier)
+        (method_declaration 
+            (accessor)
+            (identifier)
+            (type_hint (identifier))
+        )
+    )
+)
+
+=============
+with attribut
+=============
+
+public interface A {
+
+}
+
+---
+
+
+(program
+    (interface_declaration
+        (interface_attribut)
+        (identifier)
+    )
+)
+
+===============
+with annotation
+===============
+
+[ExcludeClass]
+public interface A {
+
+}
+
+---
+
+(program
+    (interface_declaration
+        (annotation (identifier))
+        (interface_attribut)
+        (identifier)
+    )
+)

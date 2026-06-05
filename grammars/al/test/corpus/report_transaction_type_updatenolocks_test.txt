@@ -1,0 +1,106 @@
+================================================================================
+Report with TransactionType UpdateNoLocks
+================================================================================
+
+report 50100 "Test Report"
+{
+    ProcessingOnly = true;
+    TransactionType = UpdateNoLocks;
+
+    dataset
+    {
+        dataitem(Item; Item)
+        {
+            trigger OnAfterGetRecord()
+            begin
+                Message('Processing');
+            end;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (trigger_declaration
+          (trigger_keyword)
+          name: (identifier)
+          (code_block
+            (begin_keyword)
+            (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (string_literal)))
+            (end_keyword)))))))
+
+================================================================================
+Report with various TransactionType values
+================================================================================
+
+report 50101 "Various Transaction Types"
+{
+    TransactionType = Update;
+}
+
+report 50102 "Snapshot Report"
+{
+    TransactionType = Snapshot;
+}
+
+report 50103 "Browse Report"
+{
+    TransactionType = Browse;
+}
+
+report 50104 "Case Insensitive"
+{
+    TransactionType = updateNoLocks;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier)))
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier)))
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier)))
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))))

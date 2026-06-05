@@ -1,0 +1,68 @@
+===
+basic/constModifier5.pkl
+===
+
+class MyClass {
+  const prop = trace("hello")
+
+  const prop2: Int(let (_ = trace("hello again")) true) = 1
+
+  res: Int
+}
+
+a = new MyClass { res = 1 }
+b = (a) { res = 2 }
+
+---
+
+(module
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (modifier)
+        (identifier)
+        (traceExpr
+          (slStringLiteralExpr
+            (slStringLiteralPart))))
+      (classProperty
+        (modifier)
+        (identifier)
+        (typeAnnotation
+          (constrainedType
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (letExpr
+              (blankIdentifier)
+              (traceExpr
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))
+              (trueLiteralExpr))))
+        (intLiteralExpr))
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (intLiteralExpr)))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (intLiteralExpr))))))

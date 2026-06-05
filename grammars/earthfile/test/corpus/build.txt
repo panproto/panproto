@@ -1,0 +1,242 @@
+==================
+build command
+==================
+
+foo:
+  BUILD +build
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (build_command
+            (target_ref
+              name: (identifier))))))
+
+
+==================
+build command with options
+==================
+
+foo:
+  BUILD \
+    --platform=linux/amd64 \
+    --platform linux/arm64 \
+    +build
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (build_command
+            (line_continuation)
+            options: (options
+              (platform
+                value: (string
+                  (unquoted_string)))
+              (line_continuation)
+              (platform
+                value: (string
+                  (unquoted_string))))
+            (line_continuation)
+            (target_ref
+              name: (identifier))))))
+
+
+==================
+build command with expansions
+==================
+
+foo:
+  BUILD \
+    --platform=linux/$arch \
+    --platform $os/arm64 \
+    +build-$bar
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (build_command
+            (line_continuation)
+            options: (options
+              (platform
+                value: (string
+                  (unquoted_string
+                    (expansion
+                      (variable)))))
+              (line_continuation)
+              (platform
+                value: (string
+                  (unquoted_string
+                    (expansion
+                      (variable))))))
+            (line_continuation)
+            (string
+              (unquoted_string
+                (expansion
+                  (variable))))))))
+
+
+==================
+build command with bracket expansions
+==================
+
+foo:
+  BUILD \
+    --platform=linux/${arch}64 \
+    --platform ${os_arch}64 \
+    +${bar}
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (build_command
+            (line_continuation)
+            options: (options
+              (platform
+                value: (string
+                  (unquoted_string
+                    (expansion
+                      (variable)))))
+              (line_continuation)
+              (platform
+                value: (string
+                  (unquoted_string
+                    (expansion
+                      (variable))))))
+            (line_continuation)
+            (string
+              (unquoted_string
+                (expansion
+                  (variable))))))))
+
+
+==================
+build command with shell expansions
+==================
+
+foo:
+  BUILD \
+    --platform=linux/$(cat /arch)64 \
+    --platform $(cat /os_arch)64 \
+    +$(bar)
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (build_command
+            (line_continuation)
+            options: (options
+              (platform
+                value: (string
+                  (unquoted_string
+                    (expansion
+                      (shell_fragment)))))
+              (line_continuation)
+              (platform
+                value: (string
+                  (unquoted_string
+                    (expansion
+                      (shell_fragment))))))
+            (line_continuation)
+            (string
+              (unquoted_string
+                (expansion
+                  (shell_fragment))))))))
+
+
+==================
+build command with target expansion
+==================
+
+foo:
+  BUILD ${target}
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (build_command
+            (string
+              (unquoted_string
+                (expansion
+                  (variable))))))))
+
+
+==================
+build command with target shell expansion
+==================
+
+foo:
+  BUILD $(cat /target)
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (build_command
+            (string
+              (unquoted_string
+                (expansion
+                  (shell_fragment))))))))
+
+
+==================
+build command deprecated build arg
+==================
+
+foo:
+  BUILD --build-arg foo=bar +foo
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (build_command
+            options: (options
+              (build_arg_deprecated
+                value: (string
+                  (unquoted_string))))
+            (target_ref
+              name: (identifier))))))
+
+
+==================
+build command with empty build arg
+==================
+
+foo:
+  BUILD +build --foo=
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (build_command
+            (target_ref
+              name: (identifier))
+            (build_args
+              (build_arg
+                name: (variable)))))))
+

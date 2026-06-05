@@ -1,0 +1,31 @@
+================================================================================
+Procedures
+================================================================================
+
+proc foo {arg1 arg2} {
+    echo "hello"
+    echo "word$hi \$bye word"
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (procedure
+    (simple_word)
+    (arguments
+      (argument
+        (simple_word))
+      (argument
+        (simple_word)))
+    (braced_word
+      (command
+        (simple_word)
+        (word_list
+          (quoted_word)))
+      (command
+        (simple_word)
+        (word_list
+          (quoted_word
+            (variable_substitution
+              (id))
+            (escaped_character)))))))

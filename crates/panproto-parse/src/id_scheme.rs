@@ -139,7 +139,7 @@ impl IdGenerator {
     ///
     /// Walker pattern:
     ///
-    /// ```ignore
+    /// ```text
     /// let leaf = id_gen.record_name("foo");
     /// let vertex_id = format!("{}::{leaf}", id_gen.current_prefix());
     /// // … emit vertex, edges, constraints …

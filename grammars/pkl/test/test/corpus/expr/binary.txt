@@ -1,0 +1,107 @@
+===
+binary
+===
+
+exprs {
+  1 as Int
+  1 is Int
+  1 == 1
+  1 != 1
+  1 && 1
+  1 || 1
+  1 |> 1
+  1 >= 2
+  1 <= 2
+  1 > 2
+  1 < 2
+  1 * 2
+  1 / 2
+  1 ~/ 2
+  1 ** 2
+  1 % 2
+  1 + 2
+  1 - 2
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectElement
+        (typeCastExpr
+          (intLiteralExpr)
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))
+      (objectElement
+        (typeTestExpr
+          (intLiteralExpr)
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))
+      (objectElement
+        (equalityExpr
+          (intLiteralExpr)
+          (intLiteralExpr)))
+      (objectElement
+        (equalityExpr
+          (intLiteralExpr)
+          (intLiteralExpr)))
+      (objectElement
+        (logicalAndExpr
+          (intLiteralExpr)
+          (intLiteralExpr)))
+      (objectElement
+        (logicalOrExpr
+          (intLiteralExpr)
+          (intLiteralExpr)))
+      (objectElement
+        (pipeExpr
+          (intLiteralExpr)
+          (intLiteralExpr)))
+      (objectElement
+        (comparisonExpr
+          (intLiteralExpr)
+          (intLiteralExpr)))
+      (objectElement
+        (comparisonExpr
+          (intLiteralExpr)
+          (intLiteralExpr)))
+      (objectElement
+        (comparisonExpr
+          (intLiteralExpr)
+          (intLiteralExpr)))
+      (objectElement
+        (comparisonExpr
+          (intLiteralExpr)
+          (intLiteralExpr)))
+      (objectElement
+        (multiplicativeExpr
+          (intLiteralExpr)
+          (intLiteralExpr)))
+      (objectElement
+        (multiplicativeExpr
+          (intLiteralExpr)
+          (intLiteralExpr)))
+      (objectElement
+        (multiplicativeExpr
+          (intLiteralExpr)
+          (intLiteralExpr)))
+      (objectElement
+        (exponentiationExpr
+          (intLiteralExpr)
+          (intLiteralExpr)))
+      (objectElement
+        (multiplicativeExpr
+          (intLiteralExpr)
+          (intLiteralExpr)))
+      (objectElement
+        (additiveExpr
+          (intLiteralExpr)
+          (intLiteralExpr)))
+      (objectElement
+        (additiveExpr
+          (intLiteralExpr)
+          (intLiteralExpr))))))

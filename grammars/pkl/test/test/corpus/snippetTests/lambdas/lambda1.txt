@@ -1,0 +1,85 @@
+===
+lambdas/lambda1.pkl
+===
+
+local constant = () -> "abc"
+
+res1 = constant.apply()
+
+local even = (x) -> x % 2 == 0
+
+res2 = even.apply(10)
+res3 = even.apply(11)
+
+local mult = (x, y) -> x * y
+
+res4 = mult.apply(2, 3)
+---
+
+(module
+  (classProperty
+    (modifier)
+    (identifier)
+    (functionLiteralExpr
+      (parameterList)
+      (slStringLiteralExpr
+        (slStringLiteralPart))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList)))
+  (classProperty
+    (modifier)
+    (identifier)
+    (functionLiteralExpr
+      (parameterList
+        (typedIdentifier
+          (identifier)))
+      (equalityExpr
+        (multiplicativeExpr
+          (unqualifiedAccessExpr
+            (identifier))
+          (intLiteralExpr))
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (intLiteralExpr))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (functionLiteralExpr
+      (parameterList
+        (typedIdentifier
+          (identifier))
+        (typedIdentifier
+          (identifier)))
+      (multiplicativeExpr
+        (unqualifiedAccessExpr
+          (identifier))
+        (unqualifiedAccessExpr
+          (identifier)))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (intLiteralExpr)
+        (intLiteralExpr)))))

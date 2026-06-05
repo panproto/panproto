@@ -1,0 +1,85 @@
+================================================================================
+Codeunit with compound assignment operators
+================================================================================
+
+codeunit 123 "Test Compound Assignment"
+{
+    trigger OnRun()
+    var
+        Counter: Integer;
+        Total: Decimal;
+        Message: Text;
+    begin
+        Counter += 1;
+        Counter -= 2;
+        Total *= 3.5;
+        Total /= 2;
+        Message += 'Hello';
+        
+        // Compound assignment with expressions
+        Counter += (5 + 3);
+        Total += GetValue();
+        Message += FormatValue(Counter);
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type)))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type)))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (text_type))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (identifier)
+          right: (integer))
+        (assignment_statement
+          left: (identifier)
+          right: (integer))
+        (assignment_statement
+          left: (identifier)
+          right: (decimal))
+        (assignment_statement
+          left: (identifier)
+          right: (integer))
+        (assignment_statement
+          left: (identifier)
+          right: (string_literal))
+        (comment)
+        (assignment_statement
+          left: (identifier)
+          right: (parenthesized_expression
+            (additive_expression
+              left: (integer)
+              right: (integer))))
+        (assignment_statement
+          left: (identifier)
+          right: (call_expression
+            function: (identifier)
+            arguments: (argument_list)))
+        (assignment_statement
+          left: (identifier)
+          right: (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (identifier))))
+        (end_keyword)))))

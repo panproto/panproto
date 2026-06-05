@@ -1,0 +1,226 @@
+========================================================================
+Phase 5: Attributes on table fields
+========================================================================
+
+table 50100 TestTable
+{
+    fields
+    {
+        [ExternalName('ID')]
+        field(1; "No."; Code[20])
+        {
+        }
+
+        [Mandatory]
+        field(2; Name; Text[100])
+        {
+        }
+    }
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (fields_section
+      (fields_keyword)
+      (attribute_item
+        attribute: (attribute_content
+          name: (identifier)
+          arguments: (attribute_arguments
+            (attribute_argument_list
+              (string_literal)))))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (code_type
+            length: (integer))))
+      (attribute_item
+        attribute: (attribute_content
+          name: (identifier)))
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))))))
+
+========================================================================
+Phase 5: Attributes on procedure parameters
+========================================================================
+
+codeunit 50101 TestCodeunit
+{
+    procedure Test(
+        [Mandatory] Param1: Integer;
+        [Optional] Param2: Text)
+    begin
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (attribute_item
+          attribute: (attribute_content
+            name: (identifier)))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type)))
+        (attribute_item
+          attribute: (attribute_content
+            name: (identifier)))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (text_type))))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))
+
+========================================================================
+Phase 5: Attributes on enum values
+========================================================================
+
+enum 50100 MyEnum
+{
+    [Caption('First Value')]
+    value(0; First)
+    {
+    }
+
+    [Caption('Second Value')]
+    value(1; Second)
+    {
+    }
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (enum_declaration
+    (enum_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (string_literal)))))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (string_literal)))))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier))))
+
+========================================================================
+Phase 5: Multiple attributes on enum value
+========================================================================
+
+enum 50101 StatusEnum
+{
+    [Caption('Active')]
+    [Default]
+    value(0; Active) { }
+
+    [Caption('Inactive')]
+    value(1; Inactive) { }
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (enum_declaration
+    (enum_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (string_literal)))))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (string_literal)))))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier))))
+
+========================================================================
+Phase 5: Attributes on modified fields in table extension
+========================================================================
+
+tableextension 50100 MyTableExt extends Customer
+{
+    fields
+    {
+        [Editable(false)]
+        modify("No.")
+        {
+        }
+
+        [Visible(false)]
+        modify(Name)
+        {
+        }
+    }
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (tableextension_declaration
+    (tableextension_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (extends_keyword)
+    base_object: (identifier)
+    (fields_section
+      (fields_keyword)
+      (attribute_item
+        attribute: (attribute_content
+          name: (identifier)
+          arguments: (attribute_arguments
+            (attribute_argument_list
+              (boolean)))))
+      (modify_modification
+        target: (quoted_identifier))
+      (attribute_item
+        attribute: (attribute_content
+          name: (identifier)
+          arguments: (attribute_arguments
+            (attribute_argument_list
+              (boolean)))))
+      (modify_modification
+        target: (identifier)))))

@@ -1,0 +1,26 @@
+===
+generators/duplicateDefinition3.pkl
+===
+
+x {
+  when (true) { y = 1 }
+  when (true) { y = 2 }
+}
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (whenGenerator
+        (trueLiteralExpr)
+        (objectBody
+          (objectProperty
+            (identifier)
+            (intLiteralExpr))))
+      (whenGenerator
+        (trueLiteralExpr)
+        (objectBody
+          (objectProperty
+            (identifier)
+            (intLiteralExpr)))))))

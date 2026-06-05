@@ -1,0 +1,18 @@
+===
+errors/functionNotFoundMaybeProperty.pkl
+===
+
+prop = 42
+call = prop()
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (intLiteralExpr))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList))))

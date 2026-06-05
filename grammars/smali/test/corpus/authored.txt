@@ -1,0 +1,111 @@
+==================
+minimal class
+==================
+
+.class public LHello;
+.super Ljava/lang/Object;
+
+----
+
+(source_file)
+
+==================
+class with source directive
+==================
+
+.class public final LFoo;
+.super Ljava/lang/Object;
+.source "Foo.java"
+
+----
+
+(source_file)
+
+==================
+class with field
+==================
+
+.class public LConfig;
+.super Ljava/lang/Object;
+
+.field public static count:I
+
+----
+
+(source_file)
+
+==================
+class with field initializer
+==================
+
+.class public LConstants;
+.super Ljava/lang/Object;
+
+.field public static final MAX:I = 0x64
+
+----
+
+(source_file)
+
+==================
+class with method
+==================
+
+.class public LMath;
+.super Ljava/lang/Object;
+
+.method public static add(II)I
+    .registers 3
+    add-int v0, p0, p1
+    return v0
+.end method
+
+----
+
+(source_file)
+
+==================
+constructor method
+==================
+
+.class public LWidget;
+.super Ljava/lang/Object;
+
+.method public constructor <init>()V
+    .registers 1
+    invoke-direct {p0}, Ljava/lang/Object;-><init>()V
+    return-void
+.end method
+
+----
+
+(source_file)
+
+==================
+class implementing interface
+==================
+
+.class public LRunner;
+.super Ljava/lang/Object;
+.implements Ljava/lang/Runnable;
+
+----
+
+(source_file)
+
+==================
+method with const and move
+==================
+
+.class public LCounter;
+.super Ljava/lang/Object;
+
+.method public getValue()I
+    .locals 1
+    const v0, 0x2a
+    return v0
+.end method
+
+----
+
+(source_file)

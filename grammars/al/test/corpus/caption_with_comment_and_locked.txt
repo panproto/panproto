@@ -1,0 +1,110 @@
+================================================================================
+Caption property with Comment and Locked parameters
+================================================================================
+
+table 123 "Test Table"
+{
+    Caption = 'Test Table';
+    
+    fields
+    {
+        field(1; "Simple Field"; Text[50])
+        {
+            Caption = 'Simple Caption';
+        }
+        
+        field(2; "Field with Comment"; Text[50])
+        {
+            Caption = 'Field Caption', Comment = 'This is a translation note';
+        }
+        
+        field(3; "Field with Locked"; Text[50])
+        {
+            Caption = 'Locked Caption', Locked = true;
+        }
+        
+        field(4; "Field with Both"; Text[50])
+        {
+            Caption = 'Both Caption', Comment = 'Translation comment', Locked = false;
+        }
+        
+        field(5; "Another Order"; Text[50])
+        {
+            Caption = 'Another Caption', Locked = true, Comment = 'Comment after locked';
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (string_literal)))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (caption_value
+            (string_literal)
+            (property_name)
+            (string_literal))))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (caption_value
+            (string_literal)
+            (property_name)
+            (boolean))))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (caption_value
+            (string_literal)
+            (property_name)
+            (string_literal)
+            (property_name)
+            (boolean))))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (caption_value
+            (string_literal)
+            (property_name)
+            (boolean)
+            (property_name)
+            (string_literal)))))))

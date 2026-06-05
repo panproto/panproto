@@ -1,0 +1,132 @@
+================================================================================
+promql docs - 1
+================================================================================
+
+sum by (app, proc) (
+  instance_memory_limit_bytes - instance_memory_usage_bytes
+) / 1024 / 1024
+
+--------------------------------------------------------------------------------
+
+(query
+  (binary_expression
+    (binary_expression
+      (function_call
+        (function_name)
+        (grouping
+          (label_name)
+          (label_name))
+        (function_args
+          (binary_expression
+            (instant_vector_selector
+              (metric_name))
+            (instant_vector_selector
+              (metric_name)))))
+      (float_literal))
+    (float_literal)))
+
+================================================================================
+promql docs - 2
+================================================================================
+
+topk(3, sum by (app, proc) (rate(instance_cpu_time_ns[5m])))
+
+--------------------------------------------------------------------------------
+
+(query
+  (function_call
+    (function_name)
+    (function_args
+      (float_literal)
+      (function_call
+        (function_name)
+        (grouping
+          (label_name)
+          (label_name))
+        (function_args
+          (function_call
+            (function_name)
+            (function_args
+              (range_vector_selector
+                (metric_name)
+                (range_selection)))))))))
+
+================================================================================
+misc - 1
+================================================================================
+
+count_over_time
+(
+  some_metric
+  {
+    foo="bar",
+  }[1h]
+) > 1
+
+--------------------------------------------------------------------------------
+
+(query
+  (binary_expression
+    (function_call
+      (function_name)
+      (function_args
+        (range_vector_selector
+          (metric_name)
+          (label_selectors
+            (label_matcher
+              (label_name)
+              (label_value)))
+          (range_selection))))
+    (float_literal)))
+
+================================================================================
+misc - 2
+================================================================================
+
+stddev by
+(
+  foo
+)
+(
+  rate
+  (
+    some_metric[5m]
+  )
+) / avg by
+(
+  foo
+)
+(
+  rate
+  (
+    some_metric[5m]
+  )
+) > 0.1
+--------------------------------------------------------------------------------
+
+(query
+  (binary_expression
+    (binary_expression
+      (function_call
+        (function_name)
+        (grouping
+          (label_name))
+        (function_args
+          (function_call
+            (function_name)
+            (function_args
+              (range_vector_selector
+                (metric_name)
+                (range_selection))))))
+      (function_call
+        (function_name)
+        (grouping
+          (label_name))
+        (function_args
+          (function_call
+            (function_name)
+            (function_args
+              (range_vector_selector
+                (metric_name)
+                (range_selection)))))))
+    (float_literal)))

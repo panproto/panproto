@@ -1,0 +1,12 @@
+===
+classes/externalClass.pkl
+===
+
+external class Foo
+
+---
+
+(module
+  (clazz
+    (modifier)
+    (identifier)))

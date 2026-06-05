@@ -1,0 +1,71 @@
+================================================================================
+Page extension with views section
+================================================================================
+
+pageextension 50000 "Test Views" extends "User List"
+{
+    views
+    {
+        addafter(ActiveUsers)
+        {
+            view(EssentialUsers)
+            {
+                Caption = 'Essential Users';
+                Filters = where("Has Essential Plan" = const(true));
+                Visible = true;
+            }
+            view(PremiumUsers)
+            {
+                Caption = 'Premium Users';
+                Filters = where("Has Premium Plan" = const(true));
+                Visible = IsSaaS;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pageextension_declaration
+    (pageextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)
+    (views_section
+      (views_keyword)
+      (addafter_views_modification
+        target: (identifier)
+        (view_definition
+          (view_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (where_clause
+              (where_conditions
+                (where_condition
+                  field: (quoted_identifier)
+                  value: (boolean)))))
+          (property
+            name: (property_name)
+            value: (boolean)))
+        (view_definition
+          (view_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (where_clause
+              (where_conditions
+                (where_condition
+                  field: (quoted_identifier)
+                  value: (boolean)))))
+          (property
+            name: (property_name)
+            value: (identifier)))))))

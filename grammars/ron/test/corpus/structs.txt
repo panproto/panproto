@@ -1,0 +1,273 @@
+================================================================================
+Empty () is a struct
+================================================================================
+()
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (struct
+    (unit_struct)))
+
+
+================================================================================
+Empty struct with name
+================================================================================
+SomeStruct()
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (struct
+    (struct_name
+      (identifier))))
+
+
+================================================================================
+A simple struct
+================================================================================
+( foo: 1.0, bar: ( baz: "I'm nested" ) )
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (struct
+    (struct_entry
+      (identifier)
+      (float))
+    (struct_entry
+      (identifier)
+      (struct
+        (struct_entry
+          (identifier)
+          (string))))))
+
+
+================================================================================
+Anonymous struct with mixed types and comments
+================================================================================
+(
+    // some fields
+    some_escaped_string: "abc\"\n",
+    chars: ['e', '\n'],
+    integer: 1,
+    hex_integer: 0xFF,
+    binary_integer: 0b0110,
+    /* a block comment */
+    a_boolean: true,
+    a_float: 1.1234,
+    a_NEGATIVE_float: -10.1,
+    another_boolean: false, // another comment
+)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (struct
+    (line_comment)
+    (struct_entry
+      (identifier)
+      (string
+        (escape_sequence)
+        (escape_sequence)))
+    (struct_entry
+      (identifier)
+      (array
+        (char)
+        (char
+          (escape_sequence))))
+    (struct_entry
+      (identifier)
+      (integer))
+    (struct_entry
+      (identifier)
+      (integer))
+    (struct_entry
+      (identifier)
+      (integer))
+    (block_comment)
+    (struct_entry
+      (identifier)
+      (boolean))
+    (struct_entry
+      (identifier)
+      (float))
+    (struct_entry
+      (identifier)
+      (negative
+        (float)))
+    (struct_entry
+      (identifier)
+      (boolean))
+    (line_comment)))
+
+================================================================================
+GameConfig struct used as an example in repo ron-rs/ron
+================================================================================
+GameConfig( // optional struct name
+    window_size: (800, 600),
+    window_title: "PAC-MAN",
+    fullscreen: false,
+
+    mouse_sensitivity: 1.4,
+    key_bindings: {
+        "up": Up,
+        "down": Down,
+        "left": Left,
+        "right": Right,
+
+        // Uncomment to enable WASD controls
+        /*
+        "W": Up,
+        "A": Down,
+        "S": Left,
+        "D": Right,
+        */
+    },
+
+    difficulty_options: (
+        start_difficulty: Easy,
+        adaptive: false,
+    ),
+)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (struct
+    (struct_name
+      (identifier))
+    (line_comment)
+    (struct_entry
+      (identifier)
+      (tuple
+        (integer)
+        (integer)))
+    (struct_entry
+      (identifier)
+      (string))
+    (struct_entry
+      (identifier)
+      (boolean))
+    (struct_entry
+      (identifier)
+      (float))
+    (struct_entry
+      (identifier)
+      (map
+        (map_entry
+          (string)
+          (enum_variant
+            (identifier)))
+        (map_entry
+          (string)
+          (enum_variant
+            (identifier)))
+        (map_entry
+          (string)
+          (enum_variant
+            (identifier)))
+        (map_entry
+          (string)
+          (enum_variant
+            (identifier)))
+        (line_comment)
+        (block_comment)))
+    (struct_entry
+      (identifier)
+      (struct
+        (struct_entry
+          (identifier)
+          (enum_variant
+            (identifier)))
+        (struct_entry
+          (identifier)
+          (boolean))))))
+
+================================================================================
+Scene struct used as an example in repo ron-rs/ron
+================================================================================
+
+Scene( // class name is optional
+    materials: { // this is a map
+        "metal": (
+            reflectivity: 1.0,
+        ),
+        "plastic": (
+            reflectivity: 0.5,
+        ),
+    },
+    entities: [ // this is an array
+        (
+            name: "hero",
+            material: "metal",
+        ),
+        (
+            name: "monster",
+            material: "plastic",
+        ),
+    ],
+)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (struct
+    (struct_name
+      (identifier))
+    (line_comment)
+    (struct_entry
+      (identifier)
+      (map
+        (line_comment)
+        (map_entry
+          (string)
+          (struct
+            (struct_entry
+              (identifier)
+              (float))))
+        (map_entry
+          (string)
+          (struct
+            (struct_entry
+              (identifier)
+              (float))))))
+    (struct_entry
+      (identifier)
+      (array
+        (line_comment)
+        (struct
+          (struct_entry
+            (identifier)
+            (string))
+          (struct_entry
+            (identifier)
+            (string)))
+        (struct
+          (struct_entry
+            (identifier)
+            (string))
+          (struct_entry
+            (identifier)
+            (string)))))))
+
+
+================================================================================
+Scene struct used as an example in repo ron-rs/ron
+================================================================================
+
+Some(Comment(token: "// "))
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (struct
+    (struct_name
+      (identifier))
+    (tuple
+      (struct
+        (struct_name
+          (identifier))
+        (struct_entry
+          (identifier)
+          (string))))))

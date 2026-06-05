@@ -3773,6 +3773,155 @@ mod tests {
         );
     }
 
+    /// Build a nested `root --(intermediate)--> intermediate --(leaf)--> leaf`
+    /// schema, mirroring protolab's `nested_schema` helper. Both edges are
+    /// `prop` edges whose name equals the target vertex id.
+    fn nested_schema(
+        root: &str,
+        intermediate: &str,
+        leaf: &str,
+        leaf_kind: &str,
+    ) -> panproto_schema::Schema {
+        use std::collections::HashMap;
+        let mut vertices: HashMap<GatName, Vertex> = HashMap::new();
+        let mut edges: HashMap<SchemaEdge, GatName> = HashMap::new();
+        let mut outgoing: HashMap<GatName, smallvec::SmallVec<SchemaEdge, 4>> = HashMap::new();
+        let mut incoming: HashMap<GatName, smallvec::SmallVec<SchemaEdge, 4>> = HashMap::new();
+        let mut between: HashMap<(GatName, GatName), smallvec::SmallVec<SchemaEdge, 2>> =
+            HashMap::new();
+
+        for (id, kind) in [
+            (root, "object"),
+            (intermediate, "object"),
+            (leaf, leaf_kind),
+        ] {
+            vertices.insert(
+                GatName::from(id),
+                Vertex {
+                    id: id.into(),
+                    kind: kind.into(),
+                    nsid: None,
+                },
+            );
+        }
+
+        let mut add_edge = |src: &str, tgt: &str, name: &str| {
+            let e = SchemaEdge {
+                src: GatName::from(src),
+                tgt: GatName::from(tgt),
+                kind: "prop".into(),
+                name: Some(GatName::from(name)),
+            };
+            outgoing
+                .entry(GatName::from(src))
+                .or_default()
+                .push(e.clone());
+            incoming
+                .entry(GatName::from(tgt))
+                .or_default()
+                .push(e.clone());
+            between
+                .entry((GatName::from(src), GatName::from(tgt)))
+                .or_default()
+                .push(e.clone());
+            edges.insert(e, GatName::from("prop"));
+        };
+        add_edge(root, intermediate, intermediate);
+        add_edge(intermediate, leaf, leaf);
+
+        panproto_schema::Schema {
+            protocol: format!("test-{root}"),
+            vertices,
+            edges,
+            hyper_edges: HashMap::new(),
+            constraints: HashMap::new(),
+            required: HashMap::new(),
+            nsids: HashMap::new(),
+            variants: HashMap::new(),
+            orderings: HashMap::new(),
+            recursion_points: HashMap::new(),
+            spans: HashMap::new(),
+            usage_modes: HashMap::new(),
+            nominal: HashMap::new(),
+            coercions: HashMap::new(),
+            mergers: HashMap::new(),
+            defaults: HashMap::new(),
+            policies: HashMap::new(),
+            entries: vec![GatName::from(root)],
+            outgoing,
+            incoming,
+            between,
+        }
+    }
+
+    #[test]
+    fn hoist_field_get_put_json_round_trip_restores_nested_record() {
+        // Regression for the protolab `hoist_field_round_trip_unmodified_recovers_input`
+        // failure: hoisting `name` out of `profile` under `user`, then `put`,
+        // must restore `{"profile":{"name":"Alice"}}` byte-for-byte. The
+        // 0.52.0 first-class `Value::List` change exposed a latent `put`
+        // double-arc bug that made the reconstructed `profile` record
+        // serialize as a duplicated 2-element list `["Alice","Alice"]`.
+        //
+        // This locks the panproto-level contract: `get` then `put` on the
+        // hoist lens reproduces the source instance, and serializing that
+        // source yields the original nested JSON exactly.
+        use crate::asymmetric;
+        use panproto_inst::parse::{parse_json, to_json};
+
+        let source = nested_schema("user", "profile", "name", "string");
+        let protocol = test_protocol();
+        let chain = super::combinators::hoist_field("user", "profile", "name");
+        let lens = chain
+            .instantiate(&source, &protocol)
+            .expect("hoist chain instantiate");
+
+        let input: serde_json::Value = serde_json::json!({"profile": {"name": "Alice"}});
+        let instance = parse_json(&source, "user", &input).expect("parse input");
+
+        let (view, complement) = asymmetric::get(&lens, &instance).expect("get");
+        let restored = asymmetric::put(&lens, &view, &complement).expect("put");
+
+        let restored_json = to_json(&source, &restored);
+        assert_eq!(
+            restored_json, input,
+            "hoist get/put must restore the source JSON byte-for-byte, got {restored_json}"
+        );
+        assert!(
+            restored_json["profile"].is_object(),
+            "restored profile must be a JSON object (record), not a list: {restored_json}"
+        );
+        assert_eq!(restored_json["profile"]["name"], serde_json::json!("Alice"));
+    }
+
+    #[test]
+    fn hoist_field_put_then_json_does_not_listify_record() {
+        // Tighter variant that exercises the exact get/put path (no
+        // view re-parse) and inspects the JSON shape of the dropped sort.
+        use crate::asymmetric;
+        use panproto_inst::parse::{parse_json, to_json};
+
+        let source = nested_schema("user", "profile", "name", "string");
+        let protocol = test_protocol();
+        let chain = super::combinators::hoist_field("user", "profile", "name");
+        let lens = chain
+            .instantiate(&source, &protocol)
+            .expect("hoist chain instantiate");
+
+        let input: serde_json::Value = serde_json::json!({"profile": {"name": "Alice"}});
+        let instance = parse_json(&source, "user", &input).expect("parse input");
+
+        let (view, complement) = asymmetric::get(&lens, &instance).expect("get");
+        let restored = asymmetric::put(&lens, &view, &complement).expect("put");
+        let restored_json = to_json(&source, &restored);
+
+        assert!(
+            restored_json["profile"].is_object(),
+            "dropped `profile` sort must reconstruct as a record, not a Value::List: {restored_json}"
+        );
+        assert_eq!(restored_json["profile"]["name"], serde_json::json!("Alice"));
+    }
+
     #[test]
     fn drop_edge_schema_apply_rebuilds_indices() {
         // Build a tiny 2-vertex schema with a single named edge and

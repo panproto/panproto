@@ -1,0 +1,45 @@
+===
+modules/日本語.pkl
+===
+
+日本語 = "Japanese language"
+readOne = read("日本語.pkl").text
+readGlob = read*("./日*.pkl").keys
+importOne = import("日本語.pkl").readOne
+importGlob = import*("./日*.pkl").keys
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (readExpr
+        (slStringLiteralExpr
+          (slStringLiteralPart)))
+      (identifier)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (readExpr
+        (slStringLiteralExpr
+          (slStringLiteralPart)))
+      (identifier)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (importExpr
+        (stringConstant
+          (slStringLiteralPart)))
+      (identifier)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (importExpr
+        (stringConstant
+          (slStringLiteralPart)))
+      (identifier))))

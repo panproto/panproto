@@ -70,6 +70,7 @@ impl ProtocolCodec for crate::xml_codec::XmlCodec {}
 #[allow(deprecated)]
 impl ProtocolCodec for crate::tabular_codec::TabularCodec {}
 impl ProtocolCodec for crate::annotation::conllu::ConlluCodec {}
+impl ProtocolCodec for crate::byte_tabular::ByteTabularCodec {}
 
 #[cfg(feature = "tree-sitter")]
 impl ProtocolCodec for crate::unified_codec::UnifiedCodec {
@@ -107,7 +108,7 @@ impl ProtocolCodec for crate::unified_codec::UnifiedCodec {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// let mut registry = ProtocolRegistry::new();
 /// // register protocol codecs...
 ///

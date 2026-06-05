@@ -1,0 +1,375 @@
+===
+api/pListRenderer4.pkl
+===
+
+import "pkl:test"
+
+class Person {
+  name: String
+  age: Int
+}
+
+typealias Email = String
+
+local renderer = new PListRenderer {}
+
+res1 = renderer.renderValue(123)
+res2 = renderer.renderValue(1.23)
+res3 = renderer.renderValue(false)
+res4 = renderer.renderValue("pigeon")
+res6 = renderer.renderValue(List("pigeon", "parrot"))
+res7 = renderer.renderValue(Set("pigeon", "parrot"))
+res8 = renderer.renderValue(Map("name", "pigeon", "age", 42))
+res9 = renderer.renderValue(new Listing { "pigeon"; "parrot" })
+res10 = renderer.renderValue(new Mapping { ["name"] = "pigeon"; ["age"] = 42 })
+res11 = renderer.renderValue(new Dynamic { name = "pigeon"; age = 42 })
+res12 = renderer.renderValue(new Person { name = "pigeon"; age = 42 })
+
+res13 = test.catch(() -> renderer.renderValue(null))
+res14 = test.catch(() -> renderer.renderValue(1.min))
+res15 = test.catch(() -> renderer.renderValue(1.mb))
+res16 = test.catch(() -> renderer.renderValue(Person))
+res17 = test.catch(() -> renderer.renderValue(Email))
+res18 = test.catch(() -> renderer.renderValue((x) -> x))
+res19 = test.catch(() -> new PListRenderer { converters { [Int] = (_) -> throw("ouch") } }.renderValue(42))
+res20 = test.catch(() -> renderer.renderValue(IntSeq(1, 4)))
+
+---
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (typeAlias
+    (identifier)
+    (declaredType
+      (qualifiedIdentifier
+        (identifier))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (floatLiteralExpr))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (falseLiteralExpr))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList
+            (slStringLiteralExpr
+              (slStringLiteralPart))
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList
+            (slStringLiteralExpr
+              (slStringLiteralPart))
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList
+            (slStringLiteralExpr
+              (slStringLiteralPart))
+            (slStringLiteralExpr
+              (slStringLiteralPart))
+            (slStringLiteralExpr
+              (slStringLiteralPart))
+            (intLiteralExpr))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (objectBody
+            (objectElement
+              (slStringLiteralExpr
+                (slStringLiteralPart)))
+            (objectElement
+              (slStringLiteralExpr
+                (slStringLiteralPart))))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (objectBody
+            (objectEntry
+              (slStringLiteralExpr
+                (slStringLiteralPart))
+              (slStringLiteralExpr
+                (slStringLiteralPart)))
+            (objectEntry
+              (slStringLiteralExpr
+                (slStringLiteralPart))
+              (intLiteralExpr)))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (objectBody
+            (objectProperty
+              (identifier)
+              (slStringLiteralExpr
+                (slStringLiteralPart)))
+            (objectProperty
+              (identifier)
+              (intLiteralExpr)))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (objectBody
+            (objectProperty
+              (identifier)
+              (slStringLiteralExpr
+                (slStringLiteralPart)))
+            (objectProperty
+              (identifier)
+              (intLiteralExpr)))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (qualifiedAccessExpr
+            (unqualifiedAccessExpr
+              (identifier))
+            (identifier)
+            (argumentList
+              (nullLiteralExpr)))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (qualifiedAccessExpr
+            (unqualifiedAccessExpr
+              (identifier))
+            (identifier)
+            (argumentList
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (qualifiedAccessExpr
+            (unqualifiedAccessExpr
+              (identifier))
+            (identifier)
+            (argumentList
+              (qualifiedAccessExpr
+                (intLiteralExpr)
+                (identifier))))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (qualifiedAccessExpr
+            (unqualifiedAccessExpr
+              (identifier))
+            (identifier)
+            (argumentList
+              (unqualifiedAccessExpr
+                (identifier))))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (qualifiedAccessExpr
+            (unqualifiedAccessExpr
+              (identifier))
+            (identifier)
+            (argumentList
+              (unqualifiedAccessExpr
+                (identifier))))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (qualifiedAccessExpr
+            (unqualifiedAccessExpr
+              (identifier))
+            (identifier)
+            (argumentList
+              (functionLiteralExpr
+                (parameterList
+                  (typedIdentifier
+                    (identifier)))
+                (unqualifiedAccessExpr
+                  (identifier)))))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (qualifiedAccessExpr
+            (newExpr
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))
+              (objectBody
+                (objectProperty
+                  (identifier)
+                  (objectBody
+                    (objectEntry
+                      (unqualifiedAccessExpr
+                        (identifier))
+                      (functionLiteralExpr
+                        (parameterList
+                          (blankIdentifier))
+                        (throwExpr
+                          (slStringLiteralExpr
+                            (slStringLiteralPart)))))))))
+            (identifier)
+            (argumentList
+              (intLiteralExpr)))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (qualifiedAccessExpr
+            (unqualifiedAccessExpr
+              (identifier))
+            (identifier)
+            (argumentList
+              (unqualifiedAccessExpr
+                (identifier)
+                (argumentList
+                  (intLiteralExpr)
+                  (intLiteralExpr))))))))))

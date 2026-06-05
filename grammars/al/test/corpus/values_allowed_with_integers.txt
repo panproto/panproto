@@ -1,0 +1,308 @@
+================================================================================
+ValuesAllowed with integer and identifier values
+================================================================================
+
+page 123 "Test Page"
+{
+    layout
+    {
+        area(Content)
+        {
+            field(ReservedFromStock; ReservedFromStock)
+            {
+                Caption = 'Reserved from stock';
+                ValuesAllowed = 0, None, Partial;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (option_member_list
+              (option_member
+                (integer))
+              (option_member
+                (identifier))
+              (option_member
+                (identifier)))))))))
+
+================================================================================
+ValuesAllowed with only integers
+================================================================================
+
+page 124 "Integer Values"
+{
+    layout
+    {
+        area(Content)
+        {
+            field(Priority; Priority)
+            {
+                ValuesAllowed = 0, 1, 2, 3;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (signed_integer_list
+              (integer)
+              (integer)
+              (integer)
+              (integer))))))))
+
+================================================================================
+ValuesAllowed with quoted identifiers and integers
+================================================================================
+
+page 125 "Mixed Values"
+{
+    layout
+    {
+        area(Content)
+        {
+            field(Status; Status)
+            {
+                ValuesAllowed = 0, "Open", "In Progress", 99, "Closed";
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (option_member_list
+              (option_member
+                (integer))
+              (option_member
+                (quoted_identifier))
+              (option_member
+                (quoted_identifier))
+              (option_member
+                (integer))
+              (option_member
+                (quoted_identifier)))))))))
+
+================================================================================
+ValuesAllowed in table field
+================================================================================
+
+table 126 "Test Table"
+{
+    fields
+    {
+        field(1; ReservedFromStock; Option)
+        {
+            Caption = 'Reserved from stock';
+            OptionMembers = " ", None, Partial, Full;
+            ValuesAllowed = 0, None, Partial;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (option_type))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (identifier))
+            (option_member
+              (identifier))
+            (option_member
+              (identifier))))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (integer))
+            (option_member
+              (identifier))
+            (option_member
+              (identifier))))))))
+
+================================================================================
+ValuesAllowed with single value
+================================================================================
+
+page 127 "Single Value"
+{
+    layout
+    {
+        area(Content)
+        {
+            field(Active; Active)
+            {
+                ValuesAllowed = 1;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (integer)))))))
+
+================================================================================
+ValuesAllowed with negative integers
+================================================================================
+
+page 128 "Negative Values"
+{
+    layout
+    {
+        area(Content)
+        {
+            field(Balance; Balance)
+            {
+                ValuesAllowed = -1, 0, 1, "Unlimited";
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (option_member_list
+              (option_member
+                (integer))
+              (option_member
+                (integer))
+              (option_member
+                (integer))
+              (option_member
+                (quoted_identifier)))))))))
+
+================================================================================
+ValuesAllowed case insensitive property name
+================================================================================
+
+page 129 "Case Test"
+{
+    layout
+    {
+        area(Content)
+        {
+            field(Type; Type)
+            {
+                valuesallowed = 0, Standard, Custom;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (option_member_list
+              (option_member
+                (integer))
+              (option_member
+                (identifier))
+              (option_member
+                (identifier)))))))))

@@ -1,0 +1,136 @@
+====================
+Linuxize sample file
+====================
+
+# https://linuxize.com/post/using-the-ssh-config-file/
+
+Host targaryen
+    HostName 192.168.1.10
+    User daenerys
+    Port 7654
+    IdentityFile ~/.ssh/targaryen.key
+
+Host tyrell
+    HostName 192.168.10.20
+
+Host martell
+    HostName 192.168.10.50
+
+Host *ell
+    user oberyn
+
+Host * !martell
+    LogLevel INFO
+
+Host *
+    User root
+    Compression yes
+
+-----
+
+(config
+  (comment)
+  (host_declaration
+    (pattern)
+    (parameter
+      (string))
+    (parameter
+      (string))
+    (parameter
+      (number))
+    (parameter
+      (string)))
+  (host_declaration
+    (pattern)
+    (parameter
+      (string)))
+  (host_declaration
+    (pattern)
+    (parameter
+      (string)))
+  (host_declaration
+    (pattern)
+    (parameter
+      (string)))
+  (host_declaration
+    (pattern)
+    (pattern)
+    (parameter
+      (verbosity)))
+  (host_declaration
+    (pattern)
+    (parameter
+      (string))
+    (parameter)))
+
+======================
+Cloudflare sample file
+======================
+
+# https://developers.cloudflare.com/cloudflare-one/identity/users/short-lived-certificates/
+
+Match host vm.example.com exec "/usr/local/bin/cloudflared access ssh-gen --hostname %h"
+    HostName vm.example.com
+    ProxyCommand /usr/local/bin/cloudflared access ssh --hostname %h
+    IdentityFile ~/.cloudflared/vm.example.com-cf_key
+    CertificateFile ~/.cloudflared/vm.example.com-cf_key-cert.pub
+
+----
+
+(config
+  (comment)
+  (match_declaration
+    (condition
+      (pattern))
+    (condition
+      (string
+        (token)))
+    (parameter
+      (string))
+    (parameter
+      (string
+        (token)))
+    (parameter
+      (string))
+    (parameter
+      (pattern))))
+
+======================
+Proxies and Jump Hosts
+======================
+
+# https://en.wikibooks.org/wiki/OpenSSH/Cookbook/Proxies_and_Jump_Hosts
+
+Host server3
+        HostName 192.168.5.38
+        ProxyJump user1@jumphost1.example.org:22,user2@jumphost2.example.org:2222
+        User fred
+
+Match host ipv6only.example.org !exec "route -n get -inet6 %h"
+        ProxyJump dualstack.example.org
+
+-----
+
+(config
+  (comment)
+  (host_declaration
+    argument: (pattern)
+    (parameter
+      argument: (string))
+    (parameter
+      user: (string)
+      host: (string)
+      port: (number)
+      user: (string)
+      host: (string)
+      port: (number))
+    (parameter
+      argument: (string)))
+  (match_declaration
+    (condition
+      argument: (pattern))
+    (condition
+      argument: (string
+        (token)))
+    (parameter
+      host: (string))))

@@ -1,0 +1,11 @@
+===
+basic/baseModule.pkl
+===
+
+foo {}
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody)))

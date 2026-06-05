@@ -1,0 +1,112 @@
+===
+basic/moduleRef3.pkl
+===
+
+extends "moduleRefLibrary.pkl"
+
+const a = 44
+
+m1 = module.a
+
+const b = 43
+
+m2 = module.b
+
+foo {
+  m3 = module.a
+  m4 = module.b
+  local c = () -> module.a
+  m5 = c.apply()
+}
+
+m6 = f()
+
+m7 = new Person {}
+
+function f() = module.a
+
+class Person {
+  age = module.a
+}
+
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (intLiteralExpr))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (moduleExpr)
+      (identifier)))
+  (classProperty
+    (modifier)
+    (identifier)
+    (intLiteralExpr))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (moduleExpr)
+      (identifier)))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (qualifiedAccessExpr
+          (moduleExpr)
+          (identifier)))
+      (objectProperty
+        (identifier)
+        (qualifiedAccessExpr
+          (moduleExpr)
+          (identifier)))
+      (objectProperty
+        (modifier)
+        (identifier)
+        (functionLiteralExpr
+          (parameterList)
+          (qualifiedAccessExpr
+            (moduleExpr)
+            (identifier))))
+      (objectProperty
+        (identifier)
+        (qualifiedAccessExpr
+          (unqualifiedAccessExpr
+            (identifier))
+          (identifier)
+          (argumentList)))))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList)))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody)))
+  (classMethod
+    (methodHeader
+      (identifier)
+      (parameterList))
+    (qualifiedAccessExpr
+      (moduleExpr)
+      (identifier)))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (qualifiedAccessExpr
+          (moduleExpr)
+          (identifier))))))

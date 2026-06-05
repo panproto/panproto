@@ -1,0 +1,212 @@
+================================================================================
+Enum with UnknownValueImplementation property
+================================================================================
+
+namespace Microsoft.EServices.EDocument;
+
+enum 5580 "Digital Voucher Check Type" implements "Digital Voucher Check"
+{
+    Extensible = true;
+
+    DefaultImplementation = "Digital Voucher Check" = "Voucher No Check";
+    UnknownValueImplementation = "Digital Voucher Check" = "Voucher Unknown Check";
+
+    value(0; "No Check")
+    {
+        Caption = 'No Check';
+        Implementation = "Digital Voucher Check" = "Voucher No Check";
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (namespace_declaration
+    (namespace_keyword)
+    name: (namespace_name
+      (identifier)
+      (identifier)
+      (identifier)))
+  (enum_declaration
+    (enum_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (implements_clause
+      (implements_keyword)
+      interface: (quoted_identifier))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (property_expression
+        (comparison_expression
+          left: (quoted_identifier)
+          operator: (comparison_operator)
+          right: (quoted_identifier))))
+    (property
+      name: (property_name)
+      value: (property_expression
+        (comparison_expression
+          left: (quoted_identifier)
+          operator: (comparison_operator)
+          right: (quoted_identifier))))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (quoted_identifier)
+      (property
+        name: (property_name)
+        value: (string_literal))
+      (property
+        name: (property_name)
+        value: (property_expression
+          (comparison_expression
+            left: (quoted_identifier)
+            operator: (comparison_operator)
+            right: (quoted_identifier)))))))
+
+================================================================================
+Multiple enums with UnknownValueImplementation property
+================================================================================
+
+namespace Microsoft.System.Security.Cryptography;
+
+enum 1445 "Symmetric Algorithm" implements "Symmetric Algorithm"
+{
+    Extensible = true;
+    
+    DefaultImplementation = SymmetricAlgorithm = "AesCryptoServiceProvider Impl.";
+    UnknownValueImplementation = SymmetricAlgorithm = "AesCryptoServiceProvider Impl.";
+
+    value(0; Aes)
+    {
+        Caption = 'AES';
+        Implementation = SymmetricAlgorithm = "AesCryptoServiceProvider Impl.";
+    }
+    value(1; DES)
+    {
+        Caption = 'DES';
+        Implementation = SymmetricAlgorithm = "DesCryptoServiceProvider Impl.";
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (namespace_declaration
+    (namespace_keyword)
+    name: (namespace_name
+      (identifier)
+      (identifier)
+      (identifier)
+      (identifier)))
+  (enum_declaration
+    (enum_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (implements_clause
+      (implements_keyword)
+      interface: (quoted_identifier))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (property_expression
+        (comparison_expression
+          left: (identifier)
+          operator: (comparison_operator)
+          right: (quoted_identifier))))
+    (property
+      name: (property_name)
+      value: (property_expression
+        (comparison_expression
+          left: (identifier)
+          operator: (comparison_operator)
+          right: (quoted_identifier))))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier)
+      (property
+        name: (property_name)
+        value: (string_literal))
+      (property
+        name: (property_name)
+        value: (property_expression
+          (comparison_expression
+            left: (identifier)
+            operator: (comparison_operator)
+            right: (quoted_identifier)))))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier)
+      (property
+        name: (property_name)
+        value: (string_literal))
+      (property
+        name: (property_name)
+        value: (property_expression
+          (comparison_expression
+            left: (identifier)
+            operator: (comparison_operator)
+            right: (quoted_identifier)))))))
+
+================================================================================
+UnknownValueImplementation with case variations
+================================================================================
+
+enum 100 TestEnum implements ITestInterface
+{
+    unknownvalueimplementation = ITestInterface = "Default Implementation";
+    
+    value(0; Value1)
+    {
+    }
+}
+
+enum 101 TestEnum2 implements ITestInterface
+{
+    UNKNOWNVALUEIMPLEMENTATION = ITestInterface = "Default Implementation";
+    
+    value(0; Value1)
+    {
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (enum_declaration
+    (enum_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (implements_clause
+      (implements_keyword)
+      interface: (identifier))
+    (property
+      name: (property_name)
+      value: (property_expression
+        (comparison_expression
+          left: (identifier)
+          operator: (comparison_operator)
+          right: (quoted_identifier))))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier)))
+  (enum_declaration
+    (enum_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (implements_clause
+      (implements_keyword)
+      interface: (identifier))
+    (property
+      name: (property_name)
+      value: (property_expression
+        (comparison_expression
+          left: (identifier)
+          operator: (comparison_operator)
+          right: (quoted_identifier))))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier))))

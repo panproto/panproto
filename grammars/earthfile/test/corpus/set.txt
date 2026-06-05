@@ -1,0 +1,18 @@
+==================
+set command
+==================
+
+foo:
+  SET foo=bar
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (set_command
+            name: (variable)
+            value: (string
+              (unquoted_string))))))
+

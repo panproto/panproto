@@ -1,0 +1,255 @@
+================================================================================
+note.xml
+
+:language(xml)
+================================================================================
+
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE note [
+<!ELEMENT note (to,from,heading,body,footer?)>
+<!ELEMENT to (#PCDATA)>
+<!ELEMENT from (#PCDATA)>
+<!ELEMENT heading (#PCDATA)>
+<!ELEMENT body (#PCDATA)>
+<!ELEMENT footer (#PCDATA)>
+<!ENTITY nbsp "&#xA0;">
+<!ENTITY writer "Writer: Donald Duck.">
+<!ENTITY copyright "Copyright: W3Schools.">
+]>
+<note>
+  <to>Tove</to>
+  <from>Jani</from>
+  <heading>Reminder</heading>
+  <body>Don't forget me this weekend!</body>
+  <footer>&writer;&nbsp;&copyright;</footer>
+</note>
+
+--------------------------------------------------------------------------------
+
+(document
+  (prolog
+    (XMLDecl
+      (VersionNum)
+      (EncName))
+    (doctypedecl
+      (Name)
+      (elementdecl
+        (Name)
+        (contentspec
+          (children
+            (Name)
+            (Name)
+            (Name)
+            (Name)
+            (Name))))
+      (elementdecl
+        (Name)
+        (contentspec
+          (Mixed)))
+      (elementdecl
+        (Name)
+        (contentspec
+          (Mixed)))
+      (elementdecl
+        (Name)
+        (contentspec
+          (Mixed)))
+      (elementdecl
+        (Name)
+        (contentspec
+          (Mixed)))
+      (elementdecl
+        (Name)
+        (contentspec
+          (Mixed)))
+      (GEDecl
+        (Name)
+        (EntityValue
+          (CharRef)))
+      (GEDecl
+        (Name)
+        (EntityValue))
+      (GEDecl
+        (Name)
+        (EntityValue))))
+  (element
+    (STag
+      (Name))
+    (content
+      (CharData)
+      (element
+        (STag
+          (Name))
+        (content
+          (CharData))
+        (ETag
+          (Name)))
+      (CharData)
+      (element
+        (STag
+          (Name))
+        (content
+          (CharData))
+        (ETag
+          (Name)))
+      (CharData)
+      (element
+        (STag
+          (Name))
+        (content
+          (CharData))
+        (ETag
+          (Name)))
+      (CharData)
+      (element
+        (STag
+          (Name))
+        (content
+          (CharData))
+        (ETag
+          (Name)))
+      (CharData)
+      (element
+        (STag
+          (Name))
+        (content
+          (EntityRef
+            (Name))
+          (EntityRef
+            (Name))
+          (EntityRef
+            (Name)))
+        (ETag
+          (Name)))
+      (CharData))
+    (ETag
+      (Name))))
+
+================================================================================
+address.xml
+
+:language(xml)
+================================================================================
+
+<?xml version = "1.0" encoding = "UTF-8" standalone = "no" ?>
+<!DOCTYPE address SYSTEM "address.dtd">
+<address>
+  <name>Tanmay Patil</name>
+  <company>TutorialsPoint</company>
+  <phone>(011) 123-4567</phone>
+</address>
+
+--------------------------------------------------------------------------------
+
+(document
+  (prolog
+    (XMLDecl
+      (VersionNum)
+      (EncName))
+    (doctypedecl
+      (Name)
+      (ExternalID
+        (SystemLiteral
+          (URI)))))
+  (element
+    (STag
+      (Name))
+    (content
+      (CharData)
+      (element
+        (STag
+          (Name))
+        (content
+          (CharData))
+        (ETag
+          (Name)))
+      (CharData)
+      (element
+        (STag
+          (Name))
+        (content
+          (CharData))
+        (ETag
+          (Name)))
+      (CharData)
+      (element
+        (STag
+          (Name))
+        (content
+          (CharData))
+        (ETag
+          (Name)))
+      (CharData))
+    (ETag
+      (Name))))
+
+================================================================================
+BookStore.dtd
+
+:language(dtd)
+================================================================================
+
+<!ELEMENT bookstore (book*)>
+<!ELEMENT book (title,author,genre?)>
+<!ELEMENT title (#PCDATA)>
+<!ELEMENT author (first-name, last-name)>
+<!ELEMENT genre (#PCDATA)>
+<!ELEMENT first-name (#PCDATA)>
+<!ELEMENT last-name (#PCDATA)>
+<!ATTLIST book price CDATA #REQUIRED>
+<!ATTLIST book publicationdate CDATA>
+<!ATTLIST book IBSN CDATA>
+
+--------------------------------------------------------------------------------
+
+(extSubset
+  (elementdecl
+    (Name)
+    (contentspec
+      (children
+        (Name))))
+  (elementdecl
+    (Name)
+    (contentspec
+      (children
+        (Name)
+        (Name)
+        (Name))))
+  (elementdecl
+    (Name)
+    (contentspec
+      (Mixed)))
+  (elementdecl
+    (Name)
+    (contentspec
+      (children
+        (Name)
+        (Name))))
+  (elementdecl
+    (Name)
+    (contentspec
+      (Mixed)))
+  (elementdecl
+    (Name)
+    (contentspec
+      (Mixed)))
+  (elementdecl
+    (Name)
+    (contentspec
+      (Mixed)))
+  (AttlistDecl
+    (Name)
+    (AttDef
+      (Name)
+      (StringType)
+      (DefaultDecl)))
+  (AttlistDecl
+    (Name)
+    (AttDef
+      (Name)
+      (StringType)))
+  (AttlistDecl
+    (Name)
+    (AttDef
+      (Name)
+      (StringType))))

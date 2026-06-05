@@ -1,0 +1,45 @@
+===
+errors/mappingTypeCheckError7.pkl
+===
+
+res = new Mapping<Listing<String(length == 5)>, String> {
+  [new Listing { "hi" }] = "hi"
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))
+            (typeArgumentList
+              (constrainedType
+                (declaredType
+                  (qualifiedIdentifier
+                    (identifier)))
+                (equalityExpr
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (intLiteralExpr)))))
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))
+      (objectBody
+        (objectEntry
+          (newExpr
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (objectBody
+              (objectElement
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))))
+          (slStringLiteralExpr
+            (slStringLiteralPart)))))))

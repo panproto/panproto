@@ -1,0 +1,227 @@
+===
+api/yamlRendererIndentationWidth2.yml.pkl
+===
+
+name = "pigeon"
+age = 42
+friends {
+  "barn owl"
+  "parrot"
+}
+nestedFriends {
+  new {
+    "barn owl"
+    "parrot"
+  }
+  new {
+    "elf owl"
+    "albatross"
+  }
+}
+nestedFriends2 {
+  new {
+    name = "barn owl"
+  }
+  new {
+    name = "parrot"
+  }
+}
+hobbies {
+  ["surfing"] {
+    skill = "low"
+  }
+  ["firemaking"] {
+    skill = "high"
+  }
+}
+nestedHobbies {
+  ["surfing"] {
+    ["waves"] {
+      skill = "low"
+    }
+  }
+  ["firemaking"] {
+    ["woods"] {
+      skill = "high"
+    }
+  }
+}
+address {
+  street = "Norton St."
+  zip = 12345
+}
+nestedAddress {
+  street {
+    name = "Norton St."
+  }
+  zip {
+    number = 12345
+  }
+}
+multiline = """
+  one
+  two
+  three
+  """
+
+multiline2 = """
+    one
+  two
+  three
+  """
+output {
+  renderer = new YamlRenderer {
+    indentWidth = 2
+  }
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (intLiteralExpr))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectElement
+        (slStringLiteralExpr
+          (slStringLiteralPart)))
+      (objectElement
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectElement
+        (newExpr
+          (objectBody
+            (objectElement
+              (slStringLiteralExpr
+                (slStringLiteralPart)))
+            (objectElement
+              (slStringLiteralExpr
+                (slStringLiteralPart))))))
+      (objectElement
+        (newExpr
+          (objectBody
+            (objectElement
+              (slStringLiteralExpr
+                (slStringLiteralPart)))
+            (objectElement
+              (slStringLiteralExpr
+                (slStringLiteralPart))))))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectElement
+        (newExpr
+          (objectBody
+            (objectProperty
+              (identifier)
+              (slStringLiteralExpr
+                (slStringLiteralPart))))))
+      (objectElement
+        (newExpr
+          (objectBody
+            (objectProperty
+              (identifier)
+              (slStringLiteralExpr
+                (slStringLiteralPart))))))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectProperty
+            (identifier)
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectProperty
+            (identifier)
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectEntry
+            (slStringLiteralExpr
+              (slStringLiteralPart))
+            (objectBody
+              (objectProperty
+                (identifier)
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectEntry
+            (slStringLiteralExpr
+              (slStringLiteralPart))
+            (objectBody
+              (objectProperty
+                (identifier)
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))))))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (slStringLiteralExpr
+          (slStringLiteralPart)))
+      (objectProperty
+        (identifier)
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (objectBody
+          (objectProperty
+            (identifier)
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))
+      (objectProperty
+        (identifier)
+        (objectBody
+          (objectProperty
+            (identifier)
+            (intLiteralExpr))))))
+  (classProperty
+    (identifier)
+    (mlStringLiteralExpr
+      (mlStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (mlStringLiteralExpr
+      (mlStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (objectBody
+            (objectProperty
+              (identifier)
+              (intLiteralExpr))))))))

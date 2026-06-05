@@ -1,0 +1,48 @@
+================================================================================
+DataItemTableFilter with range expression
+================================================================================
+
+query 50000 "Test Query"
+{
+    elements
+    {
+        dataitem(prodOrderLine; "Prod. Order Line")
+        {
+            DataItemTableFilter = Status = filter(Planned .. Released);
+            
+            column(Status; Status)
+            {
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    (integer)
+    (quoted_identifier)
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        (identifier)
+        (quoted_identifier)
+        (property
+          (property_name)
+          (property_expression
+            (comparison_expression
+              (identifier)
+              (comparison_operator)
+              (call_expression
+                (identifier)
+                (argument_list
+                  (range_expression
+                    (identifier)
+                    (identifier)))))))
+        (query_column
+          (column_keyword)
+          (identifier)
+          (identifier))))))

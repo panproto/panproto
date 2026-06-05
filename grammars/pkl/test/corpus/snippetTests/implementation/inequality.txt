@@ -1,0 +1,198 @@
+===
+implementation/inequality.pkl
+===
+
+amends "../snippetTest.pkl"
+
+local function notEquals(left, right) = left != right
+
+facts {
+  ["mix EqualsNode specializations (VmValue first)"] {
+    !notEquals(42.s, 42.s)
+    notEquals(42.s, 43.s)
+    !notEquals(42.mb, 42.mb)
+    notEquals(42.mb, 43.mb)
+    !notEquals(new Dynamic { name = "Pigeon" }, new Dynamic { name = "Pigeon" })
+    notEquals(new Dynamic { name = "Pigeon" }, new Dynamic { name = "Parrot" })
+    !notEquals("Pigeon", "Pigeon")
+    notEquals("Pigeon", "Parrot")
+    !notEquals(42, 42)
+    notEquals(42, 43)
+    !notEquals(1.23, 1.23)
+    notEquals(1.23, 1.24)
+    !notEquals(true, true)
+    notEquals(true, false)
+  }
+}
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (classMethod
+    (methodHeader
+      (modifier)
+      (identifier)
+      (parameterList
+        (typedIdentifier
+          (identifier))
+        (typedIdentifier
+          (identifier))))
+    (equalityExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (unqualifiedAccessExpr
+        (identifier))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (logicalNotExpr
+              (unqualifiedAccessExpr
+                (identifier)
+                (argumentList
+                  (qualifiedAccessExpr
+                    (intLiteralExpr)
+                    (identifier))
+                  (qualifiedAccessExpr
+                    (intLiteralExpr)
+                    (identifier))))))
+          (objectElement
+            (unqualifiedAccessExpr
+              (identifier)
+              (argumentList
+                (qualifiedAccessExpr
+                  (intLiteralExpr)
+                  (identifier))
+                (qualifiedAccessExpr
+                  (intLiteralExpr)
+                  (identifier)))))
+          (objectElement
+            (logicalNotExpr
+              (unqualifiedAccessExpr
+                (identifier)
+                (argumentList
+                  (qualifiedAccessExpr
+                    (intLiteralExpr)
+                    (identifier))
+                  (qualifiedAccessExpr
+                    (intLiteralExpr)
+                    (identifier))))))
+          (objectElement
+            (unqualifiedAccessExpr
+              (identifier)
+              (argumentList
+                (qualifiedAccessExpr
+                  (intLiteralExpr)
+                  (identifier))
+                (qualifiedAccessExpr
+                  (intLiteralExpr)
+                  (identifier)))))
+          (objectElement
+            (logicalNotExpr
+              (unqualifiedAccessExpr
+                (identifier)
+                (argumentList
+                  (newExpr
+                    (declaredType
+                      (qualifiedIdentifier
+                        (identifier)))
+                    (objectBody
+                      (objectProperty
+                        (identifier)
+                        (slStringLiteralExpr
+                          (slStringLiteralPart)))))
+                  (newExpr
+                    (declaredType
+                      (qualifiedIdentifier
+                        (identifier)))
+                    (objectBody
+                      (objectProperty
+                        (identifier)
+                        (slStringLiteralExpr
+                          (slStringLiteralPart)))))))))
+          (objectElement
+            (unqualifiedAccessExpr
+              (identifier)
+              (argumentList
+                (newExpr
+                  (declaredType
+                    (qualifiedIdentifier
+                      (identifier)))
+                  (objectBody
+                    (objectProperty
+                      (identifier)
+                      (slStringLiteralExpr
+                        (slStringLiteralPart)))))
+                (newExpr
+                  (declaredType
+                    (qualifiedIdentifier
+                      (identifier)))
+                  (objectBody
+                    (objectProperty
+                      (identifier)
+                      (slStringLiteralExpr
+                        (slStringLiteralPart))))))))
+          (objectElement
+            (logicalNotExpr
+              (unqualifiedAccessExpr
+                (identifier)
+                (argumentList
+                  (slStringLiteralExpr
+                    (slStringLiteralPart))
+                  (slStringLiteralExpr
+                    (slStringLiteralPart))))))
+          (objectElement
+            (unqualifiedAccessExpr
+              (identifier)
+              (argumentList
+                (slStringLiteralExpr
+                  (slStringLiteralPart))
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))))
+          (objectElement
+            (logicalNotExpr
+              (unqualifiedAccessExpr
+                (identifier)
+                (argumentList
+                  (intLiteralExpr)
+                  (intLiteralExpr)))))
+          (objectElement
+            (unqualifiedAccessExpr
+              (identifier)
+              (argumentList
+                (intLiteralExpr)
+                (intLiteralExpr))))
+          (objectElement
+            (logicalNotExpr
+              (unqualifiedAccessExpr
+                (identifier)
+                (argumentList
+                  (floatLiteralExpr)
+                  (floatLiteralExpr)))))
+          (objectElement
+            (unqualifiedAccessExpr
+              (identifier)
+              (argumentList
+                (floatLiteralExpr)
+                (floatLiteralExpr))))
+          (objectElement
+            (logicalNotExpr
+              (unqualifiedAccessExpr
+                (identifier)
+                (argumentList
+                  (trueLiteralExpr)
+                  (trueLiteralExpr)))))
+          (objectElement
+            (unqualifiedAccessExpr
+              (identifier)
+              (argumentList
+                (trueLiteralExpr)
+                (falseLiteralExpr)))))))))

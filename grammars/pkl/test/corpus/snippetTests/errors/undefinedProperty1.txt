@@ -1,0 +1,28 @@
+===
+errors/undefinedProperty1.pkl
+===
+
+class Person {
+  name: String
+}
+
+res1: Person
+
+---
+
+(module
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))))

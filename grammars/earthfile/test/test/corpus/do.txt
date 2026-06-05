@@ -1,0 +1,22 @@
+==================
+do command
+==================
+
+foo:
+  DO +BUILD --foo=bar
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (do_command
+            (function_ref
+              name: (identifier))
+            (build_args
+              (build_arg
+                name: (variable)
+                value: (string
+                  (unquoted_string))))))))
+

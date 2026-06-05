@@ -1,0 +1,430 @@
+================================================================================
+loop_parameter_specification
+================================================================================
+
+procedure P is
+begin
+   for E in Pkg.Arr'Range loop
+      goto end_loop;
+
+      <<end_loop>>
+   end loop;
+end P;
+
+--------------------------------------------------------------------------------
+
+(compilation
+  (compilation_unit
+    (subprogram_body
+      (procedure_specification
+        name: (identifier))
+      (handled_sequence_of_statements
+        (loop_statement
+          (iteration_scheme
+            (loop_parameter_specification
+              (identifier)
+              (range_g
+                prefix:
+                  (selected_component
+                    prefix: (identifier)
+                    selector_name: (identifier))
+                range_attribute_reference:
+                  (tick)
+                range_attribute_reference:
+                  (range_attribute_designator))))
+          statements:
+            (goto_statement
+              label_name: (identifier))
+          statements:
+            (label
+              statement_identifier: (identifier))))
+      endname: (identifier))))
+
+================================================================================
+iterator_specification
+================================================================================
+
+procedure P is
+begin
+   for E of reverse Arr loop
+      delay 1.0;
+   end loop;
+end P;
+
+--------------------------------------------------------------------------------
+
+(compilation
+  (compilation_unit
+    (subprogram_body
+      (procedure_specification
+        name: (identifier))
+      (handled_sequence_of_statements
+        (loop_statement
+          (iteration_scheme
+            (iterator_specification
+              (identifier)
+              iterator_name: (identifier)))
+          statements:
+            (delay_relative_statement
+              (expression
+                (term
+                  (numeric_literal))))))
+      endname: (identifier))))
+
+================================================================================
+procedural_iterator
+================================================================================
+
+procedure P is
+begin
+   for (C : Cursor) of My_Map.Iterate loop
+     Do_Something (C);
+   end loop;
+
+   for (Name, Val) of Ada.Environment_Variables.Iterate(<>) loop
+      Do_Something (Name, Val);
+   end loop;
+end P;
+
+--------------------------------------------------------------------------------
+
+(compilation
+  (compilation_unit
+    (subprogram_body
+      (procedure_specification
+        name: (identifier))
+      (handled_sequence_of_statements
+        (loop_statement
+          (iteration_scheme
+            (procedural_iterator
+              (iterator_parameter_specification
+                (formal_part
+                  (parameter_specification
+                    (identifier)
+                    subtype_mark: (identifier))))
+              (iterator_procedure_call
+                name:
+                  (selected_component
+                    prefix: (identifier)
+                    selector_name: (identifier)))))
+          statements:
+            (procedure_call_statement
+              name: (identifier)
+              (actual_parameter_part
+                (parameter_association
+                  (expression
+                    (term
+                      name: (identifier)))))))
+        (loop_statement
+          (iteration_scheme
+            (procedural_iterator
+              (iterator_parameter_specification
+                (identifier)
+                (identifier))
+              (iterator_procedure_call
+                name:
+                  (selected_component
+                    prefix:
+                      (selected_component
+                        prefix: (identifier)
+                        selector_name: (identifier))
+                    selector_name: (identifier))
+                (actual_parameter_part
+                  (parameter_association)))))
+          statements:
+            (procedure_call_statement
+              name: (identifier)
+              (actual_parameter_part
+                (parameter_association
+                  (expression
+                    (term
+                      name: (identifier))))
+                (parameter_association
+                  (expression
+                    (term
+                      name: (identifier))))))))
+      endname: (identifier))))
+
+================================================================================
+parallel loop_parameter_specification
+================================================================================
+
+procedure P is
+begin
+   parallel
+   for E in Pkg.Arr'Range loop
+      Do_Something (Pkg.Arr (E));
+   end loop;
+
+   parallel (5)
+   for E in Pkg.Arr'Range loop
+      Do_Something (Pkg.Arr (E));
+   end loop;
+
+   parallel (Chunk in Chunk_Number)
+   for E in Pkg.Arr'Range loop
+      Do_Something (Pkg.Arr (E));
+   end loop;
+end P;
+
+--------------------------------------------------------------------------------
+
+(compilation
+  (compilation_unit
+    (subprogram_body
+      (procedure_specification
+        name: (identifier))
+      (handled_sequence_of_statements
+        (loop_statement
+          (iteration_scheme
+            (loop_parameter_specification
+              (identifier)
+              (range_g
+                prefix:
+                  (selected_component
+                    prefix: (identifier)
+                    selector_name: (identifier))
+                range_attribute_reference:
+                  (tick)
+                range_attribute_reference:
+                  (range_attribute_designator))))
+          statements:
+            (procedure_call_statement
+              name: (identifier)
+              (actual_parameter_part
+                (parameter_association
+                  (expression
+                    (term
+                      name:
+                        (function_call
+                          name:
+                            (selected_component
+                              prefix: (identifier)
+                              selector_name: (identifier))
+                          (actual_parameter_part
+                            (parameter_association
+                              (expression
+                                (term
+                                  name: (identifier))))))))))))
+        (loop_statement
+          (iteration_scheme
+            (chunk_specification
+              (term
+                (numeric_literal)))
+            (loop_parameter_specification
+              (identifier)
+              (range_g
+                prefix:
+                  (selected_component
+                    prefix: (identifier)
+                    selector_name: (identifier))
+                range_attribute_reference:
+                  (tick)
+                range_attribute_reference:
+                  (range_attribute_designator))))
+          statements:
+            (procedure_call_statement
+              name: (identifier)
+              (actual_parameter_part
+                (parameter_association
+                  (expression
+                    (term
+                      name:
+                        (function_call
+                          name:
+                            (selected_component
+                              prefix: (identifier)
+                              selector_name: (identifier))
+                          (actual_parameter_part
+                            (parameter_association
+                              (expression
+                                (term
+                                  name: (identifier))))))))))))
+        (loop_statement
+          (iteration_scheme
+            (chunk_specification
+              (identifier)
+              subtype_mark: (identifier))
+            (loop_parameter_specification
+              (identifier)
+              (range_g
+                prefix:
+                  (selected_component
+                    prefix: (identifier)
+                    selector_name: (identifier))
+                range_attribute_reference:
+                  (tick)
+                range_attribute_reference:
+                  (range_attribute_designator))))
+          statements:
+            (procedure_call_statement
+              name: (identifier)
+              (actual_parameter_part
+                (parameter_association
+                  (expression
+                    (term
+                      name:
+                        (function_call
+                          name:
+                            (selected_component
+                              prefix: (identifier)
+                              selector_name: (identifier))
+                          (actual_parameter_part
+                            (parameter_association
+                              (expression
+                                (term
+                                  name: (identifier)))))))))))))
+      endname: (identifier))))
+
+================================================================================
+parallel iterator_specification
+================================================================================
+
+procedure P is
+begin
+   parallel
+   for E of Arr loop
+      Do_Something (E);
+   end loop;
+
+   parallel (5)
+   for E of Arr loop
+      Do_Something (E);
+   end loop;
+
+   parallel (Chunk in Chunk_Number)
+   for E of Arr loop
+      Do_Something (E);
+   end loop;
+end P;
+
+--------------------------------------------------------------------------------
+
+(compilation
+  (compilation_unit
+    (subprogram_body
+      (procedure_specification
+        name: (identifier))
+      (handled_sequence_of_statements
+        (loop_statement
+          (iteration_scheme
+            (iterator_specification
+              (identifier)
+              iterator_name: (identifier)))
+          statements:
+            (procedure_call_statement
+              name: (identifier)
+              (actual_parameter_part
+                (parameter_association
+                  (expression
+                    (term
+                      name: (identifier)))))))
+        (loop_statement
+          (iteration_scheme
+            (chunk_specification
+              (term
+                (numeric_literal)))
+            (iterator_specification
+              (identifier)
+              iterator_name: (identifier)))
+          statements:
+            (procedure_call_statement
+              name: (identifier)
+              (actual_parameter_part
+                (parameter_association
+                  (expression
+                    (term
+                      name: (identifier)))))))
+        (loop_statement
+          (iteration_scheme
+            (chunk_specification
+              (identifier)
+              subtype_mark: (identifier))
+            (iterator_specification
+              (identifier)
+              iterator_name: (identifier)))
+          statements:
+            (procedure_call_statement
+              name: (identifier)
+              (actual_parameter_part
+                (parameter_association
+                  (expression
+                    (term
+                      name: (identifier))))))))
+      endname: (identifier))))
+
+================================================================================
+parallel procedural_iterator
+================================================================================
+
+procedure P is
+begin
+   parallel
+   for (C : Cursor) of My_Map.Iterate loop
+     Do_Something (C);
+   end loop;
+
+   parallel
+   for (Name, Val) of Ada.Environment_Variables.Iterate(<>) loop
+      Do_Something (Name, Val);
+   end loop;
+end P;
+
+--------------------------------------------------------------------------------
+
+(compilation
+  (compilation_unit
+    (subprogram_body
+      (procedure_specification
+        name: (identifier))
+      (handled_sequence_of_statements
+        (loop_statement
+          (iteration_scheme
+            (procedural_iterator
+              (iterator_parameter_specification
+                (formal_part
+                  (parameter_specification
+                    (identifier)
+                    subtype_mark: (identifier))))
+              (iterator_procedure_call
+                name:
+                  (selected_component
+                    prefix: (identifier)
+                    selector_name: (identifier)))))
+          statements:
+            (procedure_call_statement
+              name: (identifier)
+              (actual_parameter_part
+                (parameter_association
+                  (expression
+                    (term
+                      name: (identifier)))))))
+        (loop_statement
+          (iteration_scheme
+            (procedural_iterator
+              (iterator_parameter_specification
+                (identifier)
+                (identifier))
+              (iterator_procedure_call
+                name:
+                  (selected_component
+                    prefix:
+                      (selected_component
+                        prefix: (identifier)
+                        selector_name: (identifier))
+                    selector_name: (identifier))
+                (actual_parameter_part
+                  (parameter_association)))))
+          statements:
+            (procedure_call_statement
+              name: (identifier)
+              (actual_parameter_part
+                (parameter_association
+                  (expression
+                    (term
+                      name: (identifier))))
+                (parameter_association
+                  (expression
+                    (term
+                      name: (identifier))))))))
+      endname: (identifier))))

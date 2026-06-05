@@ -1,0 +1,132 @@
+====
+Script template
+====
+
+package main
+
+script graph(data []TimeValue) {
+    const chart = LightweightCharts.createChart(document.body, { width: 400, height: 300 });
+    const lineSeries = chart.addLineSeries();
+    lineSeries.setData(data);
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (script_declaration
+    (script_identifier)
+    (parameter_list
+      (parameter_declaration
+        (identifier)
+        (slice_type
+          (type_identifier))))
+    (script_block
+      (script_block_text))))
+
+===
+Script element
+===
+
+package main
+
+templ Foobar() {
+  <script type="text/javascript">
+    $("div").marquee();
+    function test() {
+          window.open("https://example.com")
+    }
+  </script>
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (component_declaration
+    name: (component_identifier)
+    (parameter_list)
+    (component_block
+      (script_element
+        (script_tag_start
+          (attribute
+            name: (attribute_name)
+            value: (quoted_attribute_value
+              (attribute_value))))
+        (script_element_text)
+        (script_tag_end)))))
+
+===
+Empty script
+===
+
+package main
+
+script noScript() {}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (script_declaration
+    (script_identifier)
+    (parameter_list)
+    (script_block)))
+
+===
+Empty script in a templ element
+===
+
+package main
+
+templ Foobar() {
+  <script type="text/javascript">
+  </script>
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (component_declaration
+    name: (component_identifier)
+    (parameter_list)
+    (component_block
+      (script_element
+        (script_tag_start
+          (attribute
+            name: (attribute_name)
+            value: (quoted_attribute_value
+              (attribute_value))))
+        (script_element_text)
+        (script_tag_end)))))
+
+===
+Self closing script tag
+===
+
+package main
+
+templ Foobar() {
+  <script src="/app.js" />
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (component_declaration
+    name: (component_identifier)
+    (parameter_list)
+    (component_block
+      (script_element
+        (self_closing_script_tag
+          (attribute
+            name: (attribute_name)
+            value: (quoted_attribute_value
+              (attribute_value))))))))

@@ -1,0 +1,32 @@
+===
+annotation/annotation4.pkl
+===
+
+@Mapping {
+  a = "hi"
+  b = "hi"
+}
+someProperty: String = "hi"
+---
+
+(module
+  (classProperty
+    (annotation
+      (qualifiedIdentifier
+        (identifier))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart)))
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart)))))
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (slStringLiteralExpr
+      (slStringLiteralPart))))

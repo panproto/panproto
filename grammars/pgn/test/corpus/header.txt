@@ -1,0 +1,786 @@
+================================================================================
+Typical full selection of header tagpairs
+================================================================================
+
+[Event "Tata Steel Masters"]
+[Site "?"]
+[Date "2020.01.24"]
+[Round "11.3"]
+[White "Firouzja, Alireza"]
+[Black "Anand, Viswanathan"]
+[Result "0-1"]
+[ECO "E20"]
+[WhiteElo "2723"]
+[BlackElo "2758"]
+
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  game: (game
+    header: (header
+      tagpair: (tagpair
+        tagpair_delimiter: (tagpair_delimiter_open)
+        tagpair_key: (tagpair_key)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_value_contents: (tagpair_value_contents)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_delimiter: (tagpair_delimiter_close))
+      tagpair: (tagpair
+        tagpair_delimiter: (tagpair_delimiter_open)
+        tagpair_key: (tagpair_key)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_value_contents: (tagpair_value_contents)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_delimiter: (tagpair_delimiter_close))
+      tagpair: (tagpair
+        tagpair_delimiter: (tagpair_delimiter_open)
+        tagpair_key: (tagpair_key)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_value_contents: (tagpair_value_contents)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_delimiter: (tagpair_delimiter_close))
+      tagpair: (tagpair
+        tagpair_delimiter: (tagpair_delimiter_open)
+        tagpair_key: (tagpair_key)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_value_contents: (tagpair_value_contents)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_delimiter: (tagpair_delimiter_close))
+      tagpair: (tagpair
+        tagpair_delimiter: (tagpair_delimiter_open)
+        tagpair_key: (tagpair_key)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_value_contents: (tagpair_value_contents)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_delimiter: (tagpair_delimiter_close))
+      tagpair: (tagpair
+        tagpair_delimiter: (tagpair_delimiter_open)
+        tagpair_key: (tagpair_key)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_value_contents: (tagpair_value_contents)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_delimiter: (tagpair_delimiter_close))
+      tagpair: (tagpair
+        tagpair_delimiter: (tagpair_delimiter_open)
+        tagpair_key: (tagpair_key)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_value_contents: (tagpair_value_contents)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_delimiter: (tagpair_delimiter_close))
+      tagpair: (tagpair
+        tagpair_delimiter: (tagpair_delimiter_open)
+        tagpair_key: (tagpair_key)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_value_contents: (tagpair_value_contents)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_delimiter: (tagpair_delimiter_close))
+      tagpair: (tagpair
+        tagpair_delimiter: (tagpair_delimiter_open)
+        tagpair_key: (tagpair_key)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_value_contents: (tagpair_value_contents)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_delimiter: (tagpair_delimiter_close))
+      tagpair: (tagpair
+        tagpair_delimiter: (tagpair_delimiter_open)
+        tagpair_key: (tagpair_key)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_value_contents: (tagpair_value_contents)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_delimiter: (tagpair_delimiter_close)))
+    result_code: (result_code)))
+
+================================================================================
+Typical full selection of header tagpairs with Unicode spaces
+================================================================================
+
+[Event "Tata Steel Masters"]
+[Site "?"]
+[Date "2020.01.24"]
+[Round "11.3"]
+[White "Firouzja, Alireza"]
+[Black "Anand, Viswanathan"]
+[Result "0-1"]
+[ECO "E20"]
+[WhiteElo "2723"]
+[BlackElo "2758"]
+
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  game: (game
+    header: (header
+      tagpair: (tagpair
+        tagpair_delimiter: (tagpair_delimiter_open)
+        tagpair_key: (tagpair_key)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_value_contents: (tagpair_value_contents)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_delimiter: (tagpair_delimiter_close))
+      tagpair: (tagpair
+        tagpair_delimiter: (tagpair_delimiter_open)
+        tagpair_key: (tagpair_key)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_value_contents: (tagpair_value_contents)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_delimiter: (tagpair_delimiter_close))
+      tagpair: (tagpair
+        tagpair_delimiter: (tagpair_delimiter_open)
+        tagpair_key: (tagpair_key)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_value_contents: (tagpair_value_contents)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_delimiter: (tagpair_delimiter_close))
+      tagpair: (tagpair
+        tagpair_delimiter: (tagpair_delimiter_open)
+        tagpair_key: (tagpair_key)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_value_contents: (tagpair_value_contents)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_delimiter: (tagpair_delimiter_close))
+      tagpair: (tagpair
+        tagpair_delimiter: (tagpair_delimiter_open)
+        tagpair_key: (tagpair_key)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_value_contents: (tagpair_value_contents)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_delimiter: (tagpair_delimiter_close))
+      tagpair: (tagpair
+        tagpair_delimiter: (tagpair_delimiter_open)
+        tagpair_key: (tagpair_key)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_value_contents: (tagpair_value_contents)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_delimiter: (tagpair_delimiter_close))
+      tagpair: (tagpair
+        tagpair_delimiter: (tagpair_delimiter_open)
+        tagpair_key: (tagpair_key)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_value_contents: (tagpair_value_contents)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_delimiter: (tagpair_delimiter_close))
+      tagpair: (tagpair
+        tagpair_delimiter: (tagpair_delimiter_open)
+        tagpair_key: (tagpair_key)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_value_contents: (tagpair_value_contents)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_delimiter: (tagpair_delimiter_close))
+      tagpair: (tagpair
+        tagpair_delimiter: (tagpair_delimiter_open)
+        tagpair_key: (tagpair_key)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_value_contents: (tagpair_value_contents)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_delimiter: (tagpair_delimiter_close))
+      tagpair: (tagpair
+        tagpair_delimiter: (tagpair_delimiter_open)
+        tagpair_key: (tagpair_key)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_value_contents: (tagpair_value_contents)
+        tagpair_value_delimiter: (double_quote)
+        tagpair_delimiter: (tagpair_delimiter_close)))
+    result_code: (result_code)))
+
+================================================================================
+Irregular whitespace in header tagpairs
+================================================================================
+
+[ Event "Tata Steel Masters"]
+[Site  "?"]
+[Date "2020.01.24" ]
+ [Round "11.3"]
+
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (result_code)))
+
+================================================================================
+Newlines in header tagpairs
+================================================================================
+
+[Event "Tata Steel Masters"]
+[
+Site  "?"]
+[Date
+"2020.01.24" ]
+[Round "11.3"]
+
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (result_code)))
+
+================================================================================
+Repeated delimiters in tapairs
+================================================================================
+
+[Event "Tata Steel Masters"]
+[Site  "?"]]
+[Date "2020.01.24" ]
+[[Round "11.3"]
+
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (result_code)))
+
+================================================================================
+Stray newline within header tagpairs
+================================================================================
+
+[ Event "Tata Steel Masters"]
+[Site  "?"]
+[Date "2020.01.24" ]
+
+[Round "11.3"]
+
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (result_code)))
+
+================================================================================
+Escaped quotes in header tagpairs
+================================================================================
+
+[Event "Tata \"Steel\" Masters"]
+
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (result_code)))
+
+================================================================================
+Unescaped quotes in header tagpairs
+================================================================================
+
+[Event "Tata "Steel" Masters"]
+
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (result_code)))
+
+================================================================================
+Escape as last character in tagpair value
+================================================================================
+
+[Event "Tata "Steel" Masters\"]
+[FEN "1r2n1k1/7p/b2pP1p1/p1pP4/PpN1Nr1q/6PP/1P1Q4/1RR3K1 b - -"]
+[SetUp "1"]
+
+*
+
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (result_code)))
+
+================================================================================
+Header without following blank line
+================================================================================
+
+[Event "Tata \"Steel\" Masters"]
+1.e4
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (move_number)
+      (san_move))
+    (result_code)))
+
+================================================================================
+Comments within a header do not start a new game
+================================================================================
+
+[Event "Tata Steel Masters"]
+[Site "?"]
+[Date "2020.01.24"]
+; [Round "11.3"]
+[White "Firouzja, Alireza"]
+[Black "Anand, Viswanathan"]
+[Result "0-1"]
+[ECO "E20"]
+[WhiteElo "2723"]
+[BlackElo "2758"]
+
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (rest_of_line_comment
+        (rest_of_line_comment_delimiter_open)
+        (rest_of_line_comment_text))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (result_code)))
+
+================================================================================
+Trailing comments within a header
+================================================================================
+
+[Event "Tata Steel Masters"]
+[Site "?"]
+[Result "0-1"] ; note
+[WhiteElo "2723"]
+[BlackElo "2758"]
+
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (rest_of_line_comment
+        (rest_of_line_comment_delimiter_open)
+        (rest_of_line_comment_text))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (result_code)))
+
+================================================================================
+Headerless game
+================================================================================
+
+1.e4
+0-1
+
+--------------------------------------------------------------------------------
+(series_of_games
+  (game
+    (movetext
+      (move_number)
+      (san_move))
+    (result_code)))
+
+
+================================================================================
+Empty tagpair value
+================================================================================
+
+[Event ""]
+
+0-1
+
+--------------------------------------------------------------------------------
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (result_code)))
+
+================================================================================
+HTML entity tagpair quotes
+================================================================================
+
+[Event &quot;?"]
+
+0-1
+
+--------------------------------------------------------------------------------
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (result_code)))
+
+================================================================================
+Unicode tagpair quotes
+================================================================================
+
+[Event “?”]
+
+0-1
+
+--------------------------------------------------------------------------------
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (result_code)))
+
+================================================================================
+Unicode tagpair quotes 2
+================================================================================
+
+[Date "1972.08.01»]
+
+0-1
+
+--------------------------------------------------------------------------------
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (result_code)))
+
+================================================================================
+Unicode tagpair quotes with interior quotes in value
+================================================================================
+
+[Event “This is the “best” event”]
+
+0-1
+
+--------------------------------------------------------------------------------
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (result_code)))
+
+================================================================================
+Percent not allowed as first tagpair key character
+================================================================================
+
+[% "?"]
+
+*
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (ERROR
+    (UNEXPECTED '?')))
+
+
+================================================================================
+Square brackets could even be tagpair key characters
+================================================================================
+
+[Ev[e]nt "?"]
+
+*
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (result_code)))

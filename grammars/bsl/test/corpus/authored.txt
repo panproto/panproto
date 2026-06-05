@@ -1,0 +1,110 @@
+==================
+simple procedure
+==================
+
+Procedure SayHello()
+    Message("Hello");
+EndProcedure
+
+----
+
+(source_file)
+
+==================
+function with return
+==================
+
+Function Add(A, B)
+    Return A + B;
+EndFunction
+
+----
+
+(source_file)
+
+==================
+procedure with parameters and export
+==================
+
+Procedure Process(Value, Count) Export
+    Total = Value * Count;
+EndProcedure
+
+----
+
+(source_file)
+
+==================
+if elsif else
+==================
+
+Procedure Check(X)
+    If X > 0 Then
+        Result = 1;
+    ElsIf X = 0 Then
+        Result = 0;
+    Else
+        Result = -1;
+    EndIf;
+EndProcedure
+
+----
+
+(source_file)
+
+==================
+for loop
+==================
+
+Procedure Loop()
+    For I = 1 To 10 Do
+        Total = Total + I;
+    EndDo;
+EndProcedure
+
+----
+
+(source_file)
+
+==================
+while loop
+==================
+
+Procedure Wait()
+    While Counter < 100 Do
+        Counter = Counter + 1;
+    EndDo
+EndProcedure
+
+----
+
+(source_file)
+
+==================
+try except
+==================
+
+Procedure Safe()
+    Try
+        DoWork();
+    Except
+        Message("error");
+    EndTry;
+EndProcedure
+
+----
+
+(source_file)
+
+==================
+new object and method call
+==================
+
+Procedure Build()
+    Item = New Array();
+    Item.Add(1);
+EndProcedure
+
+----
+
+(source_file)

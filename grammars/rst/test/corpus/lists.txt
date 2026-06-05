@@ -1,0 +1,141 @@
+==============
+Empty elements
+==============
+
+-
+- a
+-
+- b
+
+---
+
+(document
+  (bullet_list
+    (list_item)
+    (list_item
+      (body
+        (paragraph)))
+    (list_item)
+    (list_item
+      (body
+        (paragraph)))))
+
+=========
+Multiline
+=========
+
+- abc
+  def
+- ghi
+  *jkl*
+
+---
+
+(document
+  (bullet_list
+    (list_item
+      (body
+       (paragraph)))
+    (list_item
+      (body
+        (paragraph
+          (emphasis))))))
+
+======
+Nested
+======
+
+- a
+
+  * 1
+  * 2
+- b
+
+  1. b
+  2. a
+
+---
+
+(document
+  (bullet_list
+    (list_item
+     (body
+        (paragraph)
+        (bullet_list
+          (list_item
+            (body (paragraph)))
+          (list_item
+            (body (paragraph))))))
+    (list_item
+     (body
+        (paragraph)
+        (enumerated_list
+          (list_item
+            (body (paragraph)))
+          (list_item
+            (body (paragraph))))))))
+
+==============
+Combined lists
+==============
+
+1. One
+(2) Two
+
+- Three
+* Four
+
+3) Five
+#. Six
+
+* Seven
+* Eight
++ Nine
+
+---
+
+(document
+  (enumerated_list
+    (list_item
+      (body (paragraph)))
+    (list_item
+      (body (paragraph))))
+  (bullet_list
+    (list_item
+      (body (paragraph)))
+    (list_item
+      (body (paragraph))))
+  (enumerated_list
+    (list_item
+      (body (paragraph)))
+    (list_item
+      (body (paragraph))))
+  (bullet_list
+    (list_item
+      (body (paragraph)))
+    (list_item
+      (body (paragraph)))
+    (list_item
+      (body (paragraph)))))
+
+=========================
+Lists with other elements
+=========================
+
+Some text:
+
+- *a*
+- **b**
+- `c`
+
+---
+
+(document
+  (paragraph)
+  (bullet_list
+    (list_item
+      (body (paragraph (emphasis))))
+    (list_item
+      (body (paragraph (strong))))
+    (list_item
+      (body (paragraph (interpreted_text))))))

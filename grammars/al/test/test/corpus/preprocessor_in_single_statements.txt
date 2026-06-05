@@ -1,0 +1,380 @@
+================================================================================
+Preprocessor in while single statement
+================================================================================
+
+codeunit 50200 TestWhileSingle
+{
+    procedure TestWhileSingle()
+    var
+        i: Integer;
+    begin
+        while i < 10 do
+#if CLEAN24
+            i += 1;
+#else
+            i := i + 1;
+#endif
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (while_statement
+          (while_keyword)
+          condition: (comparison_expression
+            left: (identifier)
+            operator: (comparison_operator)
+            right: (integer))
+          (do_keyword)
+          body: (preproc_conditional_statement
+            (preproc_if
+              (preproc_open)
+              condition: (identifier))
+            (assignment_statement
+              left: (identifier)
+              right: (integer))
+            (preproc_else)
+            (assignment_statement
+              left: (identifier)
+              right: (additive_expression
+                left: (identifier)
+                right: (integer)))
+            (preproc_endif
+              (preproc_close))))
+        (end_keyword)))))
+
+================================================================================
+Preprocessor in for single statement
+================================================================================
+
+codeunit 50201 TestForSingle
+{
+    procedure TestForSingle()
+    var
+        i: Integer;
+    begin
+        for i := 1 to 10 do
+#if CLEAN24
+            ProcessNewLogic(i);
+#else
+            ProcessOldLogic(i);
+#endif
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (for_statement
+          (for_keyword)
+          variable: (identifier)
+          start: (integer)
+          direction: (to_keyword)
+          end: (integer)
+          (do_keyword)
+          body: (preproc_conditional_statement
+            (preproc_if
+              (preproc_open)
+              condition: (identifier))
+            (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (identifier)))
+            (preproc_else)
+            (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (identifier)))
+            (preproc_endif
+              (preproc_close))))
+        (end_keyword)))))
+
+================================================================================
+Preprocessor in foreach single statement
+================================================================================
+
+codeunit 50202 TestForeachSingle
+{
+    procedure TestForeachSingle()
+    var
+        Items: List of [Integer];
+        Item: Integer;
+    begin
+        foreach Item in Items do
+#if CLEAN24
+            ProcessNewItem(Item);
+#else
+            ProcessOldItem(Item);
+#endif
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (list_type
+              element_type: (type_specification
+                (basic_type)))))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (foreach_statement
+          (foreach_keyword)
+          variable: (identifier)
+          (in_keyword)
+          iterable: (identifier)
+          (do_keyword)
+          body: (preproc_conditional_statement
+            (preproc_if
+              (preproc_open)
+              condition: (identifier))
+            (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (identifier)))
+            (preproc_else)
+            (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (identifier)))
+            (preproc_endif
+              (preproc_close))))
+        (end_keyword)))))
+
+================================================================================
+Preprocessor in with single statement
+================================================================================
+
+codeunit 50203 TestWithSingle
+{
+    procedure TestWithSingle()
+    var
+        Customer: Record Customer;
+    begin
+        with Customer do
+#if CLEAN24
+            SetRange(Blocked, true);
+#else
+            SetRange(Blocked, false);
+#endif
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (identifier)))))
+      (code_block
+        (begin_keyword)
+        (with_statement
+          (with_keyword)
+          record: (identifier)
+          (do_keyword)
+          body: (preproc_conditional_statement
+            (preproc_if
+              (preproc_open)
+              condition: (identifier))
+            (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (identifier)
+                (boolean)))
+            (preproc_else)
+            (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (identifier)
+                (boolean)))
+            (preproc_endif
+              (preproc_close))))
+        (end_keyword)))))
+
+================================================================================
+Preprocessor in if single statement
+================================================================================
+
+codeunit 50204 TestIfSingle
+{
+    procedure TestIfSingle()
+    var
+        x: Integer;
+    begin
+        if x > 0 then
+#if CLEAN24
+            Message('Positive');
+#else
+            Error('Positive');
+#endif
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (if_statement
+          (if_keyword)
+          condition: (comparison_expression
+            left: (identifier)
+            operator: (comparison_operator)
+            right: (integer))
+          (then_keyword)
+          then_branch: (preproc_conditional_statement
+            (preproc_if
+              (preproc_open)
+              condition: (identifier))
+            (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (string_literal)))
+            (preproc_else)
+            (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (string_literal)))
+            (preproc_endif
+              (preproc_close))))
+        (end_keyword)))))
+
+================================================================================
+Preprocessor in case single statement
+================================================================================
+
+codeunit 50205 TestCaseSingle
+{
+    procedure TestCaseSingle()
+    var
+        x: Integer;
+    begin
+        case x of
+            1:
+#if CLEAN24
+                Message('One');
+#else
+                Error('One');
+#endif
+            2:
+                Message('Two');
+        end;
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (case_statement
+          (case_keyword)
+          expression: (identifier)
+          (of_keyword)
+          (case_branch
+            pattern: (integer)
+            body: (preproc_conditional_statement
+              (preproc_if
+                (preproc_open)
+                condition: (identifier))
+              (call_expression
+                function: (identifier)
+                arguments: (argument_list
+                  (string_literal)))
+              (preproc_else)
+              (call_expression
+                function: (identifier)
+                arguments: (argument_list
+                  (string_literal)))
+              (preproc_endif
+                (preproc_close))))
+          (case_branch
+            pattern: (integer)
+            body: (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (string_literal)))))
+        (end_keyword)))))

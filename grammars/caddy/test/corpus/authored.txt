@@ -1,0 +1,125 @@
+==================
+simple site block
+==================
+
+example.com {
+	respond "Hello, world!"
+}
+
+----
+
+(document)
+
+==================
+reverse proxy
+==================
+
+example.com {
+	reverse_proxy localhost:8080
+}
+
+----
+
+(document)
+
+==================
+file server
+==================
+
+example.com {
+	root * /var/www/html
+	file_server
+}
+
+----
+
+(document)
+
+==================
+multiple directives
+==================
+
+example.com {
+	encode gzip
+	templates
+	file_server
+}
+
+----
+
+(document)
+
+==================
+comment
+==================
+
+# this is a comment
+example.com {
+	respond "ok"
+}
+
+----
+
+(document)
+
+==================
+tls directive
+==================
+
+example.com {
+	tls admin@example.com
+}
+
+----
+
+(document)
+
+==================
+redir directive
+==================
+
+example.com {
+	redir https://www.example.com
+}
+
+----
+
+(document)
+
+==================
+header directive
+==================
+
+example.com {
+	header Content-Type text/html
+}
+
+----
+
+(document)
+
+==================
+log directive
+==================
+
+example.com {
+	log {
+		output file /var/log/access.log
+	}
+}
+
+----
+
+(document)
+
+==================
+port address
+==================
+
+:8080 {
+	respond "listening"
+}
+
+----
+
+(document)

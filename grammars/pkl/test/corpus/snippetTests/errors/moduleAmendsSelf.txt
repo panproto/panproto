@@ -1,0 +1,13 @@
+===
+errors/moduleAmendsSelf.pkl
+===
+
+amends "moduleAmendsSelf.pkl"
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart)))))

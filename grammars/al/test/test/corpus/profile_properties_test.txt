@@ -1,0 +1,84 @@
+==================
+Profile with RoleCenter property
+==================
+
+profile "SALES AND RELATIONSHIP MANAGER"
+{
+    Caption = 'Sales and Relationship Manager';
+    ProfileDescription = 'Functionality for marketing and sales staff.';
+    RoleCenter = 9026;
+}
+
+---
+
+(source_file
+  (profile_declaration
+    (profile_keyword)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (integer))))
+
+==================
+Profile with Customizations property
+==================
+
+profile "ACCOUNTANT"
+{
+    Caption = 'Accountant';
+    RoleCenter = 9027;
+    Customizations = MyCustomization1, MyCustomization2;
+}
+
+---
+
+(source_file
+  (profile_declaration
+    (profile_keyword)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (integer))
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (identifier))
+        (option_member
+          (identifier))))))
+
+==================
+Profile with mixed case properties
+==================
+
+profile "TEST PROFILE"
+{
+    Caption = 'Test Profile';
+    rolecenter = Page9028;
+    CUSTOMIZATIONS = Custom1;
+}
+
+---
+
+(source_file
+  (profile_declaration
+    (profile_keyword)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))))

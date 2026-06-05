@@ -1,0 +1,209 @@
+===
+basic/readGlob.pkl
+===
+
+amends "../snippetTest.pkl"
+
+examples {
+  ["file:"] {
+    read*("../../input-helper/globtest/**.pkl")
+    read*("globtest/*.txt")
+  }
+
+  ["amended"] {
+    (read*("../../input-helper/globtest/**.pkl")) {
+      [[true]] {
+        text = "hi"
+      }
+    }
+  }
+
+  ["env:"] {
+    read*("env:*")
+    read*("env:**")
+    read*("env:NAME1")
+    read*("env:NAME[1-2]")
+    read*("env:*2")
+    read*("env:/foo/*")
+    read*("env:foo%20bar")
+    read*("env:foo%20*")
+  }
+
+  ["prop:"] {
+    read*("prop:*")
+    read*("prop:**")
+  }
+
+  ["package:"] {
+    read*("package://localhost:0/birds@0.5.0#/**.pkl")
+  }
+
+  ["use read expression with non-constant glob pattern"] {
+    local function doRead(pattern) = read*(pattern)
+    doRead("globtest/file*.txt")
+    doRead("globtest/file1.txt")
+    doRead("globtest/file2.txt")
+  }
+  
+  ["read different resources with same glob pattern"] {
+    local module1 = import(".../input-helper/basic/read/module1.pkl")
+    local module2 = import(".../input-helper/basic/read/child/module2.pkl")
+    module1.globbedRead
+    module2.globbedRead
+  }
+}
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (readExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))))
+          (objectElement
+            (readExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (amendExpr
+              (parenthesizedExpr
+                (readExpr
+                  (slStringLiteralExpr
+                    (slStringLiteralPart))))
+              (objectBody
+                (memberPredicate
+                  (trueLiteralExpr)
+                  (objectBody
+                    (objectProperty
+                      (identifier)
+                      (slStringLiteralExpr
+                        (slStringLiteralPart))))))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (readExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))))
+          (objectElement
+            (readExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))))
+          (objectElement
+            (readExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))))
+          (objectElement
+            (readExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))))
+          (objectElement
+            (readExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))))
+          (objectElement
+            (readExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))))
+          (objectElement
+            (readExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))))
+          (objectElement
+            (readExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (readExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))))
+          (objectElement
+            (readExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (readExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectMethod
+            (methodHeader
+              (modifier)
+              (identifier)
+              (parameterList
+                (typedIdentifier
+                  (identifier))))
+            (readExpr
+              (unqualifiedAccessExpr
+                (identifier))))
+          (objectElement
+            (unqualifiedAccessExpr
+              (identifier)
+              (argumentList
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))))
+          (objectElement
+            (unqualifiedAccessExpr
+              (identifier)
+              (argumentList
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))))
+          (objectElement
+            (unqualifiedAccessExpr
+              (identifier)
+              (argumentList
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectProperty
+            (modifier)
+            (identifier)
+            (importExpr
+              (stringConstant
+                (slStringLiteralPart))))
+          (objectProperty
+            (modifier)
+            (identifier)
+            (importExpr
+              (stringConstant
+                (slStringLiteralPart))))
+          (objectElement
+            (qualifiedAccessExpr
+              (unqualifiedAccessExpr
+                (identifier))
+              (identifier)))
+          (objectElement
+            (qualifiedAccessExpr
+              (unqualifiedAccessExpr
+                (identifier))
+              (identifier))))))))

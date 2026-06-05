@@ -1,0 +1,28 @@
+===
+errors/forGeneratorCannotGenerateProperties.pkl
+===
+
+res {
+  for (n in List(1, 2, 3)) { foo = n }
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (forGenerator
+        (typedIdentifier
+          (identifier))
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList
+            (intLiteralExpr)
+            (intLiteralExpr)
+            (intLiteralExpr)))
+        (objectBody
+          (objectProperty
+            (identifier)
+            (unqualifiedAccessExpr
+              (identifier))))))))

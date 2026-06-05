@@ -1,0 +1,227 @@
+===
+basic/constModifier2.pkl
+===
+
+const foo = new {
+  bar = "bar"
+  baz = bar
+  local loc = bar
+  qux = loc
+  local function f() = 1
+  qix = f()
+}
+
+const bar {
+  qux = 1
+  local function buzz() = 5
+  baz {
+    corge = 2
+    biz {
+      buz = qux
+      qup = corge
+      fuzz = buzz()
+    }
+  }
+}
+
+amend = (foo) {
+  baz = "amend"
+}
+
+class Thing {
+  prop1: Int = 5
+  prop2: Int
+  prop3: Thing2
+}
+
+class Thing2 {
+  prop4: Int = 5
+}
+
+const thing = new Thing {
+  prop2 = prop1
+}
+
+const thing2 = new Thing {
+  prop2 = this.prop1
+}
+
+const thing3 = new Thing {
+  prop2 = super.prop1
+}
+
+const thing4 = new Thing {
+  prop2 = 2
+  prop3 {
+    prop4 = 10
+  }
+}
+
+---
+
+(module
+  (classProperty
+    (modifier)
+    (identifier)
+    (newExpr
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart)))
+        (objectProperty
+          (identifier)
+          (unqualifiedAccessExpr
+            (identifier)))
+        (objectProperty
+          (modifier)
+          (identifier)
+          (unqualifiedAccessExpr
+            (identifier)))
+        (objectProperty
+          (identifier)
+          (unqualifiedAccessExpr
+            (identifier)))
+        (objectMethod
+          (methodHeader
+            (modifier)
+            (identifier)
+            (parameterList))
+          (intLiteralExpr))
+        (objectProperty
+          (identifier)
+          (unqualifiedAccessExpr
+            (identifier)
+            (argumentList))))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (intLiteralExpr))
+      (objectMethod
+        (methodHeader
+          (modifier)
+          (identifier)
+          (parameterList))
+        (intLiteralExpr))
+      (objectProperty
+        (identifier)
+        (objectBody
+          (objectProperty
+            (identifier)
+            (intLiteralExpr))
+          (objectProperty
+            (identifier)
+            (objectBody
+              (objectProperty
+                (identifier)
+                (unqualifiedAccessExpr
+                  (identifier)))
+              (objectProperty
+                (identifier)
+                (unqualifiedAccessExpr
+                  (identifier)))
+              (objectProperty
+                (identifier)
+                (unqualifiedAccessExpr
+                  (identifier)
+                  (argumentList)))))))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart))))))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))
+        (intLiteralExpr))
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))
+        (intLiteralExpr))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (unqualifiedAccessExpr
+            (identifier))))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (qualifiedAccessExpr
+            (thisExpr)
+            (identifier))))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (superAccessExpr
+            (identifier))))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (intLiteralExpr))
+        (objectProperty
+          (identifier)
+          (objectBody
+            (objectProperty
+              (identifier)
+              (intLiteralExpr))))))))

@@ -1,0 +1,128 @@
+================================================================================
+Simple intent
+================================================================================
+
+%[greet]
+    hello
+    hi
+
+--------------------------------------------------------------------------------
+
+(source
+  (intent_def
+    (intent)
+    (intent_body
+      (word)
+      (word))))
+
+================================================================================
+Intent with arguments
+================================================================================
+
+%[greet]('training': '2', 'testing': '1')
+    hello
+    hi
+    hola
+    salute
+
+--------------------------------------------------------------------------------
+
+(source
+  (intent_def
+    (intent)
+    (arguments
+      (argument
+        key: (string)
+        value: (string))
+      (argument
+        key: (string)
+        value: (string)))
+    (intent_body
+      (word)
+      (word)
+      (word)
+      (word))))
+
+================================================================================
+Alias
+================================================================================
+
+%[greet]
+    ~[hi] ~[how are you?]
+
+~[hi]
+    hi
+    hey
+
+--------------------------------------------------------------------------------
+
+(source
+  (intent_def
+    (intent)
+    (intent_body
+      (alias_ref
+        (alias))
+      (alias_ref
+        (alias))))
+  (alias_def
+    (alias)
+    (alias_body
+      (word)
+      (word))))
+
+================================================================================
+Slot with variation
+================================================================================
+
+%[ask_for_delivery]
+    my parcel should be delivered in @[delivery_time#time_in_hours]
+    my parcel should be delivered @[delivery_time#relative_time]
+
+@[delivery_time#time_in_hours]
+    3 days
+    5 hours
+
+@[delivery_time#relative_time]
+    as fast as possible
+    quickly
+
+--------------------------------------------------------------------------------
+
+(source
+  (intent_def
+    (intent)
+    (intent_body
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (slot_ref
+        (slot)
+        (variation))
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (slot_ref
+        (slot)
+        (variation))))
+  (slot_def
+    (slot)
+    (variation)
+    (slot_body
+      (word)
+      (word)
+      (word)
+      (word)))
+  (slot_def
+    (slot)
+    (variation)
+    (slot_body
+      (word)
+      (word)
+      (word)
+      (word)
+      (word))))

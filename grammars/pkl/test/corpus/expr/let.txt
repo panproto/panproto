@@ -1,0 +1,17 @@
+===
+let
+===
+
+foo = let (prop = 1) prop
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (letExpr
+      (typedIdentifier
+        (identifier))
+      (intLiteralExpr)
+      (unqualifiedAccessExpr
+        (identifier)))))

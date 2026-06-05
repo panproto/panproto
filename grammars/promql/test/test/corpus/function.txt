@@ -1,0 +1,126 @@
+================================================================================
+function - rate
+================================================================================
+
+rate(http_requests_total{job="api-server"}[5m])
+
+--------------------------------------------------------------------------------
+
+(query
+  (function_call
+    (function_name)
+    (function_args
+      (range_vector_selector
+        (metric_name)
+        (label_selectors
+          (label_matcher
+            (label_name)
+            (label_value)))
+        (range_selection)))))
+
+================================================================================
+function - label_join
+================================================================================
+
+label_join(up{job="api-server",src1="a",src2="b",src3="c"}, "foo", ",", "src1", "src2", "src3")
+
+--------------------------------------------------------------------------------
+
+(query
+  (function_call
+    (function_name)
+    (function_args
+      (instant_vector_selector
+        (metric_name)
+        (label_selectors
+          (label_matcher
+            (label_name)
+            (label_value))
+          (label_matcher
+            (label_name)
+            (label_value))
+          (label_matcher
+            (label_name)
+            (label_value))
+          (label_matcher
+            (label_name)
+            (label_value))))
+      (string_literal)
+      (string_literal)
+      (string_literal)
+      (string_literal)
+      (string_literal))))
+
+================================================================================
+function - histogram_quantile nested rate
+================================================================================
+
+histogram_quantile(0.9, rate(http_request_duration_seconds_bucket[10m]))
+
+--------------------------------------------------------------------------------
+
+(query
+  (function_call
+    (function_name)
+    (function_args
+      (float_literal)
+      (function_call
+        (function_name)
+        (function_args
+          (range_vector_selector
+            (metric_name)
+            (range_selection)))))))
+
+================================================================================
+function - range vector with same name as a function
+================================================================================
+
+rate(rate[1m])
+
+--------------------------------------------------------------------------------
+
+(query
+  (function_call
+    (function_name)
+    (function_args
+      (range_vector_selector
+        (metric_name)
+        (range_selection)))))
+
+================================================================================
+function - no function just brackets
+================================================================================
+
+( a - b ) / c
+
+--------------------------------------------------------------------------------
+
+(query
+  (binary_expression
+    (binary_expression
+      (instant_vector_selector
+        (metric_name))
+      (instant_vector_selector
+        (metric_name)))
+    (instant_vector_selector
+      (metric_name))))
+
+================================================================================
+function - brackets in string
+================================================================================
+
+rate(foo{label=~"(a|b)"}[5m])
+
+--------------------------------------------------------------------------------
+
+(query
+  (function_call
+    (function_name)
+    (function_args
+      (range_vector_selector
+        (metric_name)
+        (label_selectors
+          (label_matcher
+            (label_name)
+            (label_value)))
+        (range_selection)))))

@@ -1,0 +1,172 @@
+================================================================================
+Test attribute not consumed by preceding var section
+================================================================================
+
+codeunit 50100 "Test Codeunit"
+{
+    var
+        Assert: Codeunit Assert;
+
+    [Test]
+    procedure TestAfterVarSection()
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (object_reference_type
+            object_type: (codeunit_keyword)
+            reference: (identifier)))))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))
+
+================================================================================
+Multiple attributes after var section not consumed
+================================================================================
+
+codeunit 50101 "Test Multi Attr"
+{
+    var
+        X: Integer;
+
+    [Test]
+    [Scope('OnPrem')]
+    procedure TestMultiAttrAfterVar()
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type))))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (string_literal)))))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))
+
+================================================================================
+Variable attribute stays in var section while procedure attribute does not
+================================================================================
+
+codeunit 50102 "Test Mixed Attrs"
+{
+    var
+        [NonDebuggable]
+        Secret: Text;
+        Normal: Integer;
+
+    [Test]
+    procedure TestAfterVarWithAttrOnVar()
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (var_attribute_item
+        (var_attribute_open)
+        attribute: (attribute_content
+          name: (identifier)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (text_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type))))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))
+
+================================================================================
+Test attribute after multi-variable declaration
+================================================================================
+
+codeunit 50103 "Test Multi Var"
+{
+    var
+        A, B, C : Integer;
+
+    [Test]
+    procedure TestAfterMultiVarDecl()
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        name: (identifier)
+        name: (identifier)
+        type: (type_specification
+          (basic_type))))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))

@@ -1,0 +1,879 @@
+================================================================================
+Open
+================================================================================
+
+open Foo
+open! Foo.Bar
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (open_statement
+    (module_identifier))
+  (open_statement
+    (module_identifier_path
+      (module_identifier)
+      (module_identifier))))
+
+================================================================================
+Include
+================================================================================
+
+include Foo
+include Foo.Bar
+include Foo.Bar(X)
+include Foo.Bar({
+  type t
+  let x: int
+})
+
+include module type of Belt.Array
+include (module type of Belt.Array)
+include (Belt: module type of Belt with module Map.Inner := Belt.Map and module Result := Belt.Result)
+include module type of {
+  include T
+}
+include (
+  {
+    let a = Js.log("Hello")
+  }
+)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (include_statement
+    (module_identifier))
+  (include_statement
+    (module_identifier_path
+      (module_identifier)
+      (module_identifier)))
+  (include_statement
+    (functor_use
+      (module_identifier_path
+        (module_identifier)
+        (module_identifier))
+      (arguments
+        (module_identifier))))
+  (include_statement
+    (functor_use
+      (module_identifier_path
+        (module_identifier)
+        (module_identifier))
+      (arguments
+        (block
+          (type_declaration
+            (type_binding
+              (type_identifier)))
+          (let_declaration
+            (let_binding
+              (value_identifier)
+              (type_annotation
+                (type_identifier))))))))
+  (include_statement
+    (module_type_of
+      (module_identifier_path
+        (module_identifier)
+        (module_identifier))))
+  (include_statement
+    (parenthesized_module_expression
+      (module_type_of
+        (module_identifier_path
+          (module_identifier)
+          (module_identifier)))))
+  (include_statement
+    (parenthesized_module_expression
+      (module_identifier)
+      (module_type_annotation
+        (module_type_constraint
+          (module_type_of
+            (module_identifier))
+          (constrain_module
+            (module_identifier_path
+              (module_identifier)
+              (module_identifier))
+            (module_identifier_path
+              (module_identifier)
+              (module_identifier)))
+          (constrain_module
+            (module_identifier)
+            (module_identifier_path
+              (module_identifier)
+              (module_identifier)))))))
+  (include_statement
+    (module_type_of
+      (block
+        (include_statement
+          (module_identifier)))))
+  (include_statement
+    (block
+      (let_declaration
+        (let_binding
+          (value_identifier)
+          (call_expression
+            (value_identifier_path
+              (module_identifier)
+              (value_identifier))
+            (arguments
+              (string
+                (string_fragment)))))))))
+
+================================================================================
+Simple definition
+================================================================================
+
+module MyModule = {
+  type t
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (module_declaration
+    (module_binding
+      (module_identifier)
+      (block
+        (type_declaration
+          (type_binding
+            (type_identifier)))))))
+
+================================================================================
+Signature and definition
+================================================================================
+
+module MyModule: {
+  let a: int
+  let b: float
+  let c: string
+}
+
+module MyModule: Foo.Bar = {
+  type t
+}
+
+module MyModule: {
+  type t
+} = {
+  type t = int
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (module_declaration
+    (module_binding
+      name: (module_identifier)
+      signature: (block
+        (let_declaration
+          (let_binding
+            pattern: (value_identifier)
+            (type_annotation
+              (type_identifier))))
+        (let_declaration
+          (let_binding
+            pattern: (value_identifier)
+            (type_annotation
+              (type_identifier))))
+        (let_declaration
+          (let_binding
+            pattern: (value_identifier)
+            (type_annotation
+              (type_identifier)))))))
+  (module_declaration
+    (module_binding
+      name: (module_identifier)
+      signature: (module_identifier_path
+        (module_identifier)
+        (module_identifier))
+      definition: (block
+        (type_declaration
+          (type_binding
+            name: (type_identifier))))))
+  (module_declaration
+    (module_binding
+      name: (module_identifier)
+      signature: (block
+        (type_declaration
+          (type_binding
+            name: (type_identifier))))
+      definition: (block
+        (type_declaration
+          (type_binding
+            name: (type_identifier)
+            (type_identifier)))))))
+
+================================================================================
+Module types
+================================================================================
+
+module type S1 = { type t }
+module type S2 = module type of MyModule.Submod
+module type t
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (module_declaration
+    (module_binding
+      (module_identifier)
+      (block
+        (type_declaration
+          (type_binding
+            (type_identifier))))))
+  (module_declaration
+    (module_binding
+      (module_identifier)
+      (module_type_of
+        (module_identifier_path
+          (module_identifier)
+          (module_identifier)))))
+  (module_declaration
+    (module_binding
+      (type_identifier))))
+
+================================================================================
+First Class module
+================================================================================
+
+module(LightTheme)
+module(A: A)
+module(
+  {
+    type t
+    let foo = "Hello"
+  }: X
+)
+module(SomeFunctor(unpack(x)))
+
+module M = unpack(module(Cleanup): PipelineStep with type state = t)
+
+module T = unpack(foo: T)
+
+module S = unpack(foo: T with type t = a)
+
+module S = unpack(Mod.read(v))
+
+module S = unpack(%extension(payload))
+
+module T2 = unpack(make(): T)
+
+module T3 = unpack(make(): T with type t = int)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (module_pack
+      (module_identifier)))
+  (expression_statement
+    (module_pack
+      (module_identifier)
+      (module_type_annotation
+        (module_identifier))))
+  (expression_statement
+    (module_pack
+      (block
+        (type_declaration
+          (type_binding
+            (type_identifier)))
+        (let_declaration
+          (let_binding
+            (value_identifier)
+            (string
+              (string_fragment)))))
+      (module_type_annotation
+        (module_identifier))))
+  (expression_statement
+    (module_pack
+      (functor_use
+        (module_identifier)
+        (arguments
+          (module_unpack
+            (value_identifier))))))
+  (module_declaration
+    (module_binding
+      (module_identifier)
+      (module_unpack
+        (module_pack
+          (module_identifier))
+        (module_type_annotation
+          (module_type_constraint
+            (module_identifier)
+            (constrain_type
+              (type_identifier)
+              (type_identifier)))))))
+  (module_declaration
+    (module_binding
+      (module_identifier)
+      (module_unpack
+        (value_identifier)
+        (module_type_annotation
+          (module_identifier)))))
+  (module_declaration
+    (module_binding
+      (module_identifier)
+      (module_unpack
+        (value_identifier)
+        (module_type_annotation
+          (module_type_constraint
+            (module_identifier)
+            (constrain_type
+              (type_identifier)
+              (type_identifier)))))))
+  (module_declaration
+    (module_binding
+      (module_identifier)
+      (module_unpack
+        (call_expression
+          (value_identifier_path
+            (module_identifier)
+            (value_identifier))
+          (arguments
+            (value_identifier))))))
+  (module_declaration
+    (module_binding
+      (module_identifier)
+      (module_unpack
+        (extension_expression
+          (extension_identifier)
+          (expression_statement
+            (value_identifier))))))
+  (module_declaration
+    (module_binding
+      (module_identifier)
+      (module_unpack
+        (call_expression
+          (value_identifier)
+          (arguments))
+        (module_type_annotation
+          (module_identifier)))))
+  (module_declaration
+    (module_binding
+      (module_identifier)
+      (module_unpack
+        (call_expression
+          (value_identifier)
+          (arguments))
+        (module_type_annotation
+          (module_type_constraint
+            (module_identifier)
+            (constrain_type
+              (type_identifier)
+              (type_identifier))))))))
+
+================================================================================
+Functor definition
+================================================================================
+
+module MyFunctor = (X: {type t}, Y: {type t}): {type tx; type ty} => {
+  type tx = X.t
+  type ty = Y.t
+}
+
+module F2: (S1, S1) => T = (X: S, Y: S) => {
+  let cow = x => Y.foo(X.foo(x))
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (module_declaration
+    (module_binding
+      name: (module_identifier)
+      definition: (functor
+        parameters: (functor_parameters
+          (functor_parameter
+            (module_identifier)
+            (module_type_annotation
+              (block
+                (type_declaration
+                  (type_binding
+                    name: (type_identifier))))))
+          (functor_parameter
+            (module_identifier)
+            (module_type_annotation
+              (block
+                (type_declaration
+                  (type_binding
+                    name: (type_identifier)))))))
+        return_module_type: (module_type_annotation
+          (block
+            (type_declaration
+              (type_binding
+                name: (type_identifier)))
+            (type_declaration
+              (type_binding
+                name: (type_identifier)))))
+        body: (block
+          (type_declaration
+            (type_binding
+              name: (type_identifier)
+              (type_identifier_path
+                (module_identifier)
+                (type_identifier))))
+          (type_declaration
+            (type_binding
+              name: (type_identifier)
+              (type_identifier_path
+                (module_identifier)
+                (type_identifier))))))))
+  (module_declaration
+    (module_binding
+      name: (module_identifier)
+      signature: (functor
+        parameters: (functor_parameters
+          (functor_parameter
+            (module_identifier))
+          (functor_parameter
+            (module_identifier)))
+        body: (module_identifier))
+      definition: (functor
+        parameters: (functor_parameters
+          (functor_parameter
+            (module_identifier)
+            (module_type_annotation
+              (module_identifier)))
+          (functor_parameter
+            (module_identifier)
+            (module_type_annotation
+              (module_identifier))))
+        body: (block
+          (let_declaration
+            (let_binding
+              pattern: (value_identifier)
+              body: (function
+                parameter: (value_identifier)
+                body: (call_expression
+                  function: (value_identifier_path
+                    (module_identifier)
+                    (value_identifier))
+                  arguments: (arguments
+                    (call_expression
+                      function: (value_identifier_path
+                        (module_identifier)
+                        (value_identifier))
+                      arguments: (arguments
+                        (value_identifier)))))))))))))
+
+================================================================================
+Functor signature
+================================================================================
+
+module Make: (Content: StaticContent) => {
+  let make: string => string
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (module_declaration
+    (module_binding
+      (module_identifier)
+      (functor
+        (functor_parameters
+          (functor_parameter
+            (module_identifier)
+            (module_type_annotation
+              (module_identifier))))
+        (block
+          (let_declaration
+            (let_binding
+              (value_identifier)
+              (type_annotation
+                (function_type
+                  (function_type_parameters
+                    (type_identifier))
+                  (type_identifier))))))))))
+
+================================================================================
+Functor use
+================================================================================
+
+module M = MyFunctor(Foo, Bar.Baz)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (module_declaration
+    (module_binding
+      (module_identifier)
+      (functor_use
+        (module_identifier)
+        (arguments
+          (module_identifier)
+          (module_identifier_path
+            (module_identifier)
+            (module_identifier)))))))
+
+================================================================================
+Alias
+================================================================================
+
+module Q = Foo.Bar.Qux
+module Foo' = Foo
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (module_declaration
+    (module_binding
+      (module_identifier)
+      (module_identifier_path
+        (module_identifier_path
+          (module_identifier)
+          (module_identifier))
+        (module_identifier))))
+  (module_declaration
+    (module_binding
+      (module_identifier)
+      (module_identifier))))
+
+================================================================================
+Recursive
+================================================================================
+
+module rec BYOBReader: {
+  include Reader
+} = BYOBReader
+
+module rec A: T = {
+  let x = B.x
+}
+and B: T = {
+  let x = 1
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (module_declaration
+    (module_binding
+      (module_identifier)
+      (block
+        (include_statement
+          (module_identifier)))
+      (module_identifier)))
+  (module_declaration
+    (module_binding
+      (module_identifier)
+      (module_identifier)
+      (block
+        (let_declaration
+          (let_binding
+            (value_identifier)
+            (value_identifier_path
+              (module_identifier)
+              (value_identifier))))))
+    (module_binding
+      (module_identifier)
+      (module_identifier)
+      (block
+        (let_declaration
+          (let_binding
+            (value_identifier)
+            (number)))))))
+
+================================================================================
+Definition through extension
+================================================================================
+
+module Styles = %makeStyles(())
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (module_declaration
+    (module_binding
+      (module_identifier)
+      (extension_expression
+        (extension_identifier)
+        (expression_statement
+          (unit))))))
+
+================================================================================
+Externals
+================================================================================
+
+external aX: t => float = "aX"
+external foo: int = "foo"
+external foo: int = "foo"
+external foo: t = "Foo"
+external _makeStyles: ({..}, . unit) => {..} = "makeStyles"
+
+external pushState: (Dom.history, ~href: string) => unit =
+  "pushState"
+
+external add: (
+  t,
+  ~option: [#Option(Dom.htmlOptionElement) | #OptGroup(Dom.htmlOptGroupElement)],
+) => unit = "add"
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (external_declaration
+    (value_identifier)
+    (type_annotation
+      (function_type
+        (function_type_parameters
+          (type_identifier))
+        (type_identifier)))
+    (string
+      (string_fragment)))
+  (external_declaration
+    (value_identifier)
+    (type_annotation
+      (type_identifier))
+    (string
+      (string_fragment)))
+  (external_declaration
+    (value_identifier)
+    (type_annotation
+      (type_identifier))
+    (string
+      (string_fragment)))
+  (external_declaration
+    (value_identifier)
+    (type_annotation
+      (type_identifier))
+    (string
+      (string_fragment)))
+  (external_declaration
+    (value_identifier)
+    (type_annotation
+      (function_type
+        (function_type_parameters
+          (parameter
+            (object_type))
+          (parameter
+            (uncurry)
+            (unit_type)))
+        (object_type)))
+    (string
+      (string_fragment)))
+  (external_declaration
+    (value_identifier)
+    (type_annotation
+      (function_type
+        (function_type_parameters
+          (parameter
+            (type_identifier_path
+              (module_identifier)
+              (type_identifier)))
+          (parameter
+            (labeled_parameter
+              (value_identifier)
+              (type_annotation
+                (type_identifier)))))
+        (unit_type)))
+    (string
+      (string_fragment)))
+  (external_declaration
+    (value_identifier)
+    (type_annotation
+      (function_type
+        (function_type_parameters
+          (parameter
+            (type_identifier))
+          (parameter
+            (labeled_parameter
+              (value_identifier)
+              (type_annotation
+                (polyvar_type
+                  (polyvar_declaration
+                    (polyvar_identifier)
+                    (polyvar_parameters
+                      (type_identifier_path
+                        (module_identifier)
+                        (type_identifier))))
+                  (polyvar_declaration
+                    (polyvar_identifier)
+                    (polyvar_parameters
+                      (type_identifier_path
+                        (module_identifier)
+                        (type_identifier)))))))))
+        (unit_type)))
+    (string
+      (string_fragment))))
+
+================================================================================
+Exception declaration
+================================================================================
+
+exception InputClosed(string)
+exception Error = Failed
+exception Invalid = Errors.Invalid
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (exception_declaration
+    (variant_identifier)
+    (variant_parameters
+      (type_identifier)))
+  (exception_declaration
+    (variant_identifier)
+    (variant_identifier))
+  (exception_declaration
+    (variant_identifier)
+    (nested_variant_identifier
+      (module_identifier)
+      (variant_identifier))))
+
+================================================================================
+Module Constraints
+================================================================================
+
+module(M: T with type t = a and type t = b)
+
+module M = (): (T with type t = int) => {}
+
+module M = (Na: N, Nb: N): (
+  (S with type t = x) with type a = b
+) => {}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (module_pack
+      (module_identifier)
+      (module_type_annotation
+        (module_type_constraint
+          (module_identifier)
+          (constrain_type
+            (type_identifier)
+            (type_identifier))
+          (constrain_type
+            (type_identifier)
+            (type_identifier))))))
+  (module_declaration
+    (module_binding
+      name: (module_identifier)
+      definition: (functor
+        parameters: (functor_parameters)
+        return_module_type: (module_type_annotation
+          (parenthesized_module_expression
+            (module_type_constraint
+              (module_identifier)
+              (constrain_type
+                (type_identifier)
+                (type_identifier)))))
+        body: (block))))
+  (module_declaration
+    (module_binding
+      name: (module_identifier)
+      definition: (functor
+        parameters: (functor_parameters
+          (functor_parameter
+            (module_identifier)
+            (module_type_annotation
+              (module_identifier)))
+          (functor_parameter
+            (module_identifier)
+            (module_type_annotation
+              (module_identifier))))
+        return_module_type: (module_type_annotation
+          (parenthesized_module_expression
+            (module_type_constraint
+              (parenthesized_module_expression
+                (module_type_constraint
+                  (module_identifier)
+                  (constrain_type
+                    (type_identifier)
+                    (type_identifier))))
+              (constrain_type
+                (type_identifier)
+                (type_identifier)))))
+        body: (block)))))
+
+================================================================================
+Module with type constraint
+================================================================================
+
+module LogResultDecoder: OnpingStdLib_PubSub.FromJSON
+  with type t = AlarmMixLogBatchTypes.batchResult = {
+  type t = AlarmMixLogBatchTypes.batchResult
+  let fromJSON = (json: JSON.t): result<t, string> => {
+    AlarmMixLogBatchTypes.decodeBatchResult(json)
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (module_declaration
+    (module_binding
+      name: (module_identifier)
+      signature: (module_type_constraint
+        (module_identifier_path
+          (module_identifier)
+          (module_identifier))
+        (constrain_type
+          (type_identifier)
+          (type_identifier_path
+            (module_identifier)
+            (type_identifier))))
+      definition: (block
+        (type_declaration
+          (type_binding
+            name: (type_identifier)
+            (type_identifier_path
+              (module_identifier)
+              (type_identifier))))
+        (let_declaration
+          (let_binding
+            pattern: (value_identifier)
+            body: (function
+              parameters: (formal_parameters
+                (parameter
+                  (value_identifier)
+                  (type_annotation
+                    (type_identifier_path
+                      (module_identifier)
+                      (type_identifier)))))
+              return_type: (type_annotation
+                (generic_type
+                  (type_identifier)
+                  (type_arguments
+                    (type_identifier)
+                    (type_identifier))))
+              body: (block
+                (expression_statement
+                  (call_expression
+                    function: (value_identifier_path
+                      (module_identifier)
+                      (value_identifier))
+                    arguments: (arguments
+                      (value_identifier))))))))))))
+
+================================================================================
+Dynamic imports
+================================================================================
+
+module LazyUtils: UtilsType = await Utils
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (module_declaration
+    (module_binding
+      (module_identifier)
+      (module_identifier)
+      (module_identifier))))
+
+================================================================================
+Record with module path
+================================================================================
+
+t.A.B.c
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (member_expression
+      (value_identifier)
+      (module_identifier)
+      (module_identifier)
+      (property_identifier))))

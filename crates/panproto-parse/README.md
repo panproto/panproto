@@ -10,7 +10,7 @@ Parses source code in 259 programming languages into panproto schema graphs usin
 
 Tree-sitter parses source code into an abstract syntax tree (AST): a tree of named node types (`function_definition`, `class_declaration`, `import_statement`) connected by named fields (`name`, `body`, `parameters`). Panproto converts this AST structure into a schema graph where each node type becomes a vertex kind and each field name becomes an edge kind. The schema graph represents the full structure of the source file as panproto data.
 
-The theory for each language (the formal description of what the schema graph for that language looks like) is extracted automatically from the grammar's `node-types.json` file. Because the theory is always derived from the grammar itself, it stays in sync automatically as grammars are updated. One `AstWalker` implementation handles all 259 languages; there is no per-language parsing code.
+The theory for each language (the formal description of what the schema graph for that language looks like) is extracted automatically from the grammar's `node-types.json` file. Because the theory is always derived from the grammar itself, it stays in sync automatically as grammars are updated. One `AstWalker` implementation handles all 261 languages; there is no per-language parsing code.
 
 Alongside each schema vertex, the walker records interstitial text: the keywords, punctuation, and whitespace that appear between named AST children. The emitter collects these fragments by byte position and concatenates them to reproduce the original source exactly. `emit(parse(source)) == source` for any file the grammar can parse.
 
@@ -23,7 +23,7 @@ The `parse_emit_lens` module exposes the parse/emit pipeline as an asymmetric le
 ```rust,ignore
 use panproto_parse::registry;
 
-// All 259 languages are registered automatically with the default feature set.
+// All 261 languages are registered automatically with the default feature set.
 let reg = registry::global();
 
 // Parse a Rust source file into a schema graph.

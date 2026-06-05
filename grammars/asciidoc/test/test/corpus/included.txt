@@ -1,0 +1,50 @@
+===========
+included
+===========
+
+= My book
+
+:leveloffset: +1
+
+include::chapter01.adoc[]
+
+include::chapter02.adoc[]
+
+include::chapter03.adoc[]
+
+:leveloffset: -1
+
+-----
+
+(document
+  (block_element
+    (document_title
+      (title_h0_marker)
+      (line)))
+  (block_element
+    (document_attr
+      (document_attr_marker)
+      (attr_name)
+      (document_attr_marker)
+      (line)))
+  (block_element
+    (section_block
+      (block_macro
+        (block_macro_name)
+        (target))))
+  (block_element
+    (section_block
+      (block_macro
+        (block_macro_name)
+        (target))))
+  (block_element
+    (section_block
+      (block_macro
+        (block_macro_name)
+        (target))))
+  (block_element
+    (document_attr
+      (document_attr_marker)
+      (attr_name)
+      (document_attr_marker)
+      (line))))

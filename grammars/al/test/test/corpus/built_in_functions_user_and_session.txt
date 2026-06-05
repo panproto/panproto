@@ -1,0 +1,78 @@
+==================
+Built-in Functions User and session functions
+==================
+
+codeunit 50100 "Built-in Functions Test"
+{
+    local procedure TestSystemFunctions()
+    var
+        User: Text;
+        Company: Text;
+        Serial: Text;
+        Session: Integer;
+        WindowsUser: Text;
+    begin
+        User := USERID();
+        Company := CompanyName();
+        Serial := SerialNumber();
+        Session := SESSIONID();
+    end;
+}
+
+---
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (quoted_identifier)
+    (procedure
+      (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (text_type)))
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (text_type)))
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (text_type)))
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (basic_type)))
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (text_type))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          (identifier)
+          (call_expression
+            (identifier)
+            (argument_list)))
+        (assignment_statement
+          (identifier)
+          (call_expression
+            (identifier)
+            (argument_list)))
+        (assignment_statement
+          (identifier)
+          (call_expression
+            (identifier)
+            (argument_list)))
+        (assignment_statement
+          (keyword_identifier)
+          (call_expression
+            (identifier)
+            (argument_list)))
+        (end_keyword)))))

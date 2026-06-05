@@ -1,0 +1,133 @@
+===
+listings/default.pkl
+===
+
+class Person {
+  name: String
+  age: Int = 42
+}
+
+res1: Listing<Person> = new {
+  new {
+    name = "Pigeon"
+  }
+}
+
+res2 = (res1) {
+  default {
+    age = 21
+  }
+  new {
+    name = "Parrot"
+  }
+}
+
+res3 = (res2) {
+  default { n ->
+    age = n
+  }
+}
+
+res4 = (res3) {
+  (default.apply(5)) {
+    name = "Barn Owl"
+  }
+}
+
+---
+
+(module
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))))
+    (newExpr
+      (objectBody
+        (objectElement
+          (newExpr
+            (objectBody
+              (objectProperty
+                (identifier)
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))))))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (objectBody
+            (objectProperty
+              (identifier)
+              (intLiteralExpr))))
+        (objectElement
+          (newExpr
+            (objectBody
+              (objectProperty
+                (identifier)
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))))))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (objectBody
+            (objectBodyParameters
+
+              (typedIdentifier
+                (identifier)))
+            (objectProperty
+              (identifier)
+              (unqualifiedAccessExpr
+                (identifier))))))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (objectElement
+          (amendExpr
+            (parenthesizedExpr
+              (qualifiedAccessExpr
+                (unqualifiedAccessExpr
+                  (identifier))
+                (identifier)
+                (argumentList
+                  (intLiteralExpr))))
+            (objectBody
+              (objectProperty
+                (identifier)
+                (slStringLiteralExpr
+                  (slStringLiteralPart))))))))))

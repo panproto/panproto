@@ -1,0 +1,39 @@
+===
+Jumps
+===
+
+jmp rel 2 + 2;
+jmp abs 3;
+jmp foo;
+jmp rel 19 if 3 + 2 != 4;
+jmp bar if 3 + 2 != 2;
+
+---
+
+(program
+  (cairo_0_file
+    (instruction
+      (inst_jmp_rel
+        (binary_expression
+          (number)
+          (number))))
+    (instruction
+      (inst_jmp_abs
+        (number)))
+    (instruction
+      (inst_jmp_to_label
+        (identifier)))
+    (instruction
+      (inst_jnz
+        (number)
+        (binary_expression
+          (number)
+          (number))
+        (number)))
+    (instruction
+      (inst_jnz_to_label
+        (identifier)
+        (binary_expression
+          (number)
+          (number))
+        (number)))))

@@ -1,0 +1,284 @@
+==================================================
+
+==================================================
+
+
+[[ ( a == b ) || ( c == d ) ]]
+
+----------
+
+(program -
+  (test_command -
+    (binary_expression -
+      left: (parenthesized_expression -
+        (binary_expression -
+          left: (word -)
+          right: (extglob_pattern -)))
+      right: (parenthesized_expression -
+        (binary_expression -
+          left: (word -)
+          right: (extglob_pattern -))))))
+
+
+==================================================
+
+==================================================
+
+[[ ! -f file ]]
+
+----------
+
+(program -
+  (test_command -
+    (unary_expression -
+      (unary_expression -
+        operator: (test_operator -)
+        (word -)))))
+
+
+==================================================
+
+==================================================
+
+[[ -f file1 && ( -r file1 || -w file1 ) ]]
+
+----------
+
+(program -
+  (test_command -
+    (binary_expression -
+      left: (unary_expression -
+        operator: (test_operator -)
+        (word -))
+      right: (parenthesized_expression -
+        (binary_expression -
+          left: (unary_expression -
+            operator: (test_operator -)
+            (word -))
+          right: (unary_expression -
+            operator: (test_operator -)
+            (word -)))))))
+
+
+==================================================
+
+==================================================
+
+case $var in
+    *.txt) echo "text file" ;;
+    *.sh) echo "shell script" ;;
+    *) echo "other" ;;
+esac
+
+----------
+
+(program -
+  (case_statement -
+    value: (simple_expansion -
+      (variable_name -))
+    (case_item -
+      value: (word -)
+      (command -
+        name: (command_name -
+          (word -))
+        argument: (string -
+          (string_content -))))
+    (case_item -
+      value: (word -)
+      (command -
+        name: (command_name -
+          (word -))
+        argument: (string -
+          (string_content -))))
+    (case_item -
+      value: (word -)
+      (command -
+        name: (command_name -
+          (word -))
+        argument: (string -
+          (string_content -))))))
+
+
+==================================================
+
+==================================================
+
+if [[ $a -eq $b ]]; then
+    echo "equal"
+fi
+
+----------
+
+(program -
+  (if_statement -
+    condition: (test_command -
+      (binary_expression -
+        left: (simple_expansion -
+          (variable_name -))
+        operator: (test_operator -)
+        right: (simple_expansion -
+          (variable_name -))))
+    (command -
+      name: (command_name -
+        (word -))
+      argument: (string -
+        (string_content -)))))
+
+
+==================================================
+
+==================================================
+
+if [[ $a -gt 5 ]]; then
+    echo "greater"
+elif [[ $a -lt 0 ]]; then
+    echo "less"
+else
+    echo "between"
+fi
+
+----------
+
+(program -
+  (if_statement -
+    condition: (test_command -
+      (binary_expression -
+        left: (simple_expansion -
+          (variable_name -))
+        operator: (test_operator -)
+        right: (number -)))
+    (command -
+      name: (command_name -
+        (word -))
+      argument: (string -
+        (string_content -)))
+    (elif_clause -
+      (test_command -
+        (binary_expression -
+          left: (simple_expansion -
+            (variable_name -))
+          operator: (test_operator -)
+          right: (number -)))
+      (command -
+        name: (command_name -
+          (word -))
+        argument: (string -
+          (string_content -))))
+    (else_clause -
+      (command -
+        name: (command_name -
+          (word -))
+        argument: (string -
+          (string_content -))))))
+
+
+==================================================
+
+==================================================
+
+until [[ $count -ge 10 ]]; do
+    echo $count
+    ((count++))
+done
+
+----------
+
+(program -
+  (while_statement -
+    condition: (test_command -
+      (binary_expression -
+        left: (simple_expansion -
+          (variable_name -))
+        operator: (test_operator -)
+        right: (number -)))
+    body: (do_group -
+      (command -
+        name: (command_name -
+          (word -))
+        argument: (simple_expansion -
+          (variable_name -)))
+      (test_command -
+        (word -)))))
+
+
+==================================================
+
+==================================================
+
+while true; do
+    if [[ $done ]]; then
+        break
+    fi
+    echo "working"
+done
+
+----------
+
+(program -
+  (while_statement -
+    condition: (command -
+      name: (command_name -
+        (word -)))
+    body: (do_group -
+      (if_statement -
+        condition: (test_command -
+          (simple_expansion -
+            (variable_name -)))
+        (command -
+          name: (command_name -
+            (word -))))
+      (command -
+        name: (command_name -
+          (word -))
+        argument: (string -
+          (string_content -))))))
+
+
+==================================================
+
+==================================================
+
+for i in {1..10}; do
+    echo $i
+done
+
+----------
+
+(program -
+  (for_statement -
+    variable: (variable_name -)
+    value: (brace_expression -
+      (number -)
+      (number -))
+    body: (do_group -
+      (command -
+        name: (command_name -
+          (word -))
+        argument: (simple_expansion -
+          (variable_name -))))))
+
+
+==================================================
+
+==================================================
+
+for item in "${array[@]}"; do
+    echo $item
+done
+
+----------
+
+(program -
+  (for_statement -
+    variable: (variable_name -)
+    value: (string -
+      (expansion -
+        (subscript -
+          name: (variable_name -)
+          index: (word -))))
+    body: (do_group -
+      (command -
+        name: (command_name -
+          (word -))
+        argument: (simple_expansion -
+          (variable_name -))))))

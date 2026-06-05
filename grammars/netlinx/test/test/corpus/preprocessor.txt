@@ -1,0 +1,1091 @@
+==================
+Include Directives
+==================
+
+#include 'common_api'
+INCLUDE 'button_constants'
+#include 'foo';
+
+---
+
+(source_file
+  (preproc_include
+    (preproc_include_keyword)
+    path: (string_literal
+      (string_content)))
+  (preproc_include
+    (preproc_include_keyword)
+    path: (string_literal
+      (string_content)))
+  (preproc_include
+    (preproc_include_keyword)
+    path: (string_literal
+      (string_content))))
+
+==================
+Define Directives
+==================
+
+#DEFINE DEBUG_MODE;
+#define MAX_ATTEMPTS 5;
+#define DEVICE_NAME 'Touch Panel'
+
+---
+
+(source_file
+  (preproc_define
+    (preproc_define_keyword)
+    name: (identifier))
+  (preproc_define
+    (preproc_define_keyword)
+    name: (identifier)
+    value: (preproc_arg))
+  (preproc_define
+    (preproc_define_keyword)
+    name: (identifier)
+    value: (preproc_arg)))
+
+==================
+Basic Conditional Directives
+==================
+
+#IF_NOT_DEFINED DEBUG_MODE
+#DEFINE DEBUG_MODE
+#END_IF
+
+---
+
+(source_file
+  (preproc_if_not_defined
+    (preproc_if_not_defined_keyword)
+    name: (identifier)
+    (preproc_define
+      (preproc_define_keyword)
+      name: (identifier))
+    (preproc_end_if_keyword)))
+
+==================
+Warning Directive
+==================
+
+#WARN 'This API will be deprecated in v2.0'
+
+---
+
+(source_file
+  (preproc_warn
+    (preproc_warn_keyword)
+    (string_literal
+      (string_content))))
+
+==================
+Complex Conditional Directives
+==================
+
+#IF_DEFINED RELEASE_BUILD
+    INCLUDE 'release_config'
+#ELSE
+    INCLUDE 'debug_config'
+    #DEFINE DEBUG_LOGGING
+#END_IF
+
+---
+
+(source_file
+  (preproc_if_defined
+    (preproc_if_defined_keyword)
+    name: (identifier)
+    (preproc_include
+      (preproc_include_keyword)
+      path: (string_literal
+        (string_content)))
+    alternative: (preproc_else
+      (preproc_else_keyword)
+      (preproc_include
+        (preproc_include_keyword)
+        path: (string_literal
+          (string_content)))
+      (preproc_define
+        (preproc_define_keyword)
+        name: (identifier)))
+    (preproc_end_if_keyword)))
+
+==================
+Nested Conditional Directives
+==================
+
+#IF_DEFINED ADVANCED_FEATURES
+    #DEFINE FEATURE_COUNT 10
+
+    #IF_NOT_DEFINED DISABLE_LOGGING
+        #DEFINE ENABLE_FEATURE_LOGGING
+    #END_IF
+
+    MAX_FEATURES = FEATURE_COUNT
+#END_IF
+
+---
+
+(source_file
+  (preproc_if_defined
+    (preproc_if_defined_keyword)
+    name: (identifier)
+    (preproc_define
+      (preproc_define_keyword)
+      name: (identifier)
+      value: (preproc_arg))
+    (preproc_if_not_defined
+      (preproc_if_not_defined_keyword)
+      name: (identifier)
+      (preproc_define
+        (preproc_define_keyword)
+        name: (identifier))
+      (preproc_end_if_keyword))
+    (expression_statement
+      (assignment_expression
+        left: (identifier)
+        right: (identifier)))
+    (preproc_end_if_keyword)))
+
+==================
+Conditional Directives With Code Blocks
+==================
+
+#IF_DEFINED ENABLE_SPECIAL_FUNCTIONS
+DEFINE_FUNCTION integer GetSpecialValue(integer param)
+{
+    RETURN param * 2 + SPECIAL_FACTOR
+}
+
+#IF_DEFINED INCLUDE_HELPERS
+DEFINE_FUNCTION char[50] FormatSpecialValue(integer val)
+{
+    RETURN "'Special: ', ITOA(val)"
+}
+#END_IF
+
+#ELSE
+DEFINE_FUNCTION integer GetSpecialValue(integer param)
+{
+    RETURN param
+}
+#END_IF
+
+---
+
+(source_file
+  (preproc_if_defined
+    (preproc_if_defined_keyword)
+    (identifier)
+    (define_function
+      (define_function_keyword)
+      (function_definition
+        (intrinsic_type
+          (primitive_type
+            (integer_keyword)))
+        (identifier)
+        (parameter_list
+          (parameter_declaration
+            (intrinsic_type
+              (primitive_type
+                (integer_keyword)))
+            (identifier)))
+        (compound_statement
+          (return_statement
+            (return_keyword)
+            (binary_expression
+              (binary_expression
+                (identifier)
+                (number_literal))
+              (identifier))))))
+    (preproc_if_defined
+      (preproc_if_defined_keyword)
+      (identifier)
+      (define_function
+        (define_function_keyword)
+        (function_definition
+          (array_return_type
+            (intrinsic_type
+              (primitive_type
+                (char_keyword)))
+            (number_literal))
+          (identifier)
+          (parameter_list
+            (parameter_declaration
+              (intrinsic_type
+                (primitive_type
+                  (integer_keyword)))
+              (identifier)))
+          (compound_statement
+            (return_statement
+              (return_keyword)
+              (string_expression
+                (string_literal
+                  (string_content))
+                (call_expression
+                  (system_function
+                    (itoa))
+                  (argument_list
+                    (identifier))))))))
+      (preproc_end_if_keyword))
+    (preproc_else
+      (preproc_else_keyword)
+      (define_function
+        (define_function_keyword)
+        (function_definition
+          (intrinsic_type
+            (primitive_type
+              (integer_keyword)))
+          (identifier)
+          (parameter_list
+            (parameter_declaration
+              (intrinsic_type
+                (primitive_type
+                  (integer_keyword)))
+              (identifier)))
+          (compound_statement
+            (return_statement
+              (return_keyword)
+              (identifier))))))
+    (preproc_end_if_keyword)))
+
+==================
+Disable Warning Directive
+==================
+
+#DISABLE_WARNING 1506
+#DISABLE_WARNING 2041
+
+---
+
+(source_file
+  (preproc_disable_warning
+    (preproc_disable_warning_keyword)
+    (number_literal))
+  (preproc_disable_warning
+    (preproc_disable_warning_keyword)
+    (number_literal)))
+
+=================================
+Sections in Conditionals
+=================================
+
+#IF_DEFINED FOO
+DEFINE_DEVICE
+dvProj = 5001:1:0
+
+DEFINE_CONSTANT
+char POWER_ON[] = 'PON'
+
+DEFINE_VARIABLE
+volatile powerState = false
+#END_IF
+
+---
+
+(source_file
+  (preproc_if_defined
+    (preproc_if_defined_keyword)
+    (identifier)
+    (section
+      (define_device_section
+        (define_device_keyword)))
+    (expression_statement
+      (assignment_expression
+        (identifier)
+        (device_literal
+          (number_literal)
+          (number_literal)
+          (number_literal))))
+    (section
+      (define_constant_section
+        (define_constant_keyword)))
+    (declaration
+      (intrinsic_type
+        (primitive_type
+          (char_keyword)))
+      (init_declarator
+        (array_declarator
+          (identifier))
+        (string_literal
+          (string_content))))
+    (section
+      (define_variable_section
+        (define_variable_keyword)))
+    (declaration
+      (type_qualifier
+        (volatile_keyword))
+      (init_declarator
+        (identifier)
+        (system_constant
+          (false))))
+    (preproc_end_if_keyword)))
+
+=================================
+Preprocessor in Struct Fields
+=================================
+
+// Structure with preprocessor directives
+DEFINE_TYPE
+STRUCTURE ConfigOptions {
+  INTEGER version
+
+  #IF_DEFINED EXTENDED_FEATURES
+  INTEGER extendedFeatures[10]
+  INTEGER extendedFlag
+  #ELSE
+  INTEGER basicFeatures
+  #END_IF
+
+  CHAR label[20]
+}
+
+---
+
+(source_file
+  (comment)
+  (section
+    (define_type_section
+      (define_type_keyword)))
+  (type_definition
+    (struct_specifier
+      (structure_keyword)
+      (type_identifier)
+      (field_declaration_list
+        (field_declaration
+          (intrinsic_type
+            (primitive_type
+              (integer_keyword)))
+          (field_identifier))
+        (preproc_if_defined
+          (preproc_if_defined_keyword)
+          (identifier)
+          (field_declaration
+            (intrinsic_type
+              (primitive_type
+                (integer_keyword)))
+            (array_declarator
+              (field_identifier)
+              (number_literal)))
+          (field_declaration
+            (intrinsic_type
+              (primitive_type
+                (integer_keyword)))
+            (field_identifier))
+          (preproc_else
+            (preproc_else_keyword)
+            (field_declaration
+              (intrinsic_type
+                (primitive_type
+                  (integer_keyword)))
+              (field_identifier)))
+          (preproc_end_if_keyword))
+        (field_declaration
+          (intrinsic_type
+            (primitive_type
+              (char_keyword)))
+          (array_declarator
+            (field_identifier)
+            (number_literal)))))))
+
+=========================
+Nested Preprocessor With Sections
+=========================
+
+#IF_DEFINED FEATURE_X
+  #IF_DEFINED FEATURE_Y
+    DEFINE_CONSTANT
+    INTEGER MAX_COUNT = 50
+  #ELSE
+    DEFINE_CONSTANT
+    INTEGER MAX_COUNT = 10
+  #END_IF
+#END_IF
+
+---
+
+(source_file
+  (preproc_if_defined
+    (preproc_if_defined_keyword)
+    (identifier)
+    (preproc_if_defined
+      (preproc_if_defined_keyword)
+      (identifier)
+      (section
+        (define_constant_section
+          (define_constant_keyword)))
+      (declaration
+        (intrinsic_type
+          (primitive_type
+            (integer_keyword)))
+        (init_declarator
+          (identifier)
+          (number_literal)))
+      (preproc_else
+        (preproc_else_keyword)
+        (section
+          (define_constant_section
+            (define_constant_keyword)))
+        (declaration
+          (intrinsic_type
+            (primitive_type
+              (integer_keyword)))
+          (init_declarator
+            (identifier)
+            (number_literal))))
+      (preproc_end_if_keyword))
+    (preproc_end_if_keyword)))
+
+=========================================
+Conditionals in Array Initializers
+=========================================
+
+constant integer FOO[] = {
+    1,
+    2,
+    #IF_NOT_DEFINED BAR
+    3,
+    3,
+    #END_IF
+    4,
+    5
+    #IF_DEFINED BAZ
+    ,
+    6
+    #END_IF
+}
+
+---
+
+(source_file
+  (declaration
+    (type_qualifier
+      (constant_keyword))
+    (intrinsic_type
+      (primitive_type
+        (integer_keyword)))
+    (init_declarator
+      (array_declarator
+        (identifier))
+      (initializer_list
+        (number_literal)
+        (number_literal)
+        (preproc_if_not_defined
+          (preproc_if_not_defined_keyword)
+          (identifier)
+          (number_literal)
+          (number_literal)
+          (preproc_end_if_keyword))
+        (number_literal)
+        (number_literal)
+        (preproc_if_defined
+          (preproc_if_defined_keyword)
+          (identifier)
+          (number_literal)
+          (preproc_end_if_keyword))))))
+
+========================================
+Conditionals in Switch/Case
+========================================
+
+switch (foo) {
+    case 1: {}
+    case 2: {}
+
+    case 3:
+    case 4: {}
+
+    #IF_DEFINED BAR
+    case 6: {
+        #IF_DEFINED BAZ
+        break
+        #END_IF
+    }
+    #END_IF
+}
+
+---
+
+(source_file
+  (switch_statement
+    (switch_keyword)
+    (parenthesized_expression
+      (identifier))
+    (compound_statement
+      (case_statement
+        (case_keyword)
+        (number_literal)
+        (compound_statement))
+      (case_statement
+        (case_keyword)
+        (number_literal)
+        (compound_statement))
+      (case_statement
+        (case_keyword)
+        (number_literal))
+      (case_statement
+        (case_keyword)
+        (number_literal)
+        (compound_statement))
+      (preproc_if_defined
+        (preproc_if_defined_keyword)
+        (identifier)
+        (case_statement
+          (case_keyword)
+          (number_literal)
+          (compound_statement
+            (preproc_if_defined
+              (preproc_if_defined_keyword)
+              (identifier)
+              (break_statement
+                (break_keyword))
+              (preproc_end_if_keyword))))
+        (preproc_end_if_keyword)))))
+
+=====================================
+Conditionals in Select/Active
+=====================================
+
+select {
+    active(foo): {}
+    active(bar): {}
+
+    #IF_DEFINED FOOBAR
+    active(baz): {
+        #IF_DEFINED BARBAZ
+        // code here
+        #END_IF
+    }
+    #END_IF
+}
+
+---
+
+(source_file
+  (select_statement
+    (select_keyword)
+    (compound_statement
+      (active_statement
+        (active_keyword)
+        (parenthesized_expression
+          (identifier))
+        (compound_statement))
+      (active_statement
+        (active_keyword)
+        (parenthesized_expression
+          (identifier))
+        (compound_statement))
+      (preproc_if_defined
+        (preproc_if_defined_keyword)
+        (identifier)
+        (active_statement
+          (active_keyword)
+          (parenthesized_expression
+            (identifier))
+          (compound_statement
+            (preproc_if_defined
+              (preproc_if_defined_keyword)
+              (identifier)
+              (comment)
+              (preproc_end_if_keyword))))
+        (preproc_end_if_keyword)))))
+
+===============================
+Conditionals in Button Event
+===============================
+
+button_event[dvTP, 1]
+#IF_DEFINED FOO
+button_event[dvTP, 2]
+#END_IF
+{
+    push: {}
+
+    #IF_NOT_DEFINED BAR
+    release: {}
+    #END_IF
+}
+
+---
+
+(source_file
+  (event_definition
+    (button_event_definition
+      (button_event_declarator
+        (button_event_keyword)
+        (button_event_devchan_reference
+          (devchan_expression
+            (identifier)
+            (number_literal))))
+      (preproc_if_defined
+        (preproc_if_defined_keyword)
+        (identifier)
+        (button_event_declarator
+          (button_event_keyword)
+          (button_event_devchan_reference
+            (devchan_expression
+              (identifier)
+              (number_literal))))
+        (preproc_end_if_keyword))
+      (button_event_block
+        (button_event_handler
+          (button_event_type
+            (push_keyword))
+          (compound_statement))
+        (preproc_if_not_defined
+          (preproc_if_not_defined_keyword)
+          (identifier)
+          (button_event_handler
+            (button_event_type
+              (release_keyword))
+            (compound_statement))
+          (preproc_end_if_keyword))))))
+
+===============================
+Conditionals in Data Event
+===============================
+
+data_event[dvTP1]
+#IF_DEFINED FOO
+data_event[dvTP2]
+#END_IF
+{
+    online: {}
+
+    #IF_NOT_DEFINED BAR
+    string: {}
+    command: {}
+    #END_IF
+}
+
+---
+
+(source_file
+  (event_definition
+    (data_event_definition
+      (data_event_declarator
+        (data_event_keyword)
+        (data_event_device_reference
+          (identifier)))
+      (preproc_if_defined
+        (preproc_if_defined_keyword)
+        (identifier)
+        (data_event_declarator
+          (data_event_keyword)
+          (data_event_device_reference
+            (identifier)))
+        (preproc_end_if_keyword))
+      (data_event_block
+        (data_event_handler
+          (data_event_type
+            (online_keyword))
+          (compound_statement))
+        (preproc_if_not_defined
+          (preproc_if_not_defined_keyword)
+          (identifier)
+          (data_event_handler
+            (data_event_type
+              (string_keyword))
+            (compound_statement))
+          (data_event_handler
+            (data_event_type
+              (command_keyword))
+            (compound_statement))
+          (preproc_end_if_keyword))))))
+
+===============================
+Conditionals in Channel Event
+===============================
+
+channel_event[dvTP, 1]
+#IF_DEFINED FOO
+channel_event[dvTP, 2]
+#END_IF
+{
+    on: {}
+
+    #IF_NOT_DEFINED BAR
+    off: {}
+    #END_IF
+}
+
+---
+
+(source_file
+  (event_definition
+    (channel_event_definition
+      (channel_event_declarator
+        (channel_event_keyword)
+        (channel_event_devchan_reference
+          (devchan_expression
+            (identifier)
+            (number_literal))))
+      (preproc_if_defined
+        (preproc_if_defined_keyword)
+        (identifier)
+        (channel_event_declarator
+          (channel_event_keyword)
+          (channel_event_devchan_reference
+            (devchan_expression
+              (identifier)
+              (number_literal))))
+        (preproc_end_if_keyword))
+      (channel_event_block
+        (channel_event_handler
+          (channel_event_type
+            (on_keyword))
+          (compound_statement))
+        (preproc_if_not_defined
+          (preproc_if_not_defined_keyword)
+          (identifier)
+          (channel_event_handler
+            (channel_event_type
+              (off_keyword))
+            (compound_statement))
+          (preproc_end_if_keyword))))))
+
+===============================
+Conditionals in Level Event
+===============================
+
+level_event[dvTP, 1]
+#IF_DEFINED FOO
+level_event[dvTP, 2]
+#END_IF
+{
+
+}
+
+---
+
+(source_file
+  (event_definition
+    (level_event_definition
+      (level_event_declarator
+        (level_event_keyword)
+        (level_event_devlev_reference
+          (devlev_expression
+            (identifier)
+            (number_literal))))
+      (preproc_if_defined
+        (preproc_if_defined_keyword)
+        (identifier)
+        (level_event_declarator
+          (level_event_keyword)
+          (level_event_devlev_reference
+            (devlev_expression
+              (identifier)
+              (number_literal))))
+        (preproc_end_if_keyword))
+      (compound_statement))))
+
+===============================
+Conditionals in Timeline Event
+===============================
+
+timeline_event[TL1]
+#IF_DEFINED FOO
+timeline_event[TL2]
+#END_IF
+{
+
+}
+
+---
+
+(source_file
+  (event_definition
+    (timeline_event_definition
+      (timeline_event_declarator
+        (timeline_event_keyword)
+        (timeline_event_id_reference
+          (identifier)))
+      (preproc_if_defined
+        (preproc_if_defined_keyword)
+        (identifier)
+        (timeline_event_declarator
+          (timeline_event_keyword)
+          (timeline_event_id_reference
+            (identifier)))
+        (preproc_end_if_keyword))
+      (compound_statement))))
+
+===============================
+Conditionals in Custom Event
+===============================
+
+custom_event[dvTP, 1, 1001]
+#IF_DEFINED FOO
+custom_event[dvTP, 1, 1002]
+#END_IF
+{
+
+}
+
+---
+
+(source_file
+  (event_definition
+    (custom_event_definition
+      (custom_event_declarator
+        (custom_event_keyword)
+        (custom_event_reference
+          (identifier)
+          (number_literal)
+          (number_literal)))
+      (preproc_if_defined
+        (preproc_if_defined_keyword)
+        (identifier)
+        (custom_event_declarator
+          (custom_event_keyword)
+          (custom_event_reference
+            (identifier)
+            (number_literal)
+            (number_literal)))
+        (preproc_end_if_keyword))
+      (compound_statement))))
+
+==============================
+Conditionals in Expressions
+==============================
+
+// This will fail
+(foo
+#IF_DEFINED BAR
+&& baz
+#END_IF
+&& foobar)
+
+// Alternative approach
+#IF_DEFINED BAR
+    (foo && baz && foobar)
+#ELSE
+    (foo && foobar)
+#END_IF
+
+---
+
+(source_file
+  (comment)
+  (expression_statement
+    (parenthesized_expression
+      (ERROR
+        (identifier)
+        (preproc_if_defined_keyword))
+      (binary_expression
+        (binary_expression
+          (identifier)
+          (identifier))
+        (ERROR
+          (preproc_end_if_keyword))
+        (identifier))))
+  (comment)
+  (preproc_if_defined
+    (preproc_if_defined_keyword)
+    (identifier)
+    (expression_statement
+      (parenthesized_expression
+        (binary_expression
+          (binary_expression
+            (identifier)
+            (identifier))
+          (identifier))))
+    (preproc_else
+      (preproc_else_keyword)
+      (expression_statement
+        (parenthesized_expression
+          (binary_expression
+            (identifier)
+            (identifier)))))
+    (preproc_end_if_keyword)))
+
+====================================
+Conditionals in Complex Initializer
+====================================
+
+constant integer FOO[]    =   {
+    #IF_DEFINED BAR
+    baz
+    #END_IF
+
+    #IF_DEFINED foobar
+    ,
+    bar
+    #END_IF
+
+    #IF_DEFINED BAZ
+    ,
+    foo
+    #END_IF
+}
+
+---
+
+(source_file
+  (declaration
+    (type_qualifier
+      (constant_keyword))
+    (intrinsic_type
+      (primitive_type
+        (integer_keyword)))
+    (init_declarator
+      (array_declarator
+        (identifier))
+      (initializer_list
+        (preproc_if_defined
+          (preproc_if_defined_keyword)
+          (identifier)
+          (identifier)
+          (preproc_end_if_keyword))
+        (preproc_if_defined
+          (preproc_if_defined_keyword)
+          (identifier)
+          (identifier)
+          (preproc_end_if_keyword))
+        (preproc_if_defined
+          (preproc_if_defined_keyword)
+          (identifier)
+          (identifier)
+          (preproc_end_if_keyword))))))
+
+======================================
+Conditionals in String Array Initializers
+======================================
+
+constant char FOO[][50]     =   {
+    #IF_DEFINED BAR
+    'foo',
+    'foo',
+    'foo',
+    'foo',
+    'foo',
+    'foo'
+    #END_IF
+
+    #IF_DEFINED BAZ
+    'bar',
+    'bar',
+    'bar',
+    'bar',
+    'bar',
+    'bar'
+    #END_IF
+}
+
+---
+
+(source_file
+  (declaration
+    (type_qualifier
+      (constant_keyword))
+    (intrinsic_type
+      (primitive_type
+        (char_keyword)))
+    (init_declarator
+      (array_declarator
+        (array_declarator
+          (identifier))
+        (number_literal))
+      (initializer_list
+        (preproc_if_defined
+          (preproc_if_defined_keyword)
+          (identifier)
+          (string_literal
+            (string_content))
+          (string_literal
+            (string_content))
+          (string_literal
+            (string_content))
+          (string_literal
+            (string_content))
+          (string_literal
+            (string_content))
+          (string_literal
+            (string_content))
+          (preproc_end_if_keyword))
+        (preproc_if_defined
+          (preproc_if_defined_keyword)
+          (identifier)
+          (string_literal
+            (string_content))
+          (string_literal
+            (string_content))
+          (string_literal
+            (string_content))
+          (string_literal
+            (string_content))
+          (string_literal
+            (string_content))
+          (string_literal
+            (string_content))
+          (preproc_end_if_keyword))))))
+
+===============================
+Conditionals in Push Event
+===============================
+
+push[dvTP, 1]
+#IF_DEFINED FOO
+push[dvTP, 2]
+#END_IF
+{
+
+}
+
+---
+
+(source_file
+  (event_definition
+    (push_event_definition
+      (push_event_declarator
+        (push_keyword)
+        (push_event_devchan_reference
+          (devchan_expression
+            (identifier)
+            (number_literal))))
+      (preproc_if_defined
+        (preproc_if_defined_keyword)
+        (identifier)
+        (push_event_declarator
+          (push_keyword)
+          (push_event_devchan_reference
+            (devchan_expression
+              (identifier)
+              (number_literal))))
+        (preproc_end_if_keyword))
+      (compound_statement))))
+
+===============================
+Conditionals in Release Event
+===============================
+
+release[dvTP, 1]
+#IF_DEFINED FOO
+release[dvTP, 2]
+#END_IF
+{
+
+}
+
+---
+
+(source_file
+  (event_definition
+    (release_event_definition
+      (release_event_declarator
+        (release_keyword)
+        (release_event_devchan_reference
+          (devchan_expression
+            (identifier)
+            (number_literal))))
+      (preproc_if_defined
+        (preproc_if_defined_keyword)
+        (identifier)
+        (release_event_declarator
+          (release_keyword)
+          (release_event_devchan_reference
+            (devchan_expression
+              (identifier)
+              (number_literal))))
+        (preproc_end_if_keyword))
+      (compound_statement))))

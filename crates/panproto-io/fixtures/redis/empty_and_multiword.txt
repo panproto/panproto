@@ -1,0 +1,5 @@
+title The Quick Brown Fox
+subtitle
+tags red green blue
+note  leading and trailing spaces
+count 0

@@ -1,0 +1,290 @@
+================================================================================
+@server
+================================================================================
+
+@servers(['web' => ['user@192.168.1.1'], 'workers' => ['user@192.168.1.2']])
+
+--------------------------------------------------------------------------------
+
+(document
+  (directive)
+  (parameter))
+
+================================================================================
+@import
+================================================================================
+@import('vendor/package/Envoy.blade.php')
+--------------------------------------------------------------------------------
+
+(document
+  (directive)
+  (parameter))
+
+================================================================================
+@task
+================================================================================
+
+@task('deploy', ['on' => 'web'])
+    cd /home/user/example.com
+
+    @if ($branch)
+        git pull origin {{ $branch }}
+    @endif
+
+    php artisan migrate --force
+@endtask
+
+--------------------------------------------------------------------------------
+
+(document
+  (envoy
+    (directive_start)
+    (parameter)
+    (text)
+    (directive_start)
+    (parameter)
+    (text)
+    (php_only)
+    (directive_end)
+    (text)
+    (directive_end)))
+
+================================================================================
+@story
+================================================================================
+@servers(['web' => ['user@192.168.1.1']])
+
+@story('deploy')
+    update-code
+    install-dependencies
+@endstory
+
+@task('update-code')
+    cd /home/user/example.com
+    git pull origin master
+@endtask
+
+@task('install-dependencies')
+    cd /home/user/example.com
+    composer install
+@endtask
+
+--------------------------------------------------------------------------------
+
+(document
+  (directive)
+  (parameter)
+  (envoy
+    (directive_start)
+    (parameter)
+    (text)
+    (directive_end))
+  (envoy
+    (directive_start)
+    (parameter)
+    (text)
+    (directive_end))
+  (envoy
+    (directive_start)
+    (parameter)
+    (text)
+    (directive_end)))
+
+================================================================================
+@setup
+================================================================================
+
+@setup
+    $now = new DateTime;
+@endsetup
+
+--------------------------------------------------------------------------------
+
+(document
+  (php_statement
+    (directive_start)
+    (php_only)
+    (directive_end)))
+
+================================================================================
+@before
+================================================================================
+
+@before
+    @microsoftTeams('webhook-url')
+    @slack('webhook-url', '#bots', 'Hello, Slack.')
+    @discord('discord-webhook-url')
+@endbefore
+
+--------------------------------------------------------------------------------
+
+(document
+  (envoy
+    (directive_start)
+    (directive)
+    (parameter)
+    (directive)
+    (parameter)
+    (directive)
+    (parameter)
+    (directive_end)))
+
+================================================================================
+@after
+================================================================================
+
+@after
+    @microsoftTeams('webhook-url')
+    @slack('webhook-url', '#bots', 'Hello, Slack.')
+    @discord('discord-webhook-url')
+@endafter
+
+--------------------------------------------------------------------------------
+
+(document
+  (envoy
+    (directive_start)
+    (directive)
+    (parameter)
+    (directive)
+    (parameter)
+    (directive)
+    (parameter)
+    (directive_end)))
+
+================================================================================
+@error
+================================================================================
+
+@error
+    @microsoftTeams('webhook-url')
+    @slack('webhook-url', '#bots', 'Hello, Slack.')
+    @discord('discord-webhook-url')
+@enderror
+
+--------------------------------------------------------------------------------
+
+(document
+  (envoy
+    (directive_start)
+    (directive)
+    (parameter)
+    (directive)
+    (parameter)
+    (directive)
+    (parameter)
+    (directive_end)))
+
+================================================================================
+@success
+================================================================================
+
+@success
+    @microsoftTeams('webhook-url')
+    @slack('webhook-url', '#bots', 'Hello, Slack.')
+    @discord('discord-webhook-url')
+@endsuccess
+
+--------------------------------------------------------------------------------
+
+(document
+  (envoy
+    (directive_start)
+    (directive)
+    (parameter)
+    (directive)
+    (parameter)
+    (directive)
+    (parameter)
+    (directive_end)))
+
+================================================================================
+@finished
+================================================================================
+
+@finished
+    @microsoftTeams('webhook-url')
+    @slack('webhook-url', '#bots', 'Hello, Slack.')
+    @discord('discord-webhook-url')
+@endfinished
+
+--------------------------------------------------------------------------------
+
+(document
+  (envoy
+    (directive_start)
+    (directive)
+    (parameter)
+    (directive)
+    (parameter)
+    (directive)
+    (parameter)
+    (directive_end)))
+
+================================================================================
+@slack
+================================================================================
+
+@finished
+    @slack('webhook-url', '#bots', 'Hello, Slack.')
+@endfinished
+
+--------------------------------------------------------------------------------
+
+(document
+  (envoy
+    (directive_start)
+    (directive)
+    (parameter)
+    (directive_end)))
+
+================================================================================
+@discord
+================================================================================
+
+@finished
+    @discord('discord-webhook-url')
+@endfinished
+
+--------------------------------------------------------------------------------
+
+(document
+  (envoy
+    (directive_start)
+    (directive)
+    (parameter)
+    (directive_end)))
+
+================================================================================
+@telegram
+================================================================================
+
+@finished
+    @telegram('bot-id','chat-id')
+@endfinished
+
+--------------------------------------------------------------------------------
+
+(document
+  (envoy
+    (directive_start)
+    (directive)
+    (parameter)
+    (directive_end)))
+
+================================================================================
+@microsoftTeams
+================================================================================
+
+@finished
+    @microsoftTeams('webhook-url')
+@endfinished
+
+--------------------------------------------------------------------------------
+
+(document
+  (envoy
+    (directive_start)
+    (directive)
+    (parameter)
+    (directive_end)))

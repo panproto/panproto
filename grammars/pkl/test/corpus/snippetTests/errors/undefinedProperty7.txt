@@ -1,0 +1,35 @@
+===
+errors/undefinedProperty7.pkl
+===
+
+
+class Person {
+  name: String
+}
+
+res1 {
+  [new Person {}] = 1
+}
+
+---
+
+(module
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectEntry
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (objectBody))
+        (intLiteralExpr)))))

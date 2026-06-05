@@ -1,0 +1,634 @@
+================================================================================
+Function args with data constructor
+================================================================================
+
+f (FS x@FZ) = _
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_parens
+            (pat_name
+              (caname))
+            (pat_name
+              (loname))
+            (pat_at)
+            (pat_name
+              (caname))))))
+    (rhs
+      (wildcard))))
+
+================================================================================
+Function args with at wildcard
+================================================================================
+
+f str@_ = _
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname))
+          (pat_at)
+          (wildcard))))
+    (rhs
+      (wildcard))))
+
+================================================================================
+Function args with function decomposition 1
+================================================================================
+
+f (strCons '+' xs) | (StrCons '+' xs) = _
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_parens
+            (pat_name
+              (loname))
+            (pat_literal
+              (char))
+            (pat_name
+              (loname))))))
+    (with_pat
+      (pat_parens
+        (pat_name
+          (caname))
+        (pat_literal
+          (char))
+        (pat_name
+          (loname))))
+    (rhs
+      (wildcard))))
+
+================================================================================
+Function args with function decomposition 2
+================================================================================
+
+f str@(strCons x xs) = _
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname))
+          (pat_at)
+          (pat_parens
+            (pat_name
+              (loname))
+            (pat_name
+              (loname))
+            (pat_name
+              (loname))))))
+    (rhs
+      (wildcard))))
+
+================================================================================
+Implicit args declaration 1
+================================================================================
+
+f {x = Z} = _
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_braces
+            (loname)
+            (pat_name
+              (caname))))))
+    (rhs
+      (wildcard))))
+
+================================================================================
+Implicit args declaration 2
+================================================================================
+
+f {x = S _} = _
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_braces
+            (loname)
+            (pat_name
+              (caname))
+            (wildcard)))))
+    (rhs
+      (wildcard))))
+
+================================================================================
+Implicit args declaration 3
+================================================================================
+
+f (S k) {m} = _
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_parens
+            (pat_name
+              (caname))
+            (pat_name
+              (loname)))
+          (pat_record
+            (pat_fields
+              (pat_field
+                (field_name)))))))
+    (rhs
+      (wildcard))))
+
+================================================================================
+Implicit args application
+================================================================================
+
+_ = index {a=Int} {n=2} FZ (2 :: 3 :: Nil)
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (exp_name
+        (loname))
+      (exp_braces
+        (explicit_arg
+          (loname)
+          (equal)
+          (exp_name
+            (caname))))
+      (exp_braces
+        (explicit_arg
+          (loname)
+          (equal)
+          (literal
+            (integer))))
+      (exp_name
+        (caname))
+      (exp_parens
+        (literal
+          (integer))
+        (operator)
+        (literal
+          (integer))
+        (operator)
+        (exp_name
+          (caname))))))
+
+================================================================================
+At braces declaration
+================================================================================
+
+_ @{Left  _} = _
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard)
+      (pat_at_braces
+        (pat_name
+          (caname))
+        (wildcard)))
+    (rhs
+      (wildcard))))
+
+================================================================================
+At braces application 1
+================================================================================
+
+_ = f @{ab} Refl
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (exp_name
+        (loname))
+      (exp_explicit_impl
+        (exp_name
+          (loname)))
+      (exp_name
+        (caname)))))
+
+================================================================================
+At braces application 2
+================================================================================
+
+_ = f x @{g y}
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (exp_name
+        (loname))
+      (exp_name
+        (loname))
+      (exp_explicit_impl
+        (exp_name
+          (loname))
+        (exp_name
+          (loname))))))
+
+================================================================================
+At braces application with lamda function inside
+================================================================================
+
+_ = f @{MkFunctor $ \ f, p, x => bimap f f (p x)} X
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (exp_name
+        (loname))
+      (exp_explicit_impl
+        (exp_name
+          (caname))
+        (operator)
+        (exp_lambda
+          (lambda_args
+            (pat_name
+              (loname))
+            (comma)
+            (pat_name
+              (loname))
+            (comma)
+            (pat_name
+              (loname)))
+          (lambda_exp
+            (exp_name
+              (loname))
+            (exp_name
+              (loname))
+            (exp_name
+              (loname))
+            (exp_parens
+              (exp_name
+                (loname))
+              (exp_name
+                (loname))))))
+      (exp_name
+        (caname)))))
+
+================================================================================
+Explicit args application
+================================================================================
+
+_ = X {a = foo , b = bar}
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (exp_name
+        (caname))
+      (exp_braces
+        (explicit_arg
+          (loname)
+          (equal)
+          (exp_name
+            (loname)))
+        (comma)
+        (explicit_arg
+          (loname)
+          (equal)
+          (exp_name
+            (loname)))))))
+
+================================================================================
+Explicit args in declaration
+================================================================================
+
+f (X {a = Just a, b = Nothing} x) = _
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_parens
+            (pat_name
+              (caname))
+            (pat_braces
+              (loname)
+              (pat_name
+                (caname))
+              (pat_name
+                (loname))
+              (comma)
+              (loname)
+              (pat_name
+                (caname)))
+            (pat_name
+              (loname))))))
+    (rhs
+      (wildcard))))
+
+================================================================================
+Explicit args in declaration, destruction with a wildcard -> should fail
+================================================================================
+
+f (X {_}) = _
+
+--------------------------------------------------------------------------------
+
+(ERROR
+  (exp_name
+    (loname))
+  (exp_parens
+    (exp_name
+      (caname))
+    (type_braces
+      (wildcard)))
+  (wildcard))
+
+================================================================================
+Explicit args in declaration, destruction with a args and wildcard
+================================================================================
+
+f (X {foo,_}) = _
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_parens
+            (pat_name
+              (caname))
+            (pat_record
+              (pat_fields
+                (pat_field
+                  (field_name))
+                (comma)
+                (wildcard)))))))
+    (rhs
+      (wildcard))))
+
+================================================================================
+Multiple declaration
+================================================================================
+
+0 X, Y : Type
+
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (quantity)
+    (caname)
+    (comma)
+    (caname)
+    (colon)
+    (exp_name
+      (caname))))
+
+================================================================================
+Holes
+================================================================================
+
+_ = f ?foo
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (exp_name
+        (loname))
+      (operator)
+      (exp_name
+        (loname)))))
+
+================================================================================
+Capitalized function name
+================================================================================
+
+Foo : a -> Type
+Foo a = 3
+
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (caname)
+    (colon)
+    (exp_name
+      (loname))
+    (arrow_separator)
+    (exp_name
+      (caname)))
+  (function
+    (lhs
+      (funvar
+        (caname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (literal
+        (integer)))))
+
+================================================================================
+Type function
+================================================================================
+
+Not : Type
+Not p = p -> Void
+
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (caname)
+    (colon)
+    (exp_name
+      (caname)))
+  (function
+    (lhs
+      (funvar
+        (caname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_name
+        (loname))
+      (arrow_separator)
+      (exp_name
+        (caname)))))
+
+================================================================================
+Real example 1
+================================================================================
+
+plus : Nat -> Nat -> Nat
+plus Z     y = y
+plus (S k) y = S (plus k y)
+
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (loname)
+    (colon)
+    (exp_name
+      (caname))
+    (arrow_separator)
+    (exp_name
+      (caname))
+    (arrow_separator)
+    (exp_name
+      (caname)))
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (caname))
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_name
+        (loname))))
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_parens
+            (pat_name
+              (caname))
+            (pat_name
+              (loname)))
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_name
+        (caname))
+      (exp_parens
+        (exp_name
+          (loname))
+        (exp_name
+          (loname))
+        (exp_name
+          (loname))))))
+
+================================================================================
+Real example 2
+================================================================================
+
+mult : Nat -> Nat -> Nat
+mult Z     y = Z
+mult (S k) y = plus y (mult k y)
+
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (loname)
+    (colon)
+    (exp_name
+      (caname))
+    (arrow_separator)
+    (exp_name
+      (caname))
+    (arrow_separator)
+    (exp_name
+      (caname)))
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (caname))
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_name
+        (caname))))
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_parens
+            (pat_name
+              (caname))
+            (pat_name
+              (loname)))
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_name
+        (loname))
+      (exp_name
+        (loname))
+      (exp_parens
+        (exp_name
+          (loname))
+        (exp_name
+          (loname))
+        (exp_name
+          (loname))))))

@@ -1,0 +1,117 @@
+================================================================================
+Function Definition - simple
+================================================================================
+
+function \*; end
+function []; end
+function test; end
+
+function name
+end
+
+function name
+    return 1
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_definition
+    name: (escape_sequence))
+  (function_definition
+    name: (concatenation))
+  (function_definition
+    name: (word))
+  (function_definition
+    name: (word))
+  (function_definition
+    name: (word)
+    (return
+      (integer))))
+
+================================================================================
+Function Definition - nested
+================================================================================
+
+function test; function nested; end; end
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_definition
+    name: (word)
+    (function_definition
+      name: (word))))
+
+================================================================================
+Function Definition - with options
+================================================================================
+
+function test --argument-names one two three
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_definition
+    name: (word)
+    option: (word)
+    option: (word)
+    option: (word)
+    option: (word)))
+
+================================================================================
+Function Definition - extras
+================================================================================
+
+function a -d "Multi
+line description"
+    cmd
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_definition
+    name: (word)
+    option: (word)
+    option: (double_quote_string)
+    (command
+      name: (word))))
+
+================================================================================
+Function Definition - return
+================================================================================
+
+function a
+    if false
+        return $status
+    else if false
+        return (printf 0);
+    else
+        return 99;
+    end
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_definition
+    name: (word)
+    (if_statement
+      condition: (command
+        name: (word))
+      (return
+        (variable_expansion
+          (variable_name)))
+      (else_if_clause
+        condition: (command
+          name: (word))
+        (return
+          (command_substitution
+            (command
+              name: (word)
+              argument: (integer)))))
+      (else_clause
+        (return
+          (integer))))))

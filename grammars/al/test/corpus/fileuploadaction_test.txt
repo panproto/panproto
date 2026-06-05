@@ -1,0 +1,433 @@
+================================================================================
+Basic fileuploadaction declaration
+================================================================================
+
+page 50006 TestPage
+{
+    actions
+    {
+        area(Processing)
+        {
+            fileuploadaction(UploadFile)
+            {
+                Caption = 'Upload File';
+                ApplicationArea = Basic, Suite;
+                
+                trigger OnAction(files: List of [FileUpload])
+                begin
+                end;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (fileuploadaction_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (option_member_list
+              (option_member
+                (identifier))
+              (option_member
+                (identifier))))
+          (trigger_declaration
+            (trigger_keyword)
+            name: (identifier)
+            (parameter_list
+              (parameter
+                name: (identifier)
+                type: (type_specification
+                  (list_type
+                    element_type: (type_specification
+                      (basic_type))))))
+            (code_block
+              (begin_keyword)
+              (end_keyword))))))))
+
+================================================================================
+FileUploadAction with all properties
+================================================================================
+
+page 50007 TestPage
+{
+    actions
+    {
+        area(Processing)
+        {
+            fileuploadaction(AttachmentUpload)
+            {
+                Caption = 'Upload Attachments';
+                ToolTip = 'Upload one or more files as attachments';
+                ApplicationArea = Basic, Suite;
+                AllowedFileExtensions = '.pdf,.docx,.xlsx';
+                AllowMultipleFiles = true;
+                Image = Import;
+                Visible = true;
+                Enabled = true;
+                
+                trigger OnAction(files: List of [FileUpload])
+                var
+                    FileUpload: FileUpload;
+                    InStr: InStream;
+                begin
+                    foreach FileUpload in files do begin
+                        FileUpload.CreateInStream(InStr);
+                    end;
+                end;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (fileuploadaction_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (option_member_list
+              (option_member
+                (identifier))
+              (option_member
+                (identifier))))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (boolean))
+          (trigger_declaration
+            (trigger_keyword)
+            name: (identifier)
+            (parameter_list
+              (parameter
+                name: (identifier)
+                type: (type_specification
+                  (list_type
+                    element_type: (type_specification
+                      (basic_type))))))
+            (var_section
+              (var_keyword)
+              (variable_declaration
+                name: (identifier)
+                type: (type_specification
+                  (basic_type)))
+              (variable_declaration
+                name: (identifier)
+                type: (type_specification
+                  (basic_type))))
+            (code_block
+              (begin_keyword)
+              (foreach_statement
+                (foreach_keyword)
+                variable: (identifier)
+                (in_keyword)
+                iterable: (identifier)
+                (do_keyword)
+                body: (code_block
+                  (begin_keyword)
+                  (call_expression
+                    function: (member_expression
+                      object: (identifier)
+                      member: (identifier))
+                    arguments: (argument_list
+                      (identifier)))
+                  (end_keyword)))
+              (end_keyword))))))))
+
+================================================================================
+FileUploadAction case variations
+================================================================================
+
+page 50008 TestPage
+{
+    actions
+    {
+        area(Processing)
+        {
+            FILEUPLOADACTION(TEST1)
+            {
+                trigger onaction(files: List of [FileUpload])
+                begin
+                end;
+            }
+            fileuploadaction(test2)
+            {
+                trigger ONACTION(data: List of [FileUpload])
+                begin
+                end;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (fileuploadaction_declaration
+          name: (identifier)
+          (trigger_declaration
+            (trigger_keyword)
+            name: (identifier)
+            (parameter_list
+              (parameter
+                name: (identifier)
+                type: (type_specification
+                  (list_type
+                    element_type: (type_specification
+                      (basic_type))))))
+            (code_block
+              (begin_keyword)
+              (end_keyword))))
+        (fileuploadaction_declaration
+          name: (identifier)
+          (trigger_declaration
+            (trigger_keyword)
+            name: (identifier)
+            (parameter_list
+              (parameter
+                name: (identifier)
+                type: (type_specification
+                  (list_type
+                    element_type: (type_specification
+                      (basic_type))))))
+            (code_block
+              (begin_keyword)
+              (end_keyword))))))))
+
+================================================================================
+FileUploadAction with complex trigger
+================================================================================
+
+page 50009 TestPage
+{
+    actions
+    {
+        area(Processing)
+        {
+            fileuploadaction(ComplexUpload)
+            {
+                Caption = 'Upload Files';
+                AllowedFileExtensions = '.pdf,.docx';
+                AllowMultipleFiles = true;
+                
+                trigger OnAction(files: List of [FileUpload])
+                var
+                    FileUpload: FileUpload;
+                    InStr: InStream;
+                    Handler: Codeunit "File Handler";
+                    FileName: Text;
+                begin
+                    foreach FileUpload in files do begin
+                        FileName := FileUpload.FileName();
+                        FileUpload.CreateInStream(InStr);
+                        Handler.ProcessFile(InStr, FileName);
+                    end;
+                end;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (fileuploadaction_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (boolean))
+          (trigger_declaration
+            (trigger_keyword)
+            name: (identifier)
+            (parameter_list
+              (parameter
+                name: (identifier)
+                type: (type_specification
+                  (list_type
+                    element_type: (type_specification
+                      (basic_type))))))
+            (var_section
+              (var_keyword)
+              (variable_declaration
+                name: (identifier)
+                type: (type_specification
+                  (basic_type)))
+              (variable_declaration
+                name: (identifier)
+                type: (type_specification
+                  (basic_type)))
+              (variable_declaration
+                name: (identifier)
+                type: (type_specification
+                  (object_reference_type
+                    object_type: (codeunit_keyword)
+                    reference: (quoted_identifier))))
+              (variable_declaration
+                name: (identifier)
+                type: (type_specification
+                  (text_type))))
+            (code_block
+              (begin_keyword)
+              (foreach_statement
+                (foreach_keyword)
+                variable: (identifier)
+                (in_keyword)
+                iterable: (identifier)
+                (do_keyword)
+                body: (code_block
+                  (begin_keyword)
+                  (assignment_statement
+                    left: (identifier)
+                    right: (call_expression
+                      function: (member_expression
+                        object: (identifier)
+                        member: (identifier))
+                      arguments: (argument_list)))
+                  (call_expression
+                    function: (member_expression
+                      object: (identifier)
+                      member: (identifier))
+                    arguments: (argument_list
+                      (identifier)))
+                  (call_expression
+                    function: (member_expression
+                      object: (identifier)
+                      member: (identifier))
+                    arguments: (argument_list
+                      (identifier)
+                      (identifier)))
+                  (end_keyword)))
+              (end_keyword))))))))
+
+================================================================================
+FileUploadAction with obsolete properties
+================================================================================
+
+page 50010 TestPage
+{
+    actions
+    {
+        area(Processing)
+        {
+            fileuploadaction(ObsoleteUpload)
+            {
+                Caption = 'Upload File';
+                ApplicationArea = Basic, Suite;
+                ObsoleteState = Pending;
+                ObsoleteReason = 'Use new upload mechanism';
+                ObsoleteTag = '25.0';
+                
+                trigger OnAction(uploads: List of [FileUpload])
+                begin
+                end;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (fileuploadaction_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (option_member_list
+              (option_member
+                (identifier))
+              (option_member
+                (identifier))))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (trigger_declaration
+            (trigger_keyword)
+            name: (identifier)
+            (parameter_list
+              (parameter
+                name: (identifier)
+                type: (type_specification
+                  (list_type
+                    element_type: (type_specification
+                      (basic_type))))))
+            (code_block
+              (begin_keyword)
+              (end_keyword))))))))

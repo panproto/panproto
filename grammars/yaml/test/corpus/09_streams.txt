@@ -1,0 +1,145 @@
+============================================================================||||
+Document Prefix
+============================================================================||||
+﻿# Comment
+# lines
+Document
+
+----------------------------------------------------------------------------||||
+
+(stream
+ (comment)
+ (comment)
+ (document
+  (flow_node
+   (plain_scalar
+    (string_scalar)))))
+
+============================================================================||||
+Document Markers
+============================================================================||||
+%YAML 1.2
+---
+Document
+... # Suffix
+
+----------------------------------------------------------------------------||||
+
+(stream
+ (document
+  (yaml_directive
+   (yaml_version))
+  (flow_node
+   (plain_scalar
+    (string_scalar))))
+ (comment))
+
+============================================================================||||
+Bare Documents
+============================================================================||||
+Bare
+document
+...
+# No document
+...
+|
+%!PS-Adobe-2.0 # Not the first line
+
+----------------------------------------------------------------------------||||
+
+(stream
+ (document
+  (flow_node
+   (plain_scalar
+    (string_scalar))))
+ (comment)
+ (document)
+ (document
+  (block_node
+   (block_scalar))))
+
+============================================================================||||
+Explicit Documents
+============================================================================||||
+---
+{ matches
+% : 20 }
+...
+---
+# Empty
+...
+
+----------------------------------------------------------------------------||||
+
+(stream
+ (document
+  (flow_node
+   (flow_mapping
+    (flow_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (plain_scalar
+       (integer_scalar)))))))
+ (document
+  (comment)))
+
+============================================================================||||
+Directives Documents
+============================================================================||||
+%YAML 1.2
+--- |
+%!PS-Adobe-2.0
+...
+%YAML1.2
+---
+# Empty
+...
+
+----------------------------------------------------------------------------||||
+
+(stream
+ (document
+  (yaml_directive
+   (yaml_version))
+  (block_node
+   (block_scalar)))
+ (document
+  (reserved_directive
+   (directive_name))
+  (comment)))
+
+============================================================================||||
+Stream
+============================================================================||||
+Document
+---
+# Empty
+...
+%YAML 1.2
+---
+matches %: 20
+
+----------------------------------------------------------------------------||||
+
+(stream
+ (document
+  (flow_node
+   (plain_scalar
+    (string_scalar))))
+ (document
+  (comment))
+ (document
+  (yaml_directive
+   (yaml_version))
+  (block_node
+   (block_mapping
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (plain_scalar
+       (integer_scalar))))))))
+

@@ -1,0 +1,338 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements. See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership. The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License. You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+
+=================
+Test a hex number
+=================
+
+const i32 hex_const = 0x0001F
+const i32 negative_hex_constant = -0x0001F
+
+---
+
+(document
+  (const_definition
+    (type
+      (primitive))
+    (identifier)
+    (literal
+      (number)))
+  (const_definition
+    (type
+      (primitive))
+    (identifier)
+    (literal
+      (number))))
+
+
+
+============================
+Test a const double exponent
+============================
+
+const double e10 = 1e10   // fails with 0.9.3 and earlier
+const double e11 = -1e10
+
+---
+
+(document
+  (const_definition
+    (type
+      (primitive))
+    (identifier)
+    (literal
+      (double)))
+  (comment)
+  (const_definition
+    (type
+      (primitive))
+    (identifier)
+    (literal
+      (double))))
+
+
+=================
+Test a const uuid
+=================
+
+// uuids are accepted with or without curly braces
+const uuid GEN_UUID =  '00000000-4444-CCCC-ffff-0123456789ab'
+const uuid GEN_GUID = '{00112233-4455-6677-8899-aaBBccDDeeFF}'
+
+const myUUID MY_UUID =  '00000000-4444-CCCC-ffff-0123456789ab'
+const myUUID MY_GUID = '{00112233-4455-6677-8899-aaBBccDDeeFF}'
+
+---
+
+(document
+  (comment)
+  (const_definition
+    (type
+      (identifier))
+    (identifier)
+    (literal
+      (string
+        (string_fragment))))
+  (const_definition
+    (type
+      (identifier))
+    (identifier)
+    (literal
+      (string
+        (string_fragment))))
+  (const_definition
+    (type
+      (identifier))
+    (identifier)
+    (literal
+      (string
+        (string_fragment))))
+  (const_definition
+    (type
+      (identifier))
+    (identifier)
+    (literal
+      (string
+        (string_fragment)))))
+
+
+
+==========================
+Test const container types
+==========================
+
+struct thing {
+  1: i32  hello,
+  2: i32  goodbye
+  3: uuid id
+  4: myUUID my_id
+  5: optional myUUID my_optional_id
+}
+
+
+const map<i32, map<i32, i32>> GEN_MAPMAP = { 235 : { 532 : 53255, 235:235}}
+
+const map<string,i32> GEN_MAP2 = { "hello" : 233, "lkj98d" : 853, 'lkjsdf' : 098325 }
+
+const thing GEN_THING = { 'hello' : 325, 'goodbye' : 325352, 'id' : '{00112233-4455-6677-8899-aaBBccDDeeFF}', 'my_id': '00000000-4444-CCCC-ffff-0123456789ab', 'my_optional_id': '00000000-4444-CCCC-ffff-0123456789ab' }
+
+const map<i32,thing> GEN_WHAT = { 35 : { 'hello' : 325, 'goodbye' : 325352, 'id' : '00000000-4444-CCCC-ffff-0123456789ab', 'my_id': '00000000-4444-CCCC-ffff-0123456789ab', 'my_optional_id': '00000000-4444-CCCC-ffff-0123456789ab' } }
+
+const set<i32> GEN_SET = [ 235, 235, 53235 ]
+
+const set<uuid> GUID_SET = [ '{00112233-4455-6677-8899-aaBBccDDeeFF}', '00000000-4444-CCCC-ffff-0123456789ab' ]
+
+---
+
+(document
+  (struct_definition
+    (identifier)
+    (field
+      (field_id
+        (number))
+      (type
+        (primitive))
+      (identifier))
+    (field
+      (field_id
+        (number))
+      (type
+        (primitive))
+      (identifier))
+    (field
+      (field_id
+        (number))
+      (type
+        (identifier))
+      (identifier))
+    (field
+      (field_id
+        (number))
+      (type
+        (identifier))
+      (identifier))
+    (field
+      (field_id
+        (number))
+      (field_modifier)
+      (type
+        (identifier))
+      (identifier)))
+  (const_definition
+    (type
+      (container_type
+        (map
+          (type
+            (primitive))
+          (type
+            (container_type
+              (map
+                (type
+                  (primitive))
+                (type
+                  (primitive))))))))
+    (identifier)
+    (literal
+      (map_literal
+        (literal
+          (number))
+        (literal
+          (map_literal
+            (literal
+              (number))
+            (literal
+              (number))
+            (literal
+              (number))
+            (literal
+              (number)))))))
+  (const_definition
+    (type
+      (container_type
+        (map
+          (type
+            (primitive))
+          (type
+            (primitive)))))
+    (identifier)
+    (literal
+      (map_literal
+        (literal
+          (string
+            (string_fragment)))
+        (literal
+          (number))
+        (literal
+          (string
+            (string_fragment)))
+        (literal
+          (number))
+        (literal
+          (string
+            (string_fragment)))
+        (literal
+          (number)))))
+  (const_definition
+    (type
+      (identifier))
+    (identifier)
+    (literal
+      (map_literal
+        (literal
+          (string
+            (string_fragment)))
+        (literal
+          (number))
+        (literal
+          (string
+            (string_fragment)))
+        (literal
+          (number))
+        (literal
+          (string
+            (string_fragment)))
+        (literal
+          (string
+            (string_fragment)))
+        (literal
+          (string
+            (string_fragment)))
+        (literal
+          (string
+            (string_fragment)))
+        (literal
+          (string
+            (string_fragment)))
+        (literal
+          (string
+            (string_fragment))))))
+  (const_definition
+    (type
+      (container_type
+        (map
+          (type
+            (primitive))
+          (type
+            (identifier)))))
+    (identifier)
+    (literal
+      (map_literal
+        (literal
+          (number))
+        (literal
+          (map_literal
+            (literal
+              (string
+                (string_fragment)))
+            (literal
+              (number))
+            (literal
+              (string
+                (string_fragment)))
+            (literal
+              (number))
+            (literal
+              (string
+                (string_fragment)))
+            (literal
+              (string
+                (string_fragment)))
+            (literal
+              (string
+                (string_fragment)))
+            (literal
+              (string
+                (string_fragment)))
+            (literal
+              (string
+                (string_fragment)))
+            (literal
+              (string
+                (string_fragment))))))))
+  (const_definition
+    (type
+      (container_type
+        (set
+          (type
+            (primitive)))))
+    (identifier)
+    (literal
+      (list_literal
+        (literal
+          (number))
+        (literal
+          (number))
+        (literal
+          (number)))))
+  (const_definition
+    (type
+      (container_type
+        (set
+          (type
+            (identifier)))))
+    (identifier)
+    (literal
+      (list_literal
+        (literal
+          (string
+            (string_fragment)))
+        (literal
+          (string
+            (string_fragment)))))))

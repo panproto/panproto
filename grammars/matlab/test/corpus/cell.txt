@@ -1,0 +1,228 @@
+================================================================================
+Cell: Simple
+================================================================================
+
+{1 2 3 4}
+{1,2,3,4}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (cell
+    (row
+      (number)
+      (number)
+      (number)
+      (number)))
+  (cell
+    (row
+      (number)
+      (number)
+      (number)
+      (number))))
+
+================================================================================
+Cell: Multidimensional
+================================================================================
+
+{1 2; 3 4}
+{{1 2} {3 4}; {5 6} {7}}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (cell
+    (row
+      (number)
+      (number))
+    (row
+      (number)
+      (number)))
+  (cell
+    (row
+      (cell
+        (row
+          (number)
+          (number)))
+      (cell
+        (row
+          (number)
+          (number))))
+    (row
+      (cell
+        (row
+          (number)
+          (number)))
+      (cell
+        (row
+          (number))))))
+
+================================================================================
+Cell: Sequence of strings
+================================================================================
+
+{'a' b' 'c' 'd'}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (cell
+    (row
+      (string
+        (string_content))
+      (postfix_operator
+        (identifier))
+      (string
+        (string_content))
+      (string
+        (string_content)))))
+
+================================================================================
+Cell: Extra delimiters
+================================================================================
+
+% MATLAB accepts 1 extra comma at the start and end, and as many ; as you wish.
+{,1,2,3,;;;,1,2,3,}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (comment)
+  (cell
+    (row
+      (number)
+      (number)
+      (number))
+    (row
+      (number)
+      (number)
+      (number))))
+
+================================================================================
+Cell: Space on Start of Line
+================================================================================
+
+a = { 2 ...
+1 ...
+}
+
+a = { 2 ...
+  1 ...
+}
+
+x = ['foo ' ...
+'bar ']
+
+x = ['foo ' ...
+  'bar ']
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (assignment
+    (identifier)
+    (cell
+      (row
+        (number)
+        (line_continuation)
+        (number))
+      (line_continuation)))
+  (assignment
+    (identifier)
+    (cell
+      (row
+        (number)
+        (line_continuation)
+        (number))
+      (line_continuation)))
+  (assignment
+    (identifier)
+    (matrix
+      (row
+        (string
+          (string_content))
+        (line_continuation)
+        (string
+          (string_content)))))
+  (assignment
+    (identifier)
+    (matrix
+      (row
+        (string
+          (string_content))
+        (line_continuation)
+        (string
+          (string_content))))))
+
+================================================================================
+Cell: Comma positioning + line continuation
+================================================================================
+
+c1 = {'one' ...
+     ,'two'}
+
+m1 = [1 ...
+      ,2]
+
+c1 = {'one', ...
+      'two'}
+
+m1 = [1, ...
+      2]
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (assignment
+    (identifier)
+    (cell
+      (row
+        (string
+          (string_content))
+        (line_continuation)
+        (string
+          (string_content)))))
+  (assignment
+    (identifier)
+    (matrix
+      (row
+        (number)
+        (line_continuation)
+        (number))))
+  (assignment
+    (identifier)
+    (cell
+      (row
+        (string
+          (string_content))
+        (line_continuation)
+        (string
+          (string_content)))))
+  (assignment
+    (identifier)
+    (matrix
+      (row
+        (number)
+        (line_continuation)
+        (number)))))
+
+================================================================================
+Cell: Prefix Operators
+================================================================================
+
+b = [~a -3 +~2];
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (assignment
+    (identifier)
+    (matrix
+      (row
+        (not_operator
+          (identifier))
+        (unary_operator
+          (number))
+        (unary_operator
+          (not_operator
+            (number)))))))

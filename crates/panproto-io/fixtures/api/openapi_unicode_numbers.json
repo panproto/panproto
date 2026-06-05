@@ -1,0 +1,39 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Café Métrique — Données",
+    "description": "API d'analyse: prix en €, précision 1e-6.\nLigne deux.\tTabulée.",
+    "version": "2.1.0",
+    "x-rate-limit": 1000000,
+    "x-default-latency": 3.14159E-3,
+    "x-big-id": 9007199254740993,
+    "x-empty-extensions": {},
+    "x-empty-tags": []
+  },
+  "paths": {
+    "/réservations/{id}": {
+      "get": {
+        "summary": "Récupère une réservation 🎟️",
+        "responses": {
+          "200": {
+            "description": "Succès",
+            "content": {
+              "application/json": {
+                "example": {
+                  "id": 0,
+                  "montant": -0.0,
+                  "remise": 1e10,
+                  "actif": true,
+                  "annulé": false,
+                  "métadonnées": null,
+                  "chemin": "C:\\temp\\café",
+                  "url": "https:\/\/exemple.fr\/café"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

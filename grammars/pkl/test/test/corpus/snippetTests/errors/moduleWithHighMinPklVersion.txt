@@ -1,0 +1,29 @@
+===
+errors/moduleWithHighMinPklVersion.pkl
+===
+
+@ModuleInfo { minPklVersion = "99.9.9" }
+open module moduleWithHighMinPklVersion
+
+x = 1
+
+---
+
+(module
+  (moduleHeader
+    (annotation
+      (qualifiedIdentifier
+        (identifier))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart)))))
+    (moduleClause
+
+      (modifier)
+      (qualifiedIdentifier
+        (identifier))))
+  (classProperty
+    (identifier)
+    (intLiteralExpr)))

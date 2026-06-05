@@ -1,0 +1,158 @@
+==================
+Case TRUE OF with comparison expressions
+==================
+
+table 50010 "Test Table"
+{
+    trigger OnInsert()
+    begin
+        CASE TRUE OF
+            TableNo = DATABASE::Vendor:
+                RecRef.GETTABLE(Vendor);
+            TableNo = DATABASE::Customer:
+                RecRef.GETTABLE(Customer);
+        END;
+    end;
+}
+
+---
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (case_statement
+          (case_keyword)
+          expression: (boolean)
+          (of_keyword)
+          (case_branch
+            pattern: (comparison_expression
+              left: (identifier)
+              operator: (comparison_operator)
+              right: (database_reference
+                keyword: (object_type_keyword)
+                table_name: (identifier)))
+            body: (call_expression
+              function: (member_expression
+                object: (identifier)
+                member: (identifier))
+              arguments: (argument_list
+                (identifier))))
+          (case_branch
+            pattern: (comparison_expression
+              left: (identifier)
+              operator: (comparison_operator)
+              right: (database_reference
+                keyword: (object_type_keyword)
+                table_name: (identifier)))
+            body: (call_expression
+              function: (member_expression
+                object: (identifier)
+                member: (identifier))
+              arguments: (argument_list
+                (identifier)))))
+        (end_keyword)))))
+
+==================
+Case TRUE OF with simple comparison
+==================
+
+table 50011 "Test Table"
+{
+    trigger OnValidate()
+    begin
+        CASE TRUE OF
+            Amount = 0:
+                Clear();
+            Amount > 10:
+                Process();
+        END;
+    end;
+}
+
+---
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (case_statement
+          (case_keyword)
+          expression: (boolean)
+          (of_keyword)
+          (case_branch
+            pattern: (comparison_expression
+              left: (identifier)
+              operator: (comparison_operator)
+              right: (integer))
+            body: (call_expression
+              function: (identifier)
+              arguments: (argument_list)))
+          (case_branch
+            pattern: (comparison_expression
+              left: (identifier)
+              operator: (comparison_operator)
+              right: (integer))
+            body: (call_expression
+              function: (identifier)
+              arguments: (argument_list))))
+        (end_keyword)))))
+
+==================
+Case TRUE OF with NOT expression
+==================
+
+table 50012 "Test Table"
+{
+    trigger OnModify()
+    begin
+        CASE TRUE OF
+            NOT ValidateStatus:
+                ERROR('Invalid status');
+            ELSE
+                ProcessRecord();
+        END;
+    end;
+}
+
+---
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (case_statement
+          (case_keyword)
+          expression: (boolean)
+          (of_keyword)
+          (case_branch
+            pattern: (unary_expression
+              operand: (identifier))
+            body: (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (string_literal))))
+          (case_else_branch
+            (else_keyword)
+            (call_expression
+              function: (identifier)
+              arguments: (argument_list))))
+        (end_keyword)))))

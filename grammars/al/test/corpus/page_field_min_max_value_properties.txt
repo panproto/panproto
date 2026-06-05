@@ -1,0 +1,271 @@
+================================================================================
+Page field with MinValue property using integer
+================================================================================
+
+page 50000 "Test Page"
+{
+    layout
+    {
+        area(content)
+        {
+            group(General)
+            {
+                field(Amount; Amount)
+                {
+                    ApplicationArea = All;
+                    Caption = 'Amount';
+                    MinValue = 0;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (group_section
+          (group_keyword)
+          name: (identifier)
+          (page_field
+            name: (identifier)
+            source: (identifier)
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (integer))))))))
+
+================================================================================
+Page field with MaxValue property using expression
+================================================================================
+
+page 50001 "Test Page 2"
+{
+    layout
+    {
+        area(content)
+        {
+            group(General)
+            {
+                field(Percentage; Percentage)
+                {
+                    ApplicationArea = All;
+                    Caption = 'Percentage';
+                    MaxValue = 100;
+                    MinValue = 0;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (group_section
+          (group_keyword)
+          name: (identifier)
+          (page_field
+            name: (identifier)
+            source: (identifier)
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (integer))
+            (property
+              name: (property_name)
+              value: (integer))))))))
+
+================================================================================
+Page field with MinValue using decimal and variable expression
+================================================================================
+
+page 50002 "Test Page 3"
+{
+    layout
+    {
+        area(content)
+        {
+            group(General)
+            {
+                field(Price; Price)
+                {
+                    ApplicationArea = All;
+                    Caption = 'Price';
+                    MinValue = 0.01;
+                    MaxValue = MaxPrice;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (group_section
+          (group_keyword)
+          name: (identifier)
+          (page_field
+            name: (identifier)
+            source: (identifier)
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (decimal))
+            (property
+              name: (property_name)
+              value: (identifier))))))))
+
+================================================================================
+Page field with control name and MinValue property
+================================================================================
+
+page 50003 "Test Page 4"
+{
+    layout
+    {
+        area(content)
+        {
+            group(General)
+            {
+                field(Amount; Amount)
+                {
+                    ApplicationArea = All;
+                    Caption = 'Amount';
+                    MinValue = 0;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (group_section
+          (group_keyword)
+          name: (identifier)
+          (page_field
+            name: (identifier)
+            source: (identifier)
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (integer))))))))
+
+================================================================================
+Page field with complex expression in MaxValue
+================================================================================
+
+page 50004 "Test Page 5"
+{
+    layout
+    {
+        area(content)
+        {
+            group(General)
+            {
+                field("Stock Level"; Rec."Stock Level")
+                {
+                    ApplicationArea = All;
+                    Caption = 'Stock Level';
+                    MinValue = MinStockLevel();
+                    MaxValue = GetMaxCapacity() * SafetyFactor;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (group_section
+          (group_keyword)
+          name: (identifier)
+          (page_field
+            name: (quoted_identifier)
+            source: (member_expression
+              object: (identifier)
+              member: (quoted_identifier))
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (property_expression
+                (call_expression
+                  function: (identifier)
+                  arguments: (argument_list))))
+            (property
+              name: (property_name)
+              value: (property_expression
+                (multiplicative_expression
+                  left: (call_expression
+                    function: (identifier)
+                    arguments: (argument_list))
+                  right: (identifier))))))))))

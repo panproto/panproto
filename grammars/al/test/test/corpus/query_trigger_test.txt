@@ -1,0 +1,122 @@
+================================================================================
+Query with OnBeforeOpen trigger
+================================================================================
+
+query 50145 "Delayed Prod Orders by Cost"
+{
+    QueryType = Normal;
+    
+    elements
+    {
+        dataitem(Production_Order; "Production Order")
+        {
+            filter(Status; Status) { }
+            column(Due_Date; "Due Date") { }
+        }
+    }
+
+    trigger OnBeforeOpen()
+    begin
+        SetFilter(Due_Date, '<%1', Today);
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)
+        (query_filter
+          (filter_keyword)
+          name: (identifier)
+          field_name: (identifier))
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          field_name: (quoted_identifier))))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list
+            (identifier)
+            (string_literal)
+            (identifier)))
+        (end_keyword)))))
+
+================================================================================
+Query with multiple triggers
+================================================================================
+
+query 50000 "Test Query"
+{
+    elements
+    {
+        dataitem(Item; Item)
+        {
+            column(No; "No.") { }
+        }
+    }
+    
+    trigger OnBeforeOpen()
+    begin
+        Message('Opening query');
+    end;
+    
+    trigger OnAfterOpen()
+    begin
+        Message('Query opened');
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          field_name: (quoted_identifier))))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list
+            (string_literal)))
+        (end_keyword)))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list
+            (string_literal)))
+        (end_keyword)))))

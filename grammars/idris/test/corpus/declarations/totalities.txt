@@ -1,0 +1,121 @@
+================================================================================
+Totality partial
+================================================================================
+
+partial
+fromMaybe : Maybe a -> a
+
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (totality)
+    (loname)
+    (colon)
+    (exp_name
+      (caname))
+    (exp_name
+      (loname))
+    (arrow_separator)
+    (exp_name
+      (loname))))
+
+================================================================================
+Totality total
+================================================================================
+
+total
+qsort : Ord a => List a -> List a
+
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (totality)
+    (loname)
+    (colon)
+    (exp_name
+      (caname))
+    (exp_name
+      (loname))
+    (arrow_separator)
+    (exp_name
+      (caname))
+    (exp_name
+      (loname))
+    (arrow_separator)
+    (exp_name
+      (caname))
+    (exp_name
+      (loname))))
+
+================================================================================
+Totality covering
+================================================================================
+
+covering
+takeUntil : (n -> Bool) -> Stream n -> List n
+
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (totality)
+    (loname)
+    (colon)
+    (type_parens
+      (exp_name
+        (loname))
+      (arrow_separator)
+      (exp_name
+        (caname)))
+    (arrow_separator)
+    (exp_name
+      (caname))
+    (exp_name
+      (loname))
+    (arrow_separator)
+    (exp_name
+      (caname))
+    (exp_name
+      (loname))))
+
+================================================================================
+Totality and visibility
+================================================================================
+
+covering
+public export
+iterate : (f : a -> Maybe a) -> (x : a) -> List a
+
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (totality)
+    (visibility)
+    (loname)
+    (colon)
+    (type_parens
+      (type_var
+        (loname)
+        (colon)
+        (exp_name
+          (loname))
+        (arrow_separator)
+        (exp_name
+          (caname))
+        (exp_name
+          (loname))))
+    (arrow_separator)
+    (type_parens
+      (type_var
+        (loname)
+        (colon)
+        (exp_name
+          (loname))))
+    (arrow_separator)
+    (exp_name
+      (caname))
+    (exp_name
+      (loname))))

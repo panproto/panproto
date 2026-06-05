@@ -1,0 +1,124 @@
+================================================================================
+Comments
+================================================================================
+
+// Single line
+1
+
+/*
+ * Multiline
+ */
+2
+
+/* /* Nested
+  /* multiple */ times
+  // */ */
+3
+
+4 // post single-line
+
+5 /* post multi-line */
+
+/* / */
+6
+
+/* */ 7
+
+/** **/ 8
+
+/* comment //*/ */*/ 9
+
+foo
+  // in-pipe
+  ->bar
+
+switch foo {
+| 1 => 1
+// in-switch
+}
+
+switch foo {
+| 1 => 1
+/* block comment in switch */
+| 2 => 2
+}
+
+switch l {
+| "a" => letterAll
+/* | "b" => [||] */
+/* | "g" => [||] */
+/* | "h" => [||] */
+/* | "i" => [||] */
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (line_comment)
+  (expression_statement
+    (number))
+  (block_comment)
+  (expression_statement
+    (number))
+  (block_comment)
+  (expression_statement
+    (number))
+  (expression_statement
+    (number))
+  (line_comment)
+  (expression_statement
+    (number))
+  (block_comment)
+  (block_comment)
+  (expression_statement
+    (number))
+  (block_comment)
+  (expression_statement
+    (number))
+  (block_comment)
+  (expression_statement
+    (number))
+  (block_comment)
+  (expression_statement
+    (number))
+  (expression_statement
+    (pipe_expression
+      (value_identifier)
+      (line_comment)
+      (value_identifier)))
+  (expression_statement
+    (switch_expression
+      (value_identifier)
+      (switch_match
+        (number)
+        (sequence_expression
+          (expression_statement
+            (number))))
+      (line_comment)))
+  (expression_statement
+    (switch_expression
+      (value_identifier)
+      (switch_match
+        (number)
+        (sequence_expression
+          (expression_statement
+            (number))))
+      (block_comment)
+      (switch_match
+        (number)
+        (sequence_expression
+          (expression_statement
+            (number))))))
+  (expression_statement
+    (switch_expression
+      (value_identifier)
+      (switch_match
+        (string
+          (string_fragment))
+        (sequence_expression
+          (expression_statement
+            (value_identifier))))
+      (block_comment)
+      (block_comment)
+      (block_comment)
+      (block_comment))))

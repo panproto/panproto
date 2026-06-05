@@ -1,0 +1,84 @@
+
+==============================
+Generic anonymous function
+==============================
+
+return function<T>()
+
+end
+
+---
+
+(program
+  (return_statement
+    (anon_function
+      signature: (function_signature
+        typeargs: (typeargs
+          (typearg
+            name: (identifier)))
+        arguments: (arguments))
+        body: (function_body))))
+
+==============================
+Generic named function
+==============================
+
+local function foo<T>()
+
+end
+
+---
+
+(program (function_statement
+  name: (identifier)
+  signature: (function_signature
+    typeargs: (typeargs
+      (typearg
+        name: (identifier)))
+    arguments: (arguments))
+    body: (function_body)))
+
+==============================
+Many typeargs
+==============================
+
+local function foo<A, B, C, D, E, F>()
+
+end
+
+---
+
+(program
+  (function_statement
+    name: (identifier)
+    signature: (function_signature
+      typeargs: (typeargs
+        (typearg name: (identifier))
+        (typearg name: (identifier))
+        (typearg name: (identifier))
+        (typearg name: (identifier))
+        (typearg name: (identifier))
+        (typearg name: (identifier)))
+      arguments: (arguments))
+    body: (function_body)))
+
+==============================
+Typearg with is clause
+==============================
+
+local function foo<A is B>()
+end
+
+------------------------------
+
+(program
+  (function_statement
+    name: (identifier)
+    signature: (function_signature
+      typeargs: (typeargs
+        (typearg
+          name: (identifier)
+          constraint: (simple_type
+            name: (identifier))))
+      arguments: (arguments))
+    body: (function_body)))

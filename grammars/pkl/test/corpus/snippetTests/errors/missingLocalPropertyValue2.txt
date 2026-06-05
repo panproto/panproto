@@ -1,0 +1,22 @@
+===
+errors/missingLocalPropertyValue2.pkl
+===
+
+amends "baseModule.pkl"
+
+local x: Int
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))))

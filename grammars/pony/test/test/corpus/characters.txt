@@ -1,0 +1,56 @@
+=================
+Character Literal
+=================
+
+use "snot" if 'A'
+
+---
+
+(source_file
+  (use_statement
+    (string
+      (string_content))
+    (platform_specifier
+      (if_block
+        (block
+          (character
+            (character_content)))))))
+
+=================
+Character Escapes
+=================
+
+use "snot" if '\xFF\''
+
+---
+
+(source_file
+  (use_statement
+    (string
+      (string_content))
+    (platform_specifier
+      (if_block
+        (block
+          (character
+            (escape_sequence)
+            (escape_sequence)))))))
+
+====================
+Multibyte Characters
+====================
+
+use "snot" if 'A\nBCDEFGH'
+
+---
+
+(source_file
+  (use_statement
+    (string
+      (string_content))
+    (platform_specifier
+      (if_block
+        (block
+          (character
+            (character_content)
+            (escape_sequence)
+            (character_content)))))))

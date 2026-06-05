@@ -1,0 +1,53 @@
+================================================================================
+logical
+================================================================================
+
+_true _and _true
+_false _or _true
+_true _xor _false
+_true _andif _true
+_false _orif _true
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (logical_operator
+      (true)
+      (true)))
+  (fragment
+    (logical_operator
+      (false)
+      (true)))
+  (fragment
+    (logical_operator
+      (true)
+      (false)))
+  (fragment
+    (logical_operator
+      (true)
+      (true)))
+  (fragment
+    (logical_operator
+      (false)
+      (true))))
+
+================================================================================
+parallel assignment
+================================================================================
+
+(a,b,c) << (1,2,3)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (assignment
+      (parenthesized_expression
+        (variable)
+        (variable)
+        (variable))
+      (parenthesized_expression
+        (number)
+        (number)
+        (number)))))

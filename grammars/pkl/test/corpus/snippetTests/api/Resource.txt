@@ -1,0 +1,128 @@
+===
+api/Resource.pkl
+===
+
+amends "../snippetTest.pkl"
+
+examples {
+  local empty = read("empty.txt")
+  local fox = read("fox.txt")
+
+  ["text"] {
+    empty.text
+    fox.text
+  }
+
+  ["md5"] {
+    empty.md5
+    fox.md5
+  }
+
+  ["sha1"] {
+    empty.sha1
+    fox.sha1
+  }
+
+  ["sha256"] {
+    empty.sha256
+    fox.sha256
+  }
+
+  ["sha256Int"] {
+    empty.sha256Int
+    fox.sha256Int
+  }
+}
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (modifier)
+        (identifier)
+        (readExpr
+          (slStringLiteralExpr
+            (slStringLiteralPart))))
+      (objectProperty
+        (modifier)
+        (identifier)
+        (readExpr
+          (slStringLiteralExpr
+            (slStringLiteralPart))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (qualifiedAccessExpr
+              (unqualifiedAccessExpr
+                (identifier))
+              (identifier)))
+          (objectElement
+            (qualifiedAccessExpr
+              (unqualifiedAccessExpr
+                (identifier))
+              (identifier)))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (qualifiedAccessExpr
+              (unqualifiedAccessExpr
+                (identifier))
+              (identifier)))
+          (objectElement
+            (qualifiedAccessExpr
+              (unqualifiedAccessExpr
+                (identifier))
+              (identifier)))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (qualifiedAccessExpr
+              (unqualifiedAccessExpr
+                (identifier))
+              (identifier)))
+          (objectElement
+            (qualifiedAccessExpr
+              (unqualifiedAccessExpr
+                (identifier))
+              (identifier)))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (qualifiedAccessExpr
+              (unqualifiedAccessExpr
+                (identifier))
+              (identifier)))
+          (objectElement
+            (qualifiedAccessExpr
+              (unqualifiedAccessExpr
+                (identifier))
+              (identifier)))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (qualifiedAccessExpr
+              (unqualifiedAccessExpr
+                (identifier))
+              (identifier)))
+          (objectElement
+            (qualifiedAccessExpr
+              (unqualifiedAccessExpr
+                (identifier))
+              (identifier))))))))

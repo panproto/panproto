@@ -1,0 +1,153 @@
+================================================================================
+Sections
+================================================================================
+
+DEFINE_DEVICE
+DEFINE_COMBINE
+DEFINE_CONNECT_LEVEL
+DEFINE_TOGGLING
+DEFINE_LATCHING
+DEFINE_MUTUALLY_EXCLUSIVE
+DEFINE_CONSTANT
+DEFINE_TYPE
+DEFINE_VARIABLE
+DEFINE_SYSTEM_VARIABLE
+DEFINE_START
+DEFINE_EVENT
+DEFINE_PROGRAM
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (define_device_section
+      (define_device_keyword)))
+  (section
+    (define_combine_section
+      (define_combine_keyword)))
+  (section
+    (define_connect_level_section
+      (define_connect_level_keyword)))
+  (section
+    (define_toggling_section
+      (define_toggling_keyword)))
+  (section
+    (define_latching_section
+      (define_latching_keyword)))
+  (section
+    (define_mutually_exclusive_section
+      (define_mutually_exclusive_keyword)))
+  (section
+    (define_constant_section
+      (define_constant_keyword)))
+  (section
+    (define_type_section
+      (define_type_keyword)))
+  (section
+    (define_variable_section
+      (define_variable_keyword)))
+  (section
+    (define_system_variable_section
+      (define_system_variable_keyword)))
+  (section
+    (define_start_section
+      (define_start_keyword)))
+  (section
+    (define_event_section
+      (define_event_keyword)))
+  (section
+    (define_program_section
+      (define_program_keyword))))
+
+=====================================
+Define Start
+=====================================
+
+DEFINE_START {
+    primaryDevice.name = 'Main Display'
+    primaryDevice.isPowered = FALSE
+    primaryDevice.volume = 50
+}
+
+DEFINE_START
+primaryDevice.isPowered = true;
+
+---
+
+(source_file
+  (section
+    (define_start_section
+      (define_start_keyword)))
+  (compound_statement
+    (expression_statement
+      (assignment_expression
+        (field_expression
+          (identifier)
+          (field_identifier))
+        (string_literal
+          (string_content))))
+    (expression_statement
+      (assignment_expression
+        (field_expression
+          (identifier)
+          (field_identifier))
+        (system_constant
+          (false))))
+    (expression_statement
+      (assignment_expression
+        (field_expression
+          (identifier)
+          (field_identifier))
+        (number_literal))))
+  (section
+    (define_start_section
+      (define_start_keyword)))
+  (expression_statement
+    (assignment_expression
+      (field_expression
+        (identifier)
+        (field_identifier))
+      (system_constant
+        (true)))))
+
+=====================================
+Define Program
+=====================================
+
+DEFINE_PROGRAM {
+    [dvTP, BTN_POWER] = (primaryDevice.isPowered)
+}
+
+define_program
+
+[dvTO, VOL_MUTE] = (mute == true)
+
+---
+
+(source_file
+  (section
+    (define_program_section
+      (define_program_keyword)))
+  (compound_statement
+    (expression_statement
+      (assignment_expression
+        (devchan_expression
+          (identifier)
+          (identifier))
+        (parenthesized_expression
+          (field_expression
+            (identifier)
+            (field_identifier))))))
+  (section
+    (define_program_section
+      (define_program_keyword)))
+  (expression_statement
+    (assignment_expression
+      (devchan_expression
+        (identifier)
+        (identifier))
+      (parenthesized_expression
+        (binary_expression
+          (identifier)
+          (system_constant
+            (true)))))))

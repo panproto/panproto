@@ -1,0 +1,393 @@
+================================================================================
+Basic try-except statement
+================================================================================
+
+*** Test Cases ***
+First example
+    TRY
+        Some Keyword
+    EXCEPT    Error message
+        Error Handler Keyword
+    END
+    Keyword Outside
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (test_cases_section
+      (section_header)
+      (test_case_definition
+        (name)
+        (body
+          (statement
+            (try_statement
+              (block
+                (statement
+                  (keyword_invocation
+                    (keyword
+                      (name_chunk)))))
+              (except_statement
+                (arguments
+                  (argument
+                    (text_chunk)))
+                (block
+                  (statement
+                    (keyword_invocation
+                      (keyword
+                        (name_chunk))))))))
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk)))))))))
+
+================================================================================
+Multiple except branches
+================================================================================
+
+*** Test Cases ***
+Multiple EXCEPT branches
+    TRY
+        Some Keyword
+    EXCEPT    Error message    # Try matching this first.
+        Error Handler 1
+    EXCEPT    Another error    # Try this if above did not match.
+        Error Handler 2
+    EXCEPT    ${message}       # Last match attempt, this time using a variable.
+        Error Handler 3
+    END
+
+Multiple messages with one EXCEPT
+    TRY
+        Some Keyword
+    EXCEPT    Error message    Another error    ${message}    # Match any of these.
+        Error handler
+    END
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (test_cases_section
+      (section_header)
+      (test_case_definition
+        (name)
+        (body
+          (statement
+            (try_statement
+              (block
+                (statement
+                  (keyword_invocation
+                    (keyword
+                      (name_chunk)))))
+              (except_statement
+                (arguments
+                  (argument
+                    (text_chunk)))
+                (comment)
+                (block
+                  (statement
+                    (keyword_invocation
+                      (keyword
+                        (name_chunk))))))
+              (except_statement
+                (arguments
+                  (argument
+                    (text_chunk)))
+                (comment)
+                (block
+                  (statement
+                    (keyword_invocation
+                      (keyword
+                        (name_chunk))))))
+              (except_statement
+                (arguments
+                  (argument
+                    (scalar_variable
+                      (variable_name))))
+                (comment)
+                (block
+                  (statement
+                    (keyword_invocation
+                      (keyword
+                        (name_chunk))))))))))
+      (test_case_definition
+        (name)
+        (body
+          (statement
+            (try_statement
+              (block
+                (statement
+                  (keyword_invocation
+                    (keyword
+                      (name_chunk)))))
+              (except_statement
+                (arguments
+                  (argument
+                    (text_chunk))
+                  (argument
+                    (text_chunk))
+                  (argument
+                    (scalar_variable
+                      (variable_name))))
+                (comment)
+                (block
+                  (statement
+                    (keyword_invocation
+                      (keyword
+                        (name_chunk)))))))))))))
+
+================================================================================
+Without matching any messages
+================================================================================
+
+*** Test Cases ***
+Match any error
+    TRY
+        Some Keyword
+    EXCEPT               # Match any error.
+        Error Handler
+    END
+
+Match any after testing more specific errors
+    TRY
+        Some Keyword
+    EXCEPT    Error message    # Try matching this first
+        Error Handler 1
+    EXCEPT                     # Match any that did not match the above.
+        Error Handler 2
+    END
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (test_cases_section
+      (section_header)
+      (test_case_definition
+        (name)
+        (body
+          (statement
+            (try_statement
+              (block
+                (statement
+                  (keyword_invocation
+                    (keyword
+                      (name_chunk)))))
+              (except_statement
+                (comment)
+                (block
+                  (statement
+                    (keyword_invocation
+                      (keyword
+                        (name_chunk))))))))))
+      (test_case_definition
+        (name)
+        (body
+          (statement
+            (try_statement
+              (block
+                (statement
+                  (keyword_invocation
+                    (keyword
+                      (name_chunk)))))
+              (except_statement
+                (arguments
+                  (argument
+                    (text_chunk)))
+                (comment)
+                (block
+                  (statement
+                    (keyword_invocation
+                      (keyword
+                        (name_chunk))))))
+              (except_statement
+                (comment)
+                (block
+                  (statement
+                    (keyword_invocation
+                      (keyword
+                        (name_chunk)))))))))))))
+
+================================================================================
+TRY/EXCEPT/ELSE statement
+================================================================================
+
+*** Test Cases ***
+ELSE branch
+    TRY
+        Some Keyword
+    EXCEPT    X
+        Log    Error 'X' occurred!
+    ELSE
+        Log    No error occurred!
+    END
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (test_cases_section
+      (section_header)
+      (test_case_definition
+        (name)
+        (body
+          (statement
+            (try_statement
+              (block
+                (statement
+                  (keyword_invocation
+                    (keyword
+                      (name_chunk)))))
+              (except_statement
+                (arguments
+                  (argument
+                    (text_chunk)))
+                (block
+                  (statement
+                    (keyword_invocation
+                      (keyword
+                        (name_chunk))
+                      (arguments
+                        (argument
+                          (text_chunk)))))))
+              (else_statement
+                (block
+                  (statement
+                    (keyword_invocation
+                      (keyword
+                        (name_chunk))
+                      (arguments
+                        (argument
+                          (text_chunk))))))))))))))
+
+================================================================================
+TRY/FINALLY statement
+================================================================================
+
+*** Test Cases ***
+TRY/FINALLY
+    Open Connection
+    TRY
+        Use Connection
+    FINALLY
+        Close Connection
+    END
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (test_cases_section
+      (section_header)
+      (test_case_definition
+        (name)
+        (body
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk))))
+          (statement
+            (try_statement
+              (block
+                (statement
+                  (keyword_invocation
+                    (keyword
+                      (name_chunk)))))
+              (finally_statement
+                (block
+                  (statement
+                    (keyword_invocation
+                      (keyword
+                        (name_chunk)))))))))))))
+
+================================================================================
+All together now
+================================================================================
+
+*** Test Cases ***
+TRY/EXCEPT/ELSE/FINALLY
+    TRY
+        Some keyword
+    EXCEPT    X
+        Log    Error 'X' occurred!
+    EXCEPT    Y
+        Log    Error 'Y' occurred!
+    EXCEPT    Z
+        Log    Error 'Z' occurred!
+    ELSE
+        Log    No error occurred.
+    FINALLY
+        Log    Always executed.
+    END
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (test_cases_section
+      (section_header)
+      (test_case_definition
+        (name)
+        (body
+          (statement
+            (try_statement
+              (block
+                (statement
+                  (keyword_invocation
+                    (keyword
+                      (name_chunk)))))
+              (except_statement
+                (arguments
+                  (argument
+                    (text_chunk)))
+                (block
+                  (statement
+                    (keyword_invocation
+                      (keyword
+                        (name_chunk))
+                      (arguments
+                        (argument
+                          (text_chunk)))))))
+              (except_statement
+                (arguments
+                  (argument
+                    (text_chunk)))
+                (block
+                  (statement
+                    (keyword_invocation
+                      (keyword
+                        (name_chunk))
+                      (arguments
+                        (argument
+                          (text_chunk)))))))
+              (except_statement
+                (arguments
+                  (argument
+                    (text_chunk)))
+                (block
+                  (statement
+                    (keyword_invocation
+                      (keyword
+                        (name_chunk))
+                      (arguments
+                        (argument
+                          (text_chunk)))))))
+              (else_statement
+                (block
+                  (statement
+                    (keyword_invocation
+                      (keyword
+                        (name_chunk))
+                      (arguments
+                        (argument
+                          (text_chunk)))))))
+              (finally_statement
+                (block
+                  (statement
+                    (keyword_invocation
+                      (keyword
+                        (name_chunk))
+                      (arguments
+                        (argument
+                          (text_chunk))))))))))))))

@@ -1,0 +1,16 @@
+===
+errors/intrinsifiedTypeAlias1.pkl
+===
+
+res1: Int16 = "abc"
+---
+
+(module
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (slStringLiteralExpr
+      (slStringLiteralPart))))

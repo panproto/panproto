@@ -1,0 +1,48 @@
+===
+subscript
+===
+
+res1 = foo == bar[0]
+res2 = foo > bar[0]
+res3 = foo < bar[0]
+res4 = foo * bar[0]
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (equalityExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (subscriptExpr
+        (unqualifiedAccessExpr
+          (identifier))
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (comparisonExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (subscriptExpr
+        (unqualifiedAccessExpr
+          (identifier))
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (comparisonExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (subscriptExpr
+        (unqualifiedAccessExpr
+          (identifier))
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (multiplicativeExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (subscriptExpr
+        (unqualifiedAccessExpr
+          (identifier))
+        (intLiteralExpr)))))

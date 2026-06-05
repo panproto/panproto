@@ -1,0 +1,16 @@
+===
+classes/invalidInstantiation1.pkl
+===
+
+res1 = new String {}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody))))

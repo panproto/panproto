@@ -1,0 +1,178 @@
+================================================================================
+Page with var section and variable declarations
+================================================================================
+
+page 50100 "Test Page"
+{
+    PageType = Card;
+    
+    trigger OnOpenPage()
+    begin
+        Message('Test');
+    end;
+    
+    var
+        StyleExpr: Text;
+        IsTableLine: Boolean;
+        IsFieldEditable: Boolean;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list
+            (string_literal)))
+        (end_keyword)))
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (text_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type))))))
+
+================================================================================
+Page with var section after procedures
+================================================================================
+
+page 703 "Merge Duplicate Subform"
+{
+    Caption = 'Merge Duplicate Subform';
+    
+    trigger OnAfterGetRecord()
+    begin
+        IsTableLine := Rec.Type = Rec.Type::Table;
+        SetStyle();
+    end;
+    
+    var
+        StyleExpr: Text;
+        IsTableLine: Boolean;
+        IsFieldEditable: Boolean;
+        IsOverrideEnabled: Boolean;
+    
+    procedure Set(var TempBuffer: Record "Buffer" temporary)
+    begin
+        Rec.Copy(TempBuffer, true);
+    end;
+    
+    local procedure SetStyle()
+    begin
+        if IsTableLine then
+            StyleExpr := 'Strong'
+        else
+            StyleExpr := 'Standard';
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (identifier)
+          right: (comparison_expression
+            left: (member_expression
+              object: (identifier)
+              member: (identifier))
+            operator: (comparison_operator)
+            right: (qualified_enum_value
+              enum_type: (member_expression
+                object: (identifier)
+                member: (identifier))
+              value: (identifier
+                (table_keyword)))))
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list))
+        (end_keyword)))
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (text_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type))))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier)
+              (temporary_keyword)))))
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (member_expression
+            object: (identifier)
+            member: (identifier))
+          arguments: (argument_list
+            (identifier)
+            (boolean)))
+        (end_keyword)))
+    (procedure
+      modifier: (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (if_statement
+          (if_keyword)
+          condition: (identifier)
+          (then_keyword)
+          then_branch: (assignment_statement
+            left: (identifier)
+            right: (string_literal))
+          (else_keyword)
+          else_branch: (assignment_statement
+            left: (identifier)
+            right: (string_literal)))
+        (end_keyword)))))

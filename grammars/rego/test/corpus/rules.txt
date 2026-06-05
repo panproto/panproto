@@ -1,0 +1,653 @@
+================================================================================
+union
+================================================================================
+
+package test.block
+
+a := {1, 2, 3}
+b := {4, 5, 6}
+c := a | b
+
+--------------------------------------------------------------------------------
+(source_file
+  (module
+    (package)
+    (ref
+      (var)
+      (ref_arg
+        (ref_arg_dot
+          (var))))
+    (policy
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (assignment)
+          (term
+            (ref
+              (set
+                (non_empty_set
+                  (open_curly)
+                  (term
+                    (scalar
+                      (number)))
+                  (term
+                    (scalar
+                      (number)))
+                  (term
+                    (scalar
+                      (number)))
+                  (close_curly)))))))
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (assignment)
+          (term
+            (ref
+              (set
+                (non_empty_set
+                  (open_curly)
+                  (term
+                    (scalar
+                      (number)))
+                  (term
+                    (scalar
+                      (number)))
+                  (term
+                    (scalar
+                      (number)))
+                  (close_curly)))))))
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (assignment)
+          (term
+            (ref
+              (var))))
+        (rule_body
+          (literal
+            (expr
+              (expr_infix
+                (expr
+                  (term
+                    (scalar
+                      (MISSING "null"))))
+                (infix_operator
+                  (bin_operator))
+                (expr
+                  (term
+                    (ref
+                      (var))))))))))))
+
+================================================================================
+boolean conditionals
+================================================================================
+
+package test.block
+
+p := true { true }
+
+p if { true }
+
+p { true }
+
+--------------------------------------------------------------------------------
+(source_file
+  (module
+    (package)
+    (ref
+      (var)
+      (ref_arg
+        (ref_arg_dot
+          (var))))
+    (policy
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (assignment)
+          (term
+            (scalar
+              (boolean))))
+        (rule_body
+          (open_curly)
+          (query
+            (literal
+              (expr
+                (term
+                  (scalar
+                    (boolean))))))
+          (close_curly)))
+      (rule
+        (rule_head
+          (var)
+          (if))
+        (rule_body
+          (open_curly)
+          (query
+            (literal
+              (expr
+                (term
+                  (scalar
+                    (boolean))))))
+          (close_curly)))
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (open_curly)
+          (query
+            (literal
+              (expr
+                (term
+                  (scalar
+                    (boolean))))))
+          (close_curly))))))
+
+
+================================================================================
+conditionals
+================================================================================
+
+package test.block
+
+default a := 1
+
+a := 5   if { true }
+
+a := 100 if { true }
+
+--------------------------------------------------------------------------------
+(source_file
+  (module
+    (package)
+    (ref
+      (var)
+      (ref_arg
+        (ref_arg_dot
+          (var))))
+    (policy
+      (rule
+        (default)
+        (rule_head
+          (var))
+        (rule_body
+          (assignment)
+          (term
+            (scalar
+              (number)))))
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (assignment)
+          (term
+            (scalar
+              (number)))))
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (open_curly)
+          (query
+            (literal
+              (expr
+                (term
+                  (scalar
+                    (boolean))))))
+          (close_curly)))
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (assignment)
+          (term
+            (scalar
+              (number)))))
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (open_curly)
+          (query
+            (literal
+              (expr
+                (term
+                  (scalar
+                    (boolean))))))
+          (close_curly))))))
+
+
+================================================================================
+incremental
+================================================================================
+
+package test.block
+
+a_set[x] { true }
+
+a_set contains x if { true }
+
+a_map[x] := y if { true }
+
+
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (module
+    (package)
+    (ref
+      (var)
+      (ref_arg
+        (ref_arg_dot
+          (var))))
+    (policy
+      (rule
+        (rule_head
+          (var)
+          (open_bracket)
+          (term
+            (ref
+              (var)))
+          (close_bracket))
+        (rule_body
+          (open_curly)
+          (query
+            (literal
+              (expr
+                (term
+                  (scalar
+                    (boolean))))))
+          (close_curly)))
+      (rule
+        (rule_head
+          (var)
+          (contains)
+          (term
+            (ref
+              (var)))
+          (if))
+        (rule_body
+          (open_curly)
+          (query
+            (literal
+              (expr
+                (term
+                  (scalar
+                    (boolean))))))
+          (close_curly)))
+      (rule
+        (rule_head
+          (var)
+          (open_bracket)
+          (term
+            (ref
+              (var)))
+          (close_bracket)
+          (rule_head_comp
+            (assignment_operator
+              (assignment))
+            (term
+              (ref
+                (var))))
+          (if))
+        (rule_body
+          (open_curly)
+          (query
+            (literal
+              (expr
+                (term
+                  (scalar
+                    (boolean))))))
+          (close_curly))))))
+
+================================================================================
+ordered (else)
+================================================================================
+
+package test.block
+
+default a := 1
+a := 5 if { false }
+else := 10 if { true }
+
+--------------------------------------------------------------------------------
+(source_file
+  (module
+    (package)
+    (ref
+      (var)
+      (ref_arg
+        (ref_arg_dot
+          (var))))
+    (policy
+      (rule
+        (default)
+        (rule_head
+          (var))
+        (rule_body
+          (assignment)
+          (term
+            (scalar
+              (number)))))
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (assignment)
+          (term
+            (scalar
+              (number)))))
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (open_curly)
+          (query
+            (literal
+              (expr
+                (term
+                  (scalar
+                    (boolean))))))
+          (close_curly))
+        (rule_body
+          (else)
+          (assignment_operator
+            (assignment))
+          (term
+            (scalar
+              (number)))
+          (literal
+            (expr
+              (term
+                (ref
+                  (var))))))
+        (rule_body
+          (open_curly)
+          (query
+            (literal
+              (expr
+                (term
+                  (scalar
+                    (boolean))))))
+          (close_curly))))))
+
+
+================================================================================
+functions (boolean)
+================================================================================
+
+package test.block
+
+f(x, y) if {
+    true
+}
+
+f(x, y) := true if {
+    true
+}
+
+--------------------------------------------------------------------------------
+(source_file
+  (module
+    (package)
+    (ref
+      (var)
+      (ref_arg
+        (ref_arg_dot
+          (var))))
+    (policy
+      (rule
+        (rule_head
+          (var)
+          (open_paren)
+          (rule_args
+            (term
+              (ref
+                (var)))
+            (term
+              (ref
+                (var))))
+          (close_paren)
+          (if))
+        (rule_body
+          (open_curly)
+          (query
+            (literal
+              (expr
+                (term
+                  (scalar
+                    (boolean))))))
+          (close_curly)))
+      (rule
+        (rule_head
+          (var)
+          (open_paren)
+          (rule_args
+            (term
+              (ref
+                (var)))
+            (term
+              (ref
+                (var))))
+          (close_paren)
+          (rule_head_comp
+            (assignment_operator
+              (assignment))
+            (term
+              (scalar
+                (boolean))))
+          (if))
+        (rule_body
+          (open_curly)
+          (query
+            (literal
+              (expr
+                (term
+                  (scalar
+                    (boolean))))))
+          (close_curly))))))
+
+
+
+================================================================================
+functions (conditionals)
+================================================================================
+
+package test.block
+
+f(x) := "A" if { x >= 70; x < 80 }
+
+--------------------------------------------------------------------------------
+(source_file
+  (module
+    (package)
+    (ref
+      (var)
+      (ref_arg
+        (ref_arg_dot
+          (var))))
+    (policy
+      (rule
+        (rule_head
+          (var)
+          (open_paren)
+          (rule_args
+            (term
+              (ref
+                (var))))
+          (close_paren)
+          (rule_head_comp
+            (assignment_operator
+              (assignment))
+            (term
+              (scalar
+                (string (quoted_string)))))
+          (if))
+        (rule_body
+          (open_curly)
+          (query
+            (literal
+              (expr
+                (expr_infix
+                  (expr
+                    (term
+                      (ref
+                        (var))))
+                  (infix_operator
+                    (bool_operator))
+                  (expr
+                    (term
+                      (scalar
+                        (number)))))))
+            (literal
+              (expr
+                (expr_infix
+                  (expr
+                    (term
+                      (ref
+                        (var))))
+                  (infix_operator
+                    (bool_operator))
+                  (expr
+                    (term
+                      (scalar
+                        (number))))))))
+          (close_curly))))))
+
+
+
+================================================================================
+reference heads
+================================================================================
+
+package test.block
+
+
+fruit.apple.seeds = 12 if input.word == "apple"
+
+
+--------------------------------------------------------------------------------
+(source_file
+  (module
+    (package)
+    (ref
+      (var)
+      (ref_arg
+        (ref_arg_dot
+          (var))))
+    (policy
+      (rule
+        (rule_head
+          (var))
+        (ERROR
+          (keyword)
+          (keyword)
+          (unification))
+        (rule_body
+          (literal
+            (expr
+              (term
+                (scalar
+                  (number)))))))
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (literal
+            (expr
+              (expr_infix
+                (expr
+                  (term
+                    (ref
+                       (var)
+                          (ref_arg
+                            (ref_arg_dot
+                              (var))))))
+                (infix_operator
+                  (bool_operator))
+                (expr
+                  (term
+                    (scalar
+                      (string (quoted_string)))))))))))))
+
+================================================================================
+with keyword
+================================================================================
+
+package test.block
+
+not allow with input as {"user": "charlie", "method": "GET"}
+  with data.roles as {"dev": ["bob"]}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (module
+    (package)
+    (ref
+      (var)
+      (ref_arg
+        (ref_arg_dot
+          (var))))
+    (policy
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (literal
+            (expr
+              (term
+                (ref
+                  (var))))
+            (with_modifier
+              (with)
+              (term
+                (ref
+                  (var)))
+              (as)
+              (term
+                (ref
+                  (object
+                    (open_curly)
+                    (object_item
+                      (scalar
+                        (string (quoted_string)))
+                      (term
+                        (scalar
+                          (string (quoted_string)))))
+                    (object_item
+                      (scalar
+                        (string (quoted_string)))
+                      (term
+                        (scalar
+                          (string (quoted_string)))))
+                    (close_curly)))))
+            (with_modifier
+              (with)
+              (term
+                (ref
+                  (var)
+                  (ref_arg
+                    (ref_arg_dot
+                      (var)))))
+              (as)
+              (term
+                (ref
+                  (object
+                    (open_curly)
+                    (object_item
+                      (scalar
+                        (string (quoted_string)))
+                      (term
+                        (ref
+                          (array
+                            (open_bracket)
+                            (term
+                              (scalar
+                                (string (quoted_string))))
+                            (close_bracket)))))
+                    (close_curly)))))))))))

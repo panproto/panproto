@@ -1,0 +1,68 @@
+===========
+revision_line
+===========
+
+= The Intrepid Chronicles
+Kismet Lee
+2.9, October 31, 2021: Fall incarnation
+
+= The Intrepid Chronicles
+Kismet Lee
+LPR55, {docdate}: A Special ⚄ Edition
+
+= The Intrepid Chronicles
+:revdate: April 4, 2022
+:revnumber: LPR55
+:revremark: The spring incarnation of {doctitle}
+:version-label!:
+
+-----
+
+(document
+  (block_element
+    (document_title
+      (title_h0_marker)
+      (line)
+      (author_line
+        (author
+          (firstname)
+          (lastname)))
+      (revision_line
+        (revnumber)
+        (revdate)
+        (revremark))))
+  (block_element
+    (document_title
+      (title_h0_marker)
+      (line)
+      (author_line
+        (author
+          (firstname)
+          (lastname)))
+      (revision_line
+        (revnumber)
+        (revdate)
+        (revremark))))
+  (block_element
+    (document_title
+      (title_h0_marker)
+      (line)
+      (document_attr
+        (document_attr_marker)
+        (attr_name)
+        (document_attr_marker)
+        (line))
+      (document_attr
+        (document_attr_marker)
+        (attr_name)
+        (document_attr_marker)
+        (line))
+      (document_attr
+        (document_attr_marker)
+        (attr_name)
+        (document_attr_marker)
+        (line))
+      (document_attr
+        (document_attr_marker)
+        (attr_name)
+        (document_attr_marker)))))

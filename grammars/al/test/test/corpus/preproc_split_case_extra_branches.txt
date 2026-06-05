@@ -1,0 +1,82 @@
+========================================================================
+Case with extra branches in #if and modified pattern
+========================================================================
+codeunit 1 T
+{
+    procedure X()
+    var
+        Method: Integer;
+    begin
+        case Method of
+#if DOSMTP
+            1:
+                begin
+                    DoSMTP();
+                end;
+            2:
+# else
+            2, 1:
+#endif
+                begin
+                    DoEmail();
+                end;
+            3:
+                begin
+                    DoAzure();
+                end;
+        end;
+    end;
+}
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (case_statement
+          (case_keyword)
+          (identifier)
+          (of_keyword)
+          (preproc_split_case_extended
+            (preproc_if
+              (preproc_open)
+              (identifier))
+            (case_branch
+              (integer)
+              (code_block
+                (call_expression
+                  (identifier)
+                  (argument_list))))
+            (integer)
+            (preproc_else)
+            (integer)
+            (integer)
+            (preproc_endif
+              (preproc_close))
+            (code_block
+              (begin_keyword)
+              (call_expression
+                (identifier)
+                (argument_list))
+              (end_keyword)))
+          (case_branch
+            (integer)
+            (code_block
+              (begin_keyword)
+              (call_expression
+                (identifier)
+                (argument_list))
+              (end_keyword))))
+        (end_keyword)))))

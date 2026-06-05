@@ -1,0 +1,966 @@
+========================================================================
+Assignment statement
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        x := 42;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          (identifier)
+          (integer))
+        (end_keyword)))))
+
+========================================================================
+Compound assignment operators
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        x += 1;
+        y -= 2;
+        z *= 3;
+        w /= 4;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          (identifier)
+          (integer))
+        (assignment_statement
+          (identifier)
+          (integer))
+        (assignment_statement
+          (identifier)
+          (integer))
+        (assignment_statement
+          (identifier)
+          (integer))
+        (end_keyword)))))
+
+========================================================================
+Assignment to member expression
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        Rec.Name := 'Hello';
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          (member_expression
+            (identifier)
+            (identifier))
+          (string_literal))
+        (end_keyword)))))
+
+========================================================================
+Simple if statement
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        if x > 0 then
+            y := 1;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (if_statement
+          (if_keyword)
+          (comparison_expression
+            (identifier)
+            (comparison_operator)
+            (integer))
+          (then_keyword)
+          (assignment_statement
+            (identifier)
+            (integer)))
+        (end_keyword)))))
+
+========================================================================
+If-else statement
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        if x > 0 then
+            y := 1
+        else
+            y := 0;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (if_statement
+          (if_keyword)
+          (comparison_expression
+            (identifier)
+            (comparison_operator)
+            (integer))
+          (then_keyword)
+          (assignment_statement
+            (identifier)
+            (integer))
+          (else_keyword)
+          (assignment_statement
+            (identifier)
+            (integer)))
+        (end_keyword)))))
+
+========================================================================
+If-else with begin/end blocks
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        if x > 0 then begin
+            y := 1;
+            z := 2;
+        end else begin
+            y := 0;
+        end;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (if_statement
+          (if_keyword)
+          (comparison_expression
+            (identifier)
+            (comparison_operator)
+            (integer))
+          (then_keyword)
+          (code_block
+            (begin_keyword)
+            (assignment_statement
+              (identifier)
+              (integer))
+            (assignment_statement
+              (identifier)
+              (integer))
+            (end_keyword))
+          (else_keyword)
+          (code_block
+            (begin_keyword)
+            (assignment_statement
+              (identifier)
+              (integer))
+            (end_keyword)))
+        (end_keyword)))))
+
+========================================================================
+If-else if chain
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        if x = 1 then
+            y := 'one'
+        else if x = 2 then
+            y := 'two'
+        else
+            y := 'other';
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (if_statement
+          (if_keyword)
+          (comparison_expression
+            (identifier)
+            (comparison_operator)
+            (integer))
+          (then_keyword)
+          (assignment_statement
+            (identifier)
+            (string_literal))
+          (else_keyword)
+          (if_statement
+            (if_keyword)
+            (comparison_expression
+              (identifier)
+              (comparison_operator)
+              (integer))
+            (then_keyword)
+            (assignment_statement
+              (identifier)
+              (string_literal))
+            (else_keyword)
+            (assignment_statement
+              (identifier)
+              (string_literal))))
+        (end_keyword)))))
+
+========================================================================
+Case statement
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        case x of
+            1:
+                y := 'one';
+            2, 3:
+                y := 'two or three';
+            else
+                y := 'other';
+        end;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (case_statement
+          (case_keyword)
+          (identifier)
+          (of_keyword)
+          (case_branch
+            (integer)
+            (assignment_statement
+              (identifier)
+              (string_literal)))
+          (case_branch
+            (integer)
+            (integer)
+            (assignment_statement
+              (identifier)
+              (string_literal)))
+          (case_else_branch
+            (else_keyword)
+            (assignment_statement
+              (identifier)
+              (string_literal))))
+        (end_keyword)))))
+
+========================================================================
+Case with range pattern
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        case x of
+            4..10:
+                y := 'range';
+        end;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (case_statement
+          (case_keyword)
+          (identifier)
+          (of_keyword)
+          (case_branch
+            (range_expression
+              (integer)
+              (integer))
+            (assignment_statement
+              (identifier)
+              (string_literal))))
+        (end_keyword)))))
+
+========================================================================
+For loop with to
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        for i := 1 to 10 do
+            x += i;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (for_statement
+          (for_keyword)
+          (identifier)
+          (integer)
+          (to_keyword)
+          (integer)
+          (do_keyword)
+          (assignment_statement
+            (identifier)
+            (identifier)))
+        (end_keyword)))))
+
+========================================================================
+For loop with downto
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        for i := 10 downto 1 do
+            x += i;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (for_statement
+          (for_keyword)
+          (identifier)
+          (integer)
+          (downto_keyword)
+          (integer)
+          (do_keyword)
+          (assignment_statement
+            (identifier)
+            (identifier)))
+        (end_keyword)))))
+
+========================================================================
+Foreach statement
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        foreach Item in ItemList do
+            Process(Item);
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (foreach_statement
+          (foreach_keyword)
+          (identifier)
+          (in_keyword)
+          (identifier)
+          (do_keyword)
+          (call_expression
+            (identifier)
+            (argument_list
+              (identifier))))
+        (end_keyword)))))
+
+========================================================================
+While statement
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        while x > 0 do
+            x -= 1;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (while_statement
+          (while_keyword)
+          (comparison_expression
+            (identifier)
+            (comparison_operator)
+            (integer))
+          (do_keyword)
+          (assignment_statement
+            (identifier)
+            (integer)))
+        (end_keyword)))))
+
+========================================================================
+Repeat-until statement
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        repeat
+            x += 1;
+        until x >= 10;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (repeat_statement
+          (repeat_keyword)
+          (assignment_statement
+            (identifier)
+            (integer))
+          (until_keyword)
+          (comparison_expression
+            (identifier)
+            (comparison_operator)
+            (integer)))
+        (end_keyword)))))
+
+========================================================================
+With statement
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        with Rec do begin
+            Name := 'Test';
+        end;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (with_statement
+          (with_keyword)
+          (identifier)
+          (do_keyword)
+          (code_block
+            (begin_keyword)
+            (assignment_statement
+              (identifier)
+              (string_literal))
+            (end_keyword)))
+        (end_keyword)))))
+
+========================================================================
+Exit statement without value
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        exit;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (exit_statement
+          (exit_keyword))
+        (end_keyword)))))
+
+========================================================================
+Exit statement with value
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        exit(true);
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (exit_statement
+          (exit_keyword)
+          (boolean))
+        (end_keyword)))))
+
+========================================================================
+Asserterror statement
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        asserterror Rec.Insert();
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (asserterror_statement
+          (asserterror_keyword)
+          (call_expression
+            (member_expression
+              (identifier)
+              (identifier))
+            (argument_list)))
+        (end_keyword)))))
+
+========================================================================
+Empty code block
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))
+
+========================================================================
+Function call statement
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        Message('Hello %1', Name);
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          (identifier)
+          (argument_list
+            (string_literal)
+            (identifier)))
+        (end_keyword)))))
+
+========================================================================
+Method call on object
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        Rec.SetRange("No.", '10000', '20000');
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          (member_expression
+            (identifier)
+            (identifier))
+          (argument_list
+            (quoted_identifier)
+            (string_literal)
+            (string_literal)))
+        (end_keyword)))))
+
+========================================================================
+Multiple statements
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        x := 1;
+        y := 2;
+        z := x + y;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          (identifier)
+          (integer))
+        (assignment_statement
+          (identifier)
+          (integer))
+        (assignment_statement
+          (identifier)
+          (additive_expression
+            (identifier)
+            (identifier)))
+        (end_keyword)))))
+
+========================================================================
+For loop with begin/end body
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        for i := 1 to 10 do begin
+            x += i;
+            y += 1;
+        end;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (for_statement
+          (for_keyword)
+          (identifier)
+          (integer)
+          (to_keyword)
+          (integer)
+          (do_keyword)
+          (code_block
+            (begin_keyword)
+            (assignment_statement
+              (identifier)
+              (identifier))
+            (assignment_statement
+              (identifier)
+              (integer))
+            (end_keyword)))
+        (end_keyword)))))
+
+========================================================================
+Continue statement in loop
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        repeat
+            if x = 5 then
+                continue;
+            x += 1;
+        until x >= 10;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (repeat_statement
+          (repeat_keyword)
+          (if_statement
+            (if_keyword)
+            (comparison_expression
+              (identifier)
+              (comparison_operator)
+              (integer))
+            (then_keyword)
+            (continue_statement
+              (continue_keyword)))
+          (assignment_statement
+            (identifier)
+            (integer))
+          (until_keyword)
+          (comparison_expression
+            (identifier)
+            (comparison_operator)
+            (integer)))
+        (end_keyword)))))
+
+========================================================================
+Case with code block branch
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        case x of
+            1: begin
+                y := 'one';
+                z := 1;
+            end;
+        end;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (case_statement
+          (case_keyword)
+          (identifier)
+          (of_keyword)
+          (case_branch
+            (integer)
+            (code_block
+              (begin_keyword)
+              (assignment_statement
+                (identifier)
+                (string_literal))
+              (assignment_statement
+                (identifier)
+                (integer))
+              (end_keyword))))
+        (end_keyword)))))

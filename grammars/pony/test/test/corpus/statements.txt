@@ -1,0 +1,239 @@
+==============
+With Statement
+==============
+
+primitive ContainsWith
+  fun function() =>
+    with obj = SomeObjectThatNeedsDisposing(), other = SomeOtherDisposableObject() do
+      // use obj
+      obj.call(other)?
+    else
+      None
+    end
+
+---
+
+(source_file
+  (primitive_definition
+    (identifier)
+    (members
+      (method
+        (identifier)
+        (parameters)
+        (block
+          (with_statement
+            (with_elem
+              (identifier)
+              (block
+                (call_expression
+                  (identifier)
+                  (arguments))))
+            (with_elem
+              (identifier)
+              (block
+                (call_expression
+                  (identifier)
+                  (arguments))))
+            (do_block
+              (line_comment)
+              (block
+                (call_expression
+                  (member_expression
+                    (identifier)
+                    (identifier))
+                  (arguments
+                    (identifier))))
+              (else_block
+                (block
+                  (identifier))))))))))
+
+========
+If Block
+========
+
+primitive Foo
+  fun bar() =>
+    if "first_line"
+       true
+    then
+      "then"
+    end
+
+---
+
+(source_file
+  (primitive_definition
+    (identifier)
+    (members
+      (method
+        (identifier)
+        (parameters)
+        (block
+          (if_statement
+            (if_block
+              (block
+                (string
+                  (string_content))
+                (boolean)))
+            (then_block
+              (block
+                (string
+                  (string_content))))))))))
+
+======
+Iftype
+======
+
+primitive Foo[A]
+  fun bar() =>
+    iftype A <: Stringable then
+        "snot"
+    elseif A <: Hashable then
+        "hash"
+    else
+        "bla"
+    end
+
+---
+
+(source_file
+  (primitive_definition
+    (identifier)
+    (generic_parameters
+      (generic_parameter
+        (identifier)))
+    (members
+      (method
+        (identifier)
+        (parameters)
+        (block
+          (iftype_statement
+            (base_type
+              (identifier))
+            (base_type
+              (identifier))
+            (then_block
+              (block
+                (string
+                  (string_content))))
+            (elseiftype_block
+              (base_type
+                (identifier))
+              (base_type
+                (identifier))
+              (then_block
+                (block
+                  (string
+                    (string_content)))))
+            (else_block
+              (block
+                (string
+                  (string_content))))))))))
+
+========
+For Loop
+========
+
+primitive Snot
+  fun bar() =>
+    for a in [].values() do
+      while true do
+        repeat
+          None
+        until a == true
+        else
+          "[REPEAT] no iteration" // doesn't make sense here
+        end
+      else
+        "[WHILE] no iteration"
+      end
+    else
+      "[FOR]no iteration"
+    end
+
+---
+
+(source_file
+  (primitive_definition
+    (identifier)
+    (members
+      (method
+        (identifier)
+        (parameters)
+        (block
+          (for_statement
+            (identifier)
+            (call_expression
+              (member_expression
+                (array_literal)
+                (identifier)
+              )
+              (arguments)
+            )
+            (do_block
+              (block
+                (while_statement
+                  (boolean)
+                  (do_block
+                    (block
+                      (repeat_statement
+                        (block
+                          (identifier))
+                        (binary_expression
+                          (identifier)
+                          (boolean))
+                        (else_block
+                          (block
+                            (string
+                              (string_content))))
+                        (line_comment)))
+                    (else_block
+                      (block
+                        (string
+                          (string_content)))))))
+              (else_block
+                (block
+                  (string
+                    (string_content)))))))))))
+
+=============
+Try Statement
+=============
+
+primitive Foo
+  fun bar() =>
+    try
+      Type.partial_method()?
+      error
+    else
+      "Error did happen"
+    then
+      "anyways"
+    end
+
+---
+
+(source_file
+  (primitive_definition
+    (identifier)
+    (members
+      (method
+        (identifier)
+        (parameters)
+        (block
+          (try_statement
+            (block
+              (call_expression
+                (member_expression
+                  (identifier)
+                  (identifier))
+                (arguments))
+              (error))
+            (else_block
+              (block
+                (string
+                  (string_content))))
+            (then_block
+              (block
+                (string
+                  (string_content))))))))))

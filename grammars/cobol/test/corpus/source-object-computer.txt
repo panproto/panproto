@@ -1,0 +1,219 @@
+====================================
+source computer
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       configuration section.
+       source-computer.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (configuration_section
+        (source_computer_paragraph)))))
+====================================
+source computer linux
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       configuration section.
+       source-computer. linux.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (configuration_section
+        (source_computer_paragraph
+          (WORD))))))
+====================================
+source computer debugging mode
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       configuration section.
+       source-computer. debugging mode.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (configuration_section
+        (source_computer_paragraph
+          (with_debugging_mode))))))
+====================================
+source computer with debugging mode
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       configuration section.
+       source-computer. with debugging mode.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (configuration_section
+        (source_computer_paragraph
+          (with_debugging_mode))))))
+====================================
+source computer linux debugging mode
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       configuration section.
+       source-computer. linux debugging mode.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (configuration_section
+        (source_computer_paragraph
+          (WORD)
+          (with_debugging_mode))))))
+====================================
+source computer linux with debugging mode
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       configuration section.
+       source-computer. linux with debugging mode.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (configuration_section
+        (source_computer_paragraph
+          (WORD)
+          (with_debugging_mode))))))
+====================================
+object computer
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       configuration section.
+       object-computer.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (configuration_section
+        (object_computer_paragraph)))))
+====================================
+object computer linux
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       configuration section.
+       object-computer. linux.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (configuration_section
+        (object_computer_paragraph
+          (WORD))))))
+====================================
+object computer memory size is 2 words
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       configuration section.
+       object-computer. memory size is 2 words.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (configuration_section
+        (object_computer_paragraph
+          (object_computer_memory
+            (integer)
+            (WORDS)))))))
+====================================
+object computer memory size 2 characters
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       configuration section.
+       object-computer. memory size 2 characters.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (configuration_section
+        (object_computer_paragraph
+          (object_computer_memory
+            (integer)
+            (CHARACTERS)))))))
+====================================
+object computer program collating sequence is ebcdic-code
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       configuration section.
+       object-computer.
+         program collating sequence is ebcdic-code.
+       special-names.
+           alphabet ebcdic-code is ebcdic.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (configuration_section
+        (object_computer_paragraph
+          (object_computer_sequence
+            (qualified_word
+              (WORD))))
+        (special_names_paragraph 
+          (special_name
+            (alphabet_name_clause 
+              word: (WORD)
+              value: (EBCDIC))))))))
+====================================
+object computer segment-limit is 2.
+====================================
+       identification division.
+       program-id. a.
+       environment division.
+       configuration section.
+       object-computer. segment-limit is 2.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (environment_division
+      (configuration_section
+        (object_computer_paragraph
+          (object_computer_segment
+            (integer)))))))

@@ -1,0 +1,178 @@
+======================================================
+Character choice
+======================================================
+[[c\r]]
+[[-*\?]]
+[[[\]\-\\]]
+------------------------------------------------------
+
+(editorconfig
+  (section
+    (header
+      (glob
+        (character_choice
+          (character)
+          (character)
+          (character)))))
+  (section
+    (header
+      (glob
+        (character_choice
+          (character)
+          (character)
+          (character)
+          (character)))))
+  (section
+    (header
+      (glob
+        (character_choice
+          (character)
+          (character_escape)
+          (character_escape)
+          (character_escape))))))
+
+======================================================
+Character choice (Negated)
+======================================================
+[[!c\r]]
+[[!-*\?]]
+[[![\]\-\\]]
+------------------------------------------------------
+
+(editorconfig
+  (section
+    (header
+      (glob
+        (character_choice
+          (character)
+          (character)
+          (character)))))
+  (section
+    (header
+      (glob
+        (character_choice
+          (character)
+          (character)
+          (character)
+          (character)))))
+  (section
+    (header
+      (glob
+        (character_choice
+          (character)
+          (character_escape)
+          (character_escape)
+          (character_escape))))))
+
+======================================================
+Character range
+======================================================
+[[c-h]]
+[[pa-e]]
+[[a-ea]]
+[[sa-e0]]
+------------------------------------------------------
+
+(editorconfig
+  (section
+    (header
+      (glob
+        (character_choice
+          (character_range
+            start: (character)
+            end: (character))))))
+  (section
+    (header
+      (glob
+        (character_choice
+          (character)
+          (character_range
+            start: (character)
+            end: (character))))))
+  (section
+    (header
+      (glob
+        (character_choice
+          (character_range
+            start: (character)
+            end: (character))
+          (character)))))
+  (section
+    (header
+      (glob
+        (character_choice
+          (character)
+          (character_range
+            start: (character)
+            end: (character))
+          (character))))))
+
+======================================================
+Character range (Negated)
+======================================================
+[[!c-h]]
+[[!pa-e]]
+[[!a-ea]]
+[[!sa-e0]]
+------------------------------------------------------
+
+(editorconfig
+  (section
+    (header
+      (glob
+        (character_choice
+          (character_range
+            start: (character)
+            end: (character))))))
+  (section
+    (header
+      (glob
+        (character_choice
+          (character)
+          (character_range
+            start: (character)
+            end: (character))))))
+  (section
+    (header
+      (glob
+        (character_choice
+          (character_range
+            start: (character)
+            end: (character))
+          (character)))))
+  (section
+    (header
+      (glob
+        (character_choice
+          (character)
+          (character_range
+            start: (character)
+            end: (character))
+          (character))))))
+
+======================================================
+Empty character choice
+:error
+======================================================
+[[]]
+------------------------------------------------------
+
+
+
+======================================================
+Empty character choice (Negated)
+:error
+======================================================
+[[!]]
+------------------------------------------------------
+
+
+
+======================================================
+Unescaped hyphen
+:error
+======================================================
+[[a-]]
+------------------------------------------------------
+
+

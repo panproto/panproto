@@ -1,0 +1,75 @@
+================================================================================
+comment
+================================================================================
+
+# Root comment
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (comment))
+
+================================================================================
+comment with "#" inside
+================================================================================
+
+# Root comment # this is treated as a single comment
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (comment))
+
+================================================================================
+comment with line continuation
+================================================================================
+
+# Backslash should be treated as a proper line continuation, but \
+this cant be a $.line_continuation because it results in the following: \
+"Extra rules must have unambiguous endings."
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (comment))
+
+================================================================================
+comment after section name
+================================================================================
+
+[some-section] # a comment here ?!
+    key = value
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (comment)
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (unquoted_string
+        (string_content)))))
+
+================================================================================
+comment after setting
+================================================================================
+
+[some-section]
+    key = value # is a good value
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (unquoted_string
+        (string_content))
+      (comment))))
+

@@ -46,6 +46,7 @@ pub mod fibration;
 pub mod graph;
 pub mod hint;
 pub mod laws;
+pub mod layout_complement;
 pub mod optic;
 pub mod protolens;
 pub mod symbolic;

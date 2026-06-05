@@ -1,0 +1,89 @@
+==========================================
+Report column properties test
+==========================================
+
+report 50000 "Test Report"
+{
+    dataset
+    {
+        dataitem(Item; Item)
+        {
+            column(ItemNo; "No.")
+            {
+                IncludeCaption = true;
+                Caption = 'Item Number';
+            }
+            column(Description; Description)
+            {
+                IncludeCaption = false;
+            }
+            column(UnitPrice; "Unit Price")
+            {
+                IncludeCaption = true;
+                AutoFormatExpression = "Currency Code";
+                AutoFormatType = 2;
+                DecimalPlaces = 2:5;
+            }
+            column(Status; Status)
+            {
+                OptionCaption = 'Open,Released,Closed';
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (report_column
+          (column_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (string_literal)))
+        (report_column
+          (column_keyword)
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (boolean)))
+        (report_column
+          (column_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (quoted_identifier))
+          (property
+            name: (property_name)
+            value: (integer))
+          (property
+            name: (property_name)
+            value: (decimal_range_value
+              min: (integer)
+              max: (integer))))
+        (report_column
+          (column_keyword)
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal)))))))

@@ -1,0 +1,235 @@
+================================================================================
+Simple namespace with single identifier
+================================================================================
+
+namespace MyCompany;
+
+codeunit 50000 "Test Codeunit"
+{
+    procedure DoSomething()
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (namespace_declaration
+    (namespace_keyword)
+    name: (namespace_name
+      (identifier)))
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))
+
+================================================================================
+Namespace with dotted path and page extension
+================================================================================
+
+namespace Continia.DocumentCapture.User;
+pageextension 50001 "Test Extension" extends "Base Page"
+{
+    layout
+    {
+        addafter(field1)
+        {
+            field(NewField; NewField)
+            {
+                ApplicationArea = All;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (namespace_declaration
+    (namespace_keyword)
+    name: (namespace_name
+      (identifier)
+      (identifier)
+      (identifier)))
+  (pageextension_declaration
+    (pageextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (addafter_modification
+        target: (identifier)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))))))
+
+================================================================================
+Namespace with table declaration
+================================================================================
+
+namespace Company.Module.Feature;
+
+table 50002 "Test Table"
+{
+    fields
+    {
+        field(1; "Primary Key"; Code[20])
+        {
+            Caption = 'Primary Key';
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (namespace_declaration
+    (namespace_keyword)
+    name: (namespace_name
+      (identifier)
+      (identifier)
+      (identifier)))
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (code_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (string_literal))))))
+
+================================================================================
+Long namespace path with multiple dots
+================================================================================
+
+namespace Microsoft.Dynamics.BusinessCentral.ExtensionFramework.Samples;
+
+enum 50003 "Sample Enum"
+{
+    Extensible = true;
+    
+    value(0; None)
+    {
+        Caption = 'None';
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (namespace_declaration
+    (namespace_keyword)
+    name: (namespace_name
+      (identifier)
+      (identifier)
+      (identifier)
+      (identifier)
+      (identifier)))
+  (enum_declaration
+    (enum_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (boolean))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (identifier)
+      (property
+        name: (property_name)
+        value: (string_literal)))))
+
+================================================================================
+File without namespace (backwards compatibility)
+================================================================================
+
+report 50004 "Test Report"
+{
+    dataset
+    {
+        dataitem(Integer; Integer)
+        {
+            column(Number; Number)
+            {
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (report_column
+          (column_keyword)
+          name: (identifier)
+          source: (identifier))))))
+
+================================================================================
+Namespace with permissionset
+================================================================================
+
+namespace Security.Permissions;
+
+permissionset 50005 "Sample Permissions"
+{
+    Access = Internal;
+    Assignable = true;
+    
+    Permissions =
+        tabledata "Test Table" = R;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (namespace_declaration
+    (namespace_keyword)
+    name: (namespace_name
+      (identifier)
+      (identifier)))
+  (permissionset_declaration
+    (permissionset_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (internal_keyword))))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (tabledata_permission_list
+        (tabledata_permission
+          table_name: (quoted_identifier)
+          permission: (permission_type))))))

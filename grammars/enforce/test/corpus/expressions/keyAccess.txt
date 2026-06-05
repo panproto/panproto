@@ -1,0 +1,23 @@
+================================================================================
+key access
+================================================================================
+void foo() {
+	x[0];
+	x[i++];
+	x[row][col];
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method return_type: (type_void) name: (identifier) body: (block
+	(statement_expression (key_access
+		accessed: (identifier)
+		key: (literal_int)))
+	(statement_expression (key_access
+		accessed: (identifier)
+		key: (expression_suffix (identifier))))
+	(statement_expression (key_access
+		accessed: (key_access
+			accessed: (identifier)
+			key: (identifier))
+		key: (identifier))))))
+
+

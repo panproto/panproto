@@ -1,0 +1,105 @@
+==================
+Procedure Return Types
+==================
+
+codeunit 50100 "Return Types Test"
+{
+    procedure GetInteger(): Integer
+    begin
+        exit(42);
+    end;
+
+    procedure GetNamedInteger() Result: Integer
+    begin
+        Result := 42;
+        exit(Result);
+    end;
+
+    procedure GetCustomerRecord(): Record Customer
+    begin
+        exit(Customer);
+    end;
+
+    procedure GetNamedCustomerRecord() CustomerRec: Record Customer
+    begin
+        CustomerRec := Customer;
+        exit(CustomerRec);
+    end;
+
+    procedure DoSomething()
+    begin
+        Message('No return value');
+    end;
+}
+
+---
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (type_specification
+        (basic_type))
+      (code_block
+        (begin_keyword)
+        (exit_statement
+          (exit_keyword)
+          (integer))
+        (end_keyword)))
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (identifier)
+      (type_specification
+        (basic_type))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          (identifier)
+          (integer))
+        (exit_statement
+          (exit_keyword)
+          (identifier))
+        (end_keyword)))
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (type_specification
+        (record_type
+          (identifier)))
+      (code_block
+        (begin_keyword)
+        (exit_statement
+          (exit_keyword)
+          (identifier))
+        (end_keyword)))
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (identifier)
+      (type_specification
+        (record_type
+          (identifier)))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          (identifier)
+          (identifier))
+        (exit_statement
+          (exit_keyword)
+          (identifier))
+        (end_keyword)))
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          (identifier)
+          (argument_list
+            (string_literal)))
+        (end_keyword)))))

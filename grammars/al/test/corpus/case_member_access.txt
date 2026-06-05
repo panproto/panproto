@@ -1,0 +1,50 @@
+==================
+Case with member access patterns
+==================
+
+table 50006 "Test Table"
+{
+    trigger OnInsert()
+    begin
+        case "E-Mail Type" of
+            "E-Mail Type"::Contact:
+                "E-Mail" := '';
+            "E-Mail Type"::"E-Mail address":
+                VALIDATE("Contact No.", '');
+        end;
+    end;
+}
+
+---
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (case_statement
+          (case_keyword)
+          expression: (quoted_identifier)
+          (of_keyword)
+          (case_branch
+            pattern: (qualified_enum_value
+              enum_type: (quoted_identifier)
+              value: (identifier))
+            body: (assignment_statement
+              left: (quoted_identifier)
+              right: (string_literal)))
+          (case_branch
+            pattern: (qualified_enum_value
+              enum_type: (quoted_identifier)
+              value: (quoted_identifier))
+            body: (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (quoted_identifier)
+                (string_literal)))))
+        (end_keyword)))))

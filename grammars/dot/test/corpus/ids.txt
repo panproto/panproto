@@ -1,0 +1,253 @@
+=========================
+Identifier
+=========================
+
+graph {
+  abc
+  _abc
+  a_b_c
+  a0b1c2
+  ÃÈè
+  允许包含中文等Unicode字符
+}
+
+---
+
+(source_file
+  block: (block
+    (stmt_list
+      (node_stmt
+        (node_id
+          (id
+            (identifier))))
+      (node_stmt
+        (node_id
+          (id
+            (identifier))))
+      (node_stmt
+        (node_id
+          (id
+            (identifier))))
+      (node_stmt
+        (node_id
+          (id
+            (identifier))))
+      (node_stmt
+        (node_id
+          (id
+            (identifier))))
+      (node_stmt
+        (node_id
+          (id
+            (identifier)))))))
+
+=========================
+Number literals
+=========================
+
+graph {
+  12
+  12.
+  12.345
+  .345
+  -12
+  -12.
+  -12.345
+  -.345
+}
+
+---
+
+(source_file
+  block: (block
+    (stmt_list
+      (node_stmt
+        (node_id
+          (id
+            (number_literal))))
+      (node_stmt
+        (node_id
+          (id
+            (number_literal))))
+      (node_stmt
+        (node_id
+          (id
+            (number_literal))))
+      (node_stmt
+        (node_id
+          (id
+            (number_literal))))
+      (node_stmt
+        (node_id
+          (id
+            (number_literal))))
+      (node_stmt
+        (node_id
+          (id
+            (number_literal))))
+      (node_stmt
+        (node_id
+          (id
+            (number_literal))))
+      (node_stmt
+        (node_id
+          (id
+            (number_literal)))))))
+
+=========================
+String literals
+=========================
+
+graph {
+  "string literals"
+
+  "escaped quote \" and backslash \\"
+
+  "multi
+
+  lines"
+
+  "con"+"cat" + "enated"
+
+  "multilines" +
+  "concatenated"
+}
+
+---
+
+(source_file
+  block: (block
+    (stmt_list
+      (node_stmt
+        (node_id
+          (id
+            (string_literal))))
+      (node_stmt
+        (node_id
+          (id
+            (string_literal))))
+      (node_stmt
+        (node_id
+          (id
+            (string_literal))))
+      (node_stmt
+        (node_id
+          (id
+            (string_literal)
+            (operator)
+            (string_literal)
+            (operator)
+            (string_literal))))
+      (node_stmt
+        (node_id
+          (id
+            (string_literal)
+            (operator)
+            (string_literal)))))))
+
+=========================
+HTML tags
+=========================
+
+graph {
+  <>
+
+  <abc>
+
+  <<arbitrary>nested<tags<<>>>>
+
+  <a->b
+
+  <multi<
+  >lines>
+}
+
+---
+
+(source_file
+  block: (block
+    (stmt_list
+      (node_stmt
+        (node_id
+          (id
+            (html_string))))
+      (node_stmt
+        (node_id
+          (id
+            (html_string
+              (html_internal)))))
+      (node_stmt
+        (node_id
+          (id
+            (html_string
+              (html_internal)))))
+      (node_stmt
+        (node_id
+          (id
+            (html_string
+              (html_internal)))))
+      (node_stmt
+        (node_id
+          (id
+            (identifier))))
+      (node_stmt
+        (node_id
+          (id
+            (html_string
+              (html_internal))))))))
+
+=========================
+ID with port
+=========================
+
+graph {
+  abc:n
+  abc : n : w
+  abc : "str"
+  abc : 1 : <a>
+}
+
+---
+
+(source_file
+  block: (block
+    (stmt_list
+      (node_stmt
+        (node_id
+          (id
+            (identifier))
+          (port
+            (operator)
+            (id
+              (identifier)))))
+      (node_stmt
+        (node_id
+          (id
+            (identifier))
+          (port
+            (operator)
+            (id
+              (identifier))
+            (operator)
+            (id
+              (identifier)))))
+      (node_stmt
+        (node_id
+          (id
+            (identifier))
+          (port
+            (operator)
+            (id
+              (string_literal)))))
+      (node_stmt
+        (node_id
+          (id
+            (identifier))
+          (port
+            (operator)
+            (id
+              (number_literal))
+            (operator)
+            (id
+              (html_string
+                (html_internal)))))))))

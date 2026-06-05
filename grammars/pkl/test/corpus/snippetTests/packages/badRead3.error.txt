@@ -1,0 +1,14 @@
+===
+packages/badRead3.error.pkl
+===
+
+res = read("package://localhost:0/bar/baz@1.0.0")
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (readExpr
+      (slStringLiteralExpr
+        (slStringLiteralPart)))))

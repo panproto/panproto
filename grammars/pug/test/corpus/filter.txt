@@ -1,0 +1,109 @@
+========================
+Basic single line filter
+=========================
+
+:filter content
+
+---
+
+(source_file
+  (filter
+    (filter_name)
+    (content)))
+
+========================
+Single line filter with attributes
+=========================
+
+:filter(attr=true', [angular.style]='"false"') content
+
+---
+
+(source_file
+  (filter
+    (filter_name)
+    (attributes
+      (attribute
+        (attribute_name)
+        (javascript))
+      (attribute
+        (attribute_name)
+        (quoted_javascript
+          (javascript))))
+    (content)))
+
+========================
+Basic many line filter
+=========================
+
+:filter
+  caatent
+    cbbtent
+    ccctent
+  cddtent
+
+tee
+
+---
+
+(source_file
+  (filter
+    (filter_name)
+    (content))
+  (tag
+    (tag_name)))
+
+========================
+Many single line filter with attributes
+=========================
+
+:filter(
+  attr=true',
+  [angular.style]='"false"'
+)
+  content
+    content
+    content
+  content
+
+tag
+
+---
+
+(source_file
+  (filter
+    (filter_name)
+    (attributes
+      (attribute
+        (attribute_name)
+        (javascript))
+      (attribute
+        (attribute_name)
+        (quoted_javascript
+          (javascript))))
+    (content))
+  (tag
+    (tag_name)))
+
+========================
+Multiple filters
+=========================
+
+:filter(attr):filter([attr]) content
+
+---
+
+(source_file
+  (filter
+    (filter_name)
+    (attributes
+      (attribute
+        (attribute_name)))
+    (content
+      (filter
+        (filter_name)
+        (attributes
+          (attribute
+            (attribute_name)))
+        (content)))))
+

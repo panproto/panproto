@@ -1,0 +1,177 @@
+================================================================================
+DataItemLink with multiple field mappings
+================================================================================
+
+query 50100 "Vendor Ledger Entry Test"
+{
+    QueryType = Normal;
+    
+    elements
+    {
+        dataitem(VendorLedgerEntry; "Vendor Ledger Entry")
+        {
+            dataitem(DetailedVendorLedgEntry; "Detailed Vendor Ledg. Entry")
+            {
+                DataItemLink = "Vendor Ledger Entry No." = VendorLedgerEntry."Entry No.", "Posting Date" = VendorLedgerEntry."Posting Date";
+                
+                column(Amount; Amount)
+                {
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)
+        (query_dataitem
+          (dataitem_keyword)
+          name: (identifier)
+          table_name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (quoted_identifier)
+                value: (identifier)
+                value: (quoted_identifier))
+              (link_value
+                field: (quoted_identifier)
+                value: (identifier)
+                value: (quoted_identifier))))
+          (query_column
+            (column_keyword)
+            name: (identifier)
+            field_name: (identifier)))))))
+
+================================================================================
+DataItemLink variations
+================================================================================
+
+report 50200 "Link Test"
+{
+    dataset
+    {
+        dataitem(Customer; Customer)
+        {
+            dataitem(CustLedgerEntry; "Cust. Ledger Entry")
+            {
+                DataItemLink = "Customer No." = Customer."No.";
+            }
+            dataitem(SalesLine; "Sales Line")
+            {
+                DataItemLink = "Document Type" = Customer."Document Type", 
+                               "Sell-to Customer No." = Customer."No.", 
+                               "Document No." = Customer."Document No.";
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (report_dataitem
+          (dataitem_keyword)
+          name: (identifier)
+          table_name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (property_expression
+              (comparison_expression
+                left: (quoted_identifier)
+                operator: (comparison_operator)
+                right: (member_expression
+                  object: (identifier)
+                  member: (quoted_identifier))))))
+        (report_dataitem
+          (dataitem_keyword)
+          name: (identifier)
+          table_name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (quoted_identifier)
+                value: (identifier)
+                value: (quoted_identifier))
+              (link_value
+                field: (quoted_identifier)
+                value: (identifier)
+                value: (quoted_identifier))
+              (link_value
+                field: (quoted_identifier)
+                value: (identifier)
+                value: (quoted_identifier)))))))))
+
+================================================================================
+DataItemLink with FIELD syntax
+================================================================================
+
+xmlport 50300 "Export Test"
+{
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Item; Item)
+            {
+                tableelement(ItemLedgerEntry; "Item Ledger Entry")
+                {
+                    LinkFields = "Item No." = FIELD("No."), "Location Code" = FIELD("Location Filter");
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (schema_section
+      (schema_keyword)
+      (xmlport_element
+        name: (identifier)
+        (xmlport_element
+          name: (identifier)
+          source: (identifier)
+          (xmlport_element
+            name: (identifier)
+            source: (quoted_identifier)
+            (property
+              name: (property_name)
+              value: (link_value_list
+                (link_value
+                  field: (quoted_identifier)
+                  value: (quoted_identifier))
+                (link_value
+                  field: (quoted_identifier)
+                  value: (quoted_identifier))))))))))

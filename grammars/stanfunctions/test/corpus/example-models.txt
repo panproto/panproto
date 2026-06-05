@@ -1,0 +1,596 @@
+================================================================================
+Normal 1
+================================================================================
+
+data {
+  int<lower=0> N;
+  array[N] real y;
+
+}
+
+parameters {
+  real mu;
+}
+
+model {
+  target += normal_lpdf(mu | 0, 10);
+  target += normal_lpdf(y  | mu, 1);
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (data
+    (top_var_decl_no_assign
+      (top_var_type
+        (int_type
+          (range_lower
+            (integer_literal))))
+      (identifier))
+    (top_var_decl_no_assign
+      (arr_dims
+        (variable_expression
+          (identifier)))
+      (top_var_type
+        (real_type))
+      (identifier)))
+  (parameters
+    (top_var_decl_no_assign
+      (top_var_type
+        (real_type))
+      (identifier)))
+  (model
+    (target_statement
+      (distr_expression
+        (identifier)
+        (distr_argument_list
+          (variable_expression
+            (identifier))
+          (integer_literal)
+          (integer_literal))))
+    (target_statement
+      (distr_expression
+        (identifier)
+        (distr_argument_list
+          (variable_expression
+            (identifier))
+          (variable_expression
+            (identifier))
+          (integer_literal))))))
+
+================================================================================
+Normal 2
+================================================================================
+
+data {
+  int<lower=0> N;
+  array[N] real y;
+}
+
+parameters {
+  real mu;
+}
+
+model {
+  mu ~ normal(0, 10);
+  y ~ normal(mu, 1);
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (data
+    (top_var_decl_no_assign
+      (top_var_type
+        (int_type
+          (range_lower
+            (integer_literal))))
+      (identifier))
+    (top_var_decl_no_assign
+      (arr_dims
+        (variable_expression
+          (identifier)))
+      (top_var_type
+        (real_type))
+      (identifier)))
+  (parameters
+    (top_var_decl_no_assign
+      (top_var_type
+        (real_type))
+      (identifier)))
+  (model
+    (sampling_statement
+      (variable_expression
+        (identifier))
+      (identifier)
+      (integer_literal)
+      (integer_literal))
+    (sampling_statement
+      (variable_expression
+        (identifier))
+      (identifier)
+      (variable_expression
+        (identifier))
+      (integer_literal))))
+
+================================================================================
+Example 1
+================================================================================
+
+parameters {
+  array[2] real y;
+}
+model {
+  y[1] ~ normal(0, 1);
+  y[2] ~ double_exponential(0, 2);
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (parameters
+    (top_var_decl_no_assign
+      (arr_dims
+        (integer_literal))
+      (top_var_type
+        (real_type))
+      (identifier)))
+  (model
+    (sampling_statement
+      (indexed_expression
+        (variable_expression
+          (identifier))
+        (index
+          (integer_literal)))
+      (identifier)
+      (integer_literal)
+      (integer_literal))
+    (sampling_statement
+      (indexed_expression
+        (variable_expression
+          (identifier))
+        (index
+          (integer_literal)))
+      (identifier)
+      (integer_literal)
+      (integer_literal))))
+
+================================================================================
+Example 2
+================================================================================
+
+data {real y_mean;} parameters {real y;} model {y ~ normal(y_mean,1);}
+
+--------------------------------------------------------------------------------
+
+(program
+  (data
+    (top_var_decl_no_assign
+      (top_var_type
+        (real_type))
+      (identifier)))
+  (parameters
+    (top_var_decl_no_assign
+      (top_var_type
+        (real_type))
+      (identifier)))
+  (model
+    (sampling_statement
+      (variable_expression
+        (identifier))
+      (identifier)
+      (variable_expression
+        (identifier))
+      (integer_literal))))
+
+================================================================================
+Eight Schools
+================================================================================
+
+data {
+  int<lower=0> J; // number of schools
+  array[J] real y; // estimated treatment effects
+  array[J] real<lower=0> sigma; // s.e. of effect estimates
+}
+parameters {
+  real mu;
+  real<lower=0> tau;
+  array[J] real eta;
+}
+transformed parameters {
+  array[J] real theta;
+  for (j in 1 : J)
+    theta[j] = mu + tau * eta[j];
+}
+model {
+  target += normal_lpdf(eta | 0, 1);
+  target += normal_lpdf(y | theta, sigma);
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (data
+    (top_var_decl_no_assign
+      (top_var_type
+        (int_type
+          (range_lower
+            (integer_literal))))
+      (identifier))
+    (comment)
+    (top_var_decl_no_assign
+      (arr_dims
+        (variable_expression
+          (identifier)))
+      (top_var_type
+        (real_type))
+      (identifier))
+    (comment)
+    (top_var_decl_no_assign
+      (arr_dims
+        (variable_expression
+          (identifier)))
+      (top_var_type
+        (real_type
+          (type_constraint
+            (range_lower
+              (integer_literal)))))
+      (identifier))
+    (comment))
+  (parameters
+    (top_var_decl_no_assign
+      (top_var_type
+        (real_type))
+      (identifier))
+    (top_var_decl_no_assign
+      (top_var_type
+        (real_type
+          (type_constraint
+            (range_lower
+              (integer_literal)))))
+      (identifier))
+    (top_var_decl_no_assign
+      (arr_dims
+        (variable_expression
+          (identifier)))
+      (top_var_type
+        (real_type))
+      (identifier)))
+  (transformed_parameters
+    (top_var_decl
+      (arr_dims
+        (variable_expression
+          (identifier)))
+      (top_var_type
+        (real_type))
+      (identifier))
+    (for_statement
+      (identifier)
+      (integer_literal)
+      (variable_expression
+        (identifier))
+      (assignment_statement
+        (lhs
+          (indexed_lhs
+            (lhs
+              (variable_expression
+                (identifier)))
+            (index
+              (variable_expression
+                (identifier)))))
+        (assignment_op)
+        (infix_op_expression
+          (variable_expression
+            (identifier))
+          (infix_op_expression
+            (variable_expression
+              (identifier))
+            (indexed_expression
+              (variable_expression
+                (identifier))
+              (index
+                (variable_expression
+                  (identifier)))))))))
+  (model
+    (target_statement
+      (distr_expression
+        (identifier)
+        (distr_argument_list
+          (variable_expression
+            (identifier))
+          (integer_literal)
+          (integer_literal))))
+    (target_statement
+      (distr_expression
+        (identifier)
+        (distr_argument_list
+          (variable_expression
+            (identifier))
+          (variable_expression
+            (identifier))
+          (variable_expression
+            (identifier)))))))
+
+================================================================================
+Indexing
+================================================================================
+
+transformed data {
+  tuple(int, real) x;
+  tuple(array[10] int, real) y;
+  array[5] tuple(array[10] tuple(int, array[1,2,3] real), real) y2;
+  x.1 = 1;
+
+  int z = (x).1;
+  int b = x.1;
+  real c = y2[1].1[1].2[1,1,1];
+
+  tuple(int, real, array[2] tuple(int, int)) d = (1, 2.5, {(1,2), (3,4)});
+}
+generated quantities {
+    array[3,4,5] int x;
+
+    x[1][2][3] = x[4][5][6];
+    x[1][2][3] = x[4,5,6];
+    x[1,:,3] = x[4,:,6];
+    x[,,3] = x[,,1];
+    x[1,2,] = x[4,5,];
+    array[N] real<lower=0> gq_real_1d_ar;
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (transformed_data
+    (top_var_decl
+      (topvar_tuple_type
+        (top_var_type
+          (int_type))
+        (top_var_type
+          (real_type)))
+      (identifier))
+    (top_var_decl
+      (topvar_tuple_type
+        (arr_dims
+          (integer_literal))
+        (top_var_type
+          (int_type))
+        (top_var_type
+          (real_type)))
+      (identifier))
+    (top_var_decl
+      (arr_dims
+        (integer_literal))
+      (topvar_tuple_type
+        (arr_dims
+          (integer_literal))
+        (topvar_tuple_type
+          (top_var_type
+            (int_type))
+          (arr_dims
+            (integer_literal)
+            (integer_literal)
+            (integer_literal))
+          (top_var_type
+            (real_type)))
+        (top_var_type
+          (real_type)))
+      (identifier))
+    (assignment_statement
+      (lhs
+        (tuple_proj_lhs
+          (lhs
+            (variable_expression
+              (identifier)))))
+      (assignment_op)
+      (integer_literal))
+    (top_var_decl
+      (top_var_type
+        (int_type))
+      (identifier)
+      (tuple_projection
+        (parenthized_expression
+          (variable_expression
+            (identifier)))))
+    (top_var_decl
+      (top_var_type
+        (int_type))
+      (identifier)
+      (tuple_projection
+        (variable_expression
+          (identifier))))
+    (top_var_decl
+      (top_var_type
+        (real_type))
+      (identifier)
+      (indexed_expression
+        (tuple_projection
+          (indexed_expression
+            (tuple_projection
+              (indexed_expression
+                (variable_expression
+                  (identifier))
+                (index
+                  (integer_literal))))
+            (index
+              (integer_literal))))
+        (index
+          (integer_literal))
+        (index
+          (integer_literal))
+        (index
+          (integer_literal))))
+    (top_var_decl
+      (topvar_tuple_type
+        (top_var_type
+          (int_type))
+        (top_var_type
+          (real_type))
+        (arr_dims
+          (integer_literal))
+        (topvar_tuple_type
+          (top_var_type
+            (int_type))
+          (top_var_type
+            (int_type))))
+      (identifier)
+      (tuple_expression
+        (integer_literal)
+        (real_literal
+          (integer_literal)
+          (integer_literal))
+        (array_expression
+          (tuple_expression
+            (integer_literal)
+            (integer_literal))
+          (tuple_expression
+            (integer_literal)
+            (integer_literal))))))
+  (generated_quantities
+    (top_var_decl
+      (arr_dims
+        (integer_literal)
+        (integer_literal)
+        (integer_literal))
+      (top_var_type
+        (int_type))
+      (identifier))
+    (assignment_statement
+      (lhs
+        (indexed_lhs
+          (lhs
+            (indexed_lhs
+              (lhs
+                (indexed_lhs
+                  (lhs
+                    (variable_expression
+                      (identifier)))
+                  (index
+                    (integer_literal))))
+              (index
+                (integer_literal))))
+          (index
+            (integer_literal))))
+      (assignment_op)
+      (indexed_expression
+        (indexed_expression
+          (indexed_expression
+            (variable_expression
+              (identifier))
+            (index
+              (integer_literal)))
+          (index
+            (integer_literal)))
+        (index
+          (integer_literal))))
+    (assignment_statement
+      (lhs
+        (indexed_lhs
+          (lhs
+            (indexed_lhs
+              (lhs
+                (indexed_lhs
+                  (lhs
+                    (variable_expression
+                      (identifier)))
+                  (index
+                    (integer_literal))))
+              (index
+                (integer_literal))))
+          (index
+            (integer_literal))))
+      (assignment_op)
+      (indexed_expression
+        (variable_expression
+          (identifier))
+        (index
+          (integer_literal))
+        (index
+          (integer_literal))
+        (index
+          (integer_literal))))
+    (assignment_statement
+      (lhs
+        (indexed_lhs
+          (lhs
+            (variable_expression
+              (identifier)))
+          (index
+            (integer_literal))
+          (index)
+          (index
+            (integer_literal))))
+      (assignment_op)
+      (indexed_expression
+        (variable_expression
+          (identifier))
+        (index
+          (integer_literal))
+        (index)
+        (index
+          (integer_literal))))
+    (assignment_statement
+      (lhs
+        (indexed_lhs
+          (lhs
+            (variable_expression
+              (identifier)))
+          (index
+            (integer_literal))))
+      (assignment_op)
+      (indexed_expression
+        (variable_expression
+          (identifier))
+        (index
+          (integer_literal))))
+    (assignment_statement
+      (lhs
+        (indexed_lhs
+          (lhs
+            (variable_expression
+              (identifier)))
+          (index
+            (integer_literal))
+          (index
+            (integer_literal))))
+      (assignment_op)
+      (indexed_expression
+        (variable_expression
+          (identifier))
+        (index
+          (integer_literal))
+        (index
+          (integer_literal))))
+    (top_var_decl
+      (arr_dims
+        (variable_expression
+          (identifier)))
+      (top_var_type
+        (real_type
+          (type_constraint
+            (range_lower
+              (integer_literal)))))
+      (identifier))))
+
+================================================================================
+Includes
+================================================================================
+
+// test
+#include <baz.stan>
+#include 'bar.stan'
+#include "foo.stan"
+#include frob.stan
+
+--------------------------------------------------------------------------------
+
+(program
+  (comment)
+  (preproc_include
+    (preproc_file))
+  (preproc_include
+    (preproc_file))
+  (preproc_include
+    (preproc_file))
+  (preproc_include
+    (preproc_file)))

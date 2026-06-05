@@ -1,0 +1,33 @@
+===
+basic/localProperty1.pkl
+===
+
+local l = 1
+
+foo {
+  local l = 2
+  bar {
+    baz = l
+  }
+}
+---
+
+(module
+  (classProperty
+    (modifier)
+    (identifier)
+    (intLiteralExpr))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (modifier)
+        (identifier)
+        (intLiteralExpr))
+      (objectProperty
+        (identifier)
+        (objectBody
+          (objectProperty
+            (identifier)
+            (unqualifiedAccessExpr
+              (identifier))))))))

@@ -12,8 +12,8 @@ The `schema` CLI installed ([Install the CLI](../how-to/install/cli.md)). This t
 
 `schema add` accepts three kinds of input:
 
-- a source file in a language the parser registry knows (TypeScript, Rust, Python, etc.) — parsed via tree-sitter into a full-AST schema;
-- a directory — parsed as a project into a unified schema; or
+- a source file in a language the parser registry knows (TypeScript, Rust, Python, etc.), parsed via tree-sitter into a full-AST schema;
+- a directory, parsed as a project into a unified schema; or
 - a `.json` file whose content is a serialised `panproto-schema::Schema` struct.
 
 The hand-authored Schema JSON format is non-trivial (it's the in-memory representation, not a pretty document language), so most workflows use the first two. This tutorial uses the source-file path.

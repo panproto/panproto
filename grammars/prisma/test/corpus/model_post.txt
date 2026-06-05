@@ -1,0 +1,52 @@
+==================
+Return statements
+==================
+
+/// My post
+model Post {
+  id        Int     @id @default(autoincrement())
+  // title     String
+  author    User?   @relation("AuthorRelation", fields: [authorId], references: [id])
+}
+
+model PostUserStatus {
+  @@unique([postId, userId])
+}
+
+---
+
+(source_file
+  (document_comment)
+  (model_block
+    (identifier)
+    (model_field
+      (identifier)
+      (field_type
+        (non_null_type (prisma_type)))
+      (model_single_attribute
+        (attribute_specifier
+          (identifier)))
+      (model_single_attribute
+        (attribute_specifier
+          (identifier))
+        (apply_function (identifier))))
+    (comment)
+    (model_field
+      (identifier)
+      (field_type
+        (nullable_type (non_null_type (identifier))))
+      (model_single_attribute
+        (attribute_specifier
+          (identifier))
+        (string)
+        (identifier)
+        (identifier)
+        (identifier)
+        (identifier))))
+  (model_block
+    (identifier)
+    (model_multi_attribute
+      (attribute_specifier
+        (identifier))
+      (identifier)
+      (identifier))))

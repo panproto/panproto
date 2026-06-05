@@ -1,0 +1,11 @@
+===
+errors/invalidClassModifier.pkl
+===
+
+hidden class Foo
+---
+
+(module
+  (clazz
+    (modifier)
+    (identifier)))

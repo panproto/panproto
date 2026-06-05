@@ -1,0 +1,579 @@
+================================================================================
+Wildcard patterns
+================================================================================
+
+match {
+  {foo = _, bar = 'Foo _} => null,
+  _ => null,
+}
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (match_expr
+          (match_branch
+            (pattern
+              (record_pattern
+                (field_pattern
+                  (ident)
+                  (pattern))
+                (last_field_pat
+                  (field_pattern
+                    (ident)
+                    (pattern
+                      (enum_pattern
+                        (enum_variant_pattern
+                          (enum_tag
+                            (raw_enum_tag))
+                          (pattern_fun))))))))
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom)))))))
+          (match_branch
+            (pattern)
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom))))))))))))
+
+================================================================================
+Constant patterns 
+================================================================================
+
+match {
+  "a" => 1,
+  "b" => 2,
+  true => 3,
+  false => 4,
+  0 => 5,
+  -1 => 6,
+  null => 7,
+}
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (match_expr
+          (match_branch
+            (pattern
+              (constant_pattern
+                (static_string
+                  (chunk_literal_single
+                    (str_literal)))))
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom
+                        (num_literal))))))))
+          (match_branch
+            (pattern
+              (constant_pattern
+                (static_string
+                  (chunk_literal_single
+                    (str_literal)))))
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom
+                        (num_literal))))))))
+          (match_branch
+            (pattern
+              (constant_pattern
+                (bool)))
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom
+                        (num_literal))))))))
+          (match_branch
+            (pattern
+              (constant_pattern
+                (bool)))
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom
+                        (num_literal))))))))
+          (match_branch
+            (pattern
+              (constant_pattern
+                (signed_num_literal)))
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom
+                        (num_literal))))))))
+          (match_branch
+            (pattern
+              (constant_pattern
+                (signed_num_literal)))
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom
+                        (num_literal))))))))
+          (match_branch
+            (pattern
+              (constant_pattern))
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom
+                        (num_literal)))))))))))))
+
+================================================================================
+Constant patterns (nested)
+================================================================================
+
+match {
+  {foo = null, bar = 'Foo 1, baz = 'Qux "hello"} => true,
+}
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (match_expr
+          (match_branch
+            (pattern
+              (record_pattern
+                (field_pattern
+                  (ident)
+                  (pattern
+                    (constant_pattern)))
+                (field_pattern
+                  (ident)
+                  (pattern
+                    (enum_pattern
+                      (enum_variant_pattern
+                        (enum_tag
+                          (raw_enum_tag))
+                        (pattern_fun
+                          (constant_pattern
+                            (signed_num_literal)))))))
+                (last_field_pat
+                  (field_pattern
+                    (ident)
+                    (pattern
+                      (enum_pattern
+                        (enum_variant_pattern
+                          (enum_tag
+                            (raw_enum_tag))
+                          (pattern_fun
+                            (constant_pattern
+                              (static_string
+                                (chunk_literal_single
+                                  (str_literal))))))))))))
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom
+                        (bool)))))))))))))
+
+================================================================================
+Array pattern matching
+================================================================================
+
+match {
+  [] => [],
+  [x] => x,
+  [x, 'Foo y, {bar}] => bar,
+  [1, 2, 3, ..] => [],
+  [1, 2, 3, ..rest] => rest,
+  [_, [..], [_]] => [], 
+}
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (match_expr
+          (match_branch
+            (pattern
+              (array_pattern))
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom)))))))
+          (match_branch
+            (pattern
+              (array_pattern
+                (last_elem_pat
+                  (pattern
+                    (ident)))))
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom
+                        (ident))))))))
+          (match_branch
+            (pattern
+              (array_pattern
+                (pattern
+                  (ident))
+                (pattern
+                  (enum_pattern
+                    (enum_variant_pattern
+                      (enum_tag
+                        (raw_enum_tag))
+                      (pattern_fun
+                        (ident)))))
+                (last_elem_pat
+                  (pattern
+                    (record_pattern
+                      (last_field_pat
+                        (field_pattern
+                          (ident))))))))
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom
+                        (ident))))))))
+          (match_branch
+            (pattern
+              (array_pattern
+                (pattern
+                  (constant_pattern
+                    (signed_num_literal)))
+                (pattern
+                  (constant_pattern
+                    (signed_num_literal)))
+                (pattern
+                  (constant_pattern
+                    (signed_num_literal)))
+                (last_elem_pat)))
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom)))))))
+          (match_branch
+            (pattern
+              (array_pattern
+                (pattern
+                  (constant_pattern
+                    (signed_num_literal)))
+                (pattern
+                  (constant_pattern
+                    (signed_num_literal)))
+                (pattern
+                  (constant_pattern
+                    (signed_num_literal)))
+                (last_elem_pat
+                  (ident))))
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom
+                        (ident))))))))
+          (match_branch
+            (pattern
+              (array_pattern
+                (pattern)
+                (pattern
+                  (array_pattern
+                    (last_elem_pat)))
+                (last_elem_pat
+                  (pattern
+                    (array_pattern
+                      (last_elem_pat
+                        (pattern)))))))
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom))))))))))))
+ 
+================================================================================
+Pattern guards
+================================================================================
+
+match {
+  x if is_integer x => x+1,
+  x if is_odd x => x,
+  {foo, bar} if foo && bar || (1+1==2) => true,
+}
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (match_expr
+          (match_branch
+            (pattern
+              (ident))
+            (pattern_guard
+              (term
+                (uni_term
+                  (infix_expr
+                    (applicative
+                      (applicative
+                        (record_operand
+                          (atom
+                            (ident))))
+                      (record_operand
+                        (atom
+                          (ident))))))))
+            (term
+              (uni_term
+                (infix_expr
+                  (infix_expr
+                    (applicative
+                      (record_operand
+                        (atom
+                          (ident)))))
+                  (infix_b_op_4)
+                  (infix_expr
+                    (applicative
+                      (record_operand
+                        (atom
+                          (num_literal)))))))))
+          (match_branch
+            (pattern
+              (ident))
+            (pattern_guard
+              (term
+                (uni_term
+                  (infix_expr
+                    (applicative
+                      (applicative
+                        (record_operand
+                          (atom
+                            (ident))))
+                      (record_operand
+                        (atom
+                          (ident))))))))
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom
+                        (ident))))))))
+          (match_branch
+            (pattern
+              (record_pattern
+                (field_pattern
+                  (ident))
+                (last_field_pat
+                  (field_pattern
+                    (ident)))))
+            (pattern_guard
+              (term
+                (uni_term
+                  (infix_expr
+                    (infix_expr
+                      (infix_expr
+                        (applicative
+                          (record_operand
+                            (atom
+                              (ident)))))
+                      (infix_lazy_b_op_9)
+                      (infix_expr
+                        (applicative
+                          (record_operand
+                            (atom
+                              (ident))))))
+                    (infix_lazy_b_op_10)
+                    (infix_expr
+                      (applicative
+                        (record_operand
+                          (atom
+                            (uni_term
+                              (infix_expr
+                                (infix_expr
+                                  (infix_expr
+                                    (applicative
+                                      (record_operand
+                                        (atom
+                                          (num_literal)))))
+                                  (infix_b_op_4)
+                                  (infix_expr
+                                    (applicative
+                                      (record_operand
+                                        (atom
+                                          (num_literal))))))
+                                (infix_b_op_8)
+                                (infix_expr
+                                  (applicative
+                                    (record_operand
+                                      (atom
+                                        (num_literal)))))))))))))))
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom
+                        (bool)))))))))))))
+
+================================================================================
+Or patterns
+================================================================================
+
+match {
+  1 or 2 or 3 => true,
+  ((1 or 2) or 3) => true,
+  [1 or 2, "a" or "b"] => true,
+  ('Foo y) or ('Bar y) or ('Baz y) => y,
+}
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (match_expr
+          (match_branch
+            (pattern
+              (or_pattern
+                (or_pattern_unparens
+                  (pattern_or_branch
+                    (constant_pattern
+                      (signed_num_literal)))
+                  (pattern_or_branch
+                    (constant_pattern
+                      (signed_num_literal)))
+                  (pattern_or_branch
+                    (constant_pattern
+                      (signed_num_literal))))))
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom
+                        (bool))))))))
+          (match_branch
+            (pattern
+              (or_pattern
+                (or_pattern_parens
+                  (or_pattern_unparens
+                    (pattern_or_branch
+                      (or_pattern_parens
+                        (or_pattern_unparens
+                          (pattern_or_branch
+                            (constant_pattern
+                              (signed_num_literal)))
+                          (pattern_or_branch
+                            (constant_pattern
+                              (signed_num_literal))))))
+                    (pattern_or_branch
+                      (constant_pattern
+                        (signed_num_literal)))))))
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom
+                        (bool))))))))
+          (match_branch
+            (pattern
+              (array_pattern
+                (pattern
+                  (or_pattern
+                    (or_pattern_unparens
+                      (pattern_or_branch
+                        (constant_pattern
+                          (signed_num_literal)))
+                      (pattern_or_branch
+                        (constant_pattern
+                          (signed_num_literal))))))
+                (last_elem_pat
+                  (pattern
+                    (or_pattern
+                      (or_pattern_unparens
+                        (pattern_or_branch
+                          (constant_pattern
+                            (static_string
+                              (chunk_literal_single
+                                (str_literal)))))
+                        (pattern_or_branch
+                          (constant_pattern
+                            (static_string
+                              (chunk_literal_single
+                                (str_literal)))))))))))
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom
+                        (bool))))))))
+          (match_branch
+            (pattern
+              (or_pattern
+                (or_pattern_unparens
+                  (pattern_or_branch
+                    (enum_pattern_parens
+                      (enum_variant_pattern
+                        (enum_tag
+                          (raw_enum_tag))
+                        (pattern_fun
+                          (ident)))))
+                  (pattern_or_branch
+                    (enum_pattern_parens
+                      (enum_variant_pattern
+                        (enum_tag
+                          (raw_enum_tag))
+                        (pattern_fun
+                          (ident)))))
+                  (pattern_or_branch
+                    (enum_pattern_parens
+                      (enum_variant_pattern
+                        (enum_tag
+                          (raw_enum_tag))
+                        (pattern_fun
+                          (ident))))))))
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom
+                        (ident)))))))))))))

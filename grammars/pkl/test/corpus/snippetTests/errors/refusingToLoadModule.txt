@@ -1,0 +1,18 @@
+===
+errors/refusingToLoadModule.pkl
+===
+
+import "birds:///foo.pkl"
+
+output = foo
+
+---
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier))))

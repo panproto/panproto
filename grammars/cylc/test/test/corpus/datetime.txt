@@ -1,0 +1,57 @@
+================================================================================
+iso 8601 datetime
+================================================================================
+
+[section]
+    datetime_extended1 = 2024-09-19T21:27:12Z
+    datetime_extended2 = 2024-09-19T21:27:12
+    datetime_extended3 = 2024-09-19T21:27Z
+    datetime_extended4 = 2024-09-19T21Z
+    datetime_extended5 = 2024-09-19T
+    datetime_extended6 = 2024-09-19T21:27+02
+    datetime_extended7 = 2024-09-19T21:27+02:00
+    datetime_basic1 = 20240919T212712Z
+    datetime_basic2 = 20240919T2127
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    (section_name
+      (nametag))
+    (setting
+      (key)
+      (assignment_operator)
+      (datetime))
+    (setting
+      (key)
+      (assignment_operator)
+      (datetime))
+    (setting
+      (key)
+      (assignment_operator)
+      (datetime))
+    (setting
+      (key)
+      (assignment_operator)
+      (datetime))
+    (setting
+      (key)
+      (assignment_operator)
+      (datetime))
+    (setting
+      (key)
+      (assignment_operator)
+      (datetime))
+    (setting
+      (key)
+      (assignment_operator)
+      (datetime))
+    (setting
+      (key)
+      (assignment_operator)
+      (datetime))
+    (setting
+      (key)
+      (assignment_operator)
+      (datetime))))

@@ -1,0 +1,141 @@
+===
+errors/undefinedProperty4.pkl
+===
+
+class Zebra {
+  party: Party
+}
+
+class Party {
+  time: Mapping<Any, Int>
+}
+
+class Foo {
+  bar: Bar
+}
+
+class Bar {
+  num: Int
+}
+
+zebra: Zebra = new {
+  party {
+    time {
+      [1] = 1
+      [2] = 2
+      [3] = 3
+      [4] = 4
+      [5] = 5
+      [6] = 6
+      [7] = 7
+      [new Foo {
+        bar {
+          num = 5
+        }
+      }] = 0
+      [new Foo {}] = 1
+    }
+  }
+}
+
+---
+
+(module
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))
+            (typeArgumentList
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))))))))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (newExpr
+      (objectBody
+        (objectProperty
+          (identifier)
+          (objectBody
+            (objectProperty
+              (identifier)
+              (objectBody
+                (objectEntry
+                  (intLiteralExpr)
+                  (intLiteralExpr))
+                (objectEntry
+                  (intLiteralExpr)
+                  (intLiteralExpr))
+                (objectEntry
+                  (intLiteralExpr)
+                  (intLiteralExpr))
+                (objectEntry
+                  (intLiteralExpr)
+                  (intLiteralExpr))
+                (objectEntry
+                  (intLiteralExpr)
+                  (intLiteralExpr))
+                (objectEntry
+                  (intLiteralExpr)
+                  (intLiteralExpr))
+                (objectEntry
+                  (intLiteralExpr)
+                  (intLiteralExpr))
+                (objectEntry
+                  (newExpr
+                    (declaredType
+                      (qualifiedIdentifier
+                        (identifier)))
+                    (objectBody
+                      (objectProperty
+                        (identifier)
+                        (objectBody
+                          (objectProperty
+                            (identifier)
+                            (intLiteralExpr))))))
+                  (intLiteralExpr))
+                (objectEntry
+                  (newExpr
+                    (declaredType
+                      (qualifiedIdentifier
+                        (identifier)))
+                    (objectBody))
+                  (intLiteralExpr))))))))))

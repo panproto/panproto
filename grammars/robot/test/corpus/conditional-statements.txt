@@ -1,0 +1,339 @@
+================================================================================
+Simple conditional statements
+================================================================================
+
+*** Keywords ***
+
+Test
+    IF    ${rc} > 0
+        Some keyword
+        Another keyword
+    END
+
+    IF    ${rc} > 0
+        Some keyword
+    ELSE
+        Another keyword
+    END
+
+    IF        $rc > 0
+        Positive keyword
+    ELSE IF   $rc < 0
+        Negative keyword
+    ELSE IF   $rc == 0
+        Zero keyword
+    ELSE
+        Fail  Unexpected rc: ${rc}
+    END
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (keywords_section
+      (section_header)
+      (keyword_definition
+        (name
+          (name_chunk))
+        (body
+          (statement
+            (if_statement
+              condition: (argument
+                (scalar_variable
+                  (variable_name))
+                (text_chunk))
+              consequence: (block
+                (statement
+                  (keyword_invocation
+                    (keyword
+                      (name_chunk))))
+                (statement
+                  (keyword_invocation
+                    (keyword
+                      (name_chunk)))))))
+          (statement
+            (if_statement
+              condition: (argument
+                (scalar_variable
+                  (variable_name))
+                (text_chunk))
+              consequence: (block
+                (statement
+                  (keyword_invocation
+                    (keyword
+                      (name_chunk)))))
+              alternative: (else_statement
+                consequence: (block
+                  (statement
+                    (keyword_invocation
+                      (keyword
+                        (name_chunk))))))))
+          (statement
+            (if_statement
+              condition: (argument
+                (text_chunk))
+              consequence: (block
+                (statement
+                  (keyword_invocation
+                    (keyword
+                      (name_chunk)))))
+              alternative: (elseif_statement
+                condition: (argument
+                  (text_chunk))
+                consequence: (block
+                  (statement
+                    (keyword_invocation
+                      (keyword
+                        (name_chunk))))))
+              alternative: (elseif_statement
+                condition: (argument
+                  (text_chunk))
+                consequence: (block
+                  (statement
+                    (keyword_invocation
+                      (keyword
+                        (name_chunk))))))
+              alternative: (else_statement
+                consequence: (block
+                  (statement
+                    (keyword_invocation
+                      (keyword
+                        (name_chunk))
+                      (arguments
+                        (argument
+                          (text_chunk)
+                          (scalar_variable
+                            (variable_name)))))))))))))))
+
+================================================================================
+Nested conditional statements
+================================================================================
+
+*** Keywords ***
+
+Test
+    IF    not ${items}
+        Log to console    No items.
+    ELSE IF    len(${items}) == 1
+        IF    ${log_values}
+            Log to console    One item: ${items}[0]
+        ELSE
+            Log to console    One item.
+        END
+    ELSE
+        Log to console    Foo.
+
+        IF    ${log_values}
+            IF    ${bar}
+                Log to console    Item ${index}: ${item}
+            END
+        END
+    END
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (keywords_section
+      (section_header)
+      (keyword_definition
+        (name
+          (name_chunk))
+        (body
+          (statement
+            (if_statement
+              condition: (argument
+                (text_chunk)
+                (scalar_variable
+                  (variable_name)))
+              consequence: (block
+                (statement
+                  (keyword_invocation
+                    (keyword
+                      (name_chunk))
+                    (arguments
+                      (argument
+                        (text_chunk))))))
+              alternative: (elseif_statement
+                condition: (argument
+                  (text_chunk)
+                  (scalar_variable
+                    (variable_name))
+                  (text_chunk))
+                consequence: (block
+                  (statement
+                    (if_statement
+                      condition: (argument
+                        (scalar_variable
+                          (variable_name)))
+                      consequence: (block
+                        (statement
+                          (keyword_invocation
+                            (keyword
+                              (name_chunk))
+                            (arguments
+                              (argument
+                                (text_chunk)
+                                (scalar_variable
+                                  (variable_name))
+                                (text_chunk))))))
+                      alternative: (else_statement
+                        consequence: (block
+                          (statement
+                            (keyword_invocation
+                              (keyword
+                                (name_chunk))
+                              (arguments
+                                (argument
+                                  (text_chunk)))))))))))
+              alternative: (else_statement
+                consequence: (block
+                  (statement
+                    (keyword_invocation
+                      (keyword
+                        (name_chunk))
+                      (arguments
+                        (argument
+                          (text_chunk)))))
+                  (statement
+                    (if_statement
+                      condition: (argument
+                        (scalar_variable
+                          (variable_name)))
+                      consequence: (block
+                        (statement
+                          (if_statement
+                            condition: (argument
+                              (scalar_variable
+                                (variable_name)))
+                            consequence: (block
+                              (statement
+                                (keyword_invocation
+                                  (keyword
+                                    (name_chunk))
+                                  (arguments
+                                    (argument
+                                      (text_chunk)
+                                      (scalar_variable
+                                        (variable_name))
+                                      (text_chunk)
+                                      (scalar_variable
+                                        (variable_name)))))))))))))))))))))
+
+================================================================================
+Inline conditional statements
+================================================================================
+
+*** Keywords ***
+
+Inline IF
+    IF    $condition1    Keyword    argument
+    IF    $condition2    RETURN
+
+Inline IF/ELSE
+    IF    $condition    Keyword    argument    ELSE    Another Keyword
+
+Inline IF/ELSE IF/ELSE
+    IF    $cond1    Keyword 1    ELSE IF    $cond2    Keyword 2    ELSE IF    $cond3    Keyword 3    ELSE    Keyword 4
+
+Inline IF/ELSE with assignment
+    ${var} =    IF    $condition    Keyword    argument    ELSE    Another Keyword
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (keywords_section
+      (section_header)
+      (keyword_definition
+        (name
+          (name_chunk))
+        (body
+          (statement
+            (inline_if_statement
+              (argument
+                (text_chunk))
+              (inline_statement
+                (keyword_invocation
+                  (keyword
+                    (name_chunk))
+                  (arguments
+                    (argument
+                      (text_chunk)))))))
+          (statement
+            (inline_if_statement
+              (argument
+                (text_chunk))
+              (inline_statement
+                (return_statement))))))
+      (keyword_definition
+        (name
+          (name_chunk))
+        (body
+          (statement
+            (inline_if_statement
+              (argument
+                (text_chunk))
+              (inline_statement
+                (keyword_invocation
+                  (keyword
+                    (name_chunk))
+                  (arguments
+                    (argument
+                      (text_chunk)))))
+              (inline_else_statement
+                (inline_statement
+                  (keyword_invocation
+                    (keyword
+                      (name_chunk)))))))))
+      (keyword_definition
+        (name
+          (name_chunk))
+        (body
+          (statement
+            (inline_if_statement
+              (argument
+                (text_chunk))
+              (inline_statement
+                (keyword_invocation
+                  (keyword
+                    (name_chunk))))
+              (inline_elseif_statement
+                (argument
+                  (text_chunk))
+                (inline_statement
+                  (keyword_invocation
+                    (keyword
+                      (name_chunk)))))
+              (inline_elseif_statement
+                (argument
+                  (text_chunk))
+                (inline_statement
+                  (keyword_invocation
+                    (keyword
+                      (name_chunk)))))
+              (inline_else_statement
+                (inline_statement
+                  (keyword_invocation
+                    (keyword
+                      (name_chunk)))))))))
+      (keyword_definition
+        (name
+          (name_chunk))
+        (body
+          (statement
+            (variable_assignment
+              (variable_name)
+              (arguments
+                (argument
+                  (text_chunk))
+                (argument
+                  (text_chunk))
+                (argument
+                  (text_chunk))
+                (argument
+                  (text_chunk))
+                (argument
+                  (text_chunk))
+                (argument
+                  (text_chunk))))))))))

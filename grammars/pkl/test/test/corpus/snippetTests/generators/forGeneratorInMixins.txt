@@ -1,0 +1,301 @@
+===
+generators/forGeneratorInMixins.pkl
+===
+
+foo {
+  bar = new Listing {} |> mapEnv(new Dynamic {
+    res1Name = "res1Value"
+    res2Name = "res2Value"
+  })
+  baz = new Listing {} |> mapEnvLiteral(new Dynamic {
+    res3Name = "res3Value"
+    res4Name = "res4Value"
+  })
+}
+
+function mapEnv(_env: Dynamic) = new Mixin {
+  for (k, v in _env) {
+    new {
+      name = k
+      value = v
+    }
+  }
+  for (k, v in _env) {
+    new {
+      name = k + " 2"
+      value = v + " 2"
+    }
+  }
+}
+
+function mapEnvLiteral(_env: Dynamic) = (it) -> (it) {
+  for (k, v in _env) {
+    new {
+      name = k
+      value = v
+    }
+  }
+  for (k, v in _env) {
+    new {
+      name = k + " 2"
+      value = v + " 2"
+    }
+  }
+}
+
+function addElements(keys: List<String>): Mixin<Mapping<String, String>> = new {
+  for (key in keys) {
+    [key] = key
+  }
+}
+
+res = new Mapping<String, String> {
+  ["base"] = "alreadyThere"
+} |> addElements(List("newElement"))
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (pipeExpr
+          (newExpr
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (objectBody))
+          (unqualifiedAccessExpr
+            (identifier)
+            (argumentList
+              (newExpr
+                (declaredType
+                  (qualifiedIdentifier
+                    (identifier)))
+                (objectBody
+                  (objectProperty
+                    (identifier)
+                    (slStringLiteralExpr
+                      (slStringLiteralPart)))
+                  (objectProperty
+                    (identifier)
+                    (slStringLiteralExpr
+                      (slStringLiteralPart)))))))))
+      (objectProperty
+        (identifier)
+        (pipeExpr
+          (newExpr
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (objectBody))
+          (unqualifiedAccessExpr
+            (identifier)
+            (argumentList
+              (newExpr
+                (declaredType
+                  (qualifiedIdentifier
+                    (identifier)))
+                (objectBody
+                  (objectProperty
+                    (identifier)
+                    (slStringLiteralExpr
+                      (slStringLiteralPart)))
+                  (objectProperty
+                    (identifier)
+                    (slStringLiteralExpr
+                      (slStringLiteralPart)))))))))))
+  (classMethod
+    (methodHeader
+      (identifier)
+      (parameterList
+        (typedIdentifier
+          (identifier)
+          (typeAnnotation
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))))))
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (forGenerator
+          (typedIdentifier
+            (identifier))
+          (typedIdentifier
+            (identifier))
+          (unqualifiedAccessExpr
+            (identifier))
+          (objectBody
+            (objectElement
+              (newExpr
+                (objectBody
+                  (objectProperty
+                    (identifier)
+                    (unqualifiedAccessExpr
+                      (identifier)))
+                  (objectProperty
+                    (identifier)
+                    (unqualifiedAccessExpr
+                      (identifier))))))))
+        (forGenerator
+          (typedIdentifier
+            (identifier))
+          (typedIdentifier
+            (identifier))
+          (unqualifiedAccessExpr
+            (identifier))
+          (objectBody
+            (objectElement
+              (newExpr
+                (objectBody
+                  (objectProperty
+                    (identifier)
+                    (additiveExpr
+                      (unqualifiedAccessExpr
+                        (identifier))
+                      (slStringLiteralExpr
+                        (slStringLiteralPart))))
+                  (objectProperty
+                    (identifier)
+                    (additiveExpr
+                      (unqualifiedAccessExpr
+                        (identifier))
+                      (slStringLiteralExpr
+                        (slStringLiteralPart))))))))))))
+  (classMethod
+    (methodHeader
+      (identifier)
+      (parameterList
+        (typedIdentifier
+          (identifier)
+          (typeAnnotation
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))))))
+    (functionLiteralExpr
+      (parameterList
+        (typedIdentifier
+          (identifier)))
+      (amendExpr
+        (parenthesizedExpr
+          (unqualifiedAccessExpr
+            (identifier)))
+        (objectBody
+          (forGenerator
+            (typedIdentifier
+              (identifier))
+            (typedIdentifier
+              (identifier))
+            (unqualifiedAccessExpr
+              (identifier))
+            (objectBody
+              (objectElement
+                (newExpr
+                  (objectBody
+                    (objectProperty
+                      (identifier)
+                      (unqualifiedAccessExpr
+                        (identifier)))
+                    (objectProperty
+                      (identifier)
+                      (unqualifiedAccessExpr
+                        (identifier))))))))
+          (forGenerator
+            (typedIdentifier
+              (identifier))
+            (typedIdentifier
+              (identifier))
+            (unqualifiedAccessExpr
+              (identifier))
+            (objectBody
+              (objectElement
+                (newExpr
+                  (objectBody
+                    (objectProperty
+                      (identifier)
+                      (additiveExpr
+                        (unqualifiedAccessExpr
+                          (identifier))
+                        (slStringLiteralExpr
+                          (slStringLiteralPart))))
+                    (objectProperty
+                      (identifier)
+                      (additiveExpr
+                        (unqualifiedAccessExpr
+                          (identifier))
+                        (slStringLiteralExpr
+                          (slStringLiteralPart)))))))))))))
+  (classMethod
+    (methodHeader
+      (identifier)
+      (parameterList
+        (typedIdentifier
+          (identifier)
+          (typeAnnotation
+            (declaredType
+              (qualifiedIdentifier
+                (identifier))
+              (typeArgumentList
+                (declaredType
+                  (qualifiedIdentifier
+                    (identifier))))))))
+      (typeAnnotation
+        (declaredType
+          (qualifiedIdentifier
+            (identifier))
+          (typeArgumentList
+            (declaredType
+              (qualifiedIdentifier
+                (identifier))
+              (typeArgumentList
+                (declaredType
+                  (qualifiedIdentifier
+                    (identifier)))
+                (declaredType
+                  (qualifiedIdentifier
+                    (identifier)))))))))
+    (newExpr
+      (objectBody
+        (forGenerator
+          (typedIdentifier
+            (identifier))
+          (unqualifiedAccessExpr
+            (identifier))
+          (objectBody
+            (objectEntry
+              (unqualifiedAccessExpr
+                (identifier))
+              (unqualifiedAccessExpr
+                (identifier))))))))
+  (classProperty
+    (identifier)
+    (pipeExpr
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier))
+          (typeArgumentList
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))))
+        (objectBody
+          (objectEntry
+            (slStringLiteralExpr
+              (slStringLiteralPart))
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))
+      (unqualifiedAccessExpr
+        (identifier)
+        (argumentList
+          (unqualifiedAccessExpr
+            (identifier)
+            (argumentList
+              (slStringLiteralExpr
+                (slStringLiteralPart)))))))))

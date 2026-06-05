@@ -1,5 +1,5 @@
 //! Build a tiny git repository in a tempdir, populate it with a real
-//! OpenTelemetry `.proto` file, and import it into a panproto-vcs MemStore.
+//! OpenTelemetry `.proto` file, and import it into a panproto-vcs `MemStore`.
 
 use std::fs;
 

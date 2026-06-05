@@ -1,0 +1,607 @@
+================
+Raw Text Expression
+================
+<script context="module">
+    let name = 'world';
+</script>
+<h1>Hello {name'<>{}``"\''""``{}}!</h1>
+----
+
+(document
+    (script_element
+        (start_tag (tag_name)
+            (attribute (attribute_name) (quoted_attribute_value (attribute_value))))
+        (raw_text)
+        (end_tag (tag_name)))
+    (element
+        (start_tag (tag_name))
+        (text)
+        (expression (raw_text_expr))
+        (text)
+        (end_tag (tag_name)))
+)
+
+================
+Expression with newlines
+================
+<img src={{
+  src: "foo"
+}} alt="A man dances">
+----
+
+(document
+    (element
+        (start_tag (tag_name)
+            (attribute (attribute_name) (expr_attribute_value (expression (raw_text_expr))))
+            (attribute (attribute_name) (quoted_attribute_value (attribute_value)))
+        )
+
+    )
+)
+==============
+Dynamic Expression Attribute
+==============
+<img src={src} alt="A man dances">
+<Info {...pkg} />
+----
+(document
+    (element
+        (start_tag (tag_name)
+            (attribute (attribute_name) (expr_attribute_value (expression (raw_text_expr))))
+            (attribute (attribute_name) (quoted_attribute_value (attribute_value)))
+        )
+
+    )
+    (element
+        (self_closing_tag
+            (tag_name)
+            (attribute (attribute_name (raw_text_expr)))
+        )
+    )
+)
+
+===============
+logical_blocks
+===============
+{#if user.loggedIn}hello
+	<button on:click={toggle}>logged in</button>
+{:else if hello}
+    <li></li>
+{:else}
+{/if}
+
+{hello}
+{#each cats as cat}
+    <li></li>
+{/each}
+
+{#each cats as cat (hello)}
+  <div>Hello</div>
+{:else}
+  <li>Hello</li>
+{/each}
+
+{#each user.codes.filter(codeNotBlocked) as someItem (someItem.id)}
+{/each}
+
+{ thenRandomExpr }
+{ @html '<p>hello world</p>'}
+{{}}
+-------
+(document
+    (if_statement
+        (if_start_expr (special_block_keyword) (raw_text_expr))
+        (text)
+        (element
+            (start_tag
+                (tag_name)
+                (attribute (attribute_name)
+                    (expr_attribute_value
+                        (expression (raw_text_expr))
+                    )
+                )
+            )
+            (text)
+            (end_tag (tag_name))
+        )
+        (else_if_statement
+            (else_if_expr (special_block_keyword) (special_block_keyword) (raw_text_expr))
+            (element
+                (start_tag (tag_name))
+                (end_tag (tag_name))
+            )
+            (else_statement (else_expr (special_block_keyword))
+                (if_end_expr (special_block_keyword))
+            )
+        )
+    )
+    (expression (raw_text_expr))
+    (each_statement
+        (each_start_expr (special_block_keyword) (raw_text_each) (as) (raw_text_expr))
+        (element (start_tag (tag_name)) (end_tag (tag_name)))
+        (each_end_expr (special_block_keyword))
+    )
+    (each_statement
+        (each_start_expr (special_block_keyword) (raw_text_each) (as) (raw_text_expr))
+        (element (start_tag (tag_name)) (text) (end_tag (tag_name)))
+        (else_each_statement
+          (else_expr (special_block_keyword))
+          (element (start_tag (tag_name)) (text) (end_tag (tag_name)))
+          (each_end_expr (special_block_keyword))
+        )
+    )
+    (each_statement
+        (each_start_expr (special_block_keyword) (raw_text_each) (as) (raw_text_expr))
+        (each_end_expr (special_block_keyword))
+    )
+    (expression (raw_text_expr))
+    (html_expr (special_block_keyword) (raw_text_expr))
+    (expression (raw_text_expr))
+)
+
+==========================
+each (with unusual values)
+==========================
+{#each "abcd" as letter}
+  {letter}
+{/each}
+
+{#each ["a", "b"] as elem}
+  {elem}
+{/each}
+
+{#each [{ foo: "bar" }, { baz: "thud" }] as pair}
+  {elem}
+{/each}
+
+{#each [["a", "b"], ["c", "d"]] as pair}
+  {#each pair as letter}{letter}{/each}
+{/each}
+
+{#each ["a", y, ...foo] as item}
+	{item}
+{/each}
+
+{#each { foo: [1, 2, 3] }["foo"] as num}
+	{num}
+{/each}
+
+-------
+(document
+  (each_statement
+    (each_start_expr (special_block_keyword) (raw_text_each) (as) (raw_text_expr))
+    (expression (raw_text_expr))
+    (each_end_expr (special_block_keyword)))
+  (each_statement
+    (each_start_expr (special_block_keyword) (raw_text_each) (as) (raw_text_expr))
+    (expression (raw_text_expr))
+    (each_end_expr (special_block_keyword)))
+  (each_statement
+    (each_start_expr (special_block_keyword) (raw_text_each) (as) (raw_text_expr))
+    (expression (raw_text_expr))
+    (each_end_expr (special_block_keyword)))
+  (each_statement
+    (each_start_expr (special_block_keyword) (raw_text_each) (as) (raw_text_expr))
+    (each_statement
+      (each_start_expr (special_block_keyword) (raw_text_each) (as) (raw_text_expr))
+      (expression (raw_text_expr))
+      (each_end_expr (special_block_keyword)))
+    (each_end_expr (special_block_keyword))
+  )
+  (each_statement
+    (each_start_expr (special_block_keyword) (raw_text_each) (as) (raw_text_expr))
+    (expression (raw_text_expr))
+    (each_end_expr (special_block_keyword)))
+  (each_statement
+    (each_start_expr (special_block_keyword) (raw_text_each) (as) (raw_text_expr))
+    (expression (raw_text_expr))
+    (each_end_expr (special_block_keyword)))
+
+)
+
+=======================
+await
+========================
+{#await promise}
+{:then number}
+{:catch error}
+{/await}
+
+{#await promise then value}
+    <p></p>
+{/await}
+{#await yo thenvalue}
+{/await}
+{#await loading}
+{:then}
+{/await}
+{#await loading then}
+{/await}
+------
+(document
+    (await_statement
+        (await_start_expr (special_block_keyword) (raw_text_expr))
+        (then_statement (then_expr (special_block_keyword) (raw_text_expr))
+            (catch_statement (catch_expr (special_block_keyword) (raw_text_expr))
+                (await_end_expr (special_block_keyword))
+            )
+        )
+    )
+    (await_statement
+        (await_start_expr (special_block_keyword) (raw_text_await) (then) (raw_text_expr))
+        (element (start_tag (tag_name)) (end_tag (tag_name)))
+        (await_end_expr (special_block_keyword))
+    )
+    (await_statement
+        (await_start_expr (special_block_keyword) (raw_text_expr))
+        (await_end_expr (special_block_keyword))
+    )
+    (await_statement
+		(await_start_expr (special_block_keyword) (raw_text_expr))
+        (then_statement
+			(then_expr (special_block_keyword) (raw_text_expr))
+			(await_end_expr (special_block_keyword))
+		)
+	)
+    (await_statement
+        (await_start_expr (special_block_keyword) (raw_text_await) (then) (raw_text_expr))
+        (await_end_expr (special_block_keyword))
+    )
+)
+
+====================
+Special elements
+=====================
+<svelte:head>
+    <link rel="stylesheet" href="tutorial/dark-theme.css"/>
+</svelte:head>
+<svelte:options immutable={true} />
+----
+(document
+    (element
+        (start_tag (tag_name))
+        (element
+            (self_closing_tag (tag_name)
+                (attribute (attribute_name) (quoted_attribute_value (attribute_value)))
+                (attribute (attribute_name) (quoted_attribute_value (attribute_value)))
+            )
+        )
+        (end_tag (tag_name))
+    )
+    (element
+        (self_closing_tag (tag_name)
+            (attribute (attribute_name)
+                (expr_attribute_value (expression (raw_text_expr)))
+            )
+        )
+    )
+)
+
+========================
+if-else-nested
+========================
+{#if something}
+    text
+{:else if someOtherThing}
+    text2
+  {#if something}
+    text3
+  {:elseif someOtherThing}
+    text4
+  {:else}
+    text5
+  {/if}
+{:else}
+    text6
+{/if}
+---
+(document
+    (if_statement (if_start_expr (special_block_keyword) (raw_text_expr)) (text)
+        (else_if_statement (else_if_expr (special_block_keyword) (special_block_keyword) (raw_text_expr)) (text)
+            (if_statement (if_start_expr (special_block_keyword) (raw_text_expr)) (text)
+                (else_if_statement
+                    (else_if_expr (special_block_keyword) (special_block_keyword) (raw_text_expr)) (text)
+                    (else_statement (else_expr (special_block_keyword)) (text)
+                    (if_end_expr (special_block_keyword))
+                    )
+                )
+            )
+            (else_statement (else_expr (special_block_keyword)) (text)
+                (if_end_expr (special_block_keyword))
+            )
+        )
+    )
+)
+
+========================
+script-tag-inside-svelte:head
+========================
+<svelte:head>
+  <script>console.log("Hello World!")</script>
+</svelte:head>
+---
+(document
+  (element
+    (start_tag
+      (tag_name))
+    (script_element
+      (start_tag
+        (tag_name))
+      (raw_text)
+      (end_tag
+        (tag_name)))
+    (end_tag
+      (tag_name))))
+
+========================
+key statement
+========================
+{#key foo}
+  <div>bar</div>
+{/key}
+---
+(document
+  (key_statement
+    (key_start_expr
+      (special_block_keyword)
+      (raw_text_expr))
+    (element
+      (start_tag
+        (tag_name))
+      (text)
+      (end_tag
+        (tag_name)))
+    (key_end_expr
+      (special_block_keyword))))
+
+=====================
+Dot Tags
+=====================
+<Input.App>
+  <span>bar</span>
+</Input.App>
+---------------------
+(document
+  (element
+    (start_tag (tag_name))
+    (element
+      (start_tag (tag_name))
+      (text)
+      (end_tag (tag_name))
+    )
+    (end_tag (tag_name))
+  )
+)
+
+
+========================
+Const Tags
+========================
+{@const a = a + 1}
+------------------------
+(document
+  (const_expr (special_block_keyword) (raw_text_expr))
+)
+
+========================
+Snippet (empty)
+========================
+{#snippet figure(image)}
+{/snippet}
+------------------------
+(document
+  (snippet_statement
+    (snippet_start_expr
+      (special_block_keyword)
+      (snippet_name)
+      (raw_text_expr)
+    )
+    (snippet_end_expr
+      (special_block_keyword)
+    )
+  )
+)
+
+========================
+Snippet
+========================
+{#snippet figure(image)}
+	<figure></figure>
+{/snippet}
+------------------------
+(document
+  (snippet_statement
+    (snippet_start_expr
+      (special_block_keyword)
+      (snippet_name)
+      (raw_text_expr))
+    (element
+     (start_tag
+       (tag_name))
+     (end_tag
+       (tag_name)))
+   (snippet_end_expr
+     (special_block_keyword)))
+)
+
+===========================
+Snippet (without argument)
+===========================
+{#snippet figure()}
+	<figure></figure>
+{/snippet}
+------------------------
+(document
+  (snippet_statement
+    (snippet_start_expr
+      (special_block_keyword)
+      (snippet_name))
+    (element
+     (start_tag
+       (tag_name))
+     (end_tag
+       (tag_name)))
+   (snippet_end_expr
+     (special_block_keyword)))
+)
+
+============================
+Snippet (with destructuring)
+============================
+{#snippet figure({ src, caption, width, height })}
+	<figure></figure>
+{/snippet}
+------------------------
+(document
+  (snippet_statement
+    (snippet_start_expr
+      (special_block_keyword)
+      (snippet_name)
+      (raw_text_expr))
+    (element
+     (start_tag
+       (tag_name))
+     (end_tag
+       (tag_name)))
+   (snippet_end_expr
+     (special_block_keyword)))
+)
+
+============================
+Snippet (with nesting)
+============================
+<div>
+	{#snippet x()}
+		{#snippet y()}
+    {/snippet}
+
+		<!-- this is fine -->
+		{@render y()}
+	{/snippet}
+
+	<!-- this will error, as `y` is not in scope -->
+	{@render y()}
+</div>
+------------------------
+(document
+  (element
+    (start_tag
+      (tag_name))
+    (snippet_statement
+      (snippet_start_expr
+        (special_block_keyword)
+        (snippet_name))
+      (snippet_statement
+        (snippet_start_expr
+          (special_block_keyword)
+          (snippet_name))
+        (snippet_end_expr
+          (special_block_keyword)))
+      (comment)
+      (render_expr
+        (special_block_keyword)
+        (snippet_name))
+      (snippet_end_expr
+        (special_block_keyword)))
+    (comment)
+    (render_expr
+      (special_block_keyword)
+      (snippet_name))
+    (end_tag
+      (tag_name)))
+)
+
+============================
+Snippet (in component)
+============================
+<script>
+	import Button from './Button.svelte';
+</script>
+
+<Button onclick={() => alert('Clicked the button')}>
+	{#snippet children(prop)}
+		click {prop}
+	{/snippet}
+</Button>
+------------------------
+(document
+  (script_element
+    (start_tag
+      (tag_name))
+    (raw_text)
+    (end_tag
+      (tag_name)))
+  (element
+    (start_tag
+      (tag_name)
+      (attribute
+        (attribute_name)
+        (expr_attribute_value
+          (expression
+            (raw_text_expr)))))
+    (snippet_statement
+      (snippet_start_expr
+        (special_block_keyword)
+        (snippet_name)
+        (raw_text_expr))
+      (text)
+      (expression
+        (raw_text_expr))
+      (snippet_end_expr
+        (special_block_keyword)))
+    (end_tag
+      (tag_name))))
+
+============================
+@render
+============================
+<div>
+  {@render figure(image)}
+</div>
+------------------------
+(document
+  (element
+    (start_tag
+      (tag_name))
+    (render_expr
+      (special_block_keyword)
+      (snippet_name)
+      (raw_text_expr))
+    (end_tag
+      (tag_name)))
+)
+
+============================
+@render (without argument)
+============================
+<div>
+  {@render figure()}
+</div>
+------------------------
+(document
+  (element
+    (start_tag
+      (tag_name))
+    (render_expr
+      (special_block_keyword)
+      (snippet_name))
+    (end_tag
+      (tag_name)))
+)
+============================
+@debug
+============================
+<div>
+  {@debug foo}
+</div>
+------------------------
+(document
+  (element
+    (start_tag
+      (tag_name))
+    (debug_expr
+      (special_block_keyword)
+      (raw_text_expr))
+    (end_tag
+      (tag_name)))
+)

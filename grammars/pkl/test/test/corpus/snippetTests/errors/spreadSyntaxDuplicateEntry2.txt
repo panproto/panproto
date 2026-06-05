@@ -1,0 +1,39 @@
+===
+errors/spreadSyntaxDuplicateEntry2.pkl
+===
+
+local source {
+  ["foo"] = 1
+}
+
+res: Mapping = new {
+  ["foo"] = 2
+  ...source
+}
+
+---
+
+(module
+  (classProperty
+    (modifier)
+    (identifier)
+    (objectBody
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (newExpr
+      (objectBody
+        (objectEntry
+          (slStringLiteralExpr
+            (slStringLiteralPart))
+          (intLiteralExpr))
+        (objectSpread
+          (unqualifiedAccessExpr
+            (identifier)))))))

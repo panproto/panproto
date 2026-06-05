@@ -1,0 +1,21 @@
+=====================================
+Pragma Directive
+=====================================
+pragma circom 2.0.0;
+---
+(source_file
+      (pragma_directive
+        (circom_pragma_token
+          (circom_version))))
+=====================================
+Pragma Directive Custom
+=====================================
+pragma circom 2.0.0;
+pragma custom_templates;
+---
+(source_file
+      (pragma_directive
+        (circom_pragma_token
+          (circom_version)))
+      (pragma_directive
+        (circom_custom_templates_token)))

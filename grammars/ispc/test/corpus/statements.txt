@@ -1,0 +1,662 @@
+================================================================================
+Coherent control flow: cif
+================================================================================
+
+cif (x < y) {
+    uniform int u;
+}
+
+cif (x < y) {
+    uniform int u;
+} else {
+    varying int v;
+}
+
+---
+
+(translation_unit
+    (if_statement
+        condition: (parenthesized_expression
+            (binary_expression
+                left: (identifier)
+                right: (identifier)
+            )
+        )
+        consequence: (compound_statement
+            (declaration
+                (type_qualifier)
+                type: (primitive_type)
+                declarator: (identifier)
+            )
+        )
+    )
+
+    (if_statement
+        condition: (parenthesized_expression
+            (binary_expression
+                left: (identifier)
+                right: (identifier)
+            )
+        )
+        consequence: (compound_statement
+            (declaration
+                (type_qualifier)
+                type: (primitive_type)
+                declarator: (identifier)
+            )
+        )
+        alternative: (else_clause
+          (compound_statement
+            (declaration
+                (type_qualifier)
+                type: (primitive_type)
+                declarator: (identifier)
+            )
+          )
+        )
+    )
+)
+
+================================================================================
+Coherent control flow: cwhile
+================================================================================
+
+cwhile (true) {
+}
+
+---
+
+(translation_unit
+    (while_statement
+        condition: (parenthesized_expression
+            (true)
+        )
+        body: (compound_statement)
+    )
+)
+
+================================================================================
+Coherent control flow: cdo
+================================================================================
+
+cdo {
+} while (true);
+
+---
+
+(translation_unit
+    (do_statement
+        body: (compound_statement)
+        condition: (parenthesized_expression
+            (true)
+        )
+    )
+)
+
+================================================================================
+Coherent control flow: cfor
+================================================================================
+
+cfor (;;) {
+}
+
+cfor (int i = 0; i < 10; i++) {
+}
+
+---
+
+(translation_unit
+    (for_statement
+        body: (compound_statement)
+    )
+    (for_statement
+        initializer: (declaration
+            type: (primitive_type)
+            declarator: (init_declarator
+                declarator: (identifier)
+                value: (number_literal)
+            )
+        )
+        condition: (binary_expression
+            left: (identifier)
+            right: (number_literal)
+        )
+        update: (update_expression
+            argument: (identifier)
+        )
+        body: (compound_statement)
+    )
+)
+
+================================================================================
+Foreach loop: range, multi-dimensional
+================================================================================
+
+foreach (ix = 0 ... Nx) {
+}
+
+foreach (ix = 0 ... Nx, iy = 0 ... Ny) {
+}
+
+foreach_tiled (ix = 0 ... Nx) {
+}
+
+foreach_tiled (ix = 0 ... Nx, iy = 0 ... Ny) {
+}
+
+---
+
+(translation_unit
+    (foreach_statement
+        range_start: (assignment_expression
+            left: (identifier)
+            right: (number_literal)
+        )
+        range_end: (identifier)
+        body: (compound_statement)
+    )
+    (foreach_statement
+        range_start: (assignment_expression
+            left: (identifier)
+            right: (number_literal)
+        )
+        range_end: (identifier)
+        range_start: (assignment_expression
+            left: (identifier)
+            right: (number_literal)
+        )
+        range_end: (identifier)
+        body: (compound_statement)
+    )
+
+    (foreach_statement
+        range_start: (assignment_expression
+            left: (identifier)
+            right: (number_literal)
+        )
+        range_end: (identifier)
+        body: (compound_statement)
+    )
+    (foreach_statement
+        range_start: (assignment_expression
+            left: (identifier)
+            right: (number_literal)
+        )
+        range_end: (identifier)
+        range_start: (assignment_expression
+            left: (identifier)
+            right: (number_literal)
+        )
+        range_end: (identifier)
+        body: (compound_statement)
+    )
+)
+
+================================================================================
+Foreach loop: intra-gang
+================================================================================
+
+foreach_active (i) {
+}
+
+foreach_unique (i in x) {
+}
+
+---
+
+(translation_unit
+    (foreach_instance_statement
+        initializer: (identifier)
+        body: (compound_statement)
+    )
+
+    (foreach_instance_statement
+        initializer: (identifier)
+        condition: (identifier)
+        body: (compound_statement)
+    )
+)
+
+================================================================================
+Unmasked compound statement
+================================================================================
+
+unmasked {
+    ++count;
+}
+
+---
+
+(translation_unit
+    (unmasked_statement
+        body: (compound_statement
+            (expression_statement
+                (update_expression
+                    argument: (identifier)
+                )
+            )
+        )
+    )
+)
+
+================================================================================
+Launch and sync statement
+================================================================================
+
+void launch_task() {
+    launch task1();
+    sync;
+}
+
+void launch_task() {
+    launch[10] task2();
+    sync;
+}
+
+void launch_task() {
+    launch[10][n] task3();
+    sync;
+}
+
+void launch_task() {
+    launch[10, n, m] task4();
+    sync;
+}
+
+---
+
+(translation_unit
+    (function_definition
+        type: (primitive_type)
+        declarator: (function_declarator
+            declarator: (identifier)
+            parameters: (parameter_list)
+        )
+        body: (compound_statement
+            (expression_statement
+                (launch_expression
+                    (call_expression
+                        function: (identifier)
+                        arguments: (argument_list)
+                    )
+                )
+            )
+            (expression_statement
+                (sync_expression)
+            )
+        )
+    )
+
+    (function_definition
+        type: (primitive_type)
+        declarator: (function_declarator
+            declarator: (identifier)
+            parameters: (parameter_list)
+        )
+        body: (compound_statement
+            (expression_statement
+                (launch_expression
+                    launch_config: (number_literal)
+                    (call_expression
+                        function: (identifier)
+                        arguments: (argument_list)
+                    )
+                )
+            )
+            (expression_statement
+                (sync_expression)
+            )
+        )
+    )
+
+    (function_definition
+        type: (primitive_type)
+        declarator: (function_declarator
+            declarator: (identifier)
+            parameters: (parameter_list)
+        )
+        body: (compound_statement
+            (expression_statement
+                (launch_expression
+                    launch_config: (number_literal)
+                    launch_config: (identifier)
+                    (call_expression
+                        function: (identifier)
+                        arguments: (argument_list)
+                    )
+                )
+            )
+            (expression_statement
+                (sync_expression)
+            )
+        )
+    )
+
+    (function_definition
+        type: (primitive_type)
+        declarator: (function_declarator
+            declarator: (identifier)
+            parameters: (parameter_list)
+        )
+        body: (compound_statement
+            (expression_statement
+                (launch_expression
+                    launch_config: (number_literal)
+                    launch_config: (identifier)
+                    launch_config: (identifier)
+                    (call_expression
+                        function: (identifier)
+                        arguments: (argument_list)
+                    )
+                )
+            )
+            (expression_statement
+                (sync_expression)
+            )
+        )
+    )
+)
+
+================================================================================
+New statement
+================================================================================
+
+uniform float * uniform p1 = uniform new uniform float[10];
+float * uniform p2 = uniform new float[10];
+float * p3 = new float[10];
+varying float * p4 = new varying float[10];
+float * p5 = new float;
+Point * p6 = new Point(1, 2, 3);
+
+soa<8> Foo * uniform pts = uniform new varying soa<8> Foo[10];
+pts[i].pts[j] = new uniform Point[4];
+varying Foo * uniform ptr = (varying Foo * uniform)(uniform new varying int32[nFloats]);
+
+---
+
+(translation_unit
+    (declaration (type_qualifier
+        )
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (pointer_declarator
+                (type_qualifier)
+                declarator: (identifier)
+            )
+            value: (new_expression
+                type: (primitive_type)
+                declarator: (new_declarator
+                    length: (number_literal)
+                )
+            )
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (pointer_declarator
+                (type_qualifier)
+                declarator: (identifier)
+            )
+            value: (new_expression
+                type: (primitive_type)
+                declarator: (new_declarator
+                    length: (number_literal)
+                )
+            )
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (pointer_declarator
+                declarator: (identifier)
+            )
+            value: (new_expression
+                type: (primitive_type)
+                declarator: (new_declarator
+                    length: (number_literal)
+                )
+            )
+        )
+    )
+    (declaration
+        (type_qualifier)
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (pointer_declarator
+                declarator: (identifier)
+            )
+            value: (new_expression
+                type: (primitive_type)
+                declarator: (new_declarator
+                    length: (number_literal)
+                )
+            )
+        )
+    )
+    (declaration
+        type: (primitive_type)
+        declarator: (init_declarator
+            declarator: (pointer_declarator
+                declarator: (identifier)
+            )
+            value: (new_expression
+                type: (primitive_type)
+            )
+        )
+    )
+    (declaration
+        type: (type_identifier)
+        declarator: (init_declarator
+            declarator: (pointer_declarator
+                declarator: (identifier)
+            )
+            value: (new_expression
+                type: (type_identifier)
+                arguments: (argument_list
+                    (number_literal)
+                    (number_literal)
+                    (number_literal)
+                )
+            )
+        )
+    )
+    (declaration
+        (type_qualifier
+            ispc: (soa_qualifier
+                (number_literal)
+            )
+        )
+        type: (type_identifier)
+        declarator: (init_declarator
+            declarator: (pointer_declarator
+                (type_qualifier)
+                declarator: (identifier)
+            )
+            value: (new_expression
+                ispc: (soa_qualifier
+                    (number_literal)
+                )
+                type: (type_identifier)
+                declarator: (new_declarator
+                    length: (number_literal)
+                )
+            )
+        )
+    )
+    (expression_statement
+        (assignment_expression
+            left: (subscript_expression
+                argument: (field_expression
+                    argument: (subscript_expression
+                        argument: (identifier)
+                        index: (identifier)
+                    )
+                    field: (field_identifier)
+                )
+                index: (identifier)
+            )
+            right: (new_expression
+                type: (type_identifier)
+                declarator: (new_declarator
+                    length: (number_literal)
+                )
+            )
+        )
+    )
+    (declaration
+        (type_qualifier)
+        type: (type_identifier)
+        declarator: (init_declarator
+            declarator: (pointer_declarator
+                (type_qualifier)
+                declarator: (identifier)
+            )
+            value: (cast_expression
+                type: (type_descriptor
+                    (type_qualifier)
+                    type: (type_identifier)
+                    declarator: (abstract_pointer_declarator
+                        (type_qualifier)
+                    )
+                )
+                value: (parenthesized_expression
+                    (new_expression
+                        type: (primitive_type)
+                        declarator: (new_declarator
+                            length: (identifier)
+                        )
+                    )
+                )
+            )
+        )
+    )
+)
+
+================================================================================
+Delete statement
+================================================================================
+
+delete[] p1;
+delete Point;
+(delete[] Particles);
+
+---
+
+(translation_unit
+    (expression_statement
+        (delete_expression
+            (identifier)
+        )
+    )
+    (expression_statement
+        (delete_expression
+            (identifier)
+        )
+    )
+    (expression_statement
+        (parenthesized_expression
+            (delete_expression
+                (identifier)
+            )
+        )
+    )
+)
+
+================================================================================
+Operator overload
+================================================================================
+
+struct S operator*(struct S a, struct S b) {
+}
+
+---
+
+(translation_unit
+    (function_definition
+        type: (struct_specifier
+            name: (type_identifier)
+        )
+        declarator: (overload_declarator
+            parameters: (parameter_list
+                (parameter_declaration
+                    type: (struct_specifier
+                        name: (type_identifier)
+                    )
+                    declarator: (identifier)
+                )
+                (parameter_declaration
+                    type: (struct_specifier
+                        name: (type_identifier)
+                    )
+                    declarator: (identifier)
+                )
+            )
+        )
+        body: (compound_statement)
+    )
+)
+
+================================================================================
+C++ style references
+================================================================================
+
+void f(float &);
+void f(float &v) {
+    const float &cr = v;
+    float const &cr = v;
+}
+
+---
+
+(translation_unit
+    (declaration
+        type: (primitive_type)
+        declarator: (function_declarator
+            declarator: (identifier)
+            parameters: (parameter_list
+                (parameter_declaration
+                    type: (primitive_type)
+                    declarator: (reference_declarator)
+                )
+            )
+        )
+    )
+    (function_definition
+        type: (primitive_type)
+        declarator: (function_declarator
+            declarator: (identifier)
+            parameters: (parameter_list
+                (parameter_declaration
+                    type: (primitive_type)
+                    declarator: (reference_declarator
+                        declarator: (identifier)
+                    )
+                )
+            )
+        )
+        body: (compound_statement
+            (declaration
+                (type_qualifier)
+                type: (primitive_type)
+                declarator: (init_declarator
+                    declarator: (reference_declarator
+                        declarator: (identifier)
+                    )
+                    value: (identifier)
+                )
+            )
+            (declaration
+                type: (primitive_type)
+                (type_qualifier)
+                declarator: (init_declarator
+                    declarator: (reference_declarator
+                        declarator: (identifier)
+                    )
+                    value: (identifier)
+                )
+            )
+        )
+    )
+)

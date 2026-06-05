@@ -1,0 +1,125 @@
+================================================================================
+File-level preprocessor conditional
+================================================================================
+
+#if CLOUD
+codeunit 50100 "Test Codeunit"
+{
+    trigger OnRun()
+    begin
+    end;
+}
+#endif
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (preproc_conditional_object
+    (preproc_if
+      (preproc_open)
+      condition: (identifier))
+    (codeunit_declaration
+      (codeunit_keyword)
+      object_id: (integer)
+      object_name: (quoted_identifier)
+      (trigger_declaration
+        (trigger_keyword)
+        name: (identifier)
+        (code_block)))
+    (preproc_endif
+      (preproc_close))))
+
+================================================================================
+File-level preprocessor with else branch
+================================================================================
+
+#if CLOUD
+page 50100 "Cloud Page"
+{
+    PageType = Card;
+}
+#else
+page 50100 "On-Prem Page"
+{
+    PageType = List;
+}
+#endif
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (preproc_conditional_object
+    (preproc_if
+      (preproc_open)
+      condition: (identifier))
+    (page_declaration
+      (page_keyword)
+      object_id: (integer)
+      object_name: (quoted_identifier)
+      (property
+        name: (property_name)
+        value: (identifier)))
+    (preproc_else)
+    (page_declaration
+      (page_keyword)
+      object_id: (integer)
+      object_name: (quoted_identifier)
+      (property
+        name: (property_name)
+        value: (identifier)))
+    (preproc_endif
+      (preproc_close))))
+
+================================================================================
+File-level preprocessor with namespace
+================================================================================
+
+#if CLOUD
+namespace Microsoft.Sales.Document;
+
+using Microsoft.Foundation.UOM;
+
+table 50100 "Test Table"
+{
+    fields
+    {
+        field(1; "No."; Code[20])
+        {
+        }
+    }
+}
+#endif
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (preproc_conditional_object
+    (preproc_if
+      (preproc_open)
+      condition: (identifier))
+    (namespace_declaration
+      (namespace_keyword)
+      name: (namespace_name
+        (identifier)
+        (identifier)
+        (identifier)))
+    (using_statement
+      (using_keyword)
+      namespace: (namespace_name
+        (identifier)
+        (identifier)
+        (identifier)))
+    (table_declaration
+      (table_keyword)
+      object_id: (integer)
+      object_name: (quoted_identifier)
+      (fields_section
+        (fields_keyword)
+        (field_declaration
+          id: (integer)
+          name: (quoted_identifier)
+          type: (type_specification
+            (code_type
+              length: (integer))))))
+    (preproc_endif
+      (preproc_close))))

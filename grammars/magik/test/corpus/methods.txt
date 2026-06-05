@@ -1,0 +1,415 @@
+================================================================================
+simple methods
+================================================================================
+
+_method my_object.method
+_endmethod
+$
+
+_method my_object.method()
+_endmethod
+$
+
+_method my_object.method(a)
+_endmethod
+$
+
+_method my_object.method(a, b)
+_endmethod
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (method
+      (identifier)
+      (identifier)))
+  (fragment
+    (method
+      (identifier)
+      (identifier)))
+  (fragment
+    (method
+      (identifier)
+      (identifier)
+      (argument)))
+  (fragment
+    (method
+      (identifier)
+      (identifier)
+      (argument)
+      (argument))))
+
+================================================================================
+indexing methods
+================================================================================
+
+_method my_object[]
+_endmethod
+$
+
+_method my_object[a]
+_endmethod
+$
+
+_method my_object[a, b]
+_endmethod
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (method
+      (identifier)))
+  (fragment
+    (method
+      (identifier)
+      (argument)))
+  (fragment
+    (method
+      (identifier)
+      (argument)
+      (argument))))
+
+================================================================================
+chevron methods
+================================================================================
+
+_method my_object.method<< a
+_endmethod
+$
+
+_method my_object.method^<< a
+_endmethod
+$
+
+_method my_object[a]<< b
+_endmethod
+$
+
+_method my_object[a]^<< a
+_endmethod
+$
+
+_method my_object.method(a)<< b
+_endmethod
+$
+
+_method my_object.method(a)^<< b
+_endmethod
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (method
+      (identifier)
+      (identifier)
+        (argument)))
+  (fragment
+    (method
+      (identifier)
+      (identifier)
+      (argument)))
+  (fragment
+    (method
+      (identifier)
+        (argument)
+        (argument)))
+  (fragment
+    (method
+      (identifier)
+      (argument)
+      (argument)))
+  (fragment
+    (method
+      (identifier)
+      (identifier)
+      (argument)
+      (argument)))
+  (fragment
+    (method
+      (identifier)
+      (identifier)
+      (argument)
+      (argument))))
+
+================================================================================
+complex methods
+================================================================================
+
+_method my_object.method
+  >> _if _true
+     _then >> _false
+     _endif
+_endmethod
+$
+
+_method my_object.method()
+  >> _if _true
+     _then >> _false
+     _elif _false
+     _then >> _true
+     _endif
+_endmethod
+$
+
+_method my_object.method(a)
+  >> _if a _is _true
+     _then >> _false
+     _elif a _is _false
+     _then >> _true
+     _else >> _maybe
+     _endif
+_endmethod
+$
+
+_method my_object.method(a, b)
+  >> _if a _is b
+     _then >> _false
+     _elif a > b
+     _then >> _true
+     _endif.default(_maybe)
+_endmethod
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (method
+      (identifier)
+      (identifier)
+      (return
+        (if
+          (true)
+          (return
+            (false))))))
+  (fragment
+    (method
+      (identifier)
+      (identifier)
+      (return
+        (if
+          (true)
+          (return
+            (false))
+          (elif
+            (false)
+            (return
+              (true)))))))
+  (fragment
+    (method
+      (identifier)
+      (identifier)
+      (argument)
+      (return
+        (if
+          (relational_operator
+            (variable)
+            (true))
+          (return
+            (false))
+          (elif
+            (relational_operator
+              (variable)
+              (false))
+            (return
+              (true)))
+          (else
+            (return
+              (maybe)))))))
+  (fragment
+    (method
+      (identifier)
+      (identifier)
+      (argument)
+      (argument)
+      (return
+        (call
+          (if
+            (relational_operator
+              (variable)
+              (variable))
+            (return
+              (false))
+            (elif
+              (relational_operator
+                (variable)
+                (variable))
+              (return
+                (true))))
+          (identifier)
+          (maybe))))))
+
+================================================================================
+method documentation
+================================================================================
+
+_method my_object.method_with_doc()
+	## multi
+	## line
+	## documentation
+
+	# comment
+	## comment
+_endmethod
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (method
+      (identifier)
+      (identifier)
+      (documentation
+        (comment)))))
+
+================================================================================
+iterator method
+================================================================================
+
+_abstract _private _iter _method object.abstract_private_iter()
+  _loopbody(_unset, _unset)
+_endmethod
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (method
+      (identifier)
+      (identifier)
+      (loopbody
+        (unset)
+        (unset)))))
+
+================================================================================
+method arguments
+================================================================================
+
+_method object.method(_gather args)
+_endmethod
+$
+
+_method object.method(first_arg _gather args)
+_endmethod
+$
+
+_method object.method(_optional arg)
+_endmethod
+$
+
+_method object.method(first_arg, _optional second_arg, third_arg)
+_endmethod
+$
+
+_method object.method<< first_arg, second_arg
+_endmethod
+$
+
+_method object.method^<< first_arg, second_arg
+_endmethod
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (method
+      (identifier)
+      (identifier)
+      (argument)))
+  (fragment
+    (method
+      (identifier)
+      (identifier)
+      (argument)
+      (argument)))
+  (fragment
+    (method
+      (identifier)
+      (identifier)
+      (argument)))
+  (fragment
+    (method
+      (identifier)
+      (identifier)
+      (argument)
+      (argument)
+      (argument)))
+  (fragment
+    (method
+      (identifier)
+      (identifier)
+      (argument)
+      (argument)))
+  (fragment
+    (method
+      (identifier)
+      (identifier)
+      (argument)
+      (argument))))
+
+================================================================================
+methods with pragma
+================================================================================
+
+_pragma(classify_level=basic)
+_method my_object.method_with_pragma()
+_endmethod
+$
+
+_pragma(classify_level=basic, topic=treesitter)
+_method my_object.other_method_with_pragma()
+_endmethod
+$
+
+_pragma(classify_level=basic, topic={treesitter, magik})
+_method my_object.yet_other_method_with_pragma()
+_endmethod
+$
+
+_pragma(classify_level=basic, topic={treesitter}, usage=subclassable)
+_method my_object.almost_last_method_with_pragma()
+_endmethod
+$
+
+_pragma(classify_level=basic, topic=treesitter, usage={redefinable, subclassable})
+_method my_object.last_method_with_pragma()
+_endmethod
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (pragma)
+    (method
+      (identifier)
+      (identifier)))
+  (fragment
+    (pragma)
+    (method
+      (identifier)
+      (identifier)))
+  (fragment
+    (pragma)
+    (method
+      (identifier)
+      (identifier)))
+  (fragment
+    (pragma)
+    (method
+      (identifier)
+      (identifier)))
+  (fragment
+    (pragma)
+    (method
+      (identifier)
+      (identifier))))

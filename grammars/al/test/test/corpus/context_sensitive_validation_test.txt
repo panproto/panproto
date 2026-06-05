@@ -1,0 +1,79 @@
+================================================================================
+New property keywords work automatically as variable names
+================================================================================
+
+page 123 "Context Sensitive Test"
+{
+    var
+        NewPropertyKeyword: Text;
+        AnotherNewProperty: Integer;
+        FutureProperty: Boolean;
+        UnknownProperty: Option A,B,C;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (text_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (option_type
+            (option_member_list
+              (option_member
+                (identifier))
+              (option_member
+                (identifier))
+              (option_member
+                (identifier)))))))))
+
+================================================================================
+High precedence variables work with standard identifiers
+================================================================================
+
+page 456 "High Precedence Test"
+{
+    var
+        StandardVar: Text;
+        RegularIdentifier: Integer;
+        NormalVariable: Boolean;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (text_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type))))))

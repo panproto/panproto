@@ -1,0 +1,163 @@
+================================================================================
+Query with TopNumberOfRows property
+================================================================================
+
+query 1470 "Top 10 Customer Sales"
+{
+    Caption = 'Top 10 Customer Sales';
+    DataAccessIntent = ReadOnly;
+    OrderBy = descending(Sum_Sales_LCY);
+    TopNumberOfRows = 10;
+
+    elements
+    {
+        dataitem(Cust_Ledger_Entry; "Cust. Ledger Entry")
+        {
+            filter(Posting_Date; "Posting Date")
+            {
+            }
+            column(Customer_No; "Customer No.")
+            {
+            }
+            column(Sum_Sales_LCY; "Sales (LCY)")
+            {
+                Method = Sum;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (order_by_list
+        (order_by_item
+          (identifier))))
+    (property
+      name: (property_name)
+      value: (integer))
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)
+        (query_filter
+          (filter_keyword)
+          name: (identifier)
+          field_name: (quoted_identifier))
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          field_name: (quoted_identifier))
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          field_name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))))))
+
+================================================================================
+Query with different TopNumberOfRows values
+================================================================================
+
+query 50100 "Top Records Query"
+{
+    TopNumberOfRows = 100;
+    QueryType = API;
+    
+    elements
+    {
+        dataitem(Item; Item)
+        {
+            column(No; "No.")
+            {
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (integer))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          field_name: (quoted_identifier))))))
+
+================================================================================
+Query with TopNumberOfRows and case variations
+================================================================================
+
+query 50101 "Case Test Query"
+{
+    topnumberofrows = 5;
+    TOPNUMBEROFROWS = 20;
+    TopNumberOfRows = 50;
+    
+    elements
+    {
+        dataitem(Customer; Customer)
+        {
+            column(No; "No.")
+            {
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (integer))
+    (property
+      name: (property_name)
+      value: (integer))
+    (property
+      name: (property_name)
+      value: (integer))
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          field_name: (quoted_identifier))))))

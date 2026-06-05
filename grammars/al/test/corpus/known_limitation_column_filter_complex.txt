@@ -1,0 +1,50 @@
+================================================================================
+Complex ColumnFilter expressions in query columns (known limitation)
+================================================================================
+
+query 76 "Posted Docs With No Inc Doc"
+{
+    elements
+    {
+        dataitem(Incoming_Document; "Incoming Document")
+        {
+            column(NoOfIncomingDocuments)
+            {
+                // This pattern is not currently supported
+                ColumnFilter = NoOfIncomingDocuments = const(0);
+                Method = Count;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    (integer)
+    (quoted_identifier)
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        (identifier)
+        (quoted_identifier)
+        (query_column
+          (column_keyword)
+          (identifier)
+          (comment)
+          (property
+            (property_name)
+            (property_expression
+              (comparison_expression
+                (identifier)
+                (comparison_operator)
+                (call_expression
+                  (identifier)
+                  (argument_list
+                    (integer))))))
+          (property
+            (property_name)
+            (identifier)))))))

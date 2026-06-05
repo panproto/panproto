@@ -1,0 +1,161 @@
+================================================================================
+Action groups with navigation properties and shortcut keys
+================================================================================
+
+page 123 "Test Page"
+{
+    actions
+    {
+        area(Navigation)
+        {
+            group(InvoiceGroup)
+            {
+                Caption = '&Invoice';
+                action(CustomerCard)
+                {
+                    ApplicationArea = All;
+                    Caption = 'Customer Card';
+                    Image = "EditLines";
+                    Promoted = true;
+                    PromotedCategory = Process;
+                    PromotedOnly = true;
+                    RunObject = page "Customer Card";
+                    RunPageLink = "No." = field("Bill-to Customer No.");
+                    ShortcutKey = "Shift+F7";
+                    ToolTip = 'View customer card.';
+                }
+                action(Statistics)
+                {
+                    ApplicationArea = All;
+                    Caption = 'Statistics';
+                    RunPageLink = "No." = field("No.");
+                    ShortcutKey = "Ctrl+F7";
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_group_section
+          (group_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (action_declaration
+            name: (identifier)
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (quoted_identifier))
+            (property
+              name: (property_name)
+              value: (boolean))
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (boolean))
+            (property
+              name: (property_name)
+              value: (object_reference_value
+                (page_keyword)
+                (quoted_identifier)))
+            (property
+              name: (property_name)
+              value: (property_expression
+                (comparison_expression
+                  left: (quoted_identifier)
+                  operator: (comparison_operator)
+                  right: (call_expression
+                    function: (identifier)
+                    arguments: (argument_list
+                      (quoted_identifier))))))
+            (property
+              name: (property_name)
+              value: (quoted_identifier))
+            (property
+              name: (property_name)
+              value: (string_literal)))
+          (action_declaration
+            name: (identifier)
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (property_expression
+                (comparison_expression
+                  left: (quoted_identifier)
+                  operator: (comparison_operator)
+                  right: (call_expression
+                    function: (identifier)
+                    arguments: (argument_list
+                      (quoted_identifier))))))
+            (property
+              name: (property_name)
+              value: (quoted_identifier))))))))
+
+================================================================================
+Direct action groups in actions section
+================================================================================
+
+page 456 "Another Test"
+{
+    actions
+    {
+        group(DirectGroup)
+        {
+            Caption = 'Direct Group';
+            action(TestAction)
+            {
+                Caption = 'Test';
+                ShortcutKey = "F9";
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (action_group_section
+        (group_keyword)
+        name: (identifier)
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (action_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (quoted_identifier)))))))

@@ -1,0 +1,56 @@
+==================
+Basic Codeunit Test
+==================
+
+codeunit 50100 "My Test Codeunit"
+{
+    trigger OnRun()
+    begin
+        Message('Hello from My Test Codeunit!');
+    end;
+
+    procedure AddTwoNumbers(a: Integer; b: Integer): Integer
+    begin
+        exit(a + b);
+    end;
+}
+
+---
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (quoted_identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          (identifier)
+          (argument_list
+            (string_literal)))
+        (end_keyword)))
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (parameter_list
+        (parameter
+          (identifier)
+          (type_specification
+            (basic_type)))
+        (parameter
+          (identifier)
+          (type_specification
+            (basic_type))))
+      (type_specification
+        (basic_type))
+      (code_block
+        (begin_keyword)
+        (exit_statement
+          (exit_keyword)
+          (additive_expression
+            (identifier)
+            (identifier)))
+        (end_keyword)))))

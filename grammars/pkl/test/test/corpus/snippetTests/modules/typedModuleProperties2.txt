@@ -1,0 +1,16 @@
+===
+modules/typedModuleProperties2.pkl
+===
+
+res1: String = 42
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (intLiteralExpr)))

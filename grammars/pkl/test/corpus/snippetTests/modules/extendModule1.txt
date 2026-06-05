@@ -1,0 +1,80 @@
+===
+modules/extendModule1.pkl
+===
+
+extends "library.pkl"
+
+class Teacher extends Person {
+  subjects: List<String(!isEmpty)>
+}
+
+pigeon = (super.pigeon) {
+  name = "PIGEON"
+}
+
+parrot: Teacher = new Teacher {
+  name = "Parrot"
+  subjects = List("Fire making", "Stone age")
+}
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (clazz
+    (identifier)      (classExtendsClause
+      (qualifiedIdentifier
+        (identifier)))
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))
+            (typeArgumentList
+              (constrainedType
+                (declaredType
+                  (qualifiedIdentifier
+                    (identifier)))
+                (logicalNotExpr
+                  (unqualifiedAccessExpr
+                    (identifier))))))))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (superAccessExpr
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart)))
+        (objectProperty
+          (identifier)
+          (unqualifiedAccessExpr
+            (identifier)
+            (argumentList
+              (slStringLiteralExpr
+                (slStringLiteralPart))
+              (slStringLiteralExpr
+                (slStringLiteralPart)))))))))

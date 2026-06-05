@@ -1,0 +1,15 @@
+===
+errors/missingLocalPropertyValue1.pkl
+===
+
+local x: Int
+---
+
+(module
+  (classProperty
+    (modifier)
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))))

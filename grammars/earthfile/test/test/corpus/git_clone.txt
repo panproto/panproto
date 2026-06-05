@@ -1,0 +1,44 @@
+==================
+git clone command
+==================
+
+foo:
+    GIT CLONE git@github.com/glehmann/foo.git ./
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (git_clone_command
+            url: (string
+              (unquoted_string))
+            dest: (string
+              (unquoted_string))))))
+
+
+==================
+git clone command with options
+==================
+
+foo:
+    GIT CLONE --keep-ts --branch main git@github.com/glehmann/foo.git ./
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (git_clone_command
+            options: (options
+              (keep_ts)
+              (branch
+                value: (string
+                  (unquoted_string))))
+            url: (string
+              (unquoted_string))
+            dest: (string
+              (unquoted_string))))))
+

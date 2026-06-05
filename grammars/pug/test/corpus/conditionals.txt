@@ -1,0 +1,199 @@
+================================================================================
+Conditional
+================================================================================
+
+if user.description
+  tag
+else if authorised
+  tag
+else
+  tag
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (conditional
+    (keyword)
+    (javascript)
+    (children
+      (tag
+        (tag_name))))
+  (conditional
+    (keyword)
+    (javascript)
+    (children
+      (tag
+        (tag_name))))
+  (conditional
+    (keyword)
+    (children
+      (tag
+        (tag_name)))))
+
+================================================================================
+Conditional in tag
+================================================================================
+
+span
+  if user.description
+    tag
+  else if authorised
+    tag
+  else
+    tag
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (tag
+    (tag_name)
+    (children
+      (conditional
+        (keyword)
+        (javascript)
+        (children
+          (tag
+            (tag_name))))
+      (conditional
+        (keyword)
+        (javascript)
+        (children
+          (tag
+            (tag_name))))
+      (conditional
+        (keyword)
+        (children
+          (tag
+            (tag_name)))))))
+
+================================================================================
+Conditional in tag real example
+================================================================================
+
+#user
+  if user.description
+    h2.green Description
+    p= user.description
+  else if authorised
+    span content
+  else
+    span content
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (tag
+    (id)
+    (children
+      (conditional
+        (keyword)
+        (javascript)
+        (children
+          (tag
+            (tag_name)
+            (class)
+            (content))
+          (tag
+            (tag_name)
+            (buffered_code
+              (javascript)))))
+      (conditional
+        (keyword)
+        (javascript)
+        (children
+          (tag
+            (tag_name)
+            (content))))
+      (conditional
+        (keyword)
+        (children
+          (tag
+            (tag_name)
+            (content)))))))
+
+================================================================================
+Conditional in tag real example with multiple indents and blank lines
+================================================================================
+
+#user
+  if user.description
+    h2 text
+    p text
+
+unless user.isAnonymous
+  p text
+  span content
+
+
+p
+
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (tag
+    (id)
+    (children
+      (conditional
+        (keyword)
+        (javascript)
+        (children
+          (tag
+            (tag_name)
+            (content))
+          (tag
+            (tag_name)
+            (content))))))
+  (conditional
+    (keyword)
+    (javascript)
+    (children
+      (tag
+        (tag_name)
+        (content))
+      (tag
+        (tag_name)
+        (content))))
+  (tag
+    (tag_name)))
+
+================================================================================
+Conditional else following multi-level a element
+================================================================================
+
+tag
+  if user.description
+    h2 text
+      h2 text
+  else if test
+    h3 text
+
+p
+
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (tag
+    (tag_name)
+    (children
+      (conditional
+        (keyword)
+        (javascript)
+        (children
+          (tag
+            (tag_name)
+            (content)
+            (children
+              (tag
+                (tag_name)
+                (content))))))
+      (conditional
+        (keyword)
+        (javascript)
+        (children
+          (tag
+            (tag_name)
+            (content))))))
+  (tag
+    (tag_name)))

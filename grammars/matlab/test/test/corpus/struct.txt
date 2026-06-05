@@ -1,0 +1,142 @@
+================================================================================
+Struct: Simple Initialization
+================================================================================
+
+a.b = 1
+a.b.c = 1
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (assignment
+    (field_expression
+      (identifier)
+      (identifier))
+    (number))
+  (assignment
+    (field_expression
+      (identifier)
+      (identifier)
+      (identifier))
+    (number)))
+
+================================================================================
+Struct: Simple Access
+================================================================================
+
+a.b
+a.b.c
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (field_expression
+    (identifier)
+    (identifier))
+  (field_expression
+    (identifier)
+    (identifier)
+    (identifier)))
+
+================================================================================
+Struct: Indirect Access
+================================================================================
+
+a.(b)
+a.(b(1)).c
+a.(b(1)){2}.c
+a.("b").c
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (field_expression
+    (identifier)
+    (indirect_access
+      (identifier)))
+  (field_expression
+    (identifier)
+    (indirect_access
+      (function_call
+        (identifier)
+        (arguments
+          (number))))
+    (identifier))
+  (field_expression
+    (function_call
+      (field_expression
+        (identifier)
+        (indirect_access
+          (function_call
+            (identifier)
+            (arguments
+              (number)))))
+      (arguments
+        (number)))
+    (identifier))
+  (field_expression
+    (identifier)
+    (indirect_access
+      (string
+        (string_content)))
+    (identifier)))
+
+================================================================================
+Struct: Indexed Initialization
+================================================================================
+
+a(1).b = 1
+a{1}.b = 1
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (assignment
+    (field_expression
+      (function_call
+        (identifier)
+        (arguments
+          (number)))
+      (identifier))
+    (number))
+  (assignment
+    (field_expression
+      (function_call
+        (identifier)
+        (arguments
+          (number)))
+      (identifier))
+    (number)))
+
+================================================================================
+Struct: Indexed Access
+================================================================================
+
+a(1).b
+a.b{1}
+a{1}.b(1)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (field_expression
+    (function_call
+      (identifier)
+      (arguments
+        (number)))
+    (identifier))
+  (field_expression
+    (identifier)
+    (function_call
+      (identifier)
+      (arguments
+        (number))))
+  (field_expression
+    (function_call
+      (identifier)
+      (arguments
+        (number)))
+    (function_call
+      (identifier)
+      (arguments
+        (number)))))

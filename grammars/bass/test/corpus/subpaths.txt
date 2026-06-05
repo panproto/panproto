@@ -1,0 +1,21 @@
+===
+Subpaths
+===
+
+foo/file
+foo/dir/
+foo/sub/file
+foo/sub/dir/
+git:github/vito/bass
+
+---
+
+(source
+  (path)
+  (path)
+  (path)
+  (path)
+  (symbind
+    (symbol)
+    (keyword
+      (path))))

@@ -1,0 +1,95 @@
+================================================================================
+IndentationColumn property in repeater sections
+================================================================================
+
+page 60855 "Test Page"
+{
+    layout
+    {
+        area(Content)
+        {
+            repeater("Repeater")
+            {
+                IndentationColumn = 1;
+                field(TestField; TestField)
+                {
+                    ApplicationArea = All;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (repeater_section
+          (repeater_keyword)
+          name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (integer))
+          (page_field
+            name: (identifier)
+            source: (identifier)
+            (property
+              name: (property_name)
+              value: (identifier))))))))
+
+================================================================================
+IndentationColumn property with different values
+================================================================================
+
+page 50001 "Test Page 2"
+{
+    layout
+    {
+        area(Content)
+        {
+            repeater("Rep1")
+            {
+                IndentationColumn = 0;
+            }
+            repeater("Rep2")
+            {
+                IndentationColumn = 5;
+                FreezeColumn = "Test Column";
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (repeater_section
+          (repeater_keyword)
+          name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (integer)))
+        (repeater_section
+          (repeater_keyword)
+          name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (integer))
+          (property
+            name: (property_name)
+            value: (quoted_identifier)))))))

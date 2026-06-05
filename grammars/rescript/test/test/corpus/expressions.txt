@@ -1,0 +1,2232 @@
+================================================================================
+Unit
+================================================================================
+
+()
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (unit)))
+
+================================================================================
+Parenthesized expressions
+================================================================================
+
+(5)
+(5: int)
+(())
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (parenthesized_expression
+      (number)))
+  (expression_statement
+    (parenthesized_expression
+      (number)
+      (type_annotation
+        (type_identifier))))
+  (expression_statement
+    (parenthesized_expression
+      (unit))))
+
+================================================================================
+Nested identifiers
+================================================================================
+
+Foo.Bar.baz
+Foo.Bar.baz.qux
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (value_identifier_path
+      (module_identifier_path
+        (module_identifier)
+        (module_identifier))
+      (value_identifier)))
+  (expression_statement
+    (member_expression
+      (value_identifier_path
+        (module_identifier_path
+          (module_identifier)
+          (module_identifier))
+        (value_identifier))
+      (property_identifier))))
+
+================================================================================
+Escape identifiers
+================================================================================
+
+\"+."
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (value_identifier)))
+
+================================================================================
+Tuple
+================================================================================
+
+(1, 2)
+(1, 2,)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (tuple
+      (number)
+      (number)))
+  (expression_statement
+    (tuple
+      (number)
+      (number))))
+
+================================================================================
+Call expression
+================================================================================
+
+min(1, 2)
+pow(2.0: float, ~exp=3.0: float)
+foo(3, ~bar=4, ~pun, ())
+bar(~x?, ~y=?oldY,)
+qux(. 1)
+keep(
+  item =>
+    item->Foo.bar == 5
+)
+blocky(
+  1,
+  {
+    open Mod
+    qrux
+  },
+  ~third={3},
+)
+f(raise)
+f(1, ...)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (call_expression
+      function: (value_identifier)
+      arguments: (arguments
+        (number)
+        (number))))
+  (expression_statement
+    (call_expression
+      function: (value_identifier)
+      arguments: (arguments
+        (number)
+        (type_annotation
+          (type_identifier))
+        (labeled_argument
+          label: (value_identifier)
+          value: (number)
+          type: (type_annotation
+            (type_identifier))))))
+  (expression_statement
+    (call_expression
+      function: (value_identifier)
+      arguments: (arguments
+        (number)
+        (labeled_argument
+          label: (value_identifier)
+          value: (number))
+        (labeled_argument
+          label: (value_identifier))
+        (unit))))
+  (expression_statement
+    (call_expression
+      function: (value_identifier)
+      arguments: (arguments
+        (labeled_argument
+          label: (value_identifier))
+        (labeled_argument
+          label: (value_identifier)
+          value: (value_identifier)))))
+  (expression_statement
+    (call_expression
+      function: (value_identifier)
+      arguments: (arguments
+        (uncurry)
+        (number))))
+  (expression_statement
+    (call_expression
+      function: (value_identifier)
+      arguments: (arguments
+        (function
+          parameter: (value_identifier)
+          body: (binary_expression
+            left: (pipe_expression
+              (value_identifier)
+              (value_identifier_path
+                (module_identifier)
+                (value_identifier)))
+            right: (number))))))
+  (expression_statement
+    (call_expression
+      function: (value_identifier)
+      arguments: (arguments
+        (number)
+        (block
+          (open_statement
+            (module_identifier))
+          (expression_statement
+            (value_identifier)))
+        (labeled_argument
+          label: (value_identifier)
+          value: (block
+            (expression_statement
+              (number)))))))
+  (expression_statement
+    (call_expression
+      function: (value_identifier)
+      arguments: (arguments
+        (value_identifier))))
+  (expression_statement
+    (call_expression
+      function: (value_identifier)
+      arguments: (arguments
+        (number)
+        (partial_application_spread)))))
+
+================================================================================
+Pipe
+================================================================================
+
+foo->bar->baz
+foo |> bar |> baz
+xs->Array.map(foo)->Array.sum
+5->Some
+foo->#Id
+
+bbox
+->outset
+
+foo->(
+  x => x + 1
+)
+
+foo->{
+  open Bar
+  baz
+}
+
+{foo}->print()
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (pipe_expression
+      (pipe_expression
+        (value_identifier)
+        (value_identifier))
+      (value_identifier)))
+  (expression_statement
+    (pipe_expression
+      (pipe_expression
+        (value_identifier)
+        (value_identifier))
+      (value_identifier)))
+  (expression_statement
+    (pipe_expression
+      (pipe_expression
+        (value_identifier)
+        (call_expression
+          (value_identifier_path
+            (module_identifier)
+            (value_identifier))
+          (arguments
+            (value_identifier))))
+      (value_identifier_path
+        (module_identifier)
+        (value_identifier))))
+  (expression_statement
+    (pipe_expression
+      (number)
+      (variant
+        (variant_identifier))))
+  (expression_statement
+    (pipe_expression
+      (value_identifier)
+      (polyvar
+        (polyvar_identifier))))
+  (expression_statement
+    (pipe_expression
+      (value_identifier)
+      (value_identifier)))
+  (expression_statement
+    (pipe_expression
+      (value_identifier)
+      (parenthesized_expression
+        (function
+          (value_identifier)
+          (binary_expression
+            (value_identifier)
+            (number))))))
+  (expression_statement
+    (pipe_expression
+      (value_identifier)
+      (block
+        (open_statement
+          (module_identifier))
+        (expression_statement
+          (value_identifier)))))
+  (expression_statement
+    (pipe_expression
+      (block
+        (expression_statement
+          (value_identifier)))
+      (call_expression
+        (value_identifier)
+        (arguments)))))
+
+================================================================================
+Record
+================================================================================
+
+{
+  ...old,
+  foo: 32,
+  bar: "baz",
+  qux,
+}
+
+{a, b, c}
+
+{School.age: 20}
+{School.age: 20, name: "Big ReScript"}
+
+{x: ?None, ?y, z: ?(None: t)}
+
+{ ?optPunning }
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (record
+      (spread_element
+        (value_identifier))
+      (record_field
+        (property_identifier)
+        (number))
+      (record_field
+        (property_identifier)
+        (string
+          (string_fragment)))
+      (record_field
+        (property_identifier))))
+  (expression_statement
+    (record
+      (record_field
+        (property_identifier))
+      (record_field
+        (property_identifier))
+      (record_field
+        (property_identifier))))
+  (expression_statement
+    (record
+      (record_field
+        (property_identifier
+          (module_identifier)
+          (value_identifier))
+        (number))))
+  (expression_statement
+    (record
+      (record_field
+        (property_identifier
+          (module_identifier)
+          (value_identifier))
+        (number))
+      (record_field
+        (property_identifier)
+        (string
+          (string_fragment)))))
+  (expression_statement
+    (record
+      (record_field
+        (property_identifier)
+        (variant
+          (variant_identifier)))
+      (record_field
+        (property_identifier))
+      (record_field
+        (property_identifier)
+        (parenthesized_expression
+          (variant
+            (variant_identifier))
+          (type_annotation
+            (type_identifier))))))
+  (expression_statement
+    (record
+      (property_identifier))))
+
+================================================================================
+Object
+================================================================================
+
+{
+  "foo": 32,
+  "bar": "baz",
+}
+
+{ .  "x": 1 }
+{ .. "x": 1 }
+{ .. }
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (object
+      (field
+        (property_identifier
+          (string_fragment))
+        (number))
+      (field
+        (property_identifier
+          (string_fragment))
+        (string
+          (string_fragment)))))
+  (expression_statement
+    (object
+      (field
+        (property_identifier
+          (string_fragment))
+        (number))))
+  (expression_statement
+    (object
+      (field
+        (property_identifier
+          (string_fragment))
+        (number))))
+  (expression_statement
+    (object)))
+
+================================================================================
+If/else
+================================================================================
+
+if predicate {
+  foo
+}
+
+if predicate {
+  foo
+} else {
+  bar
+}
+
+if predicateA {
+  foo
+} else if predicateB {
+  qux
+} else if predicateC {
+  zoo
+} else {
+  bar
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (if_expression
+      (value_identifier)
+      (block
+        (expression_statement
+          (value_identifier)))))
+  (expression_statement
+    (if_expression
+      (value_identifier)
+      (block
+        (expression_statement
+          (value_identifier)))
+      (else_clause
+        (block
+          (expression_statement
+            (value_identifier))))))
+  (expression_statement
+    (if_expression
+      (value_identifier)
+      (block
+        (expression_statement
+          (value_identifier)))
+      (else_if_clause
+        (value_identifier)
+        (block
+          (expression_statement
+            (value_identifier))))
+      (else_if_clause
+        (value_identifier)
+        (block
+          (expression_statement
+            (value_identifier))))
+      (else_clause
+        (block
+          (expression_statement
+            (value_identifier)))))))
+
+================================================================================
+If/else with else on new line
+================================================================================
+
+if predicateA {
+  foo
+}
+else if predicateB {
+  bar
+}
+else {
+  baz
+}
+
+if predicateA {
+  foo
+} // comment before else if
+else if predicateB {
+  bar
+} // comment before else
+else {
+  baz
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (if_expression
+      (value_identifier)
+      (block
+        (expression_statement
+          (value_identifier)))
+      (else_if_clause
+        (value_identifier)
+        (block
+          (expression_statement
+            (value_identifier))))
+      (else_clause
+        (block
+          (expression_statement
+            (value_identifier))))))
+  (expression_statement
+    (if_expression
+      (value_identifier)
+      (block
+        (expression_statement
+          (value_identifier)))
+      (line_comment)
+      (else_if_clause
+        (value_identifier)
+        (block
+          (expression_statement
+            (value_identifier))))
+      (line_comment)
+      (else_clause
+        (block
+          (expression_statement
+            (value_identifier)))))))
+
+================================================================================
+Switch of literals
+================================================================================
+
+switch foo {
+| 1 | 2 => "few"
+| _ =>
+  let s = "very "
+  s ++ "many"
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (switch_expression
+      (value_identifier)
+      (switch_match
+        (or_pattern
+          (number)
+          (number))
+        (sequence_expression
+          (expression_statement
+            (string
+              (string_fragment)))))
+      (switch_match
+        (value_identifier)
+        (sequence_expression
+          (let_declaration
+            (let_binding
+              (value_identifier)
+              (string
+                (string_fragment))))
+          (expression_statement
+            (binary_expression
+              (value_identifier)
+              (string
+                (string_fragment)))))))))
+
+================================================================================
+Switch of variants
+================================================================================
+
+switch foo {
+| Some(x as qux: int, {y, z}) => x
+| Option.None => 42
+| Surprise() => 0
+| ?Some(_) => 1
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (switch_expression
+      (value_identifier)
+      (switch_match
+        (variant_pattern
+          (variant_identifier)
+          (formal_parameters
+            (value_identifier)
+            (as_aliasing
+              (value_identifier))
+            (type_annotation
+              (type_identifier))
+            (record_pattern
+              (value_identifier)
+              (value_identifier))))
+        (sequence_expression
+          (expression_statement
+            (value_identifier))))
+      (switch_match
+        (variant_pattern
+          (nested_variant_identifier
+            (module_identifier)
+            (variant_identifier)))
+        (sequence_expression
+          (expression_statement
+            (number))))
+      (switch_match
+        (variant_pattern
+          (variant_identifier)
+          (formal_parameters))
+        (sequence_expression
+          (expression_statement
+            (number))))
+      (switch_match
+        (variant_pattern
+          (variant_identifier)
+          (formal_parameters
+            (value_identifier)))
+        (sequence_expression
+          (expression_statement
+            (number)))))))
+
+================================================================================
+Variant Pattern Spread
+================================================================================
+
+let handle = (event: extended) =>
+  switch event {
+  | ...base as core => Console.log2("base", core)
+  | Resume => Console.log("resuming")
+  }
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (let_declaration
+    (let_binding
+      pattern: (value_identifier)
+      body: (function
+        parameters: (formal_parameters
+          (parameter
+            (value_identifier)
+            (type_annotation
+              (type_identifier))))
+        body: (switch_expression
+          (value_identifier)
+          (switch_match
+            pattern: (variant_spread_pattern
+              (variant_type_pattern
+                (type_identifier))
+              (as_aliasing
+                (value_identifier)))
+            body: (sequence_expression
+              (expression_statement
+                (call_expression
+                  function: (value_identifier_path
+                    (module_identifier)
+                    (value_identifier))
+                  arguments: (arguments
+                    (string
+                      (string_fragment))
+                    (value_identifier))))))
+          (switch_match
+            pattern: (variant_pattern
+              (variant_identifier))
+            body: (sequence_expression
+              (expression_statement
+                (call_expression
+                  function: (value_identifier_path
+                    (module_identifier)
+                    (value_identifier))
+                  arguments: (arguments
+                    (string
+                      (string_fragment))))))))))))
+
+================================================================================
+Switch of polyvars
+================================================================================
+
+switch foo {
+| #Bar => 42
+| #Qux(a as bar: int, 3) as qux => 99
+| #...Polyvar.t as toto => 5
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (switch_expression
+      (value_identifier)
+      (switch_match
+        (polyvar_pattern
+          (polyvar_identifier))
+        (sequence_expression
+          (expression_statement
+            (number))))
+      (switch_match
+        (polyvar_pattern
+          (polyvar_identifier)
+          (formal_parameters
+            (value_identifier)
+            (as_aliasing
+              (value_identifier))
+            (type_annotation
+              (type_identifier))
+            (number)))
+        (as_aliasing
+          (value_identifier))
+        (sequence_expression
+          (expression_statement
+            (number))))
+      (switch_match
+        (polyvar_type_pattern
+          (type_identifier_path
+            (module_identifier)
+            (type_identifier)))
+        (as_aliasing
+          (value_identifier))
+        (sequence_expression
+          (expression_statement
+            (number)))))))
+
+================================================================================
+Switch of vars
+================================================================================
+
+switch foo {
+| x if x > 42 && x < 99 => x
+| x when x > 100 => x
+| _ => 42
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (switch_expression
+      (value_identifier)
+      (switch_match
+        (value_identifier)
+        (guard
+          (binary_expression
+            (binary_expression
+              (value_identifier)
+              (number))
+            (binary_expression
+              (value_identifier)
+              (number))))
+        (sequence_expression
+          (expression_statement
+            (value_identifier))))
+      (switch_match
+        (value_identifier)
+        (guard
+          (binary_expression
+            (value_identifier)
+            (number)))
+        (sequence_expression
+          (expression_statement
+            (value_identifier))))
+      (switch_match
+        (value_identifier)
+        (sequence_expression
+          (expression_statement
+            (number)))))))
+
+================================================================================
+Switch of tuples
+================================================================================
+
+switch (foo, bar) {
+| (42, 99 as zoo) => 42
+| (Variant1, #...t) => 5
+| (_, _) => 13
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (switch_expression
+      (tuple
+        (value_identifier)
+        (value_identifier))
+      (switch_match
+        (tuple_pattern
+          (tuple_item_pattern
+            (number))
+          (tuple_item_pattern
+            (number)
+            (as_aliasing
+              (value_identifier))))
+        (sequence_expression
+          (expression_statement
+            (number))))
+      (switch_match
+        (tuple_pattern
+          (tuple_item_pattern
+            (variant_pattern
+              (variant_identifier)))
+          (tuple_item_pattern
+            (polyvar_type_pattern
+              (type_identifier))))
+        (sequence_expression
+          (expression_statement
+            (number))))
+      (switch_match
+        (tuple_pattern
+          (tuple_item_pattern
+            (value_identifier))
+          (tuple_item_pattern
+            (value_identifier)))
+        (sequence_expression
+          (expression_statement
+            (number)))))))
+
+================================================================================
+Switch of mixed tuples
+================================================================================
+
+switch tuple {
+| (Variant1 | Variant2, 42.0) => 10
+| _ => 20
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (switch_expression
+      (value_identifier)
+      (switch_match
+        (tuple_pattern
+          (tuple_item_pattern
+            (or_pattern
+              (variant_pattern
+                (variant_identifier))
+              (variant_pattern
+                (variant_identifier))))
+          (tuple_item_pattern
+            (number)))
+        (sequence_expression
+          (expression_statement
+            (number))))
+      (switch_match
+        (value_identifier)
+        (sequence_expression
+          (expression_statement
+            (number)))))))
+
+================================================================================
+Switch of record patterns
+================================================================================
+
+switch person {
+| Teacher({name: "Mary" | "Joe"}) => 10
+| Student({
+    reportCard: {gpa: 0.0},
+    status: Vacations(daysLeft) | Sabbatical(daysLeft)
+  }) => 20
+| Student({status: Sick}) => 30
+| Student({name}) => 40
+| Student({?age}) => 50
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (switch_expression
+      (value_identifier)
+      (switch_match
+        (variant_pattern
+          (variant_identifier)
+          (formal_parameters
+            (record_pattern
+              (value_identifier)
+              (or_pattern
+                (string
+                  (string_fragment))
+                (string
+                  (string_fragment))))))
+        (sequence_expression
+          (expression_statement
+            (number))))
+      (switch_match
+        (variant_pattern
+          (variant_identifier)
+          (formal_parameters
+            (record_pattern
+              (value_identifier)
+              (record_pattern
+                (value_identifier)
+                (number))
+              (value_identifier)
+              (or_pattern
+                (variant_pattern
+                  (variant_identifier)
+                  (formal_parameters
+                    (value_identifier)))
+                (variant_pattern
+                  (variant_identifier)
+                  (formal_parameters
+                    (value_identifier)))))))
+        (sequence_expression
+          (expression_statement
+            (number))))
+      (switch_match
+        (variant_pattern
+          (variant_identifier)
+          (formal_parameters
+            (record_pattern
+              (value_identifier)
+              (variant_pattern
+                (variant_identifier)))))
+        (sequence_expression
+          (expression_statement
+            (number))))
+      (switch_match
+        (variant_pattern
+          (variant_identifier)
+          (formal_parameters
+            (record_pattern
+              (value_identifier))))
+        (sequence_expression
+          (expression_statement
+            (number))))
+      (switch_match
+        (variant_pattern
+          (variant_identifier)
+          (formal_parameters
+            (record_pattern
+              (value_identifier))))
+        (sequence_expression
+          (expression_statement
+            (number)))))))
+
+================================================================================
+Switch of lists
+================================================================================
+
+switch foo {
+| list{current as qux, ...others} => 1
+| list{1, 2, x} => 2
+| list{1, } => 3
+| list{...others} => 4
+| list{1, 2, ...list{b, ..._} as rest} => rest
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (switch_expression
+      (value_identifier)
+      (switch_match
+        (list_pattern
+          (value_identifier)
+          (as_aliasing
+            (value_identifier))
+          (spread_pattern
+            (value_identifier)))
+        (sequence_expression
+          (expression_statement
+            (number))))
+      (switch_match
+        (list_pattern
+          (number)
+          (number)
+          (value_identifier))
+        (sequence_expression
+          (expression_statement
+            (number))))
+      (switch_match
+        (list_pattern
+          (number))
+        (sequence_expression
+          (expression_statement
+            (number))))
+      (switch_match
+        (list_pattern
+          (spread_pattern
+            (value_identifier)))
+        (sequence_expression
+          (expression_statement
+            (number))))
+      (switch_match
+        (list_pattern
+          (number)
+          (number)
+          (spread_pattern
+            (list_pattern
+              (value_identifier)
+              (spread_pattern
+                (value_identifier))))
+          (as_aliasing
+            (value_identifier)))
+        (sequence_expression
+          (expression_statement
+            (value_identifier)))))))
+
+================================================================================
+Switch of arrays
+================================================================================
+
+switch foo {
+| [head, ...others] => 1
+| [1, 2 as bar, x] => 2
+| [1,
+  ] => 3
+| [...others] => 4
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (switch_expression
+      (value_identifier)
+      (switch_match
+        (array_pattern
+          (value_identifier)
+          (spread_pattern
+            (value_identifier)))
+        (sequence_expression
+          (expression_statement
+            (number))))
+      (switch_match
+        (array_pattern
+          (number)
+          (number)
+          (as_aliasing
+            (value_identifier))
+          (value_identifier))
+        (sequence_expression
+          (expression_statement
+            (number))))
+      (switch_match
+        (array_pattern
+          (number))
+        (sequence_expression
+          (expression_statement
+            (number))))
+      (switch_match
+        (array_pattern
+          (spread_pattern
+            (value_identifier)))
+        (sequence_expression
+          (expression_statement
+            (number)))))))
+
+================================================================================
+Switch of statements
+================================================================================
+
+switch (element->HtmlInputElement.ofElement) {
+| Some(input) =>
+  HtmlInputElement.focus(input);
+  HtmlInputElement.select(input);
+| None => ()
+};
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (switch_expression
+      (parenthesized_expression
+        (pipe_expression
+          (value_identifier)
+          (value_identifier_path
+            (module_identifier)
+            (value_identifier))))
+      (switch_match
+        pattern: (variant_pattern
+          (variant_identifier)
+          (formal_parameters
+            (value_identifier)))
+        body: (sequence_expression
+          (expression_statement
+            (call_expression
+              function: (value_identifier_path
+                (module_identifier)
+                (value_identifier))
+              arguments: (arguments
+                (value_identifier))))
+          (expression_statement
+            (call_expression
+              function: (value_identifier_path
+                (module_identifier)
+                (value_identifier))
+              arguments: (arguments
+                (value_identifier))))))
+      (switch_match
+        pattern: (variant_pattern
+          (variant_identifier))
+        body: (sequence_expression
+          (expression_statement
+            (unit)))))))
+
+================================================================================
+Switch exceptions
+================================================================================
+
+switch parseExn(str) {
+| json => 42
+| exception Js.Exn.Error(obj) => 99
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (switch_expression
+      (call_expression
+        (value_identifier)
+        (arguments
+          (value_identifier)))
+      (switch_match
+        (value_identifier)
+        (sequence_expression
+          (expression_statement
+            (number))))
+      (switch_match
+        (exception_pattern
+          (variant_pattern
+            (nested_variant_identifier
+              (module_identifier_path
+                (module_identifier)
+                (module_identifier))
+              (variant_identifier))
+            (formal_parameters
+              (value_identifier))))
+        (sequence_expression
+          (expression_statement
+            (number)))))))
+
+================================================================================
+Switch block
+================================================================================
+
+switch { open Mod; foo() } {
+| _ => 42
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (switch_expression
+      (block
+        (open_statement
+          (module_identifier))
+        (expression_statement
+          (call_expression
+            (value_identifier)
+            (arguments))))
+      (switch_match
+        (value_identifier)
+        (sequence_expression
+          (expression_statement
+            (number)))))))
+
+================================================================================
+Switch parenthesized
+================================================================================
+
+switch n {
+| (1 | 2) => 1
+| Some((This | That) | Unknow) => 0
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (switch_expression
+      (value_identifier)
+      (switch_match
+        (parenthesized_pattern
+          (or_pattern
+            (number)
+            (number)))
+        (sequence_expression
+          (expression_statement
+            (number))))
+      (switch_match
+        (variant_pattern
+          (variant_identifier)
+          (formal_parameters
+            (or_pattern
+              (parenthesized_pattern
+                (or_pattern
+                  (variant_pattern
+                    (variant_identifier))
+                  (variant_pattern
+                    (variant_identifier))))
+              (variant_pattern
+                (variant_identifier)))))
+        (sequence_expression
+          (expression_statement
+            (number)))))))
+
+================================================================================
+Switch ranges
+================================================================================
+
+switch c {
+| 'b' .. 'z' => 100
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (switch_expression
+      (value_identifier)
+      (switch_match
+        (range_pattern
+          (character)
+          (character))
+        (sequence_expression
+          (expression_statement
+            (number)))))))
+
+================================================================================
+Switch of lazy patterns
+================================================================================
+
+switch c {
+| lazy(r) => r
+| (lazy (), lazy 3) => false
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (switch_expression
+      (value_identifier)
+      (switch_match
+        (lazy_pattern
+          (parenthesized_pattern
+            (value_identifier)))
+        (sequence_expression
+          (expression_statement
+            (value_identifier))))
+      (switch_match
+        (tuple_pattern
+          (tuple_item_pattern
+            (lazy_pattern
+              (unit)))
+          (tuple_item_pattern
+            (lazy_pattern
+              (number))))
+        (sequence_expression
+          (expression_statement
+            (false)))))))
+
+================================================================================
+Math operators
+================================================================================
+
+- 1 + 2 / 3
+-. 1.0 +. 2.0 /. 3.0
+2.0 ** 3.0
+2.0 ** 3.0 ** 5.0
+5 % 2
+-0l
+-ln
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (binary_expression
+      (unary_expression
+        (number))
+      (binary_expression
+        (number)
+        (number))))
+  (expression_statement
+    (binary_expression
+      (unary_expression
+        (number))
+      (binary_expression
+        (number)
+        (number))))
+  (expression_statement
+    (binary_expression
+      (number)
+      (number)))
+  (expression_statement
+    (binary_expression
+      (number)
+      (binary_expression
+        (number)
+        (number))))
+  (expression_statement
+    (binary_expression
+      (number)
+      (number)))
+  (expression_statement
+    (number))
+  (expression_statement
+    (unary_expression
+      (value_identifier))))
+
+================================================================================
+Boolean operators
+================================================================================
+
+i || j;
+i && j;
+!a && !b || !c && !d;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (binary_expression
+      (value_identifier)
+      (value_identifier)))
+  (expression_statement
+    (binary_expression
+      (value_identifier)
+      (value_identifier)))
+  (expression_statement
+    (binary_expression
+      (binary_expression
+        (unary_expression
+          (value_identifier))
+        (unary_expression
+          (value_identifier)))
+      (binary_expression
+        (unary_expression
+          (value_identifier))
+        (unary_expression
+          (value_identifier))))))
+
+================================================================================
+Bitwise operators
+================================================================================
+
+a &&& b;
+a ||| b;
+a ^^^ b;
+~~~a;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (binary_expression
+      (value_identifier)
+      (value_identifier)))
+  (expression_statement
+    (binary_expression
+      (value_identifier)
+      (value_identifier)))
+  (expression_statement
+    (binary_expression
+      (value_identifier)
+      (value_identifier)))
+  (expression_statement
+    (unary_expression
+      (value_identifier))))
+
+================================================================================
+Shift operators
+================================================================================
+
+a << b;
+a >> b;
+a >>> b;
+a << b + c;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (binary_expression
+      (value_identifier)
+      (value_identifier)))
+  (expression_statement
+    (binary_expression
+      (value_identifier)
+      (value_identifier)))
+  (expression_statement
+    (binary_expression
+      (value_identifier)
+      (value_identifier)))
+  (expression_statement
+    (binary_expression
+      (value_identifier)
+      (binary_expression
+        (value_identifier)
+        (value_identifier)))))
+
+================================================================================
+String operators
+================================================================================
+
+s1 ++ s2
+s1 ++ s2 ++ s3
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (binary_expression
+      (value_identifier)
+      (value_identifier)))
+  (expression_statement
+    (binary_expression
+      (binary_expression
+        (value_identifier)
+        (value_identifier))
+      (value_identifier))))
+
+================================================================================
+Coercion operator
+================================================================================
+
+value :> newType
+value :> t<'a>
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (coercion_expression
+      (value_identifier)
+      (type_identifier)))
+  (expression_statement
+    (coercion_expression
+      (value_identifier)
+      (generic_type
+        (type_identifier)
+        (type_arguments
+          (type_identifier))))))
+
+================================================================================
+Ternaries
+================================================================================
+
+condition ? case1 : case2
+
+condition
+  ? case1
+  : case2
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (ternary_expression
+      (value_identifier)
+      (value_identifier)
+      (value_identifier)))
+  (expression_statement
+    (ternary_expression
+      (value_identifier)
+      (value_identifier)
+      (value_identifier))))
+
+================================================================================
+Arrays
+================================================================================
+
+[]
+[1]
+[1, 2]
+
+[
+  1,
+  2,
+]
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (array))
+  (expression_statement
+    (array
+      (number)))
+  (expression_statement
+    (array
+      (number)
+      (number)))
+  (expression_statement
+    (array
+      (number)
+      (number))))
+
+================================================================================
+Array spreads
+================================================================================
+
+let animals = ["🐶", "🐱", "🐷"]
+let moreAnimals = [...animals, "🐔", "🐴", "🐮", ...otherAnimals]
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (let_declaration
+    (let_binding
+      pattern: (value_identifier)
+      body: (array
+        (string
+          (string_fragment))
+        (string
+          (string_fragment))
+        (string
+          (string_fragment)))))
+  (let_declaration
+    (let_binding
+      pattern: (value_identifier)
+      body: (array
+        (spread_element
+          (value_identifier))
+        (string
+          (string_fragment))
+        (string
+          (string_fragment))
+        (string
+          (string_fragment))
+        (spread_element
+          (value_identifier))))))
+
+================================================================================
+Lists
+================================================================================
+
+list{}
+list{1}
+list{1,}
+list{
+  1,
+  2,
+}
+
+list{ 1, 2, ...xs }
+list{ ...xs, 1, 2 }
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (list))
+  (expression_statement
+    (list
+      (number)))
+  (expression_statement
+    (list
+      (number)))
+  (expression_statement
+    (list
+      (number)
+      (number)))
+  (expression_statement
+    (list
+      (number)
+      (number)
+      (spread_element
+        (value_identifier))))
+  (expression_statement
+    (list
+      (spread_element
+        (value_identifier))
+      (number)
+      (number))))
+
+================================================================================
+Member expressions
+================================================================================
+
+foo.bar.baz
+foo.ModuleName.bar
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (member_expression
+      (member_expression
+        (value_identifier)
+        (property_identifier))
+      (property_identifier)))
+  (expression_statement
+    (member_expression
+      (value_identifier)
+      (module_identifier)
+      (property_identifier))))
+
+================================================================================
+Subscript expressions
+================================================================================
+
+myArray[42]
+myObj["foo"]
+andd[0]
+andd[1]
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (subscript_expression
+      (value_identifier)
+      (number)))
+  (expression_statement
+    (subscript_expression
+      (value_identifier)
+      (string
+        (string_fragment))))
+  (expression_statement
+    (subscript_expression
+      (value_identifier)
+      (number)))
+  (expression_statement
+    (subscript_expression
+      (value_identifier)
+      (number))))
+
+================================================================================
+Variants
+================================================================================
+
+Foo
+Foo(42)
+Foo(42: int)
+Foo(qux, { bar: 3 }, )
+Foo((Obj.magic(v): string))
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (variant
+      (variant_identifier)))
+  (expression_statement
+    (variant
+      (variant_identifier)
+      (arguments
+        (number))))
+  (expression_statement
+    (variant
+      (variant_identifier)
+      (arguments
+        (number)
+        (type_annotation
+          (type_identifier)))))
+  (expression_statement
+    (variant
+      (variant_identifier)
+      (arguments
+        (value_identifier)
+        (record
+          (record_field
+            (property_identifier)
+            (number))))))
+  (expression_statement
+    (variant
+      (variant_identifier)
+      (arguments
+        (parenthesized_expression
+          (call_expression
+            (value_identifier_path
+              (module_identifier)
+              (value_identifier))
+            (arguments
+              (value_identifier)))
+          (type_annotation
+            (type_identifier)))))))
+
+================================================================================
+Extensions
+================================================================================
+
+%debugger
+%re("/[^1-9]/g")
+%%raw("function () { return 42; }")
+%%private(let mult = (x, y) => x * y)
+%%private(
+  let x = "1"
+  let y = 1;
+)
+let x = %raw(`
+  function test(a) {
+    return "\" + a + "\";
+  }
+`)
+let x = %raw(j`
+  function test(a) {
+    return "\" + a + "\";
+  }
+`)
+module Test = %graphql(`
+  query {
+    test {
+      id
+    }
+  }
+`)
+%extension.type(: Mod.t)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (extension_expression
+      (extension_identifier)))
+  (expression_statement
+    (extension_expression
+      (extension_identifier)
+      (expression_statement
+        (string
+          (string_fragment)))))
+  (expression_statement
+    (extension_expression
+      (extension_identifier)
+      (expression_statement
+        (string
+          (string_fragment)))))
+  (expression_statement
+    (extension_expression
+      (extension_identifier)
+      (let_declaration
+        (let_binding
+          pattern: (value_identifier)
+          body: (function
+            parameters: (formal_parameters
+              (parameter
+                (value_identifier))
+              (parameter
+                (value_identifier)))
+            body: (binary_expression
+              left: (value_identifier)
+              right: (value_identifier)))))))
+  (expression_statement
+    (extension_expression
+      (extension_identifier)
+      (let_declaration
+        (let_binding
+          pattern: (value_identifier)
+          body: (string
+            (string_fragment))))
+      (let_declaration
+        (let_binding
+          pattern: (value_identifier)
+          body: (number)))))
+  (let_declaration
+    (let_binding
+      pattern: (value_identifier)
+      body: (extension_expression
+        (extension_identifier)
+        (expression_statement
+          (template_string
+            (template_string_content
+              (escape_sequence)
+              (escape_sequence)))))))
+  (let_declaration
+    (let_binding
+      pattern: (value_identifier)
+      body: (extension_expression
+        (extension_identifier)
+        (expression_statement
+          (template_string
+            (template_string_content
+              (escape_sequence)
+              (escape_sequence)))))))
+  (module_declaration
+    (module_binding
+      name: (module_identifier)
+      definition: (extension_expression
+        (extension_identifier)
+        (expression_statement
+          (template_string
+            (template_string_content))))))
+  (expression_statement
+    (extension_expression
+      (extension_identifier)
+      (type_annotation
+        (type_identifier_path
+          (module_identifier)
+          (type_identifier))))))
+
+================================================================================
+Raise expression
+================================================================================
+
+raise(BadArgument({myMessage: "Oops!"}))
+raise(InvalidInput,)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (call_expression
+      function: (value_identifier)
+      arguments: (arguments
+        (variant
+          (variant_identifier)
+          (arguments
+            (record
+              (record_field
+                (property_identifier)
+                (string
+                  (string_fragment)))))))))
+  (expression_statement
+    (call_expression
+      function: (value_identifier)
+      arguments: (arguments
+        (variant
+          (variant_identifier))))))
+
+================================================================================
+Assert expression
+================================================================================
+
+assert false
+assert { 1 > 2 }
+let f = () => assert false
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (assert_expression
+      (false)))
+  (expression_statement
+    (assert_expression
+      (block
+        (expression_statement
+          (binary_expression
+            (number)
+            (number))))))
+  (let_declaration
+    (let_binding
+      (value_identifier)
+      (function
+        (formal_parameters)
+        (assert_expression
+          (false))))))
+
+================================================================================
+Try-catch
+================================================================================
+
+try {
+  someOtherJSFunctionThatThrows()
+} catch {
+| Not_found => 1
+| FooBar({ x, y }) => 2
+| Js.Exn.Error(obj) => 3
+}
+
+try switch foo() {
+| 1 => "1"
+| 2 => "2"
+| _ => "many"
+} catch {
+| Js.Exn.Error(obj) => "error"
+}
+
+try for i in 0 to 10 {
+  call()
+} catch {
+| Not_found => false
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (try_expression
+      (block
+        (expression_statement
+          (call_expression
+            (value_identifier)
+            (arguments))))
+      (switch_match
+        (variant_pattern
+          (variant_identifier))
+        (sequence_expression
+          (expression_statement
+            (number))))
+      (switch_match
+        (variant_pattern
+          (variant_identifier)
+          (formal_parameters
+            (record_pattern
+              (value_identifier)
+              (value_identifier))))
+        (sequence_expression
+          (expression_statement
+            (number))))
+      (switch_match
+        (variant_pattern
+          (nested_variant_identifier
+            (module_identifier_path
+              (module_identifier)
+              (module_identifier))
+            (variant_identifier))
+          (formal_parameters
+            (value_identifier)))
+        (sequence_expression
+          (expression_statement
+            (number))))))
+  (expression_statement
+    (try_expression
+      (switch_expression
+        (call_expression
+          (value_identifier)
+          (arguments))
+        (switch_match
+          (number)
+          (sequence_expression
+            (expression_statement
+              (string
+                (string_fragment)))))
+        (switch_match
+          (number)
+          (sequence_expression
+            (expression_statement
+              (string
+                (string_fragment)))))
+        (switch_match
+          (value_identifier)
+          (sequence_expression
+            (expression_statement
+              (string
+                (string_fragment))))))
+      (switch_match
+        (variant_pattern
+          (nested_variant_identifier
+            (module_identifier_path
+              (module_identifier)
+              (module_identifier))
+            (variant_identifier))
+          (formal_parameters
+            (value_identifier)))
+        (sequence_expression
+          (expression_statement
+            (string
+              (string_fragment)))))))
+  (expression_statement
+    (try_expression
+      (for_expression
+        (value_identifier)
+        (number)
+        (number)
+        (block
+          (expression_statement
+            (call_expression
+              (value_identifier)
+              (arguments)))))
+      (switch_match
+        (variant_pattern
+          (variant_identifier))
+        (sequence_expression
+          (expression_statement
+            (false)))))))
+
+================================================================================
+Mutation expressions
+================================================================================
+
+foo["bar"] = qux
+foo.bar = qux
+foo.bar := qux
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (mutation_expression
+      (subscript_expression
+        (value_identifier)
+        (string
+          (string_fragment)))
+      (value_identifier)))
+  (expression_statement
+    (mutation_expression
+      (member_expression
+        (value_identifier)
+        (property_identifier))
+      (value_identifier)))
+  (expression_statement
+    (mutation_expression
+      (member_expression
+        (value_identifier)
+        (property_identifier))
+      (value_identifier))))
+
+================================================================================
+For loop
+================================================================================
+
+for x in 1 to 3 {
+  Js.log(x)
+}
+
+for x in 1 downto 3 {
+  Js.log(x)
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (for_expression
+      (value_identifier)
+      (number)
+      (number)
+      (block
+        (expression_statement
+          (call_expression
+            (value_identifier_path
+              (module_identifier)
+              (value_identifier))
+            (arguments
+              (value_identifier)))))))
+  (expression_statement
+    (for_expression
+      (value_identifier)
+      (number)
+      (number)
+      (block
+        (expression_statement
+          (call_expression
+            (value_identifier_path
+              (module_identifier)
+              (value_identifier))
+            (arguments
+              (value_identifier))))))))
+
+================================================================================
+While loop
+================================================================================
+
+while true {
+  Js.log("Still running")
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (while_expression
+      (true)
+      (block
+        (expression_statement
+          (call_expression
+            (value_identifier_path
+              (module_identifier)
+              (value_identifier))
+            (arguments
+              (string
+                (string_fragment)))))))))
+
+================================================================================
+Await expression
+================================================================================
+
+await somePromise
+await foo()
+await foo->bar + 5
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (await_expression
+      (value_identifier)))
+  (expression_statement
+    (await_expression
+      (call_expression
+        (value_identifier)
+        (arguments))))
+  (expression_statement
+    (binary_expression
+      (await_expression
+        (pipe_expression
+          (value_identifier)
+          (value_identifier)))
+      (number))))
+
+================================================================================
+As aliasing
+================================================================================
+
+let f = ({name, _} as foo: T.t) => {}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (let_declaration
+    (let_binding
+      pattern: (value_identifier)
+      body: (function
+        parameters: (formal_parameters
+          (parameter
+            (record_pattern
+              (value_identifier)
+              (value_identifier))
+            (as_aliasing
+              (value_identifier))
+            (type_annotation
+              (type_identifier_path
+                (module_identifier)
+                (type_identifier)))))
+        body: (block)))))
+
+================================================================================
+Lazy Expression
+================================================================================
+
+lazy { 1 }
+lazy call()
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (lazy_expression
+      (block
+        (expression_statement
+          (number)))))
+  (expression_statement
+    (lazy_expression
+      (call_expression
+        (value_identifier)
+        (arguments)))))
+
+================================================================================
+Dict expression
+================================================================================
+
+dict{"A": 5, "B": 6}
+dict{}
+let dict = dict{"A": 5}
+let dict{"C": ?c} = d
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (dict
+      (dict_entry
+        (string
+          (string_fragment))
+        (number))
+      (dict_entry
+        (string
+          (string_fragment))
+        (number))))
+  (expression_statement
+    (dict))
+  (let_declaration
+    (let_binding
+      pattern: (value_identifier)
+      body: (dict
+        (dict_entry
+          (string
+            (string_fragment))
+          (number)))))
+  (let_declaration
+    (let_binding
+      pattern: (dict_pattern
+        (dict_pattern_entry
+          (string
+            (string_fragment))
+          (value_identifier)))
+      body: (value_identifier))))
+
+================================================================================
+Dict pattern in switch
+================================================================================
+
+switch json {
+| Object(dict{"lat": Number(lat), "lon": ?lon}) => lat
+| _ => 0.0
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (switch_expression
+      (value_identifier)
+      (switch_match
+        (variant_pattern
+          (variant_identifier)
+          (formal_parameters
+            (dict_pattern
+              (dict_pattern_entry
+                (string
+                  (string_fragment))
+                (variant_pattern
+                  (variant_identifier)
+                  (formal_parameters
+                    (value_identifier))))
+              (dict_pattern_entry
+                (string
+                  (string_fragment))
+                (value_identifier)))))
+        (sequence_expression
+          (expression_statement
+            (value_identifier))))
+      (switch_match
+        (value_identifier)
+        (sequence_expression
+          (expression_statement
+            (number)))))))

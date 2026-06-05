@@ -1,0 +1,861 @@
+================================================================================
+Interfaces 1
+================================================================================
+
+interface Show a where
+    show : a -> String
+
+--------------------------------------------------------------------------------
+
+(idris
+  (interface
+    (interface_head
+      (interface_name
+        (caname))
+      (exp_name
+        (loname)))
+    (interface_body
+      (where)
+      (signature
+        (loname)
+        (colon)
+        (exp_name
+          (loname))
+        (arrow_separator)
+        (exp_name
+          (caname))))))
+
+================================================================================
+Interfaces 2
+================================================================================
+
+Show Nat where
+    show Z = "Z"
+
+--------------------------------------------------------------------------------
+
+(idris
+  (implementation
+    (implementation_head
+      (interface_name
+        (caname))
+      (exp_name
+        (caname)))
+    (implementation_body
+      (where)
+      (function
+        (lhs
+          (funvar
+            (loname)
+            (patterns
+              (pat_name
+                (caname)))))
+        (rhs
+          (string))))))
+
+================================================================================
+Default definitions
+================================================================================
+
+interface Eq a where
+    x /= y = not (x == y)
+
+--------------------------------------------------------------------------------
+
+(idris
+  (interface
+    (interface_head
+      (interface_name
+        (caname))
+      (exp_name
+        (loname)))
+    (interface_body
+      (where)
+      (function
+        (lhs
+          (funvar
+            (loname)
+            (patterns
+              (pat_op)
+              (pat_name
+                (loname)))))
+        (rhs
+          (exp_name
+            (loname))
+          (exp_parens
+            (exp_name
+              (loname))
+            (operator)
+            (exp_name
+              (loname))))))))
+
+================================================================================
+Interface with parameters
+================================================================================
+
+interface X where
+  using (ctx : context)
+    int : Int -> inter ctx Int
+    add : BinaryOp (inter ctx Int)
+
+--------------------------------------------------------------------------------
+
+(idris
+  (interface
+    (interface_head
+      (interface_name
+        (caname)))
+    (interface_body
+      (where)
+      (using
+        (type_parens
+          (type_var
+            (loname)
+            (colon)
+            (exp_name
+              (loname))))
+        (parameters_body
+          (signature
+            (loname)
+            (colon)
+            (exp_name
+              (caname))
+            (arrow_separator)
+            (exp_name
+              (loname))
+            (exp_name
+              (loname))
+            (exp_name
+              (caname))))
+        (parameters_body
+          (signature
+            (loname)
+            (colon)
+            (exp_name
+              (caname))
+            (exp_parens
+              (exp_name
+                (loname))
+              (exp_name
+                (loname))
+              (exp_name
+                (caname)))))))))
+
+================================================================================
+Extending interfaces 1
+================================================================================
+
+interface Eq a => Ord a where
+    compare : a -> a -> Ordering
+
+--------------------------------------------------------------------------------
+
+(idris
+  (interface
+    (interface_head
+      (constraints
+        (exp_name
+          (caname))
+        (exp_name
+          (loname))
+        (arrow_separator))
+      (interface_name
+        (caname))
+      (exp_name
+        (loname)))
+    (interface_body
+      (where)
+      (signature
+        (loname)
+        (colon)
+        (exp_name
+          (loname))
+        (arrow_separator)
+        (exp_name
+          (loname))
+        (arrow_separator)
+        (exp_name
+          (caname))))))
+
+================================================================================
+Extending interfaces 2
+================================================================================
+
+interface (Ord a, Show a) => OrdShow a where
+
+--------------------------------------------------------------------------------
+
+(idris
+  (interface
+    (interface_head
+      (constraints
+        (exp_tuple
+          (exp_name
+            (caname))
+          (exp_name
+            (loname))
+          (tuple_operator)
+          (exp_name
+            (caname))
+          (exp_name
+            (loname)))
+        (arrow_separator))
+      (interface_name
+        (caname))
+      (exp_name
+        (loname)))
+    (interface_body
+      (where))))
+
+================================================================================
+Quantities for parameters 1
+================================================================================
+
+interface Functor (0 f : Type -> Type) where
+
+--------------------------------------------------------------------------------
+
+(idris
+  (interface
+    (interface_head
+      (interface_name
+        (caname))
+      (type_parens
+        (type_var
+          (quantity)
+          (loname)
+          (colon)
+          (exp_name
+            (caname))
+          (arrow_separator)
+          (exp_name
+            (caname)))))
+    (interface_body
+      (where))))
+
+================================================================================
+Quantities for parameters 2
+================================================================================
+
+interface Functor f => Applicative (0 f : Type -> Type) where
+
+--------------------------------------------------------------------------------
+
+(idris
+  (interface
+    (interface_head
+      (constraints
+        (exp_name
+          (caname))
+        (exp_name
+          (loname))
+        (arrow_separator))
+      (interface_name
+        (caname))
+      (type_parens
+        (type_var
+          (quantity)
+          (loname)
+          (colon)
+          (exp_name
+            (caname))
+          (arrow_separator)
+          (exp_name
+            (caname)))))
+    (interface_body
+      (where))))
+
+================================================================================
+Implimentation keyword
+================================================================================
+
+implementation Functor (SortedMap k) where
+
+--------------------------------------------------------------------------------
+
+(idris
+  (implementation
+    (implementation_head
+      (interface_name
+        (caname))
+      (exp_parens
+        (exp_name
+          (caname))
+        (exp_name
+          (loname))))
+    (implementation_body
+      (where))))
+
+================================================================================
+Implimentation with qualified op in parens
+================================================================================
+
+{x : a} -> Injective (Vect.(::) x) where
+
+--------------------------------------------------------------------------------
+
+(idris
+  (implementation
+    (implementation_head
+      (constraints
+        (type_braces
+          (exp_name
+            (loname))
+          (colon)
+          (exp_name
+            (loname)))
+        (arrow_separator))
+      (interface_name
+        (caname))
+      (exp_parens
+        (exp_name
+          (qualified_operator
+            (caname)))
+        (exp_name
+          (loname))))
+    (implementation_body
+      (where))))
+
+================================================================================
+Implimentation with empty list
+================================================================================
+
+Uninhabited (Data.Colist.InBounds k []) where
+
+--------------------------------------------------------------------------------
+
+(idris
+  (implementation
+    (implementation_head
+      (interface_name
+        (caname))
+      (exp_parens
+        (exp_name
+          (qualified_caname
+            (caname)
+            (caname)
+            (caname)))
+        (exp_name
+          (loname))
+        (exp_list)))
+    (implementation_body
+      (where))))
+
+================================================================================
+Implementation with implicit arguments
+================================================================================
+
+{0 xs : List a} -> 
+Either (Uninhabited $ x === y) (Uninhabited $ xs === ys) => 
+Uninhabited (x::xs = y::ys) where
+
+--------------------------------------------------------------------------------
+
+(idris
+  (implementation
+    (implementation_head
+      (constraints
+        (type_braces
+          (quantity)
+          (exp_name
+            (loname))
+          (colon)
+          (exp_name
+            (caname))
+          (exp_name
+            (loname)))
+        (arrow_separator)
+        (exp_name
+          (caname))
+        (exp_parens
+          (exp_name
+            (caname))
+          (operator)
+          (exp_name
+            (loname))
+          (operator)
+          (exp_name
+            (loname)))
+        (exp_parens
+          (exp_name
+            (caname))
+          (operator)
+          (exp_name
+            (loname))
+          (operator)
+          (exp_name
+            (loname)))
+        (arrow_separator))
+      (interface_name
+        (caname))
+      (type_parens
+        (exp_name
+          (loname))
+        (operator)
+        (exp_name
+          (loname))
+        (equal)
+        (exp_name
+          (loname))
+        (operator)
+        (exp_name
+          (loname))))
+    (implementation_body
+      (where))))
+
+================================================================================
+Implementation with implicit arguments inside constraints
+================================================================================
+
+({x : k} -> Semigroup (v x)) => Monoid (SortedDMap k v) where
+  neutral = empty
+
+--------------------------------------------------------------------------------
+
+(idris
+  (implementation
+    (implementation_head
+      (constraints
+        (type_parens
+          (type_braces
+            (exp_name
+              (loname))
+            (colon)
+            (exp_name
+              (loname)))
+          (arrow_separator)
+          (exp_name
+            (caname))
+          (exp_parens
+            (exp_name
+              (loname))
+            (exp_name
+              (loname))))
+        (arrow_separator))
+      (interface_name
+        (caname))
+      (exp_parens
+        (exp_name
+          (caname))
+        (exp_name
+          (loname))
+        (exp_name
+          (loname))))
+    (implementation_body
+      (where)
+      (function
+        (lhs
+          (funvar
+            (loname)))
+        (rhs
+          (exp_name
+            (loname)))))))
+
+================================================================================
+Implementation with implicit arguments inside constraint tuples
+================================================================================
+
+(DecEq k, {x : k} -> Eq (v x)) => Eq (SortedDMap k v) where
+  (==) = (==) `on` toList
+
+--------------------------------------------------------------------------------
+
+(idris
+  (implementation
+    (implementation_head
+      (constraints
+        (type_parens
+          (exp_name
+            (caname))
+          (exp_name
+            (loname))
+          (comma)
+          (type_braces
+            (exp_name
+              (loname))
+            (colon)
+            (exp_name
+              (loname)))
+          (arrow_separator)
+          (exp_name
+            (caname))
+          (exp_parens
+            (exp_name
+              (loname))
+            (exp_name
+              (loname))))
+        (arrow_separator))
+      (interface_name
+        (caname))
+      (exp_parens
+        (exp_name
+          (caname))
+        (exp_name
+          (loname))
+        (exp_name
+          (loname))))
+    (implementation_body
+      (where)
+      (function
+        (lhs
+          (funvar
+            (operator)))
+        (rhs
+          (exp_name
+            (operator))
+          (exp_ticked
+            (exp_name
+              (loname)))
+          (exp_name
+            (loname)))))))
+
+================================================================================
+Implementation with qualified operator
+================================================================================
+
+Biinjective Prelude.(::) where
+
+--------------------------------------------------------------------------------
+
+(idris
+  (implementation
+    (implementation_head
+      (interface_name
+        (caname))
+      (exp_name
+        (qualified_operator
+          (caname))))
+    (implementation_body
+      (where))))
+
+================================================================================
+Named implementation 1
+================================================================================
+
+[myord] Ord Nat where
+
+--------------------------------------------------------------------------------
+
+(idris
+  (implementation
+    (implementation_head
+      (implementation_name
+        (loname))
+      (interface_name
+        (caname))
+      (exp_name
+        (caname)))
+    (implementation_body
+      (where))))
+
+================================================================================
+Named implementation 2
+================================================================================
+
+[PlusNatMonoid] Monoid Nat using PlusNatSemi where
+
+--------------------------------------------------------------------------------
+
+(idris
+  (implementation
+    (implementation_head
+      (implementation_name
+        (caname))
+      (interface_name
+        (caname))
+      (exp_name
+        (caname))
+      (using
+        (implementation_name
+          (caname))))
+    (implementation_body
+      (where))))
+
+================================================================================
+Explicit args 1
+================================================================================
+
+_ = sort @{myord} xs
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (exp_name
+        (loname))
+      (exp_explicit_impl
+        (exp_name
+          (loname)))
+      (exp_name
+        (loname)))))
+
+================================================================================
+Explicit args 2
+================================================================================
+
+and = force . concat @{All}
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)))
+    (rhs
+      (exp_name
+        (loname))
+      (operator)
+      (exp_name
+        (loname))
+      (exp_explicit_impl
+        (exp_name
+          (caname))))))
+
+================================================================================
+Empty implementation
+================================================================================
+
+Num Foo
+
+--------------------------------------------------------------------------------
+
+(idris
+  (implementation
+    (implementation_head
+      (interface_name
+        (caname))
+      (exp_name
+        (caname)))))
+
+================================================================================
+Implementation with deeply nested exp
+================================================================================
+
+FiniteBits Bits16 where
+  popCount x0 =
+    let x1 = (x0 .&. 0x5555) + ((x0 `shiftR` 1) .&. 0x5555)
+     in cast x1
+
+--------------------------------------------------------------------------------
+
+(idris
+  (implementation
+    (implementation_head
+      (interface_name
+        (caname))
+      (exp_name
+        (caname)))
+    (implementation_body
+      (where)
+      (function
+        (lhs
+          (funvar
+            (loname)
+            (patterns
+              (pat_name
+                (loname)))))
+        (rhs
+          (exp_let_in
+            (declarations
+              (lhs
+                (pat_name
+                  (loname)))
+              (rhs
+                (exp_parens
+                  (exp_name
+                    (loname))
+                  (operator)
+                  (literal
+                    (integer)))
+                (operator)
+                (exp_parens
+                  (exp_parens
+                    (exp_name
+                      (loname))
+                    (exp_ticked
+                      (exp_name
+                        (loname)))
+                    (literal
+                      (integer)))
+                  (operator)
+                  (literal
+                    (integer)))))
+            (in
+              (exp_name
+                (loname))
+              (exp_name
+                (loname)))))))))
+
+================================================================================
+Implementation with visibility
+================================================================================
+
+export %inline
+Cast Char Nat where
+
+--------------------------------------------------------------------------------
+
+(idris
+  (implementation
+    (implementation_head
+      (visibility)
+      (pragma_inline)
+      (interface_name
+        (caname))
+      (exp_name
+        (caname))
+      (exp_name
+        (caname)))
+    (implementation_body
+      (where))))
+
+================================================================================
+Implementation with constriants
+================================================================================
+
+public export
+[Reverse] (fwd : Ord a) => Ord a where
+
+--------------------------------------------------------------------------------
+
+(idris
+  (implementation
+    (implementation_head
+      (visibility)
+      (constraints
+        (exp_list
+          (exp_name
+            (caname)))
+        (type_parens
+          (type_var
+            (loname)
+            (colon)
+            (exp_name
+              (caname))
+            (exp_name
+              (loname))))
+        (arrow_separator))
+      (interface_name
+        (caname))
+      (exp_name
+        (loname)))
+    (implementation_body
+      (where))))
+
+================================================================================
+Implementation with more constriants
+================================================================================
+
+public export
+[Compose] (l : Applicative f) => (r : Applicative g) => Applicative (f . g)
+  using Functor.Compose where
+
+--------------------------------------------------------------------------------
+
+(idris
+  (implementation
+    (implementation_head
+      (visibility)
+      (constraints
+        (exp_list
+          (exp_name
+            (caname)))
+        (type_parens
+          (type_var
+            (loname)
+            (colon)
+            (exp_name
+              (caname))
+            (exp_name
+              (loname))))
+        (arrow_separator)
+        (type_parens
+          (type_var
+            (loname)
+            (colon)
+            (exp_name
+              (caname))
+            (exp_name
+              (loname))))
+        (arrow_separator))
+      (interface_name
+        (caname))
+      (exp_parens
+        (exp_name
+          (loname))
+        (operator)
+        (exp_name
+          (loname)))
+      (using
+        (implementation_name
+          (caname)
+          (caname))))
+    (implementation_body
+      (where))))
+
+================================================================================
+Interface constructor
+================================================================================
+
+interface A t => B t where
+  constructor MkB
+
+--------------------------------------------------------------------------------
+
+(idris
+  (interface
+    (interface_head
+      (constraints
+        (exp_name
+          (caname))
+        (exp_name
+          (loname))
+        (arrow_separator))
+      (interface_name
+        (caname))
+      (exp_name
+        (loname)))
+    (interface_body
+      (where)
+      (constructor
+        (caname)))))
+
+================================================================================
+Determining parameters
+================================================================================
+
+interface Monad m => MonadState s (0 m : Type -> Type) | m where
+
+--------------------------------------------------------------------------------
+
+(idris
+  (interface
+    (interface_head
+      (constraints
+        (exp_name
+          (caname))
+        (exp_name
+          (loname))
+        (arrow_separator))
+      (interface_name
+        (caname))
+      (exp_name
+        (loname))
+      (type_parens
+        (type_var
+          (quantity)
+          (loname)
+          (colon)
+          (exp_name
+            (caname))
+          (arrow_separator)
+          (exp_name
+            (caname))))
+      (determining_params
+        (loname)))
+    (interface_body
+      (where))))

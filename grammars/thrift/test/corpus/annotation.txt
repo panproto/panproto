@@ -1,0 +1,765 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements. See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership. The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License. You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+
+=====================================
+Test a typedef with a type annotation
+=====================================
+
+typedef list<i32> ( cpp.template = "std::list" ) int_linked_list
+
+
+---
+
+(document
+  (typedef_definition
+    (definition_type
+      (container_type
+        (list
+          (type
+            (primitive))
+          (annotation_definition
+            (annotation_identifier
+              (identifier)
+              (identifier))
+            (literal
+              (string
+                (string_fragment)))))))
+    (typedef_identifier)))
+
+
+======================================
+Test a struct field with an annotation
+======================================
+
+struct foo {
+  1: i32 bar ( presence = "required" );
+}
+
+---
+
+(document
+  (struct_definition
+    (identifier)
+    (field
+      (field_id
+        (number))
+      (type
+        (primitive))
+      (identifier)
+      (annotation_definition
+        (annotation_identifier
+          (identifier))
+        (literal
+          (string
+            (string_fragment)))))))
+
+
+
+==============================================
+Test a struct field with a list of annotations
+==============================================
+
+struct foo {
+  1: i32 bar ( presence = "required" );
+  2: i32 baz ( presence = "manual", cpp.use_pointer = "", );
+  3: i32 qux;
+  4: i32 bop;
+}
+
+---
+
+(document
+  (struct_definition
+    (identifier)
+    (field
+      (field_id
+        (number))
+      (type
+        (primitive))
+      (identifier)
+      (annotation_definition
+        (annotation_identifier
+          (identifier))
+        (literal
+          (string
+            (string_fragment)))))
+    (field
+      (field_id
+        (number))
+      (type
+        (primitive))
+      (identifier)
+      (annotation_definition
+        (annotation_identifier
+          (identifier))
+        (literal
+          (string
+            (string_fragment)))
+        (annotation_identifier
+          (identifier)
+          (identifier))
+        (literal
+          (string))))
+    (field
+      (field_id
+        (number))
+      (type
+        (primitive))
+      (identifier))
+    (field
+      (field_id
+        (number))
+      (type
+        (primitive))
+      (identifier))))
+
+
+
+================================
+Test a struct with an annotation
+================================
+
+struct foo {
+  1: i32 bar ( presence = "required" );
+  2: i32 baz ( presence = "manual", cpp.use_pointer = "", );
+  3: i32 qux;
+  4: i32 bop;
+} ( cpp.type = "DenseFoo" )
+
+---
+
+(document
+  (struct_definition
+    (identifier)
+    (field
+      (field_id
+        (number))
+      (type
+        (primitive))
+      (identifier)
+      (annotation_definition
+        (annotation_identifier
+          (identifier))
+        (literal
+          (string
+            (string_fragment)))))
+    (field
+      (field_id
+        (number))
+      (type
+        (primitive))
+      (identifier)
+      (annotation_definition
+        (annotation_identifier
+          (identifier))
+        (literal
+          (string
+            (string_fragment)))
+        (annotation_identifier
+          (identifier)
+          (identifier))
+        (literal
+          (string))))
+    (field
+      (field_id
+        (number))
+      (type
+        (primitive))
+      (identifier))
+    (field
+      (field_id
+        (number))
+      (type
+        (primitive))
+      (identifier))
+    (annotation_definition
+      (annotation_identifier
+        (identifier)
+        (identifier))
+      (literal
+        (string
+          (string_fragment))))))
+
+
+
+========================================
+Test a struct with a list of annotations
+========================================
+
+struct foo {
+  1: i32 bar ( presence = "required" );
+  2: i32 baz ( presence = "manual", cpp.use_pointer = "", );
+  3: i32 qux;
+  4: i32 bop;
+} (
+  cpp.type = "DenseFoo",
+  python.type = "DenseFoo",
+  java.final = "",
+)
+
+---
+
+(document
+  (struct_definition
+    (identifier)
+    (field
+      (field_id
+        (number))
+      (type
+        (primitive))
+      (identifier)
+      (annotation_definition
+        (annotation_identifier
+          (identifier))
+        (literal
+          (string
+            (string_fragment)))))
+    (field
+      (field_id
+        (number))
+      (type
+        (primitive))
+      (identifier)
+      (annotation_definition
+        (annotation_identifier
+          (identifier))
+        (literal
+          (string
+            (string_fragment)))
+        (annotation_identifier
+          (identifier)
+          (identifier))
+        (literal
+          (string))))
+    (field
+      (field_id
+        (number))
+      (type
+        (primitive))
+      (identifier))
+    (field
+      (field_id
+        (number))
+      (type
+        (primitive))
+      (identifier))
+    (annotation_definition
+      (annotation_identifier
+        (identifier)
+        (identifier))
+      (literal
+        (string
+          (string_fragment)))
+      (annotation_identifier
+        (identifier)
+        (identifier))
+      (literal
+        (string
+          (string_fragment)))
+      (annotation_identifier
+        (identifier)
+        (identifier))
+      (literal
+        (string)))))
+
+
+
+==============================================
+Test a struct with an annotation with no value
+==============================================
+
+struct foo {
+  1: i32 bar ( presence = "required" );
+  2: i32 baz ( presence = "manual", cpp.use_pointer = "", );
+  3: i32 qux;
+  4: i32 bop;
+} (
+  cpp.type = "DenseFoo",
+  python.type = "DenseFoo",
+  java.final = "",
+  annotation.without.value,
+)
+
+---
+
+(document
+  (struct_definition
+    (identifier)
+    (field
+      (field_id
+        (number))
+      (type
+        (primitive))
+      (identifier)
+      (annotation_definition
+        (annotation_identifier
+          (identifier))
+        (literal
+          (string
+            (string_fragment)))))
+    (field
+      (field_id
+        (number))
+      (type
+        (primitive))
+      (identifier)
+      (annotation_definition
+        (annotation_identifier
+          (identifier))
+        (literal
+          (string
+            (string_fragment)))
+        (annotation_identifier
+          (identifier)
+          (identifier))
+        (literal
+          (string))))
+    (field
+      (field_id
+        (number))
+      (type
+        (primitive))
+      (identifier))
+    (field
+      (field_id
+        (number))
+      (type
+        (primitive))
+      (identifier))
+    (annotation_definition
+      (annotation_identifier
+        (identifier)
+        (identifier))
+      (literal
+        (string
+          (string_fragment)))
+      (annotation_identifier
+        (identifier)
+        (identifier))
+      (literal
+        (string
+          (string_fragment)))
+      (annotation_identifier
+        (identifier)
+        (identifier))
+      (literal
+        (string))
+      (annotation_identifier
+        (identifier)
+        (identifier)
+        (identifier)))))
+
+
+
+====================================================
+Test a typedef with a type and identifier annotation
+====================================================
+
+typedef string ( unicode.encoding = "UTF-16" ) non_latin_string (foo="bar")
+
+---
+
+(document
+  (typedef_definition
+    (definition_type
+      (primitive))
+    (annotation_definition
+      (annotation_identifier
+        (identifier)
+        (identifier))
+      (literal
+        (string
+          (string_fragment))))
+    (typedef_identifier)
+    (annotation_definition
+      (annotation_identifier
+        (identifier))
+      (literal
+        (string
+          (string_fragment))))))
+
+
+
+============================================================
+Test a typedef with a container type which has an annotation
+============================================================
+
+typedef list< double ( cpp.fixed_point = "16" ) > tiny_float_list
+
+---
+
+(document
+  (typedef_definition
+    (definition_type
+      (container_type
+        (list
+          (type
+            (primitive))
+          (annotation_definition
+            (annotation_identifier
+              (identifier)
+              (identifier))
+            (literal
+              (string
+                (string_fragment)))))))
+    (typedef_identifier)))
+
+
+
+================================================
+Test an enum with a field that has an annotation
+================================================
+
+enum weekdays {
+  SUNDAY ( weekend = "yes" ),
+  MONDAY,
+  TUESDAY,
+  WEDNESDAY,
+  THURSDAY,
+  FRIDAY,
+  SATURDAY ( weekend = "yes" )
+}
+
+---
+
+(document
+  (enum_definition
+    (identifier)
+    (identifier)
+    (annotation_definition
+      (annotation_identifier
+        (identifier))
+      (literal
+        (string
+          (string_fragment))))
+    (identifier)
+    (identifier)
+    (identifier)
+    (identifier)
+    (identifier)
+    (identifier)
+    (annotation_definition
+      (annotation_identifier
+        (identifier))
+      (literal
+        (string
+          (string_fragment))))))
+
+
+
+===============================
+Test an enum with an annotation
+===============================
+
+enum weekdays {
+  SUNDAY ( weekend = "yes" ),
+  MONDAY,
+  TUESDAY,
+  WEDNESDAY,
+  THURSDAY,
+  FRIDAY,
+  SATURDAY ( weekend = "yes" )
+} (foo.bar="baz")
+
+---
+
+(document
+  (enum_definition
+    (identifier)
+    (identifier)
+    (annotation_definition
+      (annotation_identifier
+        (identifier))
+      (literal
+        (string
+          (string_fragment))))
+    (identifier)
+    (identifier)
+    (identifier)
+    (identifier)
+    (identifier)
+    (identifier)
+    (annotation_definition
+      (annotation_identifier
+        (identifier))
+      (literal
+        (string
+          (string_fragment))))
+    (annotation_definition
+      (annotation_identifier
+        (identifier)
+        (identifier))
+      (literal
+        (string
+          (string_fragment))))))
+
+
+
+===================================================
+Test a service with a method that has an annotation
+===================================================
+
+service foo_service {
+  void foo() ( foo = "bar" )
+}
+
+---
+
+(document
+  (service_definition
+    (identifier)
+    (function_definition
+      (type)
+      (identifier)
+      (parameters)
+      (annotation_definition
+        (annotation_identifier
+          (identifier))
+        (literal
+          (string
+            (string_fragment)))))))
+
+
+
+=================================
+Test a service with an annotation
+=================================
+
+service foo_service {
+  void foo() ( foo = "bar" )
+} (a.b="c")
+
+---
+
+(document
+  (service_definition
+    (identifier)
+    (function_definition
+      (type)
+      (identifier)
+      (parameters)
+      (annotation_definition
+        (annotation_identifier
+          (identifier))
+        (literal
+          (string
+            (string_fragment)))))
+    (annotation_definition
+      (annotation_identifier
+        (identifier)
+        (identifier))
+      (literal
+        (string
+          (string_fragment))))))
+
+
+
+==========================================
+Test a service with deprecated annotations
+==========================================
+
+service deprecate_everything {
+  void Foo( ) ( deprecated = "This method has neither 'x' nor \"y\"" )
+  void Bar( ) ( deprecated = "Fails to deliver 中文 колбаса" )
+  void Baz( ) ( deprecated = "Need this to work with tabs (\t) or Umlauts (äöüÄÖÜß) too" )
+  void Deprecated() ( deprecated ) // no comment
+}
+
+---
+
+(document
+  (service_definition
+    (identifier)
+    (function_definition
+      (type)
+      (identifier)
+      (parameters)
+      (annotation_definition
+        (annotation_identifier
+          (identifier))
+        (literal
+          (string
+            (string_fragment)
+            (escape_sequence)
+            (string_fragment)
+            (escape_sequence)))))
+    (function_definition
+      (type)
+      (identifier)
+      (parameters)
+      (annotation_definition
+        (annotation_identifier
+          (identifier))
+        (literal
+          (string
+            (string_fragment)))))
+    (function_definition
+      (type)
+      (identifier)
+      (parameters)
+      (annotation_definition
+        (annotation_identifier
+          (identifier))
+        (literal
+          (string
+            (string_fragment)
+            (escape_sequence)
+            (string_fragment)))))
+    (function_definition
+      (type)
+      (identifier)
+      (parameters)
+      (annotation_definition
+        (annotation_identifier
+          (identifier))))
+    (comment)))
+
+
+
+=====================================================
+Test a struct with an annotation and comma at the end
+=====================================================
+
+namespace java thrift.test.annotations
+
+struct OneOfEachBeansWithAnnotations {
+  1: bool boolean_field,
+  2: byte a_bite (compression = "false"),
+  3: i16 integer16 (must_be_postive = "true"),
+  4: i32 integer32,
+  5: i64 integer64,
+  6: double double_precision (nan_inf_allowed = "false"),
+  7: string some_characters,
+  8: binary base64,
+  9: list<byte> byte_list (non_empty = "true"),
+  10: list<i16> i16_list,
+  11: list<i64> i64_list
+}
+
+---
+
+(document
+  (namespace_declaration
+    (namespace_scope)
+    (namespace)
+    (namespace
+      (identifier)
+      (identifier)))
+  (struct_definition
+    (identifier)
+    (field
+      (field_id
+        (number))
+      (type
+        (primitive))
+      (identifier))
+    (field
+      (field_id
+        (number))
+      (type
+        (primitive))
+      (identifier)
+      (annotation_definition
+        (annotation_identifier
+          (identifier))
+        (literal
+          (string
+            (string_fragment)))))
+    (field
+      (field_id
+        (number))
+      (type
+        (primitive))
+      (identifier)
+      (annotation_definition
+        (annotation_identifier
+          (identifier))
+        (literal
+          (string
+            (string_fragment)))))
+    (field
+      (field_id
+        (number))
+      (type
+        (primitive))
+      (identifier))
+    (field
+      (field_id
+        (number))
+      (type
+        (primitive))
+      (identifier))
+    (field
+      (field_id
+        (number))
+      (type
+        (primitive))
+      (identifier)
+      (annotation_definition
+        (annotation_identifier
+          (identifier))
+        (literal
+          (string
+            (string_fragment)))))
+    (field
+      (field_id
+        (number))
+      (type
+        (primitive))
+      (identifier))
+    (field
+      (field_id
+        (number))
+      (type
+        (primitive))
+      (identifier))
+    (field
+      (field_id
+        (number))
+      (type
+        (container_type
+          (list
+            (type
+              (primitive)))))
+      (identifier)
+      (annotation_definition
+        (annotation_identifier
+          (identifier))
+        (literal
+          (string
+            (string_fragment)))))
+    (field
+      (field_id
+        (number))
+      (type
+        (container_type
+          (list
+            (type
+              (primitive)))))
+      (identifier))
+    (field
+      (field_id
+        (number))
+      (type
+        (container_type
+          (list
+            (type
+              (primitive)))))
+      (identifier))))

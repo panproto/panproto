@@ -1,0 +1,119 @@
+==================
+identity
+==================
+
+.
+
+----
+
+(source_file)
+
+==================
+field access
+==================
+
+.foo.bar
+
+----
+
+(source_file)
+
+==================
+pipe
+==================
+
+.foo | .bar | .baz
+
+----
+
+(source_file)
+
+==================
+array index and iterate
+==================
+
+.users[0].name
+
+----
+
+(source_file)
+
+==================
+map and select
+==================
+
+.items | map(.price) | add
+
+----
+
+(source_file)
+
+==================
+object construction
+==================
+
+{name: .user.name, count: (.items | length)}
+
+----
+
+(source_file)
+
+==================
+function definition
+==================
+
+def increment: . + 1;
+
+----
+
+(source_file)
+
+==================
+recursive function
+==================
+
+def fac: if . <= 1 then 1 else . * (. - 1 | fac) end;
+
+----
+
+(source_file)
+
+==================
+arithmetic and comparison
+==================
+
+(.a + .b) * 2 == .c
+
+----
+
+(source_file)
+
+==================
+alternative operator
+==================
+
+.name // "unknown"
+
+----
+
+(source_file)
+
+==================
+variable binding
+==================
+
+.items[] as $item | $item.id
+
+----
+
+(source_file)
+
+==================
+select with conditional
+==================
+
+.[] | select(.age > 18) | .name
+
+----
+
+(source_file)

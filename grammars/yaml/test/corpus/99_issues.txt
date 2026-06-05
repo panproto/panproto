@@ -1,0 +1,22 @@
+=================================
+Double-quote newline escape (#10)
+=================================
+
+root: "a\
+b\
+c"
+
+---
+
+(stream
+  (document
+    (block_node
+      (block_mapping
+        (block_mapping_pair
+          key: (flow_node
+            (plain_scalar
+              (string_scalar)))
+          value: (flow_node
+            (double_quote_scalar
+              (escape_sequence)
+              (escape_sequence))))))))

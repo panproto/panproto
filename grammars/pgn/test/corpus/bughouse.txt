@@ -1,0 +1,59 @@
+================================================================================
+Bughouse variant
+================================================================================
+
+[Event "?"]
+[Variant "Bughouse"]
+[SetUp "1"]
+[FEN "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR/ w KQkq - 0 1 | rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR/ w KQkq - 0 1"]
+
+1A. e4 1a. d5 2A. exd5 1B. e4 1b. @d5 2a. Qxd5
+*
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (move_number)
+      (san_move)
+      (move_number)
+      (san_move)
+      (move_number)
+      (san_move)
+      (move_number)
+      (san_move)
+      (move_number)
+      (san_move)
+      (move_number)
+      (san_move))
+    (result_code)))

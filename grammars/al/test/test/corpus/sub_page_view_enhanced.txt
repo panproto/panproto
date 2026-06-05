@@ -1,0 +1,218 @@
+================================================================================
+SubPageView with sorting and where clause
+================================================================================
+
+pageextension 123 TestExt extends TestPage
+{
+    layout
+    {
+        addlast(factboxes)
+        {
+            part(TestPart; "Test Page")
+            {
+                SubPageView = sorting("Field1", "Field2") 
+                              where("Field3" = const(123), "Field4" = filter('A..Z'));
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pageextension_declaration
+    (pageextension_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (extends_keyword)
+    base_object: (identifier)
+    (layout_section
+      (layout_keyword)
+      (addlast_modification
+        target: (identifier)
+        (part_section
+          (part_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (sorting_value
+              (quoted_identifier)
+              (quoted_identifier)
+              (where_clause
+                (where_conditions
+                  (where_condition
+                    field: (quoted_identifier)
+                    value: (integer))
+                  (where_condition
+                    field: (quoted_identifier)
+                    (filter_keyword)
+                    value: (filter_value
+                      (string_literal))))))))))))
+
+================================================================================
+SubPageView with simple sorting only
+================================================================================
+
+pageextension 456 SimpleExt extends SimplePage
+{
+    layout
+    {
+        addlast(Control1)
+        {
+            part(SimplePart; "Simple Page")
+            {
+                SubPageView = sorting("Name", "No.");
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pageextension_declaration
+    (pageextension_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (extends_keyword)
+    base_object: (identifier)
+    (layout_section
+      (layout_keyword)
+      (addlast_modification
+        target: (identifier)
+        (part_section
+          (part_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (sorting_value
+              (quoted_identifier)
+              (quoted_identifier))))))))
+
+================================================================================
+SubPageView with where clause only
+================================================================================
+
+pageextension 789 WhereExt extends WherePage
+{
+    layout
+    {
+        addafter(Control1)
+        {
+            part(WherePart; "Where Page")
+            {
+                SubPageView = where("Status" = const(Open), "Type" = filter(<>Closed));
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pageextension_declaration
+    (pageextension_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (extends_keyword)
+    base_object: (identifier)
+    (layout_section
+      (layout_keyword)
+      (addafter_modification
+        target: (identifier)
+        (part_section
+          (part_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (where_clause
+              (where_conditions
+                (where_condition
+                  field: (quoted_identifier)
+                  value: (identifier))
+                (where_condition
+                  field: (quoted_identifier)
+                  (filter_keyword)
+                  value: (filter_value
+                    (identifier)))))))))))
+
+================================================================================
+SubPageView with string literal value
+================================================================================
+
+pageextension 101 StringExt extends StringPage
+{
+    layout
+    {
+        addlast(factboxes)
+        {
+            part(StringPart; "String Page")
+            {
+                SubPageView = 'Ascending';
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pageextension_declaration
+    (pageextension_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (extends_keyword)
+    base_object: (identifier)
+    (layout_section
+      (layout_keyword)
+      (addlast_modification
+        target: (identifier)
+        (part_section
+          (part_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (string_literal)))))))
+
+================================================================================
+SubPageView with identifier value
+================================================================================
+
+pageextension 202 IdentExt extends IdentPage
+{
+    layout
+    {
+        addlast(factboxes)
+        {
+            part(IdentPart; "Ident Page")
+            {
+                SubPageView = SortingView;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pageextension_declaration
+    (pageextension_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (extends_keyword)
+    base_object: (identifier)
+    (layout_section
+      (layout_keyword)
+      (addlast_modification
+        target: (identifier)
+        (part_section
+          (part_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))))))

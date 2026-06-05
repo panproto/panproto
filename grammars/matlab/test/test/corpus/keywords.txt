@@ -1,0 +1,352 @@
+================================================================================
+Keywords: Use of Keywords as Identifiers
+================================================================================
+
+classdef (abstract) mclass < handle & matlab.mixin.SetGetExactNames
+    properties (Access='public',~Negate)
+        AP = [];
+        AB = 'charvec with space';
+        AC = "string with space and ( ";
+        AD = fun_call(1,2);
+        AE (1,:) double {mustBePositive} = 1;
+    end
+
+    properties (AbortSet=true, NonCopyable=true)
+        AF (1,1) char {mustBeMember(AF, {'High','Medium','Low'})} = 'Low';
+        AG (1,1) matlab.lang.OnOffSwitchState = 'on';
+    end
+
+    events
+        Event1
+        Event2
+    end
+
+    methods
+        function obj = mclass()
+            true.some.nested.namespace.foo
+
+            obj.AB = obj.AP(1:end);
+            unusedvar = 1;
+            disp('charvect with if and for words [ in it');
+            notify(obj,'Event1',...
+                       'indent test');
+            notify(obj, 'Event1', 'indent test');
+            while obj.AB
+                disp("while loop going on here (");
+            end
+            error('function mclass in charvec }');
+        end
+    end
+    methods (Access='public')
+        function meth(obj)
+            if obj.AP
+                disp('display the word end here');
+            else
+                try
+                catch
+                end
+            end
+        end
+    end
+    methods (Abstract, Hidden=true)
+        result = abs_func(a,b)
+        result = other_abs_fun(a,b)
+    end
+    methods
+        function end_separate_line(~)
+        end
+        function end_same_line(~), end
+        function after_end_same_line(~), end
+    end
+    methods
+        function properties(~)
+        end
+        function methods(~)
+        end
+        function events(~)
+        end
+        function arguments(~)
+        end
+        function enumeration(~)
+        end
+        function usestuff(obj)
+            obj.properties();
+            obj.methods();
+            obj.events();
+            obj.arguments();
+            obj.enumeration();
+        end
+    end
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_definition
+    (attributes
+      (attribute
+        (identifier)))
+    (identifier)
+    (superclasses
+      (property_name
+        (identifier))
+      (property_name
+        (identifier)
+        (identifier)
+        (identifier)))
+    (properties
+      (attributes
+        (attribute
+          (identifier)
+          (string
+            (string_content)))
+        (attribute
+          (not_operator
+            (identifier))))
+      (property
+        (identifier)
+        (default_value
+          (matrix)))
+      (property
+        (identifier)
+        (default_value
+          (string
+            (string_content))))
+      (property
+        (identifier)
+        (default_value
+          (string
+            (string_content))))
+      (property
+        (identifier)
+        (default_value
+          (function_call
+            (identifier)
+            (arguments
+              (number)
+              (number)))))
+      (property
+        (identifier)
+        (dimensions
+          (number)
+          (spread_operator))
+        (identifier)
+        (validation_functions
+          (identifier))
+        (default_value
+          (number))))
+    (properties
+      (attributes
+        (attribute
+          (identifier)
+          (identifier))
+        (attribute
+          (identifier)
+          (identifier)))
+      (property
+        (identifier)
+        (dimensions
+          (number)
+          (number))
+        (identifier)
+        (validation_functions
+          (function_call
+            (identifier)
+            (arguments
+              (identifier)
+              (cell
+                (row
+                  (string
+                    (string_content))
+                  (string
+                    (string_content))
+                  (string
+                    (string_content)))))))
+        (default_value
+          (string
+            (string_content))))
+      (property
+        (identifier)
+        (dimensions
+          (number)
+          (number))
+        (property_name
+          (identifier)
+          (identifier)
+          (identifier))
+        (default_value
+          (string
+            (string_content)))))
+    (events
+      (identifier)
+      (identifier))
+    (methods
+      (function_definition
+        (function_output
+          (identifier))
+        (identifier)
+        (function_arguments)
+        (block
+          (field_expression
+            (identifier)
+            (identifier)
+            (identifier)
+            (identifier)
+            (identifier))
+          (assignment
+            (field_expression
+              (identifier)
+              (identifier))
+            (field_expression
+              (identifier)
+              (function_call
+                (identifier)
+                (arguments
+                  (range
+                    (number)
+                    (end_keyword))))))
+          (assignment
+            (identifier)
+            (number))
+          (function_call
+            (identifier)
+            (arguments
+              (string
+                (string_content))))
+          (function_call
+            (identifier)
+            (arguments
+              (identifier)
+              (string
+                (string_content))
+              (line_continuation)
+              (string
+                (string_content))))
+          (function_call
+            (identifier)
+            (arguments
+              (identifier)
+              (string
+                (string_content))
+              (string
+                (string_content))))
+          (while_statement
+            (field_expression
+              (identifier)
+              (identifier))
+            (block
+              (function_call
+                (identifier)
+                (arguments
+                  (string
+                    (string_content))))))
+          (function_call
+            (identifier)
+            (arguments
+              (string
+                (string_content)))))))
+    (methods
+      (attributes
+        (attribute
+          (identifier)
+          (string
+            (string_content))))
+      (function_definition
+        (identifier)
+        (function_arguments
+          (identifier))
+        (block
+          (if_statement
+            (field_expression
+              (identifier)
+              (identifier))
+            (block
+              (function_call
+                (identifier)
+                (arguments
+                  (string
+                    (string_content)))))
+            (else_clause
+              (block
+                (try_statement
+                  (catch_clause))))))))
+    (methods
+      (attributes
+        (attribute
+          (identifier))
+        (attribute
+          (identifier)
+          (identifier)))
+      (function_signature
+        (function_output
+          (identifier))
+        (identifier)
+        (function_arguments
+          (identifier)
+          (identifier)))
+      (function_signature
+        (function_output
+          (identifier))
+        (identifier)
+        (function_arguments
+          (identifier)
+          (identifier))))
+    (methods
+      (function_definition
+        (identifier)
+        (function_arguments
+          (ignored_argument)))
+      (function_definition
+        (identifier)
+        (function_arguments
+          (ignored_argument)))
+      (function_definition
+        (identifier)
+        (function_arguments
+          (ignored_argument))))
+    (methods
+      (function_definition
+        (identifier)
+        (function_arguments
+          (ignored_argument)))
+      (function_definition
+        (identifier)
+        (function_arguments
+          (ignored_argument)))
+      (function_definition
+        (identifier)
+        (function_arguments
+          (ignored_argument)))
+      (function_definition
+        (identifier)
+        (function_arguments
+          (ignored_argument)))
+      (function_definition
+        (identifier)
+        (function_arguments
+          (ignored_argument)))
+      (function_definition
+        (identifier)
+        (function_arguments
+          (identifier))
+        (block
+          (field_expression
+            (identifier)
+            (function_call
+              (identifier)))
+          (field_expression
+            (identifier)
+            (function_call
+              (identifier)))
+          (field_expression
+            (identifier)
+            (function_call
+              (identifier)))
+          (field_expression
+            (identifier)
+            (function_call
+              (identifier)))
+          (field_expression
+            (identifier)
+            (function_call
+              (identifier))))))))

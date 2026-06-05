@@ -1,0 +1,178 @@
+================================================================================
+Unquoted Attribute
+================================================================================
+
+<Root.render key=value />
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (component
+    (self_closing_component
+      (component_name
+        (module)
+        (function))
+      (attribute
+        (attribute_name)
+        (attribute_value)))))
+
+================================================================================
+Boolean Attribute
+================================================================================
+
+<Root.render hidden />
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (component
+    (self_closing_component
+      (component_name
+        (module)
+        (function))
+      (attribute
+        (attribute_name)))))
+
+================================================================================
+Single-Quoted Attribute
+================================================================================
+
+<Root.render key='value' />
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (component
+    (self_closing_component
+      (component_name
+        (module)
+        (function))
+      (attribute
+        (attribute_name)
+        (quoted_attribute_value
+          (attribute_value))))))
+
+================================================================================
+Double-Quoted Attribute
+================================================================================
+
+<Root.render key="value" />
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (component
+    (self_closing_component
+      (component_name
+        (module)
+        (function))
+      (attribute
+        (attribute_name)
+        (quoted_attribute_value
+          (attribute_value))))))
+
+================================================================================
+Expression Attribute
+================================================================================
+
+<Root.render key={value} />
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (component
+    (self_closing_component
+      (component_name
+        (module)
+        (function))
+      (attribute
+        (attribute_name)
+        (expression
+          (expression_value))))))
+
+================================================================================
+Single-character Attribute
+================================================================================
+
+<Root.render a="a" />
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (component
+    (self_closing_component
+      (component_name
+        (module)
+        (function))
+      (attribute
+        (attribute_name)
+        (quoted_attribute_value
+          (attribute_value))))))
+
+================================================================================
+Alpine Directive
+================================================================================
+
+<div x-data="{ open: false }">
+    <button @click="open = ! open">Toggle</button>
+    <div x-show="open" @click.outside="open = false">Contents...</div>
+</div>
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (tag
+    (start_tag
+      (tag_name)
+      (attribute
+        (attribute_name)
+        (quoted_attribute_value
+          (attribute_value))))
+    (tag
+      (start_tag
+        (tag_name)
+        (attribute
+          (attribute_name)
+          (quoted_attribute_value
+            (attribute_value))))
+      (text)
+      (end_tag
+        (tag_name)))
+    (tag
+      (start_tag
+        (tag_name)
+        (attribute
+          (attribute_name)
+          (quoted_attribute_value
+            (attribute_value)))
+        (attribute
+          (attribute_name)
+          (quoted_attribute_value
+            (attribute_value))))
+      (text)
+      (end_tag
+        (tag_name)))
+    (end_tag
+      (tag_name))))
+
+================================================================================
+Alpine Attribute
+================================================================================
+
+<button x-on:click="open = ! open">
+  Toggle
+</button>
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (tag
+    (start_tag
+      (tag_name)
+      (attribute
+        (attribute_name)
+        (quoted_attribute_value
+          (attribute_value))))
+    (text)
+    (end_tag
+      (tag_name))))

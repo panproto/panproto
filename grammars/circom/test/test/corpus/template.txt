@@ -1,0 +1,110 @@
+=====================================
+Empty Template Definition
+=====================================
+template A(){
+}
+---
+ (source_file
+      (template_definition
+        (identifier)
+        (parameter_list)
+        (template_body)))
+=====================================
+Empty Template with arguments
+=====================================
+template wrong (N, M) {
+}
+---
+(source_file
+      (template_definition
+        (identifier)
+        (parameter_list
+          (parameter
+            (identifier))
+          (parameter
+            (identifier)))
+        (template_body)))
+=====================================
+Simple Template with arguments
+=====================================
+template wrong (N, M) {
+    signal input a;
+    signal output out;
+}
+---
+(source_file
+      (template_definition
+        (identifier)
+        (parameter_list
+          (parameter
+            (identifier))
+          (parameter
+            (identifier)))
+        (template_body
+          (signal_declaration_statement
+            (signal_visibility)
+            (identifier))
+          (signal_declaration_statement
+            (signal_visibility)
+            (identifier)))))
+=====================================
+Parallel Template
+=====================================
+template parallel name(N, M) {
+    component rollupTx[nTx];
+    for (i = 0; i < nTx; i++) {
+        rollupTx[i] = parallel RollupTx(nLevels, maxFeeTx);
+    }
+}
+---
+(source_file
+      (template_definition
+        (template_type
+          (parallel))
+        (identifier)
+        (parameter_list
+          (parameter
+            (identifier))
+          (parameter
+            (identifier)))
+        (template_body
+          (component_declaration_statement
+            (identifier)
+            (array_type
+              (identifier)))
+          (for_statement
+            (expression_statement
+              (assignment_expression
+                (identifier)
+                (int_literal)))
+            (expression_statement
+              (binary_expression
+                (identifier)
+                (identifier)))
+            (increment_expression
+              (identifier))
+            (block_statement
+              (expression_statement
+                (assignment_expression
+                  (array_access_expression
+                    (identifier)
+                    (identifier))
+                  (call_expression
+                    (parallel)
+                    (identifier)
+                    (argument_list
+                      (identifier)
+                      (identifier))))))))))
+=====================================
+Custom Template
+=====================================
+template custom Example() {
+}
+---
+(source_file
+      (template_definition
+        (template_type
+          (custom))
+        (identifier)
+        (parameter_list)
+        (template_body)))

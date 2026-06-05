@@ -1,0 +1,216 @@
+================================================================================
+Preprocessor directives in layout
+================================================================================
+
+pageextension 123 "Test Extension" extends "Base Page"
+{
+    layout
+    {
+#if BC25
+        modify("Field1")
+        {
+            Visible = true;
+        }
+#else
+        modify("Field2")
+        {
+            Visible = false;
+        }
+#endif
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pageextension_declaration
+    (pageextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (preproc_conditional_layout
+        (preproc_if
+          (preproc_open)
+          condition: (identifier))
+        (modify_modification
+          target: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (boolean)))
+        (preproc_else)
+        (modify_modification
+          target: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (boolean)))
+        (preproc_endif
+          (preproc_close))))))
+
+================================================================================
+Uppercase preprocessor directives in code blocks
+================================================================================
+
+codeunit 123 "Test Codeunit"
+{
+    procedure TestProcedure()
+    var
+        Test: Boolean;
+    begin
+#IF BC24
+        Test := true;
+#ELSE
+        Test := false;
+#ENDIF
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (preproc_conditional_statement
+          (preproc_if
+            (preproc_open)
+            condition: (identifier))
+          (assignment_statement
+            left: (identifier)
+            right: (boolean))
+          (preproc_else)
+          (assignment_statement
+            left: (identifier)
+            right: (boolean))
+          (preproc_endif
+            (preproc_close)))
+        (end_keyword)))))
+
+================================================================================
+Mixed case preprocessor directives in code blocks
+================================================================================
+
+codeunit 124 "Test Codeunit Mixed"
+{
+    procedure TestMixedCase()
+    var
+        Value: Integer;
+    begin
+#If BC25
+        Value := 100;
+#Else
+        Value := 50;
+#Endif
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (preproc_conditional_statement
+          (preproc_if
+            (preproc_open)
+            condition: (identifier))
+          (assignment_statement
+            left: (identifier)
+            right: (integer))
+          (preproc_else)
+          (assignment_statement
+            left: (identifier)
+            right: (integer))
+          (preproc_endif
+            (preproc_close)))
+        (end_keyword)))))
+
+================================================================================
+Uppercase preprocessor directives with complex conditions
+================================================================================
+
+codeunit 125 "Test Complex Preprocessor"
+{
+    procedure ComplexPreproc()
+    var
+        Feature: Boolean;
+        Version: Integer;
+    begin
+#IF BC24
+        Feature := true;
+        Version := 24;
+#ELSE
+        Feature := false;
+        Version := 23;
+#ENDIF
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type)))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (preproc_conditional_statement
+          (preproc_if
+            (preproc_open)
+            condition: (identifier))
+          (assignment_statement
+            left: (identifier)
+            right: (boolean))
+          (assignment_statement
+            left: (identifier)
+            right: (integer))
+          (preproc_else)
+          (assignment_statement
+            left: (identifier)
+            right: (boolean))
+          (assignment_statement
+            left: (identifier)
+            right: (integer))
+          (preproc_endif
+            (preproc_close)))
+        (end_keyword)))))

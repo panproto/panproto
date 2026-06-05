@@ -1,0 +1,80 @@
+================================================================================
+AutoFormatExpression with member expressions
+================================================================================
+
+table 50001 TestTable
+{
+    fields
+    {
+        field(1; Amount; Decimal)
+        {
+            AutoFormatExpression = Rec."Currency Code";
+        }
+        field(2; Price; Decimal)  
+        {
+            AutoFormatExpression = SalesHeader."Currency Code";
+        }
+        field(3; Total; Decimal)
+        {
+            AutoFormatExpression = MyObject.CurrencyProperty;
+        }
+        field(4; Value; Decimal)
+        {
+            AutoFormatExpression = '<Precision,2:5><Standard Format,0>';
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (table_relation_value
+            (table_relation_expression
+              (simple_table_relation
+                table: (identifier)
+                table: (quoted_identifier))))))
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (table_relation_value
+            (table_relation_expression
+              (simple_table_relation
+                table: (identifier)
+                table: (quoted_identifier))))))
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (table_relation_value
+            (table_relation_expression
+              (simple_table_relation
+                table: (identifier)
+                table: (identifier))))))
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (string_literal))))))

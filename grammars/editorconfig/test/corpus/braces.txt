@@ -1,0 +1,182 @@
+======================================================
+Simple brace expansions
+======================================================
+[{}]
+[*.{a,b,c}]
+[{s,a}c]
+------------------------------------------------------
+
+(editorconfig
+  (section
+    (header
+      (glob
+        (brace_expansion))))
+  (section
+    (header
+      (glob
+        (wildcard)
+        (brace_expansion
+          (glob)
+          (glob)
+          (glob)))))
+  (section
+    (header
+      (glob
+        (brace_expansion
+          (glob)
+          (glob))))))
+
+======================================================
+Brace exapansions with empty strings
+======================================================
+[{a,}]
+[{,a}]
+[{,a,}]
+[{a,,b}]
+------------------------------------------------------
+
+(editorconfig
+  (section
+    (header
+      (glob
+        (brace_expansion
+          (glob)))))
+  (section
+    (header
+      (glob
+        (brace_expansion
+          (glob)))))
+  (section
+    (header
+      (glob
+        (brace_expansion
+          (glob)))))
+  (section
+    (header
+      (glob
+        (brace_expansion
+          (glob)
+          (glob))))))
+
+======================================================
+Brace expansion with escaped characters
+======================================================
+[{a\,,\,,b}]
+[{a\}}]
+------------------------------------------------------
+
+(editorconfig
+  (section
+    (header
+      (glob
+        (brace_expansion
+          (glob
+            (character_escape))
+          (glob
+            (character_escape))
+          (glob)))))
+  (section
+    (header
+      (glob
+        (brace_expansion
+          (glob
+            (character_escape)))))))
+
+======================================================
+Brace expansions with nested expressions
+======================================================
+[/a/**{b/{c,{1..9}},e[bc]/{f?.?*,g}}]
+------------------------------------------------------
+
+(editorconfig
+  (section
+    (header
+      (glob
+        (wildcard)
+        (brace_expansion
+          (glob
+            (brace_expansion
+              (glob)
+              (glob
+                (integer_range
+                  start: (integer)
+                  end: (integer)))))
+          (glob
+            (character_choice
+              (character)
+              (character))
+            (brace_expansion
+              (glob
+                (wildcard)
+                (wildcard)
+                (wildcard))
+              (glob))))))))
+
+======================================================
+Integer Range
+======================================================
+[{10..2}]
+[{1..-20}]
+[{-10..2}]
+[{-1..-20}]
+------------------------------------------------------
+
+(editorconfig
+  (section
+    (header
+      (glob
+        (integer_range
+          start: (integer)
+          end: (integer)))))
+  (section
+    (header
+      (glob
+        (integer_range
+          start: (integer)
+          end: (integer)))))
+  (section
+    (header
+      (glob
+        (integer_range
+          start: (integer)
+          end: (integer)))))
+  (section
+    (header
+      (glob
+        (integer_range
+          start: (integer)
+          end: (integer))))))
+
+======================================================
+Brace expansions with integers
+======================================================
+[{10a}]
+[{-3a}]
+[{-3b,c}]
+[{30,-44,5}]
+------------------------------------------------------
+
+(editorconfig
+  (section
+    (header
+      (glob
+        (brace_expansion
+          (glob)))))
+  (section
+    (header
+      (glob
+        (brace_expansion
+          (glob)))))
+  (section
+    (header
+      (glob
+        (brace_expansion
+          (glob)
+          (glob)))))
+  (section
+    (header
+      (glob
+        (brace_expansion
+          (glob)
+          (glob)
+          (glob))))))

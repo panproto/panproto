@@ -1,0 +1,162 @@
+================================================================================
+Basic indent segment
+================================================================================
+- ::
+  This is a paragraph.
+
+  This is another paragraph inside of the same list item.
+--------------------------------------------------------------------------------
+
+(document
+  (generic_list
+    (unordered_list1
+      (unordered_list1_prefix)
+      (indent_segment1
+        (indent_segment_begin)
+        (paragraph
+          (paragraph_segment))
+        (paragraph
+          (paragraph_segment))))))
+
+================================================================================
+Indent segment delimiter precedence
+================================================================================
+* Heading
+- ::
+  Text
+  ---
+This should still be part of the heading.
+--------------------------------------------------------------------------------
+
+(document
+  (heading1
+    (heading1_prefix)
+    (paragraph_segment)
+    (generic_list
+      (unordered_list1
+        (unordered_list1_prefix)
+        (indent_segment1
+          (indent_segment_begin)
+          (paragraph
+            (paragraph_segment))
+          (weak_paragraph_delimiter))))
+    (paragraph
+      (paragraph_segment))))
+
+================================================================================
+Indent segment delimiter precedence with surrounding headings
+================================================================================
+* Heading One
+* Heading Two
+  - ::
+    This is some content.
+    ---
+  The paragraph delimiter should belong to the indent segment,
+  not to the heading.
+* Heading Three
+--------------------------------------------------------------------------------
+
+(document
+  (heading1
+    (heading1_prefix)
+    (paragraph_segment))
+  (heading1
+    (heading1_prefix)
+    (paragraph_segment)
+    (generic_list
+      (unordered_list1
+        (unordered_list1_prefix)
+        (indent_segment1
+          (indent_segment_begin)
+          (paragraph
+            (paragraph_segment))
+          (weak_paragraph_delimiter))))
+    (paragraph
+      (paragraph_segment)
+      (paragraph_segment)))
+  (heading1
+    (heading1_prefix)
+    (paragraph_segment)))
+
+================================================================================
+Nested indent segments with strong paragraph delimiter as terminator
+================================================================================
+- ::
+  This is an indent segment.
+
+  This paragraph should also belong to the indent segment.
+
+  -- ::
+     This is now part of the second indent segment.
+
+     @code lua
+     print("Hello!")
+     @end
+     ===
+
+This is not a part of any indent segment.
+--------------------------------------------------------------------------------
+
+(document
+  (generic_list
+    (unordered_list1
+      (unordered_list1_prefix)
+      (indent_segment1
+        (indent_segment_begin)
+        (paragraph
+          (paragraph_segment))
+        (paragraph
+          (paragraph_segment))
+        (unordered_list2
+          (unordered_list2_prefix)
+          (indent_segment2
+            (indent_segment_begin)
+            (paragraph
+              (paragraph_segment))
+            (ranged_verbatim_tag
+              (tag_name
+                (word))
+              (tag_parameters
+                (tag_param))
+              (ranged_verbatim_tag_content
+                (paragraph_segment))
+              (ranged_verbatim_tag_end)))))))
+  (strong_paragraph_delimiter)
+  (paragraph
+    (paragraph_segment)))
+
+================================================================================
+Slide
+================================================================================
+- :
+  @code lua
+  print("This is a slide")
+  @end
+- :
+  $ Term
+    Definition
+--------------------------------------------------------------------------------
+
+(document
+  (generic_list
+    (unordered_list1
+      (unordered_list1_prefix)
+      (slide
+        (ranged_verbatim_tag
+          (tag_name
+            (word))
+          (tag_parameters
+            (tag_param))
+          (ranged_verbatim_tag_content
+            (paragraph_segment))
+          (ranged_verbatim_tag_end)))))
+  (generic_list
+    (unordered_list1
+      (unordered_list1_prefix)
+      (slide
+        (definition_list
+          (single_definition
+            (single_definition_prefix)
+            (paragraph_segment)
+            (paragraph
+              (paragraph_segment))))))))

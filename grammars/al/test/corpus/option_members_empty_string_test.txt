@@ -1,0 +1,134 @@
+================================================================================
+OptionMembers with empty string first
+================================================================================
+
+table 50100 "Test Table"
+{
+    fields
+    {
+        field(1; Status; Option)
+        {
+            OptionMembers = "",Scheduled,Traveling,"In Progress",Completed;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (option_type))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (identifier))
+            (option_member
+              (identifier))
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (identifier))))))))
+
+================================================================================
+OptionMembers with all quoted values including empty
+================================================================================
+
+table 50100 "Test Table"
+{
+    fields
+    {
+        field(11; FieldServiceStatus; Option)
+        {
+            OptionMembers = "","Scheduled","Traveling"," On Break","In Progress","Completed","Canceled";
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (option_type))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (quoted_identifier))))))))
+
+================================================================================
+OptionMembers with mixed quoted and unquoted
+================================================================================
+
+table 50100 "Test Table"
+{
+    fields
+    {
+        field(1; DocumentType; Option)
+        {
+            OptionMembers = "",Quote,Order,"Credit Memo",Blanket,"Return Order";
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (option_type))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (identifier))
+            (option_member
+              (identifier))
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (identifier))
+            (option_member
+              (quoted_identifier))))))))

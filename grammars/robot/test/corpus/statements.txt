@@ -1,0 +1,368 @@
+================================================================================
+Basic keyword invocations
+================================================================================
+
+*** Keywords ***
+
+Test Keyword
+  I Am A Simple Statement
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (keywords_section
+      (section_header)
+      (keyword_definition
+        (name
+          (name_chunk))
+        (body
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk)))))))))
+
+================================================================================
+Keyword invocations with arguments
+================================================================================
+
+*** Keywords ***
+
+Test Keyword
+  I Am A Simple Statement     First argument    Second argument
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (keywords_section
+      (section_header)
+      (keyword_definition
+        (name
+          (name_chunk))
+        (body
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk))
+              (arguments
+                (argument
+                  (text_chunk))
+                (argument
+                  (text_chunk))))))))))
+
+================================================================================
+Keyword invocations with line continuations
+================================================================================
+
+*** Keywords ***
+
+Test Keyword
+  I Am A Simple Statement     First argument    Second argument
+  ...                         Third argument    Fourth argument
+  ...                         And so on
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (keywords_section
+      (section_header)
+      (keyword_definition
+        (name
+          (name_chunk))
+        (body
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk))
+              (arguments
+                (argument
+                  (text_chunk))
+                (argument
+                  (text_chunk))
+                (continuation
+                  (ellipses)
+                  (argument
+                    (text_chunk))
+                  (argument
+                    (text_chunk)))
+                (continuation
+                  (ellipses)
+                  (argument
+                    (text_chunk)))))))))))
+
+================================================================================
+Scalar variables, list variables, dictionary variables
+================================================================================
+
+*** Keywords ***
+
+Test Keyword
+  Simple Statement    ${SOME_VARIABLE}    @{LIST_VARIABLE}    &{DICT_VARIABLE}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (keywords_section
+      (section_header)
+      (keyword_definition
+        (name
+          (name_chunk))
+        (body
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk))
+              (arguments
+                (argument
+                  (scalar_variable
+                    (variable_name)))
+                (argument
+                  (list_variable
+                    (variable_name)))
+                (argument
+                  (dictionary_variable
+                    (variable_name)))))))))))
+
+================================================================================
+Scalar variable interpolation
+================================================================================
+
+*** Keywords ***
+
+Test Keyword
+  Simple Statement    ${SOME_VARIABLE}
+
+  Simple Statement    Interpolation ${VARIABLE} example
+
+  Simple Statement    no${VARIABLE}space
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (keywords_section
+      (section_header)
+      (keyword_definition
+        (name
+          (name_chunk))
+        (body
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk))
+              (arguments
+                (argument
+                  (scalar_variable
+                    (variable_name))))))
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk))
+              (arguments
+                (argument
+                  (text_chunk)
+                  (scalar_variable
+                    (variable_name))
+                  (text_chunk)))))
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk))
+              (arguments
+                (argument
+                  (text_chunk)
+                  (scalar_variable
+                    (variable_name))
+                  (text_chunk))))))))))
+
+================================================================================
+Challenging keyword invocation arguments
+================================================================================
+
+*** Keywords ***
+
+Test Keyword
+  Host Should Be Up   https://example.com:8080/foo?q=123
+
+  Host https://example.com:8080/foo?q=123 Should Be Up   
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (keywords_section
+      (section_header)
+      (keyword_definition
+        (name
+          (name_chunk))
+        (body
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk))
+              (arguments
+                (argument
+                  (text_chunk)))))
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk)))))))))
+
+================================================================================
+Simple variable assignment
+================================================================================
+
+*** Keywords ***
+
+Test Keyword
+  ${My Variable}        Some Keyword    Some Argument   ${Foo}
+  ${Second Variable} =  The Equals Symbol Is Optional
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (keywords_section
+      (section_header)
+      (keyword_definition
+        (name
+          (name_chunk))
+        (body
+          (statement
+            (variable_assignment
+              (variable_name)
+              (arguments
+                (argument
+                  (text_chunk))
+                (argument
+                  (text_chunk))
+                (argument
+                  (scalar_variable
+                    (variable_name))))))
+          (statement
+            (variable_assignment
+              (variable_name)
+              (arguments
+                (argument
+                  (text_chunk))))))))))
+
+================================================================================
+Inline Python evaluation
+================================================================================
+
+*** Keywords ***
+
+Test Keyword
+  Some Keyword   ${{len(${items})}}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (keywords_section
+      (section_header)
+      (keyword_definition
+        (name
+          (name_chunk))
+        (body
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk))
+              (arguments
+                (argument
+                  (inline_python_expression
+                    (python_expression)))))))))))
+
+================================================================================
+Scalar variables embedded in the keyword name
+================================================================================
+
+*** Keywords ***
+
+Test Keyword
+  Some ${EMBEDDED} Argument ${Inside} A Keyword
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (keywords_section
+      (section_header)
+      (keyword_definition
+        (name
+          (name_chunk))
+        (body
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk)
+                (scalar_variable
+                  (variable_name))
+                (name_chunk)
+                (scalar_variable
+                  (variable_name))
+                (name_chunk)))))))))
+
+================================================================================
+Arguments with curly braces
+================================================================================
+
+*** Keywords ***
+
+Test Keyword
+  Log JSON    {"key": "value"}
+  Log Nested JSON    {"outer": {"inner": 1}}
+  Log Multiple Args    {item1}    {item2}    {item3}
+  Log Mixed Args    ${VAR}    {"json": "value"}    text{with}braces
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (keywords_section
+      (section_header)
+      (keyword_definition
+        (name
+          (name_chunk))
+        (body
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk))
+              (arguments
+                (argument
+                  (text_chunk)))))
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk))
+              (arguments
+                (argument
+                  (text_chunk)))))
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk))
+              (arguments
+                (argument
+                  (text_chunk))
+                (argument
+                  (text_chunk))
+                (argument
+                  (text_chunk)))))
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk))
+              (arguments
+                (argument
+                  (scalar_variable
+                    (variable_name)))
+                (argument
+                  (text_chunk))
+                (argument
+                  (text_chunk))))))))))

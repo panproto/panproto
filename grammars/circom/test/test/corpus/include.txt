@@ -1,0 +1,16 @@
+=====================================
+Include Directive
+=====================================
+include "../../node_modules/circomlib/circuits/comparators.circom";
+---
+(source_file
+      (include_directive
+        (string)))
+=====================================
+Another Include Directive
+=====================================
+include "babyjub.circom";
+---
+(source_file
+      (include_directive
+        (string)))

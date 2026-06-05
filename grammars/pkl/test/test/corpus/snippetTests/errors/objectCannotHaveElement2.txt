@@ -1,0 +1,98 @@
+===
+errors/objectCannotHaveElement2.pkl
+===
+
+class Foo {
+  normalProperty: Boolean
+  nestedStructure: Bar
+}
+
+class Bar {
+  propertyInNestedStructure: Listing<String>
+}
+
+foo = new Foo {
+  nestedStructure {
+    propertyInNestedStructure {
+      "Hello world"
+    }
+  }
+  normalProperty = true
+}
+
+foo2 = (foo) {
+  (nestedStructure.propertyInNestedStructure) { "Hello world!!!" }
+  normalProperty = false
+}
+
+---
+
+(module
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))
+            (typeArgumentList
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))))))))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (objectBody
+            (objectProperty
+              (identifier)
+              (objectBody
+                (objectElement
+                  (slStringLiteralExpr
+                    (slStringLiteralPart)))))))
+        (objectProperty
+          (identifier)
+          (trueLiteralExpr)))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (objectElement
+          (amendExpr
+            (parenthesizedExpr
+              (qualifiedAccessExpr
+                (unqualifiedAccessExpr
+                  (identifier))
+                (identifier)))
+            (objectBody
+              (objectElement
+                (slStringLiteralExpr
+                  (slStringLiteralPart))))))
+        (objectProperty
+          (identifier)
+          (falseLiteralExpr))))))

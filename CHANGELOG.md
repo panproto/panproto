@@ -2,7 +2,16 @@
 
 All notable changes to panproto will be documented in this file.
 
-## [Unreleased]
+## [0.52.0] - 2026-06-05
+
+### Added
+
+- **Emit coverage: `VERIFIED_EMIT_PROTOCOLS` grew from 16 to 255 of 261** (`panproto-parse`): source-code emit (`emit_pretty`) now round-trips the entire upstream `test/corpus/` of 255 vendored grammars under a strict oracle. The `emit_corpus_audit` gate requires, on *every* corpus entry, an emit fixed point (`emit(parse(emit(s))) == emit(s)`) plus preservation of the schema's vertex-kind and edge-shape multisets — rejecting *degenerate* fixed points where an emitter drops content to `""` yet satisfies the byte law trivially. A companion char-multiset corruption detector (`corpus_degeneracy_report`) catches kind-preserving token swaps/drops that the multiset gate alone misses. Grammars that ship no upstream corpus are verified against authored representative source. Highlights of the closing sweep: yaml and typst (whose emit previously *hung* — `rule_min_required_children` walked a path-stack DFS that is exponential on their single-SCC grammars; it is now a cached least-fixpoint) round-trip byte-exactly; djot, markdown, http, and vimdoc emit-dispatch defects are fixed; a byte-span container-subtree reconstruction makes any replay container whose leaf fragments tile its span byte-faithful; and root-prefix (`doc-prefix`) capture reproduces leading BOMs / line-continuations. Reaching 255 from 16 required fixing numerous emit-dispatch and spacing defects across the grammar set — CHOICE/alias-operator routing, unbounded whitespace growth around `=`/strings/markup text, indentation, external layout terminators, signed-number and float-literal splitting, and bracket pairing among them — closing #160, #182, and #183. The remaining 6 grammars are irreducible without upstream changes: comment/todotxt/wolfram (degenerate free-text grammars), less (ABI-incompatible with tree-sitter 0.26), move (the vendored grammar lacks a `let`-binding production), and test (its corpus delimiters collide with the test harness).
+- **Layout calculus vocabulary** (`panproto-gat`): `LayoutRole` (the structural token roles plus an explicit `Immediate` for `IMMEDIATE_TOKEN` tokens), the pure `Adjacency` relation over role pairs (`Adjacency::between`, reproducing the historical role-pair spacing table), and `LayoutSpec` / `RuleLayout` — the theory-level, grammar-derived payload of the `Layout` enrichment that the emitter will interpret. Re-exported at the crate root.
+
+### Fixed
+
+- **More vendored grammars build and register** (`panproto-grammars`, `panproto-parse`): grammars whose `scanner.cc` includes C++ standard headers (Mojo, Norg, Wolfram) now compile — the per-grammar namespace wrapper hoists system includes to global scope — and grammars whose `tags.scm` or `node-types.json` use constructs outside the tree-sitter-tags/node vocabulary (AL, Erlang) now register instead of being silently dropped. Every vendored grammar is available for parse and emit.
 
 ## [0.51.0] - 2026-05-28
 

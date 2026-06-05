@@ -1,0 +1,53 @@
+==================
+single module checksum
+==================
+
+github.com/stretchr/testify v1.8.0 h1:pSgiaMZlXftHpS5Ge8na6V8tNqZf0t7H53MwTC2pB1Q=
+
+----
+
+(source_file)
+
+==================
+module and go.mod checksum
+==================
+
+github.com/stretchr/testify v1.8.0 h1:pSgiaMZlXftHpS5Ge8na6V8tNqZf0t7H53MwTC2pB1Q=
+github.com/stretchr/testify v1.8.0/go.mod h1:6Fq8oRcR53rry900zMqJjm6xcjc7CC8N2unlRUYDfk=
+
+----
+
+(source_file)
+
+==================
+multiple modules
+==================
+
+github.com/davecgh/go-spew v1.1.0 h1:vj9XGOC68Jhzhf63rt2WfdR7gIMZ48aP5z2mE3Zd3lk=
+github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mwmyI2Eam5VOuO7RbjpUBDLOFE=
+github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
+
+----
+
+(source_file)
+
+==================
+prerelease version
+==================
+
+golang.org/x/sys v0.0.0-20220715151400-c0bba94af5f8 h1:0A+M6Uqn+Eje4kHMK80dtF3JCXC4ykBgQG4Fe06QRhQ=
+
+----
+
+(source_file)
+
+==================
+pseudo version with hash
+==================
+
+github.com/google/uuid v1.3.0 h1:t6JiXgmwXMjEs8VusXIJk2BXHsn+wxymKptz2eJ4l9Q=
+golang.org/x/text v0.3.7 h1:olpwvP2KacW1ZWvsR7uQhoyTYvKAupfQrRGBFM352Gk=
+
+----
+
+(source_file)

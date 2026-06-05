@@ -1,0 +1,19 @@
+================================================================================
+generic instantiation
+================================================================================
+Foo<ref Bar> foo = new Foo<ref Bar>(); 
+--------------------------------------------------------------------------------
+(compilation_unit
+	(decl_variable
+		(type_identifier
+			(identifier)
+			(types (type_ref (type_identifier (identifier)))))
+		(identifier)
+		(new
+			(type_identifier
+				(identifier)
+				(types (type_ref (type_identifier (identifier)))))
+			(actual_parameters))))
+
+
+

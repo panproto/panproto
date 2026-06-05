@@ -1,0 +1,155 @@
+===
+lambdas/amendLambdaParameters.pkl
+===
+
+example1 {
+  local f = (x) -> new Dynamic {}
+  result = (f) { x -> prop = x + 1 }.apply(1)
+}
+
+example2 {
+  local f = (x, y) -> new Dynamic {}
+  result = (f) { a, b -> prop = a + b }.apply(1, 2)
+}
+
+example3 {
+  local f = (x, y) -> (z) -> new Dynamic { prop3 = z }
+  result = (f) { a, b -> prop1 = a; prop2 = b }.apply(1, 2).apply(3)
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (modifier)
+        (identifier)
+        (functionLiteralExpr
+          (parameterList
+            (typedIdentifier
+              (identifier)))
+          (newExpr
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (objectBody))))
+      (objectProperty
+        (identifier)
+        (qualifiedAccessExpr
+          (amendExpr
+            (parenthesizedExpr
+              (unqualifiedAccessExpr
+                (identifier)))
+            (objectBody
+              (objectBodyParameters
+
+                (typedIdentifier
+                  (identifier)))
+              (objectProperty
+                (identifier)
+                (additiveExpr
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (intLiteralExpr)))))
+          (identifier)
+          (argumentList
+            (intLiteralExpr))))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (modifier)
+        (identifier)
+        (functionLiteralExpr
+          (parameterList
+            (typedIdentifier
+              (identifier))
+            (typedIdentifier
+              (identifier)))
+          (newExpr
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (objectBody))))
+      (objectProperty
+        (identifier)
+        (qualifiedAccessExpr
+          (amendExpr
+            (parenthesizedExpr
+              (unqualifiedAccessExpr
+                (identifier)))
+            (objectBody
+              (objectBodyParameters
+
+                (typedIdentifier
+                  (identifier))
+                (typedIdentifier
+                  (identifier)))
+              (objectProperty
+                (identifier)
+                (additiveExpr
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (unqualifiedAccessExpr
+                    (identifier))))))
+          (identifier)
+          (argumentList
+            (intLiteralExpr)
+            (intLiteralExpr))))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (modifier)
+        (identifier)
+        (functionLiteralExpr
+          (parameterList
+            (typedIdentifier
+              (identifier))
+            (typedIdentifier
+              (identifier)))
+          (functionLiteralExpr
+            (parameterList
+              (typedIdentifier
+                (identifier)))
+            (newExpr
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))
+              (objectBody
+                (objectProperty
+                  (identifier)
+                  (unqualifiedAccessExpr
+                    (identifier))))))))
+      (objectProperty
+        (identifier)
+        (qualifiedAccessExpr
+          (qualifiedAccessExpr
+            (amendExpr
+              (parenthesizedExpr
+                (unqualifiedAccessExpr
+                  (identifier)))
+              (objectBody
+                (objectBodyParameters
+
+                  (typedIdentifier
+                    (identifier))
+                  (typedIdentifier
+                    (identifier)))
+                (objectProperty
+                  (identifier)
+                  (unqualifiedAccessExpr
+                    (identifier)))
+                (objectProperty
+                  (identifier)
+                  (unqualifiedAccessExpr
+                    (identifier)))))
+            (identifier)
+            (argumentList
+              (intLiteralExpr)
+              (intLiteralExpr)))
+          (identifier)
+          (argumentList
+            (intLiteralExpr)))))))

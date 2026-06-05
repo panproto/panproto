@@ -1,0 +1,3 @@
+variable	concept	role	target
+c	cat	_	_
+s	sit-01	ARG0	c

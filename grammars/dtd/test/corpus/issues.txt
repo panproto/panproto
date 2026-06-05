@@ -1,0 +1,304 @@
+================================================================================
+Empty CDATA (#7)
+
+:language(xml)
+================================================================================
+
+<field name="foo" type="text"><![CDATA[]]></field>
+
+--------------------------------------------------------------------------------
+
+(document
+  (element
+    (STag
+      (Name)
+      (Attribute
+        (Name)
+        (AttValue))
+      (Attribute
+        (Name)
+        (AttValue)))
+    (content
+      (CDSect
+        (CDStart)))
+    (ETag
+      (Name))))
+
+================================================================================
+Parameter-entity references (#10)
+
+:language(dtd)
+================================================================================
+
+<!-- svg.dtd -->
+
+<!ELEMENT svg (desc|title|metadata|defs|
+                   path|text|rect|circle|ellipse|line|polyline|polygon|
+                   use|image|svg|g|view|switch|a|altGlyphDef|
+                   script|style|symbol|marker|clipPath|mask|
+                   linearGradient|radialGradient|pattern|filter|cursor|font|
+                   animate|set|animateMotion|animateColor|animateTransform|
+                   color-profile|font-face
+                   %ceExt;%svgExt;)* >
+
+<!ATTLIST svg
+  xmlns CDATA #FIXED "http://www.w3.org/2000/svg"
+  xmlns:xlink CDATA #FIXED "http://www.w3.org/1999/xlink"
+  %stdAttrs;
+  %testAttrs;
+  %langSpaceAttrs;
+  class %ClassList; #IMPLIED
+  style %StyleSheet; #IMPLIED
+  %PresentationAttributes-All;
+  preserveAspectRatio %PreserveAspectRatioSpec; 'xMidYMid meet'
+  zoomAndPan (disable | magnify) 'magnify'
+  %graphicsElementEvents;
+  %documentEvents;
+  version %Number; #FIXED "1.0"
+  x %Coordinate; #IMPLIED
+  y %Coordinate; #IMPLIED
+  width %Length; #IMPLIED
+  height %Length; #IMPLIED
+  contentScriptType %ContentType; "text/ecmascript"
+  contentStyleType %ContentType; "text/css" >
+
+<!ELEMENT desc (#PCDATA %descExt;)* >
+
+<!ELEMENT view (%descTitleMetadata;%viewExt;) >
+
+<!-- catalog.dtd -->
+
+<!ELEMENT %catalog; (%public;|%system;|%uri;
+                     |%rewriteSystem;|%rewriteURI;
+                     |%delegatePublic;|%delegateSystem;|%delegateURI;
+                     |%nextCatalog;|%group; %local.catalog.mix;)+>
+
+<!ATTLIST %catalog;
+  %nsdecl;  %uriReference;    #FIXED
+    'urn:oasis:names:tc:entity:xmlns:xml:catalog'
+  prefer    %systemOrPublic;  #IMPLIED
+  xml:base  %uriReference;    #IMPLIED
+  %local.catalog.attribs;
+>
+
+--------------------------------------------------------------------------------
+
+(extSubset
+  (Comment)
+  (elementdecl
+    (Name)
+    (contentspec
+      (children
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (Name)
+        (PEReference
+          (Name))
+        (PEReference
+          (Name)))))
+  (AttlistDecl
+    (Name)
+    (AttDef
+      (Name)
+      (StringType)
+      (DefaultDecl
+        (AttValue)))
+    (AttDef
+      (Name)
+      (StringType)
+      (DefaultDecl
+        (AttValue)))
+    (AttDef
+      (PEReference
+        (Name))
+      (PEReference
+        (Name))
+      (DefaultDecl
+        (PEReference
+          (Name))))
+    (AttDef
+      (Name)
+      (PEReference
+        (Name))
+      (DefaultDecl))
+    (AttDef
+      (Name)
+      (PEReference
+        (Name))
+      (DefaultDecl))
+    (PEReference
+      (Name))
+    (AttDef
+      (Name)
+      (PEReference
+        (Name))
+      (DefaultDecl
+        (AttValue)))
+    (AttDef
+      (Name)
+      (Enumeration
+        (Nmtoken)
+        (Nmtoken))
+      (DefaultDecl
+        (AttValue)))
+    (PEReference
+      (Name))
+    (PEReference
+      (Name))
+    (AttDef
+      (Name)
+      (PEReference
+        (Name))
+      (DefaultDecl
+        (AttValue)))
+    (AttDef
+      (Name)
+      (PEReference
+        (Name))
+      (DefaultDecl))
+    (AttDef
+      (Name)
+      (PEReference
+        (Name))
+      (DefaultDecl))
+    (AttDef
+      (Name)
+      (PEReference
+        (Name))
+      (DefaultDecl))
+    (AttDef
+      (Name)
+      (PEReference
+        (Name))
+      (DefaultDecl))
+    (AttDef
+      (Name)
+      (PEReference
+        (Name))
+      (DefaultDecl
+        (AttValue)))
+    (AttDef
+      (Name)
+      (PEReference
+        (Name))
+      (DefaultDecl
+        (AttValue))))
+  (elementdecl
+    (Name)
+    (contentspec
+      (Mixed
+        (PEReference
+          (Name)))))
+  (elementdecl
+    (Name)
+    (contentspec
+      (children
+        (PEReference
+          (Name))
+        (PEReference
+          (Name)))))
+  (Comment)
+  (elementdecl
+    (PEReference
+      (Name))
+    (contentspec
+      (children
+        (PEReference
+          (Name))
+        (PEReference
+          (Name))
+        (PEReference
+          (Name))
+        (PEReference
+          (Name))
+        (PEReference
+          (Name))
+        (PEReference
+          (Name))
+        (PEReference
+          (Name))
+        (PEReference
+          (Name))
+        (PEReference
+          (Name))
+        (PEReference
+          (Name))
+        (PEReference
+          (Name)))))
+  (AttlistDecl
+    (PEReference
+      (Name))
+    (AttDef
+      (PEReference
+        (Name))
+      (PEReference
+        (Name))
+      (DefaultDecl
+        (AttValue)))
+    (AttDef
+      (Name)
+      (PEReference
+        (Name))
+      (DefaultDecl))
+    (AttDef
+      (Name)
+      (PEReference
+        (Name))
+      (DefaultDecl))
+    (PEReference
+      (Name))))
+
+================================================================================
+Closing bracket in CharData (#22)
+
+:language(xml)
+================================================================================
+
+<test>]</test>
+
+--------------------------------------------------------------------------------
+
+(document
+  (element
+    (STag
+      (Name))
+    (content
+      (CharData))
+    (ETag
+      (Name))))

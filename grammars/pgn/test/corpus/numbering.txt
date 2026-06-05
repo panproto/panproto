@@ -1,0 +1,293 @@
+================================================================================
+Numbering with spaces, starting from 1
+================================================================================
+
+[Event "Tata Steel Masters"]
+
+1. d4 Nf6 2. c4 e6
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (move_number)
+      (san_move)
+      (san_move)
+      (move_number)
+      (san_move)
+      (san_move))
+    (result_code)))
+
+================================================================================
+Numbering without spaces, starting from 1
+================================================================================
+
+[Event "Tata Steel Masters"]
+
+1.d4 Nf6 2.c4 e6
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (move_number)
+      (san_move)
+      (san_move)
+      (move_number)
+      (san_move)
+      (san_move))
+    (result_code)))
+
+================================================================================
+Numbering with spaces, starting from 1b
+================================================================================
+
+[Event "Tata Steel Masters"]
+
+1. ... Nf6 2. c4 e6
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (move_number)
+      (san_move)
+      (move_number)
+      (san_move)
+      (san_move))
+    (result_code)))
+
+================================================================================
+Numbering without spaces, starting from 1b, irregular
+================================================================================
+
+[Event "Tata Steel Masters"]
+
+1.. Nf6 2.c4 e6
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (move_number)
+      (san_move)
+      (move_number)
+      (san_move)
+      (san_move))
+    (result_code)))
+
+================================================================================
+Numbering with spaces, starting from midgame
+================================================================================
+
+[Event "?"]
+[FEN "r1bR2Q1/ppp3pp/4p1k1/2b1P1n1/1np1q3/5N2/PPP3PP/5R1K w - - 2 18"]
+[SetUp "1"]
+
+18. Qe8+ Kh6
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (move_number)
+      (san_move
+        (check_or_mate_condition))
+      (san_move))
+    (result_code)))
+
+================================================================================
+Numbering without spaces, starting from midgame
+================================================================================
+
+[Event "?"]
+[FEN "r1bR2Q1/ppp3pp/4p1k1/2b1P1n1/1np1q3/5N2/PPP3PP/5R1K w - - 2 18"]
+[SetUp "1"]
+
+18.Qe8+ Kh6
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (move_number)
+      (san_move
+        (check_or_mate_condition))
+      (san_move))
+    (result_code)))
+
+================================================================================
+Numbering with spaces, using Unicode dots
+================================================================================
+
+[Event "Tata Steel Masters"]
+
+1ꓸ d4 Nf6 2‎܂‎ c4 e6
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (move_number)
+      (san_move)
+      (san_move)
+      (move_number)
+      (san_move)
+      (san_move))
+    (result_code)))
+
+================================================================================
+No numbering
+================================================================================
+
+[Event "Tata Steel Masters"]
+
+d4 Nf6 c4 e6
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (san_move)
+      (san_move)
+      (san_move)
+      (san_move))
+    (result_code)))
+
+================================================================================
+Numbering without dots
+================================================================================
+
+[Event "Tata Steel Masters"]
+
+1 d4 Nf6 2 c4 e6
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (move_number)
+      (san_move)
+      (san_move)
+      (move_number)
+      (san_move)
+      (san_move))
+    (result_code)))

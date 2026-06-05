@@ -1,0 +1,34 @@
+===
+new
+===
+
+res1 = new {}
+
+res2 = new Dynamic {}
+
+res3 = new Dynamic {} {} {}
+---
+
+(module
+  (classProperty
+    (identifier)
+    (newExpr
+      (objectBody)))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody)))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (amendExpr
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (objectBody))
+        (objectBody))
+      (objectBody))))

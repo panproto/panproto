@@ -1,0 +1,17 @@
+===
+errors/underscoreLet.pkl
+===
+
+foo = let (_ = throw("oops")) 0
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (letExpr
+      (blankIdentifier)
+      (throwExpr
+        (slStringLiteralExpr
+          (slStringLiteralPart)))
+      (intLiteralExpr))))

@@ -1,0 +1,51 @@
+================================================================================
+A simple tuple
+================================================================================
+("abc", 1.23, true)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (tuple
+    (string)
+    (float)
+    (boolean)))
+
+
+================================================================================
+Tuple with mixed types and comments
+================================================================================
+(
+    // some fields
+    "abc\"\n",
+    ['e', '\n'],
+    0x1,
+    1,
+    /* a block comment */
+    true,
+    1.1234,
+    -10.1,
+    false, // another comment
+)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (tuple
+    (line_comment)
+    (string
+      (escape_sequence)
+      (escape_sequence))
+    (array
+      (char)
+      (char
+        (escape_sequence)))
+    (integer)
+    (integer)
+    (block_comment)
+    (boolean)
+    (float)
+    (negative
+      (float))
+    (boolean)
+    (line_comment)))

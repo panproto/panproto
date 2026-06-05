@@ -1,0 +1,30 @@
+===
+package declaration
+===
+
+package foo
+
+---
+
+(source_file (package_clause (package_identifier)))
+
+===
+imports
+===
+
+import "foo"
+
+import (
+		"encoding/json"
+		l "list"
+)
+
+---
+
+(source_file 
+ (import_declaration 
+	(import_spec (string))) 
+ (import_declaration 
+	(import_spec_list 
+	 (import_spec (string)) 
+	 (import_spec (package_identifier) (string)))))

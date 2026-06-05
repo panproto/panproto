@@ -1,0 +1,406 @@
+================================================================================
+line comment
+================================================================================
+
+// comment
+let x = 1
+
+--------------------------------------------------------------------------------
+
+(file
+  (line_comment)
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      (const
+        (int)))))
+
+================================================================================
+line comment with four slashes
+================================================================================
+
+//// comment
+let x = 1
+
+--------------------------------------------------------------------------------
+
+(file
+  (line_comment)
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      (const
+        (int)))))
+
+================================================================================
+block comment
+================================================================================
+
+(* comment *)
+let x = 1
+
+--------------------------------------------------------------------------------
+
+(file
+  (block_comment
+    (block_comment_content))
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      (const
+        (int)))))
+
+================================================================================
+multi-line block comment
+================================================================================
+
+(*
+ * comment
+ *)
+let x = 1
+
+--------------------------------------------------------------------------------
+
+(file
+  (block_comment
+    (block_comment_content))
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      (const
+        (int)))))
+
+================================================================================
+docstring
+================================================================================
+
+/// <c>code</c>
+let x = 1
+
+--------------------------------------------------------------------------------
+
+(file
+  (xml_doc)
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      (const
+        (int)))))
+
+================================================================================
+comment in simple string
+================================================================================
+
+let x = "//comment in string"
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      (const
+        (string)))))
+
+================================================================================
+comment in triple-quoted string
+================================================================================
+
+let x = """
+//comment in string
+"""
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      (const
+        (triple_quoted_string)))))
+
+================================================================================
+comment in verbatim string
+================================================================================
+
+let x = @"//comment in string"
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      (const
+        (verbatim_string)))))
+
+================================================================================
+url in simple string
+================================================================================
+
+let x = "http://www.test.com"
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      (const
+        (string)))))
+
+================================================================================
+url in format string
+================================================================================
+
+let x = $"http://www.{baseurl}.com"
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      (const
+        (string
+          (format_string
+            (format_string_eval
+              (long_identifier_or_op
+                (identifier)))))))))
+
+================================================================================
+xml docstring
+================================================================================
+
+/// <summary>
+/// super important function
+/// </summary>
+let f x = x + 1
+
+--------------------------------------------------------------------------------
+
+(file
+  (xml_doc)
+  (xml_doc)
+  (xml_doc)
+  (declaration_expression
+    (function_or_value_defn
+      (function_declaration_left
+        (identifier)
+        (argument_patterns
+          (long_identifier
+            (identifier))))
+      (infix_expression
+        (long_identifier_or_op
+          (identifier))
+        (infix_op)
+        (const
+          (int))))))
+
+================================================================================
+json payload in multi-line string
+================================================================================
+
+namespace test
+
+module Json =
+  [<Literal>]
+  let MyPayload =
+    """
+    {
+      "prop1": []
+      "prop2": {
+        "prop3": true,
+        "prop4": 1,
+      },
+    }
+    """
+
+--------------------------------------------------------------------------------
+
+(file
+  (namespace
+    (long_identifier
+      (identifier))
+    (module_defn
+      (identifier)
+      (declaration_expression
+        (attributes
+          (attribute
+            (simple_type
+              (long_identifier
+                (identifier)))))
+        (function_or_value_defn
+          (value_declaration_left
+            (identifier_pattern
+              (long_identifier_or_op
+                (identifier))))
+          (const
+            (triple_quoted_string)))))))
+
+================================================================================
+json payload in multi-line format string
+================================================================================
+
+namespace test
+
+module Json =
+  let myPayloadBuilder x =
+    $"""
+    {{
+      "prop1": []
+      "prop2": {{
+        "prop3": {x},
+        "prop4": 1,
+      }},
+    }}
+    """
+
+--------------------------------------------------------------------------------
+
+(file
+  (namespace
+    (long_identifier
+      (identifier))
+    (module_defn
+      (identifier)
+      (declaration_expression
+        (function_or_value_defn
+          (function_declaration_left
+            (identifier)
+            (argument_patterns
+              (long_identifier
+                (identifier))))
+          (const
+            (triple_quoted_string
+              (format_triple_quoted_string
+                (format_string_eval
+                  (long_identifier_or_op
+                    (identifier)))))))))))
+
+================================================================================
+empty line comment
+================================================================================
+
+do
+  //
+  1
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (do
+      (line_comment)
+      (const
+        (int)))))
+
+================================================================================
+line comment before and
+================================================================================
+
+type T = unit
+// comment
+and U = unit
+
+--------------------------------------------------------------------------------
+
+(file
+  (type_definition
+    (union_type_defn
+      (type_name
+        (identifier))
+      (union_type_cases
+        (union_type_case
+          (identifier)))
+      (line_comment))
+    (union_type_defn
+      (type_name
+        (identifier))
+      (union_type_cases
+        (union_type_case
+          (identifier))))))
+
+================================================================================
+line comment in if-then-else
+================================================================================
+
+do
+  if
+    // comment
+    true // comment
+  then
+    // comment
+    1 // comment
+  else
+    // comment
+    2 // comment
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (do
+      (if_expression
+        (line_comment)
+        (const
+          (bool))
+        (line_comment)
+        (line_comment)
+        (const
+          (int))
+        (line_comment)
+        (line_comment)
+        (const
+          (int))
+        (line_comment)))))
+
+================================================================================
+bare xml doc comment
+================================================================================
+
+///
+let x = 1
+
+--------------------------------------------------------------------------------
+
+(file
+  (xml_doc)
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      body: (const
+        (int)))))

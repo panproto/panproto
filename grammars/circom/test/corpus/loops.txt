@@ -1,0 +1,60 @@
+=====================================
+For loop
+=====================================
+function f1 (n) {
+    for (var i = 0; i < 100; i++){
+        i++;
+    }
+    return n;
+}
+---
+ (source_file
+      (function_definition
+        (identifier)
+        (parameter_list
+          (parameter
+            (identifier)))
+        (function_body
+          (for_statement
+            (variable_declaration_statement
+              (identifier)
+              (int_literal))
+            (expression_statement
+              (binary_expression
+                (identifier)
+                (int_literal)))
+            (increment_expression
+              (identifier))
+            (block_statement
+              (expression_statement
+                (increment_expression
+                  (identifier)))))
+          (return_statement
+            (identifier)))))
+=====================================
+While loop
+=====================================
+function f2 (n) {
+    while (n > 0){
+      n--;
+    }
+    return n;
+}
+---
+(source_file
+      (function_definition
+        (identifier)
+        (parameter_list
+          (parameter
+            (identifier)))
+        (function_body
+          (while_statement
+            (binary_expression
+              (identifier)
+              (int_literal))
+            (block_statement
+              (expression_statement
+                (decrement_expression
+                  (identifier)))))
+          (return_statement
+            (identifier)))))

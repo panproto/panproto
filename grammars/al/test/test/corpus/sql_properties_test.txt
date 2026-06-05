@@ -1,0 +1,128 @@
+================================================================================
+SQL Data Type Property Test
+================================================================================
+
+table 50100 "SQL Test Table"
+{
+    fields
+    {
+        field(1; "ID"; Integer)
+        {
+            SqlDataType = BigInt;
+        }
+        field(2; "Name"; Text[50])
+        {
+            SqlDataType = NVarchar;
+        }
+        field(3; "Amount"; Decimal)
+        {
+            SqlDataType = Money;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (identifier)))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (identifier)))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (identifier))))))
+
+================================================================================
+SQL Timestamp Property Test
+================================================================================
+
+table 50101 "Timestamp Test"
+{
+    fields
+    {
+        field(1; "Record ID"; Integer)
+        {
+            SqlTimestamp = true;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (boolean))))))
+
+================================================================================
+Test Table Relation Property Test
+================================================================================
+
+table 50102 "Test Table Relation"
+{
+    fields
+    {
+        field(1; "Customer No."; Code[20])
+        {
+            TableRelation = Customer;
+            TestTableRelation = false;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (code_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (identifier))
+        (property
+          name: (property_name)
+          value: (boolean))))))

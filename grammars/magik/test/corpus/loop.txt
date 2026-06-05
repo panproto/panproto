@@ -1,0 +1,245 @@
+================================================================================
+loop
+================================================================================
+
+_loop
+_endloop
+
+_loop
+  _continue
+_endloop
+
+_loop
+  _continue _with _unset
+_endloop
+
+_loop
+  _continue _with (_unset, _unset)
+_endloop
+
+_loop
+  _continue _with _unset, _unset
+_endloop
+
+_loop
+  _leave
+_endloop
+
+_loop
+  _leave _with _unset
+_endloop
+
+_loop
+  _leave _with (_unset, _unset)
+_endloop
+
+_loop
+  _leave _with _unset, _unset
+_endloop
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (loop))
+  (fragment
+    (loop
+      (continue)))
+  (fragment
+    (loop
+      (continue
+        (unset))))
+  (fragment
+    (loop
+      (continue
+        (unset)
+        (unset))))
+  (fragment
+    (loop
+      (continue
+        (unset)
+        (unset))))
+  (fragment
+    (loop
+      (leave)))
+  (fragment
+    (loop
+      (leave
+        (unset))))
+  (fragment
+    (loop
+      (leave
+        (unset)
+        (unset))))
+  (fragment
+    (loop
+      (leave
+        (unset)
+        (unset)))))
+
+================================================================================
+labelled loop
+================================================================================
+
+_loop @outer_loop
+_endloop
+
+_loop @outer_loop
+  _continue@outer_loop
+_endloop
+
+_loop @outer_loop
+  _leave@outer_loop
+_endloop
+
+_loop@|InnerLoop|
+  _leave@|InnerLoop|
+_endloop
+$
+
+_loop@StraßeLoop
+  _leave @StraßeLoop
+_endloop
+$
+
+_loop@||
+  _leave @||
+_endloop
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (loop
+      (label)))
+  (fragment
+    (loop
+      (label)
+      (continue
+        (label))))
+  (fragment
+    (loop
+      (label)
+      (leave
+        (label))))
+  (fragment
+    (loop
+      (label)
+      (leave
+        (label))))
+  (fragment
+    (loop
+      (label)
+      (leave
+        (label))))
+  (fragment
+    (loop
+      (label)
+      (leave
+        (label)))))
+
+================================================================================
+iterator
+================================================================================
+
+_over simple_vector.fast_elements()
+_loop
+_endloop
+
+_for e _over simple_vector.fast_elements()
+_loop
+_endloop
+
+_for e _over simple_vector.fast_elements()
+_loop @outer_loop
+_endloop
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (iterator
+      (call
+        (variable)
+        (identifier))))
+  (fragment
+    (iterator
+      (identifier)
+      (call
+        (variable)
+        (identifier))))
+  (fragment
+    (iterator
+      (identifier)
+      (call
+        (variable)
+        (identifier))
+      (label))))
+
+================================================================================
+iterator with finally
+================================================================================
+
+_for e _over simple_vector.fast_elements()
+_loop
+_finally
+_endloop
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (iterator
+      (identifier)
+      (call
+        (variable)
+        (identifier))
+      (finally))))
+
+================================================================================
+while
+================================================================================
+
+_while x <= 100
+_loop
+  y +<< x
+  x +<< 1
+_endloop
+
+_while x <= 100
+_loop@outer_loop
+  y +<< x
+  x +<< 1
+_endloop
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (while
+      (relational_operator
+        (variable)
+        (number))
+      (assignment
+        (variable)
+        (variable))
+      (assignment
+        (variable)
+        (number))))
+  (fragment
+    (while
+      (relational_operator
+        (variable)
+        (number))
+      (label)
+      (assignment
+        (variable)
+        (variable))
+      (assignment
+        (variable)
+        (number)))))

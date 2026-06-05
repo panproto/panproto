@@ -1,0 +1,77 @@
+==================
+basic try-catch statement
+==================
+
+sub init()
+  try
+    x = 10 / 0
+  catch ex
+    print "Caught exception: " + ex.message
+  end try
+end sub
+
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (try_statement
+        (try_start)
+        (block
+          (assignment_statement
+            (variable_declarator
+              (identifier))
+            (binary_expression
+              (arithmetic_expression
+                (multiplicative_expression
+                  (literal
+                    (number))
+                  (literal
+                    (number)))))))
+        (catch_clause
+          (try_catch)
+          (identifier)
+          (block
+            (print_statement
+              (print)
+              (binary_expression
+                (arithmetic_expression
+                  (additive_expression
+                    (literal
+                      (string
+                        (string_contents)))
+                    (prefix_exp
+                      (prefix_exp
+                        (identifier))
+                      (identifier))))))))
+        (end_statement
+          (end_try))))
+    (end_statement
+      (end_sub))))
+
+==================
+basic throw statement
+==================
+
+sub init()
+	throw "error"
+end sub
+
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (throw_statement
+        (throw)
+        (literal
+          (string
+            (string_contents)))))
+    (end_statement
+      (end_sub))))

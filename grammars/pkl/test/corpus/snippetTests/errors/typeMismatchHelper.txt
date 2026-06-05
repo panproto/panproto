@@ -1,0 +1,19 @@
+===
+errors/typeMismatchHelper.pkl
+===
+
+module foo.bar
+
+class Baz
+
+---
+
+(module
+  (moduleHeader
+    (moduleClause
+
+      (qualifiedIdentifier
+        (identifier)
+        (identifier))))
+  (clazz
+    (identifier)))

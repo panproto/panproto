@@ -1,0 +1,53 @@
+==========================================
+Preprocessor conditional directives in using statements
+==========================================
+
+namespace Microsoft.Test;
+
+using Microsoft.Inventory.Item;
+#if not CLEAN25
+using Microsoft.Purchases.Pricing;
+#endif
+using Microsoft.Purchases.Vendor;
+
+codeunit 123 "Test Codeunit"
+{
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (namespace_declaration
+    (namespace_keyword)
+    name: (namespace_name
+      (identifier)
+      (identifier)))
+  (using_statement
+    (using_keyword)
+    namespace: (namespace_name
+      (identifier)
+      (identifier)
+      (identifier)))
+  (preproc_conditional_object
+    (preproc_if
+      (preproc_open)
+      condition: (preproc_not_expression
+        (identifier)))
+    (using_statement
+      (using_keyword)
+      namespace: (namespace_name
+        (identifier)
+        (identifier)
+        (identifier)))
+    (preproc_endif
+      (preproc_close)))
+  (using_statement
+    (using_keyword)
+    namespace: (namespace_name
+      (identifier)
+      (identifier)
+      (identifier)))
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)))

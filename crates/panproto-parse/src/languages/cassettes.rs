@@ -51,6 +51,64 @@ pub trait GrammarCassette: Send + Sync {
         let _ = separator_text;
         false
     }
+
+    /// Returns `true` when a leaf vertex of this `kind` is raw inline
+    /// content that abuts its surrounding tokens with no inserted
+    /// whitespace (HTML/markup element `text` between `>` and `</`).
+    /// Emitting such content with the layout pass's normal role spacing
+    /// inserts spaces that the re-parse folds back into the captured
+    /// text, so the literal grows unboundedly across emit cycles; tight
+    /// emission keeps it a fixed point.
+    fn kind_is_tight_content(&self, kind: &str) -> bool {
+        let _ = kind;
+        false
+    }
+
+    /// Returns `true` when the STRING token `token` must be emitted
+    /// *tight* (no surrounding whitespace) inside grammar rule `rule`,
+    /// even though the generic role classifier would treat it as a
+    /// spaced operator / separator. This is a **lexical** fact the
+    /// scanner enforces but `grammar.json` does not encode (no
+    /// `IMMEDIATE_TOKEN`): bash's `VAR=1` / `VAR+=1` assignment operator
+    /// is a single scanner word, so `=` must hug both sides, unlike the
+    /// `=` of a `[[ a = b ]]` test. The generic emitter cannot derive
+    /// this from the grammar, so the per-language cassette declares it;
+    /// the layout pass then emits the token with the always-tight
+    /// [`Connector`](crate::emit_pretty) role.
+    fn operator_is_tight(&self, rule: &str, token: &str) -> bool {
+        let _ = (rule, token);
+        false
+    }
+
+    /// Returns `true` when an external scanner token is a layout
+    /// terminator that should emit a newline. Layout-sensitive grammars
+    /// name these idiosyncratically (Elm's `_virtual_end_decl`), so the
+    /// generic newline-classifier (which keys off the `_newline` /
+    /// `line_ending` conventions) cannot recognise them; the per-grammar
+    /// cassette declares them here.
+    fn external_is_newline(&self, token_name: &str) -> bool {
+        let _ = token_name;
+        false
+    }
+
+    /// Returns `true` when an external scanner token must abut its
+    /// predecessor with NO intervening whitespace. This is the
+    /// per-language analogue of the generic `_immediate*` / `_concat`
+    /// convention (`is_no_space_external`) for
+    /// externals whose names do not follow that convention but whose
+    /// scanner nonetheless requires immediate adjacency. C#'s interpolated
+    /// string delimiters are the motivating case: the opening quote of
+    /// `$"…"` is the external `interpolation_start_quote`, which the
+    /// scanner only emits when it immediately follows the `$`
+    /// (`interpolation_start`); a separating space (`$ "`) makes the
+    /// re-parse see a bare `$` and a plain string, collapsing the
+    /// `interpolated_string_expression`. Keyed by the external's own name,
+    /// so it never fires for a sibling C-family grammar that lacks the
+    /// token.
+    fn external_leads_no_space(&self, token_name: &str) -> bool {
+        let _ = token_name;
+        false
+    }
 }
 
 /// Compose the language-specific override with the common fallback.
@@ -313,10 +371,52 @@ impl GrammarCassette for HtmlFamilyCassette {
             _ => None,
         }
     }
+
+    fn kind_is_tight_content(&self, kind: &str) -> bool {
+        // Element text and raw script/style bodies sit directly between
+        // `>` and `</` with no inserted whitespace; spacing them grows
+        // the captured text on every re-emit.
+        matches!(kind, "text" | "raw_text")
+    }
 }
 
 /// Cassette for the Bash / Zsh / Fish family, which share most
 /// externals (heredocs, variable expansions, brace-start markers).
+/// Cassette for R. Several R operators are written tight in idiomatic R
+/// and in the upstream corpus, but `grammar.json` spells them as plain
+/// `FIELD(operator, STRING)` members with no `IMMEDIATE_TOKEN`, so the
+/// generic role classifier spaces them. These are lexical conventions the
+/// scanner permits either way but the corpus fixes tight; declaring them
+/// here flips the affected entries from spaced (AST-faithful, byte-FP
+/// fail) to byte-exact without touching the generic emitter. Keyed by the
+/// owning rule so only the specific operator positions are affected (the
+/// arithmetic / assignment / comparison / pipe operators in
+/// `binary_operator` stay spaced).
+struct RCassette;
+
+impl GrammarCassette for RCassette {
+    fn external_token_default(&self, _token_name: &str) -> Option<&str> {
+        None
+    }
+
+    fn operator_is_tight(&self, rule: &str, token: &str) -> bool {
+        match rule {
+            // Namespace access: `pkg::name`, `pkg:::name`.
+            "namespace_operator" => matches!(token, "::" | ":::"),
+            // Component/slot extraction: `df$col`, `obj@slot`.
+            "extract_operator" => matches!(token, "$" | "@"),
+            // The sequence operator `1:5` is tight; every other operator in
+            // this rule (arithmetic, assignment, comparison, logical, the
+            // `|>` pipe) keeps its surrounding whitespace.
+            "binary_operator" => token == ":",
+            // A unary prefix operator hugs its operand (`!a`, `-a`, `+a`,
+            // `~x`, `?topic`).
+            "unary_operator" => matches!(token, "!" | "-" | "+" | "~" | "?"),
+            _ => false,
+        }
+    }
+}
+
 struct ShellFamilyCassette;
 
 impl GrammarCassette for ShellFamilyCassette {
@@ -328,17 +428,77 @@ impl GrammarCassette for ShellFamilyCassette {
             _ => None,
         }
     }
+
+    fn operator_is_tight(&self, rule: &str, token: &str) -> bool {
+        // `VAR=1` / `VAR+=1`: the scanner reads the assignment as one
+        // word, so the operator hugs both sides. (The `=` of a `[[ a = b ]]`
+        // test, a different rule, stays spaced.)
+        rule == "variable_assignment" && matches!(token, "=" | "+=")
+    }
 }
 
 /// Cassette for the C-family raw-string grammars (C++, CUDA, HLSL,
-/// Arduino, C#). These share `raw_string_delimiter` and
-/// `raw_string_content` externals whose actual text is parse-time
-/// dependent; emit empty when there is no captured literal.
+/// Arduino). These share `raw_string_delimiter` and `raw_string_content`
+/// externals whose actual text is parse-time dependent; emit empty when
+/// there is no captured literal.
 struct CFamilyCassette;
 
 impl GrammarCassette for CFamilyCassette {
     fn external_token_default(&self, _token_name: &str) -> Option<&str> {
         None // Common layer handles raw_string_* uniformly.
+    }
+}
+
+/// Cassette for C#. Its interpolated strings (`$"…{x}…"`) carry the whole
+/// string span — delimiters, captured content, and the `{`/`}`
+/// interpolation braces — as scanner-driven external tokens whose layout
+/// `grammar.json` cannot describe: the scanner only re-lexes the string
+/// when the delimiters and braces abut their neighbours. The generic
+/// emitter would split `$"` (the external open quote must hug the `$`),
+/// space the captured `string_content`, and treat the literal `{` of
+/// `interpolation_brace` as a block opener (newline + indent), all of
+/// which the re-parse rejects. These are lexical facts the cassette
+/// declares; none of the token names appear in the sibling C-family
+/// grammars, so the split keeps each cassette inert for the others.
+struct CSharpCassette;
+
+impl GrammarCassette for CSharpCassette {
+    fn external_token_default(&self, _token_name: &str) -> Option<&str> {
+        None // Common layer handles raw_string_* uniformly.
+    }
+
+    fn external_leads_no_space(&self, token_name: &str) -> bool {
+        // The opening quote of `$"…"` is the external
+        // `interpolation_start_quote`, emitted only immediately after the
+        // `$` (`interpolation_start`); a separating space (`$ "`) makes the
+        // re-parse see a bare `$` and a plain string, collapsing the
+        // `interpolated_string_expression`.
+        matches!(
+            token_name,
+            "interpolation_start_quote"
+                | "interpolation_open_brace"
+                | "interpolation_close_brace"
+                | "interpolation_end_quote"
+        )
+    }
+
+    fn kind_is_tight_content(&self, kind: &str) -> bool {
+        // The captured content of an interpolated / raw string and the
+        // `{`/`}` interpolation braces are part of one lexical string
+        // span: each must emit tight on both sides (no inserted space, no
+        // `{`-triggered block newline) so the re-parse re-lexes the same
+        // `interpolated_string_expression` / `interpolation` / raw string.
+        //
+        // - `string_content`: the interpolated-string text run.
+        // - `interpolation_brace`: the named alias of the `{`/`}` braces.
+        // - `interpolation_quote`: the `"""` raw-interpolation quote, which
+        //   must hug the `$` opener (`$"""…`) and the content.
+        // - `raw_string_content`: the body of a raw string literal
+        //   (`"""…"""`), which the scanner captures verbatim.
+        matches!(
+            kind,
+            "string_content" | "interpolation_brace" | "interpolation_quote" | "raw_string_content"
+        )
     }
 }
 
@@ -361,8 +521,54 @@ impl GrammarCassette for JsFamilyCassette {
 struct IndentBasedCassette;
 
 impl GrammarCassette for IndentBasedCassette {
+    fn external_token_default(&self, token_name: &str) -> Option<&str> {
+        match token_name {
+            // The Haskell-family module-path separator is an external
+            // scanner token with no text in `grammar.json` (idris /
+            // purescript `_qualifying_module = REPEAT1(SEQ[module_name,
+            // _dot])`). Unresolved it emitted nothing and the
+            // sibling-separation glued a space, so `module Foo.Bar`
+            // re-parsed as `module Foo Bar` (two separate module names).
+            "_dot" => Some("."),
+            // Common layer handles _newline / _indent / _dedent.
+            _ => None,
+        }
+    }
+}
+
+/// Elm's layout scanner emits virtual section/declaration terminators
+/// rather than the conventional `_newline`. `_virtual_end_decl` ends a
+/// top-level declaration and must render as a newline so declarations
+/// stay on their own lines; `_virtual_end_section` closes an indented
+/// section (let/in, case-of) and likewise breaks the line.
+struct ElmCassette;
+
+impl GrammarCassette for ElmCassette {
     fn external_token_default(&self, _token_name: &str) -> Option<&str> {
-        None // Common layer handles _newline / _indent / _dedent.
+        None
+    }
+
+    fn external_is_newline(&self, token_name: &str) -> bool {
+        matches!(token_name, "_virtual_end_decl" | "_virtual_end_section")
+    }
+}
+
+/// Kotlin's primary-constructor keyword is an external scanner token
+/// (`_primary_constructor_keyword`) with no text in `grammar.json`: the
+/// scanner emits it for the literal `constructor`. Its presence is the
+/// only anchor for constructor modifiers/annotations: `private constructor
+/// (x: Int)` re-parses as a `primary_constructor` with a `modifiers` node
+/// only when the `constructor` keyword separates the modifier from the
+/// parameter list. Without the keyword text, `private(x: Int)` loses the
+/// `modifiers` node on re-parse.
+struct KotlinCassette;
+
+impl GrammarCassette for KotlinCassette {
+    fn external_token_default(&self, token_name: &str) -> Option<&str> {
+        match token_name {
+            "_primary_constructor_keyword" => Some("constructor"),
+            _ => None,
+        }
     }
 }
 
@@ -384,10 +590,14 @@ pub fn cassette_for(protocol: &str) -> Arc<dyn GrammarCassette> {
             Arc::new(HtmlFamilyCassette)
         }
         "bash" | "zsh" | "fish" => Arc::new(ShellFamilyCassette),
-        "cpp" | "cuda" | "hlsl" | "arduino" | "csharp" | "c" => Arc::new(CFamilyCassette),
+        "r" => Arc::new(RCassette),
+        "csharp" => Arc::new(CSharpCassette),
+        "cpp" | "cuda" | "hlsl" | "arduino" | "c" => Arc::new(CFamilyCassette),
         "javascript" | "typescript" | "tsx" | "qml" | "rescript" => Arc::new(JsFamilyCassette),
+        "elm" => Arc::new(ElmCassette),
+        "kotlin" => Arc::new(KotlinCassette),
         "agda" | "fsharp" | "fsharp_signature" | "earthfile" | "firrtl" | "cooklang" | "djot"
-        | "idris" | "nim" | "purescript" | "haskell" | "elm" => Arc::new(IndentBasedCassette),
+        | "idris" | "nim" | "purescript" | "haskell" => Arc::new(IndentBasedCassette),
         _ => Arc::new(DefaultCassette),
     }
 }

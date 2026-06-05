@@ -1,0 +1,23 @@
+================================================================================
+fixedModifier
+================================================================================
+
+class MyClass {
+    fixed myProp: String = "hello"
+}
+
+--------------------------------------------------------------------------------
+
+(module
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (modifier)
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))
+        (slStringLiteralExpr
+          (slStringLiteralPart))))))

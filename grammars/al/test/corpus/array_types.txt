@@ -1,0 +1,58 @@
+==================
+Complex Array Types
+==================
+
+codeunit 50100 "Array Types Test"
+{
+    var
+        arrayOfCodeunits: array[10] of Codeunit 50100;
+        arrayOfQueries: array[5] of Query "My Query";
+        arrayOfRecords: array[20] of Record Customer Temporary;
+        arrayOfDotNet: array[3] of DotNet String;
+}
+
+---
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        (identifier)
+        (type_specification
+          (array_type
+            (integer)
+            (type_specification
+              (object_reference_type
+                (codeunit_keyword)
+                (integer))))))
+      (variable_declaration
+        (identifier)
+        (type_specification
+          (array_type
+            (integer)
+            (type_specification
+              (object_reference_type
+                (query_keyword)
+                (quoted_identifier))))))
+      (variable_declaration
+        (identifier)
+        (type_specification
+          (array_type
+            (integer)
+            (type_specification
+              (record_type
+                (identifier)
+                (temporary_keyword))))))
+      (variable_declaration
+        (identifier)
+        (type_specification
+          (array_type
+            (integer)
+            (type_specification
+              (dotnet_type
+                (dotnet_keyword)
+                (identifier)))))))))

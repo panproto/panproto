@@ -1,0 +1,208 @@
+==============
+string template
+==============
+beta = '@a@\'\"\@'
+---
+(source_file
+  (operatorunit
+    (identifier)
+    (variableunit
+      (string
+        (formatunit
+          (identifier))
+        (escape_sequence)
+        (escape_sequence)
+        (escape_sequence)))))
+======================
+variable with commands
+======================
+libpam = cc.find_library('pam', required: get_option('pam'))
+---
+(source_file
+  (operatorunit
+    (identifier)
+    (variableunit
+      (expression_statement
+        (identifier)
+        (normal_command
+          (identifier)
+          (variableunit
+            (string))
+          (pair
+            (identifier)
+            (normal_command
+              (identifier)
+              (variableunit
+                (string)))))))))
+
+==============
+format string
+==============
+beta = f'@a@bb'
+---
+
+(source_file
+  (operatorunit
+    (identifier)
+    (variableunit
+      (string
+        (formatunit
+          (identifier))))))
+
+
+======================
+variable with commands
+======================
+libpam = cc.find_library('pam', required: get_option('pam'))
+---
+(source_file
+  (operatorunit
+    (identifier)
+    (variableunit
+      (expression_statement
+        (identifier)
+        (normal_command
+          (identifier)
+          (variableunit
+            (string))
+          (pair
+            (identifier)
+            (normal_command
+              (identifier)
+              (variableunit
+                (string)))))))))
+
+================
+assign to variable
+=================
+
+a = 'ssss'
+
+a = '-c'
+
+a = exec()
+
+a = exec(a)
+
+a = exec(a:true)
+
+a = exec(['a',true])
+
+---
+(source_file
+  (operatorunit
+    (identifier)
+    (var_unit
+      (string)))
+  (operatorunit
+    (identifier)
+    (var_unit
+      (string)))
+  (operatorunit
+    (identifier)
+    (normal_command
+      (identifier)))
+  (operatorunit
+    (identifier)
+    (normal_command
+      (identifier)
+      (variableunit
+        (identifier))))
+  (operatorunit
+    (identifier)
+    (normal_command
+      (identifier)
+      (pair
+        (identifier)
+        (bool))))
+  (operatorunit
+    (identifier)
+    (normal_command
+      (identifier)
+      (list
+        (string)
+        (bool)))))
+=========
+list
+=========
+command = [
+	sh, '-c', '@0@ <@INPUT@ >@1@'.format(scdoc_prog.path(), output)
+]
+---
+(source_file
+  (operatorunit
+    (identifier)
+    (list
+      (identifier)
+      (string)
+      (variableunit
+        (expression_statement
+          (string
+            (formatunit
+              (number))
+            (formatunit
+              (identifier))
+            (formatunit
+              (number)))
+          (normal_command
+            (identifier)
+            (variableunit
+              (expression_statement
+                (identifier)
+                (normal_command
+                  (identifier))))
+            (variableunit
+                  (identifier))))))))
+
+====================
+in opetate for array
+====================
+my_array = [1, 2]
+if 1 in my_array
+# This condition is true
+endif
+if 1 not in my_array
+# This condition is false
+endif
+---
+(source_file
+  (operatorunit
+    (identifier)
+    (list
+      (number)
+      (number)))
+  (if_condition
+    (if_command
+      (var_unit
+        (number)
+        (identifier))
+      (comment)))
+  (if_condition
+    (if_command
+      (var_unit
+        (number)
+        (identifier))
+      (comment))))
+
+==========
+dictory
+==========
+prefix={
+a: true,
+'b': abcd,
+}
+val = 1
+---
+(source_file
+  (operatorunit
+    (identifier)
+    (dictionaries
+      (pair
+        (identifier)
+        (bool))
+      (pair
+        (string)
+        (identifier))))
+  (operatorunit
+    (identifier)
+    (number)))

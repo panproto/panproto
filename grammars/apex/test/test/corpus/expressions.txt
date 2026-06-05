@@ -1,0 +1,222 @@
+================================================================================
+EXPRESSIONS Trigger.New
+================================================================================
+
+public class Me {
+  {
+    TestType evt = Trigger.New;
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(parser_output
+  (class_declaration
+    (modifiers
+      (modifier
+        (public)))
+    (identifier)
+    (class_body
+      (block
+        (local_variable_declaration
+          (type_identifier)
+          (variable_declarator
+            (identifier)
+            (assignment_operator)
+            (field_access
+              (identifier)
+              (identifier))))))))
+
+================================================================================
+EXPRESSIONS Double Class
+================================================================================
+
+public class Me {
+  {
+    double.valueOf(1);
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(parser_output
+  (class_declaration
+    (modifiers
+      (modifier
+        (public)))
+    (identifier)
+    (class_body
+      (block
+        (expression_statement
+          (method_invocation
+            (identifier)
+            (identifier)
+            (argument_list
+              (int))))))))
+
+================================================================================
+EXPRESSIONS Structured Version
+================================================================================
+
+public class Me {
+  {
+    Package.Version.1.0;
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(parser_output
+  (class_declaration
+    (modifiers
+      (modifier
+        (public)))
+    (identifier)
+    (class_body
+      (block
+        (expression_statement
+          (version_expression
+            (version_number)))))))
+
+================================================================================
+EXPRESSIONS Request Version
+================================================================================
+
+public class Me {
+  {
+    Package.Version.Request;
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(parser_output
+  (class_declaration
+    (modifiers
+      (modifier
+        (public)))
+    (identifier)
+    (class_body
+      (block
+        (expression_statement
+          (version_expression))))))
+
+================================================================================
+EXPRESSIONS Java Variable
+================================================================================
+
+public class Java {
+  {
+    java:java.lang.Integer.MAX_VALUE;
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(parser_output
+  (class_declaration
+    (modifiers
+      (modifier
+        (public)))
+    (identifier)
+    (class_body
+      (block
+        (expression_statement
+          (field_access
+            (field_access
+              (java_field_access
+                (field_access
+                  (identifier)
+                  (identifier)))
+              (identifier))
+            (identifier)))))))
+
+================================================================================
+EXPRESSIONS Java Method
+================================================================================
+
+public class Java {
+  {
+    java:java.lang.Integer.valueOf(1729);
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(parser_output
+  (class_declaration
+    (modifiers
+      (modifier
+        (public)))
+    (identifier)
+    (class_body
+      (block
+        (expression_statement
+          (method_invocation
+            (field_access
+              (java_field_access
+                (field_access
+                  (identifier)
+                  (identifier)))
+              (identifier))
+            (identifier)
+            (argument_list
+              (int))))))))
+
+================================================================================
+EXPRESSIONS Java Type
+================================================================================
+
+public class Java {
+  java:java.util.List propList;
+}
+
+--------------------------------------------------------------------------------
+
+(parser_output
+  (class_declaration
+    (modifiers
+      (modifier
+        (public)))
+    (identifier)
+    (class_body
+      (field_declaration
+        (java_type
+          (scoped_type_identifier
+            (scoped_type_identifier
+              (type_identifier)
+              (type_identifier))
+            (type_identifier)))
+        (variable_declarator
+          (identifier))))))
+
+================================================================================
+EXPRESSIONS Java Constructor
+================================================================================
+
+public class Java {
+  {
+    new java:java.lang.Double(0);
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(parser_output
+  (class_declaration
+    (modifiers
+      (modifier
+        (public)))
+    (identifier)
+    (class_body
+      (block
+        (expression_statement
+          (object_creation_expression
+            (java_type
+              (scoped_type_identifier
+                (scoped_type_identifier
+                  (type_identifier)
+                  (type_identifier))
+                (type_identifier)))
+            (argument_list
+              (int))))))))

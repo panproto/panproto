@@ -1,0 +1,17 @@
+===
+errors/invalidObjectPropertyModifier.pkl
+===
+
+foo {
+  abstract bar = 42
+}
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (modifier)
+        (identifier)
+        (intLiteralExpr)))))

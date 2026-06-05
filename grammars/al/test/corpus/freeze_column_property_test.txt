@@ -1,0 +1,60 @@
+================================================================================
+FreezeColumn property in repeater sections
+================================================================================
+
+page 50001 "Test Page"
+{
+    PageType = List;
+
+    layout
+    {
+        area(content)
+        {
+            repeater(Lines)
+            {
+                FreezeColumn = "4";
+                field("Code"; Code)
+                {
+                    ApplicationArea = All;
+                }
+                field("Name"; Name)
+                {
+                    ApplicationArea = All;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (repeater_section
+          (repeater_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (quoted_identifier))
+          (page_field
+            name: (quoted_identifier)
+            source: (identifier)
+            (property
+              name: (property_name)
+              value: (identifier)))
+          (page_field
+            name: (quoted_identifier)
+            source: (identifier)
+            (property
+              name: (property_name)
+              value: (identifier))))))))

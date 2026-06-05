@@ -1,0 +1,191 @@
+================================================================================
+API page with APIGroup and APIPublisher properties
+================================================================================
+
+page 20001 "APIV1 - Aut. Companies"
+{
+    APIGroup = 'automation';
+    APIPublisher = 'microsoft';
+    APIVersion = 'v1.0';
+    PageType = API;
+    EntityName = 'automationCompany';
+    EntitySetName = 'automationCompanies';
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))))
+
+================================================================================
+API page with all API-related properties
+================================================================================
+
+page 30000 "API Test Page"
+{
+    PageType = API;
+    APIVersion = 'v2.0';
+    APIGroup = 'app1';
+    APIPublisher = 'contoso';
+    EntityCaption = 'Customer';
+    EntityCaptionML = ENU = 'Customer', DAN = 'Kunde';
+    EntityName = 'customer';
+    EntitySetCaption = 'Customers';
+    EntitySetCaptionML = ENU = 'Customers', DAN = 'Kunder';
+    EntitySetName = 'customers';
+    ODataKeyFields = SystemId;
+    SourceTable = Customer;
+    DelayedInsert = true;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (ml_value_list
+        (ml_value_pair
+          language: (identifier)
+          value: (string_literal))
+        (ml_value_pair
+          language: (identifier)
+          value: (string_literal))))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (ml_value_list
+        (ml_value_pair
+          language: (identifier)
+          value: (string_literal))
+        (ml_value_pair
+          language: (identifier)
+          value: (string_literal))))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (boolean))))
+
+================================================================================
+API page with mixed case properties
+================================================================================
+
+page 40000 TestAPI
+{
+    apigroup = 'test';
+    APIPUBLISHER = 'TEST';
+    ApiVersion = 'beta';
+    PageType = API;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))))
+
+================================================================================
+Query with APIGroup and APIPublisher properties
+================================================================================
+
+query 50000 "Customer Query"
+{
+    QueryType = API;
+    APIVersion = 'v1.0';
+    APIGroup = 'sales';
+    APIPublisher = 'company';
+    EntityName = 'customerQuery';
+    EntitySetName = 'customerQueries';
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))))

@@ -1,0 +1,161 @@
+================================================================================
+Filter range expression with open-ended range
+================================================================================
+
+report 50100 "Test Range Filter Report"
+{
+    dataset
+    {
+        dataitem(DimensionLoop1; "Integer")
+        {
+            DataItemTableView = sorting(Number) where(Number = filter(1 ..));
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (sorting_value
+            (identifier)
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (identifier)
+                  (filter_keyword)
+                  value: (filter_value
+                    (integer)))))))))))
+
+================================================================================
+Filter range expression with both start and end values
+================================================================================
+
+report 50200 "Test Full Range Filter Report"
+{
+    dataset
+    {
+        dataitem(TestItem; "Integer")
+        {
+            DataItemTableView = sorting(Number) where(Number = filter(1 .. 100));
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (sorting_value
+            (identifier)
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (identifier)
+                  (filter_keyword)
+                  value: (filter_value
+                    (integer)
+                    (integer)))))))))))
+
+================================================================================
+Filter range expression with string values
+================================================================================
+
+report 50300 "Test String Range Filter Report"
+{
+    dataset
+    {
+        dataitem(TestData; "Item")
+        {
+            DataItemTableView = sorting("No.") where("No." = filter('A' .. 'Z'));
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (sorting_value
+            (quoted_identifier)
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (quoted_identifier)
+                  (filter_keyword)
+                  value: (filter_value
+                    (string_literal)
+                    (string_literal)))))))))))
+
+================================================================================
+Open-ended range with string start value
+================================================================================
+
+report 50400 "Test Open String Range Filter Report"
+{
+    dataset
+    {
+        dataitem(TestMultiple; "Customer")
+        {
+            DataItemTableView = sorting("No.") where("No." = filter('C' ..));
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (sorting_value
+            (quoted_identifier)
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (quoted_identifier)
+                  (filter_keyword)
+                  value: (filter_value
+                    (string_literal)))))))))))

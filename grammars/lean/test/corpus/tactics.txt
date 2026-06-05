@@ -1,0 +1,121 @@
+==============
+Inline tactic
+==============
+
+example : Nat := by exact 0
+
+---
+
+(module
+  (declaration
+    (example
+      type: (identifier)
+      body: (by
+        inline: (app
+          fn: (identifier)
+          arg: (num_lit))))))
+
+==============
+Tactic block
+==============
+
+example : Nat := by
+  exact 0
+
+---
+
+(module
+  (declaration
+    (example
+      type: (identifier)
+      body: (by
+        stmt: (app
+          fn: (identifier)
+          arg: (num_lit))))))
+
+==============
+Multiple tactics
+==============
+
+example : True := by
+  intro
+  exact trivial
+
+---
+
+(module
+  (declaration
+    (example
+      type: (true_const)
+      body: (by
+        stmt: (identifier)
+        stmt: (app
+          fn: (identifier)
+          arg: (identifier))))))
+
+==============
+Do block braceless
+==============
+
+def main : IO Unit := do
+  IO.println "hello"
+  IO.println "world"
+
+---
+
+(module
+  (declaration
+    (def
+      name: (identifier)
+      type: (app
+        fn: (identifier)
+        arg: (identifier))
+      body: (do_block
+        stmt: (app
+          fn: (identifier)
+          arg: (str_lit))
+        stmt: (app
+          fn: (identifier)
+          arg: (str_lit))))))
+
+==============
+Do with let bind
+==============
+
+def main : IO Unit := do
+  let x ← getThing
+  IO.println x
+
+---
+
+(module
+  (declaration
+    (def
+      name: (identifier)
+      type: (app
+        fn: (identifier)
+        arg: (identifier))
+      body: (do_block
+        stmt: (let
+          name: (identifier)
+          value: (identifier))
+        stmt: (app
+          fn: (identifier)
+          arg: (identifier))))))
+
+==============
+Inline do
+==============
+
+def main := do return 0
+
+---
+
+(module
+  (declaration
+    (def
+      name: (identifier)
+      body: (do_block
+        inline: (app
+          fn: (identifier)
+          arg: (num_lit))))))

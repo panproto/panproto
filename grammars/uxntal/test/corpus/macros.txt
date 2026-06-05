@@ -1,0 +1,29 @@
+=======
+Macros
+=======
+
+%QUIT { }
+
+%EMIT { #12 }
+
+|1000
+
+QUIT EMIT
+
+weird#test
+
+---
+
+(program
+  (macro
+    (identifier))
+  (macro
+    (identifier)
+    (hex_literal
+      (hex_lit_value)))
+  (memory_execution
+    (absolute_pad_operation
+      (number))
+    (identifier)
+    (identifier)
+    (identifier)))

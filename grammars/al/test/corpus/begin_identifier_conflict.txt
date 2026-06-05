@@ -1,0 +1,49 @@
+================================================================================
+Variable names starting with 'Begin' cause parsing issues
+================================================================================
+
+codeunit 50000 "Test Begin Conflict"
+{
+    procedure TestBeginIdentifier()
+    var
+        // This will fail - identifier starts with 'Begin'
+        // BeginTotalAccNo: Code[20];
+        
+        // Workaround: Use quoted identifier
+        "BeginTotalAccNo": Code[20];
+        
+        // Or use a different name
+        TotalAccNoBegin: Code[20];
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (var_section
+        (var_keyword)
+        (comment)
+        (comment)
+        (comment)
+        (variable_declaration
+          (quoted_identifier)
+          (type_specification
+            (code_type
+              (integer))))
+        (comment)
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (code_type
+              (integer)))))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))

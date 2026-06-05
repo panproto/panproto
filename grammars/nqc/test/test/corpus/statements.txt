@@ -1,0 +1,133 @@
+====================
+Until statement
+====================
+
+void main() {
+    until (false) {
+        print("Hello");
+    }
+}
+
+---
+
+(translation_unit
+  (function_definition
+    (primitive_type)
+    (function_declarator
+      (identifier)
+      (parameter_list))
+    (compound_statement
+      (until_statement
+        (parenthesized_expression
+          (false))
+        (compound_statement
+          (expression_statement
+            (call_expression
+              (identifier)
+              (argument_list
+                (string_literal
+                  (string_content))))))))))
+
+====================
+Acquire statement
+====================
+
+void main() {
+    acquire(ACQUIRE_OUT_A) {
+        Wait(1000);
+    } catch {
+        PlaySound(SOUND_UP);
+    }
+}
+
+---
+
+(translation_unit
+  (function_definition
+    (primitive_type)
+    (function_declarator
+      (identifier)
+      (parameter_list))
+    (compound_statement
+      (acquire_statement
+        (parenthesized_expression
+          (identifier))
+        (compound_statement
+          (expression_statement
+            (call_expression
+              (identifier)
+              (argument_list
+                (number_literal)))))
+        (catch_clause
+          (compound_statement
+            (expression_statement
+              (call_expression
+                (identifier)
+                (argument_list
+                  (identifier))))))))))
+
+====================
+Monitor statement
+====================
+
+void main() {
+    monitor( EVENT_MASK(2) | EVENT_MASK(3) | EVENT_MASK(4) ) {
+        Wait(1000);
+    } catch ( EVENT_MASK(4) ) {
+        PlaySound(SOUND_DOWN); // event 4 happened
+    } catch {
+        PlaySound(SOUND_UP); // event 2 or 3 happened
+    }
+}
+
+---
+
+(translation_unit
+  (function_definition
+    (primitive_type)
+    (function_declarator
+  (identifier)
+      (parameter_list))
+    (compound_statement
+      (monitor_statement
+        (parenthesized_expression
+          (binary_expression
+            (binary_expression
+              (call_expression
+                (identifier)
+                (argument_list
+                  (number_literal)))
+              (call_expression
+                (identifier)
+                (argument_list
+                  (number_literal))))
+            (call_expression
+              (identifier)
+              (argument_list
+                (number_literal)))))
+        (compound_statement
+          (expression_statement
+            (call_expression
+              (identifier)
+              (argument_list
+                (number_literal)))))
+        (catch_clause
+          (call_expression
+            (identifier)
+            (argument_list
+              (number_literal)))
+          (compound_statement
+            (expression_statement
+              (call_expression
+                (identifier)
+                (argument_list
+                  (identifier))))
+            (comment)))
+        (catch_clause
+          (compound_statement
+            (expression_statement
+              (call_expression
+                (identifier)
+                (argument_list
+                  (identifier))))
+            (comment)))))))

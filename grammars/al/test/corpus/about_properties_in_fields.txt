@@ -1,0 +1,165 @@
+================================================================================
+Field with AboutTitle and AboutText properties
+================================================================================
+
+page 50000 "Test Page"
+{
+    layout
+    {
+        area(content)
+        {
+            group(General)
+            {
+                field("Enabled for Purchase"; "Enabled for Purchase")
+                {
+                    ApplicationArea = All;
+                    ToolTip = 'Specifies which vendors this standard amount distribution code can be applied.';
+                    AboutTitle = 'Limit use to vendors';
+                    AboutText = 'You can *allocate* the **standard amount distribution code** to selected *vendors* only or make it available for all *vendors*.';
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (group_section
+          (group_keyword)
+          name: (identifier)
+          (page_field
+            name: (quoted_identifier)
+            source: (quoted_identifier)
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (string_literal))))))))
+
+================================================================================
+Field with AboutTitle and AboutText ML properties
+================================================================================
+
+page 50001 "Test Page ML"
+{
+    layout
+    {
+        area(content)
+        {
+            group(General)
+            {
+                field("Test Field"; "Test Field")
+                {
+                    ApplicationArea = All;
+                    AboutTitleML = ENU='About Title', DAN='Om Titel';
+                    AboutTextML = ENU='About Text Description', DAN='Om Tekst Beskrivelse';
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (group_section
+          (group_keyword)
+          name: (identifier)
+          (page_field
+            name: (quoted_identifier)
+            source: (quoted_identifier)
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (ml_value_list
+                (ml_value_pair
+                  language: (identifier)
+                  value: (string_literal))
+                (ml_value_pair
+                  language: (identifier)
+                  value: (string_literal))))
+            (property
+              name: (property_name)
+              value: (ml_value_list
+                (ml_value_pair
+                  language: (identifier)
+                  value: (string_literal))
+                (ml_value_pair
+                  language: (identifier)
+                  value: (string_literal))))))))))
+
+================================================================================
+Standard field with AboutTitle and AboutText properties
+================================================================================
+
+page 50002 "Test Standard Field"
+{
+    layout
+    {
+        area(content)
+        {
+            group(General)
+            {
+                field("Test Field"; "Test Field")
+                {
+                    ApplicationArea = All;
+                    AboutTitle = 'Test About Title';
+                    AboutText = 'Test About Text for standard field';
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (group_section
+          (group_keyword)
+          name: (identifier)
+          (page_field
+            name: (quoted_identifier)
+            source: (quoted_identifier)
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (string_literal))))))))

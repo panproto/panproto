@@ -1,0 +1,151 @@
+========================================================================
+Query with elements
+========================================================================
+query 50100 MyQuery
+{
+    elements
+    {
+        dataitem(Customer; Customer)
+        {
+            column(Name; Name) { }
+            column("No."; "No.") { }
+        }
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    (integer)
+    (identifier)
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        (identifier)
+        (identifier)
+        (query_column
+          (column_keyword)
+          (identifier)
+          (identifier))
+        (query_column
+          (column_keyword)
+          (quoted_identifier)
+          (quoted_identifier))))))
+
+========================================================================
+Query with filter
+========================================================================
+query 50100 Q
+{
+    elements
+    {
+        dataitem(Cust; Customer)
+        {
+            column(Name; Name) { }
+            filter(CityFilter; City) { }
+        }
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    (integer)
+    (identifier)
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        (identifier)
+        (identifier)
+        (query_column
+          (column_keyword)
+          (identifier)
+          (identifier))
+        (query_filter
+          (filter_keyword)
+          (identifier)
+          (identifier))))))
+
+========================================================================
+Query with nested dataitems
+========================================================================
+query 50100 Q
+{
+    elements
+    {
+        dataitem(Cust; Customer)
+        {
+            column(CustNo; "No.") { }
+            dataitem(SalesHeader; "Sales Header")
+            {
+                column(DocNo; "No.") { }
+            }
+        }
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    (integer)
+    (identifier)
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        (identifier)
+        (identifier)
+        (query_column
+          (column_keyword)
+          (identifier)
+          (quoted_identifier))
+        (query_dataitem
+          (dataitem_keyword)
+          (identifier)
+          (quoted_identifier)
+          (query_column
+            (column_keyword)
+            (identifier)
+            (quoted_identifier)))))))
+
+========================================================================
+Query column with properties
+========================================================================
+query 50100 Q
+{
+    elements
+    {
+        dataitem(Cust; Customer)
+        {
+            column(Name; Name)
+            {
+                Caption = 'Customer Name';
+            }
+        }
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    (integer)
+    (identifier)
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        (identifier)
+        (identifier)
+        (query_column
+          (column_keyword)
+          (identifier)
+          (identifier)
+          (property
+            (property_name)
+            (string_literal)))))))

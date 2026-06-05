@@ -1,0 +1,162 @@
+================================================================================
+Protected var inside preprocessor conditional
+================================================================================
+
+table 50000 "Test Table"
+{
+    var
+        MyVar: Integer;
+
+#if not CLEAN25
+    protected var
+        Item: Record Item;
+#endif
+
+    procedure TestProc()
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        (identifier)
+        (type_specification
+          (basic_type)))
+      (preproc_conditional_var
+        (preproc_if
+          (preproc_open)
+          (preproc_not_expression
+            (identifier)))
+        (var_section
+          (protected_keyword)
+          (var_keyword)
+          (variable_declaration
+            (identifier)
+            (type_specification
+              (record_type
+                (identifier)))))
+        (preproc_endif
+          (preproc_close))))
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))
+
+================================================================================
+Nested protected var sections with multiple variables
+================================================================================
+
+table 50001 "Sales Price"
+{
+    var
+        Text000: Label 'Test message';
+        
+#if not CLEAN25
+    protected var
+        Item: Record Item;
+        Customer: Record Customer;
+#endif
+
+    protected var
+        GlobalItem: Record Item;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        (identifier)
+        (basic_type)
+        (string_literal))
+      (preproc_conditional_var
+        (preproc_if
+          (preproc_open)
+          (preproc_not_expression
+            (identifier)))
+        (var_section
+          (protected_keyword)
+          (var_keyword)
+          (variable_declaration
+            (identifier)
+            (type_specification
+              (record_type
+                (identifier))))
+          (variable_declaration
+            (identifier)
+            (type_specification
+              (record_type
+                (identifier)))))
+        (preproc_endif
+          (preproc_close))))
+    (var_section
+      (protected_keyword)
+      (var_keyword)
+      (variable_declaration
+        (identifier)
+        (type_specification
+          (record_type
+            (identifier)))))))
+
+================================================================================
+Protected var in preprocessor with pragmas
+================================================================================
+
+table 50002 "Test Table"
+{
+    var
+#pragma warning disable AA0074
+        Text001: Label 'Message';
+#pragma warning restore AA0074
+
+#if not CLEAN25
+    protected var
+        Item: Record Item;
+#endif
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (pragma)
+      (variable_declaration
+        (identifier)
+        (basic_type)
+        (string_literal))
+      (pragma)
+      (preproc_conditional_var
+        (preproc_if
+          (preproc_open)
+          (preproc_not_expression
+            (identifier)))
+        (var_section
+          (protected_keyword)
+          (var_keyword)
+          (variable_declaration
+            (identifier)
+            (type_specification
+              (record_type
+                (identifier)))))
+        (preproc_endif
+          (preproc_close))))))

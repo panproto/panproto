@@ -1,0 +1,159 @@
+================================================================================
+Report with preprocessor conditional procedures
+================================================================================
+
+report 1111 TestReport
+{
+    dataset
+    {
+        dataitem(Item; Item)
+        {
+        }
+    }
+    
+#if not CLEAN24
+    [Obsolete('Replaced by new version', '24.0')]
+    procedure OldProcedure()
+    begin
+        Message('Old version');
+    end;
+#endif
+
+    procedure NewProcedure()
+    begin
+        Message('New version');
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)))
+    (preproc_conditional
+      (preproc_if
+        (preproc_open)
+        condition: (preproc_not_expression
+          (identifier)))
+      (attribute_item
+        attribute: (attribute_content
+          name: (identifier)
+          arguments: (attribute_arguments
+            (attribute_argument_list
+              (string_literal)
+              (string_literal)))))
+      (procedure
+        (procedure_keyword)
+        name: (identifier)
+        (code_block
+          (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (string_literal)))))
+      (preproc_endif
+        (preproc_close)))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list
+            (string_literal)))
+        (end_keyword)))))
+
+================================================================================
+Report with multiple preprocessor conditional procedures
+================================================================================
+
+report 50000 "Complex Report"
+{
+#if CLEAN24
+    procedure ModernVersion()
+    begin
+        Message('Using modern API');
+    end;
+#else
+    procedure LegacyVersion()
+    begin
+        Message('Using legacy API');
+    end;
+#endif
+
+#if not CLEAN25
+    [Obsolete('Will be removed', '25.0')]
+    procedure DeprecatedMethod()
+    var
+        TempVar: Integer;
+    begin
+        TempVar := 100;
+    end;
+#endif
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (preproc_conditional
+      (preproc_if
+        (preproc_open)
+        condition: (identifier))
+      (procedure
+        (procedure_keyword)
+        name: (identifier)
+        (code_block
+          (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (string_literal)))))
+      (preproc_else)
+      (procedure
+        (procedure_keyword)
+        name: (identifier)
+        (code_block
+          (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (string_literal)))))
+      (preproc_endif
+        (preproc_close)))
+    (preproc_conditional
+      (preproc_if
+        (preproc_open)
+        condition: (preproc_not_expression
+          (identifier)))
+      (attribute_item
+        attribute: (attribute_content
+          name: (identifier)
+          arguments: (attribute_arguments
+            (attribute_argument_list
+              (string_literal)
+              (string_literal)))))
+      (procedure
+        (procedure_keyword)
+        name: (identifier)
+        (var_section
+          (var_keyword)
+          (variable_declaration
+            name: (identifier)
+            type: (type_specification
+              (basic_type))))
+        (code_block
+          (assignment_statement
+            left: (identifier)
+            right: (integer))))
+      (preproc_endif
+        (preproc_close)))))

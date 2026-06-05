@@ -1,0 +1,94 @@
+================================================================================
+array (empty)
+================================================================================
+
+[ ]
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom))))))
+
+================================================================================
+array (id number number)
+================================================================================
+
+[
+  a,
+  1,
+  2.0
+]
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom
+                        (ident)))))))
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom
+                        (num_literal)))))))
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom
+                        (num_literal)))))))))))))
+
+================================================================================
+array (id number number) (with dangling comma)
+================================================================================
+
+[
+  a,
+  1,
+  2.0,
+]
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom
+                        (ident)))))))
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom
+                        (num_literal)))))))
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom
+                        (num_literal)))))))))))))

@@ -1,0 +1,97 @@
+====================
+Basic Page Triggers
+====================
+
+page 50000 "Test Page Triggers"
+{
+    // Original trigger types
+    trigger OnInit() begin end;
+    trigger OnOpenPage() begin end;
+    trigger OnClosePage() begin end;
+    trigger OnAfterGetRecord() begin end;
+    trigger OnAction() begin end;
+    
+    // New trigger types
+    trigger OnAfterGetCurrRecord() begin end;
+    trigger OnNewRecord() begin end;
+    trigger OnInsertRecord() begin end;
+    trigger OnModifyRecord() begin end;
+    trigger OnDeleteRecord() begin end;
+    trigger OnQueryClosePage() begin end;
+}
+
+---
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (comment)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (comment)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))

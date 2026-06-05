@@ -1,0 +1,655 @@
+================================================================================
+Test Command - parsed as a regular command
+================================================================================
+
+[]
+[$status != 0]
+[ $status != 0 ]
+if [ [ = ] ]
+end
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (concatenation))
+  (command
+    name: (concatenation
+      (variable_expansion
+        (variable_name)))
+    argument: (word)
+    argument: (concatenation
+      (integer)))
+  (command
+    name: (word)
+    argument: (variable_expansion
+      (variable_name))
+    argument: (word)
+    argument: (integer)
+    argument: (word))
+  (if_statement
+    condition: (command
+      name: (word)
+      argument: (word)
+      argument: (word)
+      argument: (word)
+      argument: (word))))
+
+================================================================================
+Test Command - simple
+================================================================================
+
+[ ]
+[  ]
+[ $status != 0 ]
+[ \( $status != 0 \) ]
+
+test
+test one
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (variable_expansion
+      (variable_name))
+    argument: (word)
+    argument: (integer)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (escape_sequence)
+    argument: (variable_expansion
+      (variable_name))
+    argument: (word)
+    argument: (integer)
+    argument: (escape_sequence)
+    argument: (word))
+  (command
+    name: (word))
+  (command
+    name: (word)
+    argument: (word)))
+
+================================================================================
+Test Command - cond expression
+================================================================================
+
+[ 0 -a 1 ]
+[ 0.2 -eq 0.3 ]
+[ \( $status -o \( 'te' != 'st' -a $status != '0' \)\) ]
+
+test 0 -a 1
+test 0.2 -eq 0.3
+test \( $status -o \( 'te' != 'st' -a $status != '0' \)\)
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (word)
+    argument: (integer)
+    argument: (word)
+    argument: (integer)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (float)
+    argument: (word)
+    argument: (float)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (escape_sequence)
+    argument: (variable_expansion
+      (variable_name))
+    argument: (word)
+    argument: (escape_sequence)
+    argument: (single_quote_string)
+    argument: (word)
+    argument: (single_quote_string)
+    argument: (word)
+    argument: (variable_expansion
+      (variable_name))
+    argument: (word)
+    argument: (single_quote_string)
+    argument: (concatenation
+      (escape_sequence)
+      (escape_sequence))
+    argument: (word))
+  (command
+    name: (word)
+    argument: (integer)
+    argument: (word)
+    argument: (integer))
+  (command
+    name: (word)
+    argument: (float)
+    argument: (word)
+    argument: (float))
+  (command
+    name: (word)
+    argument: (escape_sequence)
+    argument: (variable_expansion
+      (variable_name))
+    argument: (word)
+    argument: (escape_sequence)
+    argument: (single_quote_string)
+    argument: (word)
+    argument: (single_quote_string)
+    argument: (word)
+    argument: (variable_expansion
+      (variable_name))
+    argument: (word)
+    argument: (single_quote_string)
+    argument: (concatenation
+      (escape_sequence)
+      (escape_sequence))))
+
+================================================================================
+Test Command - unary expression
+================================================================================
+
+[ ! $status ]
+[ \( !$status \) -o $status ]
+test ! $status
+test \( !$status \) -o $status
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (word)
+    argument: (word)
+    argument: (variable_expansion
+      (variable_name))
+    argument: (word))
+  (command
+    name: (word)
+    argument: (escape_sequence)
+    argument: (concatenation
+      (word)
+      (variable_expansion
+        (variable_name)))
+    argument: (escape_sequence)
+    argument: (word)
+    argument: (variable_expansion
+      (variable_name))
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (variable_expansion
+      (variable_name)))
+  (command
+    name: (word)
+    argument: (escape_sequence)
+    argument: (concatenation
+      (word)
+      (variable_expansion
+        (variable_name)))
+    argument: (escape_sequence)
+    argument: (word)
+    argument: (variable_expansion
+      (variable_name))))
+
+================================================================================
+Test Command - binary expression
+================================================================================
+
+[ ! 0.0 -eq 1.0 ]
+[ \( ! 0.0 -eq 0 \) -o te = st ]
+[ $status -eq 0 ]
+[ \( !$status -eq 0 \) -a $status -ne 127 ]
+
+test ! 0.0 -eq 1.0
+test \( ! 0.0 -eq 0 \) -o te = st
+test $status -eq 0
+test \( !$status -eq 0 \) -a $status -ne 127
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (word)
+    argument: (word)
+    argument: (float)
+    argument: (word)
+    argument: (float)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (escape_sequence)
+    argument: (word)
+    argument: (float)
+    argument: (word)
+    argument: (integer)
+    argument: (escape_sequence)
+    argument: (word)
+    argument: (word)
+    argument: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (variable_expansion
+      (variable_name))
+    argument: (word)
+    argument: (integer)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (escape_sequence)
+    argument: (concatenation
+      (word)
+      (variable_expansion
+        (variable_name)))
+    argument: (word)
+    argument: (integer)
+    argument: (escape_sequence)
+    argument: (word)
+    argument: (variable_expansion
+      (variable_name))
+    argument: (word)
+    argument: (integer)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (float)
+    argument: (word)
+    argument: (float))
+  (command
+    name: (word)
+    argument: (escape_sequence)
+    argument: (word)
+    argument: (float)
+    argument: (word)
+    argument: (integer)
+    argument: (escape_sequence)
+    argument: (word)
+    argument: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (variable_expansion
+      (variable_name))
+    argument: (word)
+    argument: (integer))
+  (command
+    name: (word)
+    argument: (escape_sequence)
+    argument: (concatenation
+      (word)
+      (variable_expansion
+        (variable_name)))
+    argument: (word)
+    argument: (integer)
+    argument: (escape_sequence)
+    argument: (word)
+    argument: (variable_expansion
+      (variable_name))
+    argument: (word)
+    argument: (integer)))
+
+================================================================================
+Test Command - opearators for files and directories
+================================================================================
+
+[ -b ./test.fish ]
+[ -c ./test.fish ]
+[ -d ./test.fish ]
+[ -e ./test.fish ]
+[ -f ./test.fish ]
+[ -g ./test.fish ]
+[ -G ./test.fish ]
+[ -k ./test.fish ]
+[ -L ./test.fish ]
+[ -O ./test.fish ]
+[ -p ./test.fish ]
+[ -r ./test.fish ]
+[ -s ./test.fish ]
+[ -S ./test.fish ]
+[ -t ./test.fish ]
+[ -u ./test.fish ]
+[ -w ./test.fish ]
+[ -x ./test.fish ]
+
+test -b ./test.fish
+test -c ./test.fish
+test -d ./test.fish
+test -e ./test.fish
+test -f ./test.fish
+test -g ./test.fish
+test -G ./test.fish
+test -k ./test.fish
+test -L ./test.fish
+test -O ./test.fish
+test -p ./test.fish
+test -r ./test.fish
+test -s ./test.fish
+test -S ./test.fish
+test -t ./test.fish
+test -u ./test.fish
+test -w ./test.fish
+test -x ./test.fish
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word)))
+
+================================================================================
+Test Command - operators for strings
+================================================================================
+
+[ "test" = 'test' ]
+[ test != 'test' ]
+[ -n 'non-zero-string' ]
+[ -z '' ]
+
+test "test" = 'test'
+test test != 'test'
+test -n 'non-zero-string'
+test -z ''
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (word)
+    argument: (double_quote_string)
+    argument: (word)
+    argument: (single_quote_string)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word)
+    argument: (single_quote_string)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (single_quote_string)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (single_quote_string)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (double_quote_string)
+    argument: (word)
+    argument: (single_quote_string))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word)
+    argument: (single_quote_string))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (single_quote_string))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (single_quote_string)))
+
+================================================================================
+Test Command - operators for numbers
+================================================================================
+
+[ 0 -eq 0.0 ]
+[ 0 -ne 0.0 ]
+[ 0 -gt 0.0 ]
+[ 0 -lt 0.0 ]
+[ 0 -ge 0.0 ]
+[ 0 -le 0.0 ]
+
+test 0 -eq 0.0
+test 0 -ne 0.0
+test 0 -gt 0.0
+test 0 -lt 0.0
+test 0 -ge 0.0
+test 0 -le 0.0
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (word)
+    argument: (integer)
+    argument: (word)
+    argument: (float)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (integer)
+    argument: (word)
+    argument: (float)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (integer)
+    argument: (word)
+    argument: (float)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (integer)
+    argument: (word)
+    argument: (float)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (integer)
+    argument: (word)
+    argument: (float)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (integer)
+    argument: (word)
+    argument: (float)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (integer)
+    argument: (word)
+    argument: (float))
+  (command
+    name: (word)
+    argument: (integer)
+    argument: (word)
+    argument: (float))
+  (command
+    name: (word)
+    argument: (integer)
+    argument: (word)
+    argument: (float))
+  (command
+    name: (word)
+    argument: (integer)
+    argument: (word)
+    argument: (float))
+  (command
+    name: (word)
+    argument: (integer)
+    argument: (word)
+    argument: (float))
+  (command
+    name: (word)
+    argument: (integer)
+    argument: (word)
+    argument: (float)))

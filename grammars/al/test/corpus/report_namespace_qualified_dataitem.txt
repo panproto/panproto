@@ -1,0 +1,130 @@
+================================================================================
+Report with namespace-qualified dataitem
+================================================================================
+
+report 1234 "Test Report"
+{
+    dataset
+    {
+        dataitem(IntegerData; System.Utilities.Integer)
+        {
+            column(Number; Number)
+            {
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    (integer)
+    (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        (identifier)
+        (identifier)
+        (identifier)
+        (identifier)
+        (report_column
+          (column_keyword)
+          (identifier)
+          (identifier))))))
+
+================================================================================
+Report with nested namespace-qualified dataitems
+================================================================================
+
+report 5678 "Complex Report"
+{
+    dataset
+    {
+        dataitem(Customer; Customer)
+        {
+            RequestFilterFields = "No.";
+            
+            dataitem(IntegerLoop; System.Utilities.Integer)
+            {
+                DataItemTableView = sorting(Number);
+                MaxIteration = 10;
+                
+                column(LoopNumber; Number)
+                {
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    (integer)
+    (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        (identifier)
+        (identifier)
+        (property
+          (property_name)
+          (quoted_identifier))
+        (report_dataitem
+          (dataitem_keyword)
+          (identifier)
+          (identifier)
+          (identifier)
+          (identifier)
+          (property
+            (property_name)
+            (sorting_value
+              (identifier)))
+          (property
+            (property_name)
+            (integer))
+          (report_column
+            (column_keyword)
+            (identifier)
+            (identifier)))))))
+
+================================================================================
+Report with simple table reference
+================================================================================
+
+report 999 "Simple Report"
+{
+    dataset
+    {
+        dataitem(Item; Item)
+        {
+            column(ItemNo; "No.")
+            {
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    (integer)
+    (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        (identifier)
+        (identifier)
+        (report_column
+          (column_keyword)
+          (identifier)
+          (quoted_identifier))))))

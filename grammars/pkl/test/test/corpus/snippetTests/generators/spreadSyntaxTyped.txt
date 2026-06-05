@@ -1,0 +1,59 @@
+===
+generators/spreadSyntaxTyped.pkl
+===
+
+class Person {
+  name: String
+}
+
+local barnOwlDynamic { name = "Barn Owl" }
+
+res1: Person = new { ...barnOwlDynamic }
+
+res2 = res1 == new Person { name = "Barn Owl" }
+
+---
+
+(module
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (newExpr
+      (objectBody
+        (objectSpread
+          (unqualifiedAccessExpr
+            (identifier))))))
+  (classProperty
+    (identifier)
+    (equalityExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody
+          (objectProperty
+            (identifier)
+            (slStringLiteralExpr
+              (slStringLiteralPart))))))))

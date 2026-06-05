@@ -1,0 +1,20 @@
+===
+errors/moduleImportVersionCheck.pkl
+===
+
+import "moduleWithHighMinPklVersion.pkl"
+
+res1 = moduleWithHighMinPklVersion.x
+
+---
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier))))

@@ -1,0 +1,99 @@
+==================
+plain step
+==================
+
+Crack the eggs into a bowl and whisk.
+
+----
+
+(recipe)
+
+==================
+single word ingredient
+==================
+
+Add @salt to taste.
+
+----
+
+(recipe)
+
+==================
+multiword ingredient with quantity
+==================
+
+Pour in @olive oil{2%tbsp} and stir.
+
+----
+
+(recipe)
+
+==================
+ingredient with amount
+==================
+
+Mix @flour{500%g} with water.
+
+----
+
+(recipe)
+
+==================
+cookware
+==================
+
+Place the dough in a #mixing bowl{}.
+
+----
+
+(recipe)
+
+==================
+timer
+==================
+
+Bake for ~{25%minutes}.
+
+----
+
+(recipe)
+
+==================
+named timer
+==================
+
+Let it rest ~resting{10%min}.
+
+----
+
+(recipe)
+
+==================
+metadata
+==================
+
+>> servings: 4
+
+----
+
+(recipe)
+
+==================
+comment
+==================
+
+-- this is a comment
+
+----
+
+(recipe)
+
+==================
+combined ingredients and cookware
+==================
+
+Heat @butter{1%tbsp} in a #pan and add @onion{1}.
+
+----
+
+(recipe)

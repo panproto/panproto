@@ -1,0 +1,238 @@
+================================================================================
+Report extension with add and modify in dataset
+================================================================================
+
+reportextension 8008 "Contract Sales Invoice" extends "Standard Sales - Invoice"
+{
+    dataset
+    {
+        add(Header)
+        {
+            column(RecurringBilling; "Recurring Billing")
+            {
+            }
+        }
+        modify(Header)
+        {
+            trigger OnAfterAfterGetRecord()
+            begin
+                ProcessContractBilling();
+            end;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (reportextension_declaration
+    (reportextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (add_dataset_modification
+        target: (identifier)
+        (report_column
+          (column_keyword)
+          name: (identifier)
+          source: (quoted_identifier)))
+      (modify_modification
+        target: (identifier)
+        (trigger_declaration
+          (trigger_keyword)
+          name: (identifier)
+          (code_block
+            (begin_keyword)
+            (call_expression
+              function: (identifier)
+              arguments: (argument_list))
+            (end_keyword)))))))
+
+================================================================================
+Report extension with rendering section
+================================================================================
+
+reportextension 8008 "Contract Sales Invoice" extends "Standard Sales - Invoice"
+{
+    rendering
+    {
+        layout("SalesInvoiceContract.rdlc")
+        {
+            Type = RDLC;
+            LayoutFile = './Layouts/SalesInvoiceContract.rdlc';
+            Caption = 'Sales Invoice Contract (RDLC)';
+            Summary = 'Contract billing details layout.';
+        }
+        layout("SalesInvoiceContract.docx")
+        {
+            Type = Word;
+            LayoutFile = './Layouts/SalesInvoiceContract.docx';
+            Caption = 'Sales Invoice Contract (Word)';
+            Summary = 'Simple contract layout for editing.';
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (reportextension_declaration
+    (reportextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)
+    (rendering_section
+      (rendering_keyword)
+      (rendering_layout
+        (layout_keyword)
+        name: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (identifier))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (string_literal)))
+      (rendering_layout
+        (layout_keyword)
+        name: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (identifier))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (string_literal))))))
+
+================================================================================
+Report extension with complex dataset modifications
+================================================================================
+
+reportextension 50100 "Extended Sales Report" extends "Sales Invoice"
+{
+    dataset
+    {
+        add(Line)
+        {
+            column(ContractLineNo; "Contract Line No.")
+            {
+            }
+            column(ContractNo; "Contract No.")
+            {
+            }
+        }
+        addafter(ReportTotalsLine)
+        {
+            dataitem(ContractDetails; Integer)
+            {
+                MaxIteration = 1;
+                DataItemTableView = sorting(Number);
+                
+                column(ContractNo; ContractBuffer."Contract No.") { }
+                column(StartDate; ContractBuffer."Start Date") { }
+            }
+        }
+        modify(Header)
+        {
+            trigger OnAfterGetRecord()
+            begin
+                CalcContractDetails();
+            end;
+        }
+    }
+    
+    var
+        ContractBuffer: Record "Contract Buffer" temporary;
+        
+    procedure CalcContractDetails()
+    begin
+        // Implementation
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (reportextension_declaration
+    (reportextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)
+    (dataset_section
+      (dataset_keyword)
+      (add_dataset_modification
+        target: (identifier)
+        (report_column
+          (column_keyword)
+          name: (identifier)
+          source: (quoted_identifier))
+        (report_column
+          (column_keyword)
+          name: (identifier)
+          source: (quoted_identifier)))
+      (addafter_dataset_modification
+        target: (identifier)
+        (report_dataitem
+          (dataitem_keyword)
+          name: (identifier)
+          table_name: (identifier)
+          (property
+            name: (property_name)
+            value: (integer))
+          (property
+            name: (property_name)
+            value: (sorting_value
+              (identifier)))
+          (report_column
+            (column_keyword)
+            name: (identifier)
+            source: (member_expression
+              object: (identifier)
+              member: (quoted_identifier)))
+          (report_column
+            (column_keyword)
+            name: (identifier)
+            source: (member_expression
+              object: (identifier)
+              member: (quoted_identifier)))))
+      (modify_modification
+        target: (identifier)
+        (trigger_declaration
+          (trigger_keyword)
+          name: (identifier)
+          (code_block
+            (begin_keyword)
+            (call_expression
+              function: (identifier)
+              arguments: (argument_list))
+            (end_keyword)))))
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (record_type
+            reference: (quoted_identifier)
+            (temporary_keyword)))))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (comment)
+        (end_keyword)))))

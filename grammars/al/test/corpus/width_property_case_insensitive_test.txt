@@ -1,0 +1,159 @@
+================================================================================
+Width property with lowercase
+================================================================================
+
+page 6000 "Profile Import Diagnostics"
+{
+    PageType = List;
+    
+    layout
+    {
+        area(Content)
+        {
+            repeater(Control1)
+            {
+                field(Severity; Rec.Severity)
+                {
+                    ApplicationArea = All;
+                    width = 5;
+                    ToolTip = 'Specifies the severity of this diagnostics message.';
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (repeater_section
+          (repeater_keyword)
+          name: (identifier)
+          (page_field
+            name: (identifier)
+            source: (member_expression
+              object: (identifier)
+              member: (identifier))
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (integer))
+            (property
+              name: (property_name)
+              value: (string_literal))))))))
+
+================================================================================
+Width property with mixed case
+================================================================================
+
+page 50100 "Test Page"
+{
+    layout
+    {
+        area(Content)
+        {
+            field(Name; Name)
+            {
+                Width = 20;
+            }
+            field(Description; Description)
+            {
+                WIDTH = 50;
+            }
+            field(Amount; Amount)
+            {
+                widtH = 10;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (integer)))
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (integer)))
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (integer)))))))
+
+================================================================================
+Width as variable name
+================================================================================
+
+codeunit 50100 "Layout Manager"
+{
+    var
+        width: Integer;
+        Height: Integer;
+        
+    procedure CalculateArea(): Integer
+    begin
+        exit(width * Height);
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type))))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      return_type: (type_specification
+        (basic_type))
+      (code_block
+        (begin_keyword)
+        (exit_statement
+          (exit_keyword)
+          return_value: (multiplicative_expression
+            left: (identifier)
+            right: (identifier)))
+        (end_keyword)))))

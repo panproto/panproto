@@ -1,0 +1,446 @@
+================================================================================
+class: minimal
+================================================================================
+
+class A a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  declarations: (declarations
+    (class
+      name: (name)
+      patterns: (type_params
+        bind: (variable)))))
+
+================================================================================
+class: context variants
+================================================================================
+
+class A a => Read a
+class (A a, A a) => A a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (class
+      (context
+        (apply
+          (name)
+          (variable)))
+      (name)
+      (type_params
+        (variable)))
+    (class
+      (context
+        (tuple
+          (apply
+            (name)
+            (variable))
+          (apply
+            (name)
+            (variable))))
+      (name)
+      (type_params
+        (variable)))))
+
+================================================================================
+class: method with context
+================================================================================
+
+class A a where a :: A a => a -> a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  declarations: (declarations
+    (class
+      name: (name)
+      patterns: (type_params
+        bind: (variable))
+      declarations: (class_declarations
+        declaration: (signature
+          name: (variable)
+          type: (context
+            context: (apply
+              constructor: (name)
+              argument: (variable))
+            type: (function
+              parameter: (variable)
+              result: (variable))))))))
+
+================================================================================
+class: braces
+================================================================================
+
+class Foo a where {
+  a :: a;
+  a :: a;
+}
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (class
+      (name)
+      (type_params
+        (variable))
+      (class_declarations
+        (signature
+          (variable)
+          (variable))
+        (signature
+          (variable)
+          (variable))))))
+
+================================================================================
+class: fixity
+================================================================================
+
+class A where
+  infixl `op`
+  a :: Int
+  infixr 7 ++
+  a = a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (class
+      (name)
+      (class_declarations
+        (fixity
+          (infix_id
+            (variable)))
+        (signature
+          (variable)
+          (name))
+        (fixity
+          (integer)
+          (operator))
+        (bind
+          (variable)
+          (match
+            (variable)))))))
+
+================================================================================
+class: binding list
+================================================================================
+
+class A where
+  (<), a, (<=), (>=), a, (>) :: a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (class
+      (name)
+      (class_declarations
+        (signature
+          (binding_list
+            (prefix_id
+              (operator))
+            (variable)
+            (prefix_id
+              (operator))
+            (prefix_id
+              (operator))
+            (variable)
+            (prefix_id
+              (operator)))
+          (variable))))))
+
+================================================================================
+class: multi param
+================================================================================
+
+class A a a a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (class
+      (name)
+      (type_params
+        (variable)
+        (variable)
+        (variable)))))
+
+================================================================================
+class: default signature
+================================================================================
+
+class A where
+  a :: Int
+  default a :: Int
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (class
+      (name)
+      (class_declarations
+        (signature
+          (variable)
+          (name))
+        (default_signature
+          (signature
+            (variable)
+            (name)))))))
+
+================================================================================
+class: type variable kind
+================================================================================
+
+class A (a :: [*] -> k)
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (class
+      (name)
+      (type_params
+        (parens
+          (annotated
+            (variable)
+            (function
+              (list
+                (star))
+              (variable))))))))
+
+================================================================================
+class: associated family
+================================================================================
+
+class A a where
+  type A a :: a
+  type A a = a | a -> a
+  type A a = A
+  type family A a :: a
+  type family A a = a | a -> a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (class
+      (name)
+      (type_params
+        (variable))
+      (class_declarations
+        (type_family
+          (name)
+          (type_params
+            (variable))
+          (variable))
+        (type_family
+          (name)
+          (type_params
+            (variable))
+          (type_family_result
+            (variable))
+          (type_family_injectivity
+            (variable)
+            (variable)))
+        (type_instance
+          (name)
+          (type_patterns
+            (variable))
+          (name))
+        (type_family
+          (name)
+          (type_params
+            (variable))
+          (variable))
+        (type_family
+          (name)
+          (type_params
+            (variable))
+          (type_family_result
+            (variable))
+          (type_family_injectivity
+            (variable)
+            (variable)))))))
+
+================================================================================
+class: associated data
+================================================================================
+
+class A a where
+  data A a
+  data family A a :: * -> Type
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (class
+      (name)
+      (type_params
+        (variable))
+      (class_declarations
+        (data_family
+          (name)
+          (type_params
+            (variable)))
+        (data_family
+          (name)
+          (type_params
+            (variable))
+          (function
+            (star)
+            (name)))))))
+
+================================================================================
+class: fundeps
+================================================================================
+
+class A | a -> a a, a a -> a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  declarations: (declarations
+    (class
+      name: (name)
+      fundeps: (fundeps
+        fundep: (fundep
+          matched: (variable)
+          determined: (variable)
+          determined: (variable))
+        fundep: (fundep
+          matched: (variable)
+          matched: (variable)
+          determined: (variable))))))
+
+================================================================================
+class: infix operator name
+================================================================================
+
+class a ++ b
+
+--------------------------------------------------------------------------------
+
+(haskell
+  declarations: (declarations
+    (class
+      (infix
+        bind: (variable)
+        operator: (operator)
+        bind: (variable)))))
+
+================================================================================
+class: infix constructor operator name
+================================================================================
+
+class a :++ b
+
+--------------------------------------------------------------------------------
+
+(haskell
+  declarations: (declarations
+    (class
+      (infix
+        bind: (variable)
+        operator: (constructor_operator)
+        bind: (variable)))))
+
+================================================================================
+class: prefix operator name
+================================================================================
+
+class (++) a b
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (class
+      (prefix_id
+        (operator))
+      (type_params
+        (variable)
+        (variable)))))
+
+================================================================================
+class: ticked name
+================================================================================
+
+class ((((a)) `A` a))
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (class
+      (parens
+        (parens
+          (infix
+            (parens
+              (parens
+                (variable)))
+            (infix_id
+              (name))
+            (variable)))))))
+
+================================================================================
+class: multiple type families unannotated
+================================================================================
+
+class A a where
+  type A a
+  type A a
+  type A a = ()
+
+  a :: a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (class
+      (name)
+      (type_params
+        (variable))
+      (class_declarations
+        (type_family
+          (name)
+          (type_params
+            (variable)))
+        (type_family
+          (name)
+          (type_params
+            (variable)))
+        (type_instance
+          (name)
+          (type_patterns
+            (variable))
+          (unit))
+        (signature
+          (variable)
+          (variable))))))
+
+================================================================================
+class: where on new line
+================================================================================
+
+module A where
+class A
+  where
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (header
+    (module
+      (module_id)))
+  (declarations
+    (class
+      (name))))

@@ -1,0 +1,93 @@
+=================
+DATABASE References Test
+=================
+
+codeunit 50100 "Database Reference Test"
+{
+    procedure TestDatabaseReferences()
+    var
+        RecRef: RecordRef;
+    begin
+        // Open a table by DATABASE reference with identifier
+        RecRef.OPEN(DATABASE::Customer);
+
+        // Open a table by DATABASE reference with quoted identifier
+        RecRef.OPEN(DATABASE::"Sales Header");
+
+        // Use DATABASE reference in an expression
+        if DATABASE::Customer = 18 then
+            RecRef.CLOSE;
+
+        // Database references with case variations
+        RecRef.OPEN(database::Customer);
+        RecRef.OPEN(Database::"Sales Line");
+    end;
+}
+
+-------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (comment)
+        (call_expression
+          (member_expression
+            (identifier)
+            (identifier))
+          (argument_list
+            (database_reference
+              (object_type_keyword)
+              (identifier))))
+        (comment)
+        (call_expression
+          (member_expression
+            (identifier)
+            (identifier))
+          (argument_list
+            (database_reference
+              (object_type_keyword)
+              (quoted_identifier))))
+        (comment)
+        (if_statement
+          (if_keyword)
+          (comparison_expression
+            (database_reference
+              (object_type_keyword)
+              (identifier))
+            (comparison_operator)
+            (integer))
+          (then_keyword)
+          (member_expression
+            (identifier)
+            (identifier)))
+        (comment)
+        (call_expression
+          (member_expression
+            (identifier)
+            (identifier))
+          (argument_list
+            (database_reference
+              (object_type_keyword)
+              (identifier))))
+        (call_expression
+          (member_expression
+            (identifier)
+            (identifier))
+          (argument_list
+            (database_reference
+              (object_type_keyword)
+              (quoted_identifier))))
+        (end_keyword)))))

@@ -1,0 +1,188 @@
+================================================================================
+sections and subsections
+================================================================================
+
+[some section]
+    key = value
+    [[sub-section]]
+        [[[sub-sub-section]]]
+            another-key = 12
+[other root]
+    just a key = with a value
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (unquoted_string
+        (string_content)))
+    (sub_section_1
+      name: (section_name
+        (nametag))
+      (sub_section_2
+        name: (section_name
+          (nametag))
+        (setting
+          key: (key)
+          operator: (assignment_operator)
+          value: (integer)))))
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (unquoted_string
+        (string_content)))))
+
+================================================================================
+sections spacing
+================================================================================
+
+[some section]
+
+    key = value
+
+    [[sub-section]]
+
+
+        [[[sub-sub-section]]]
+
+            another-key = 12
+  [[[other subsub]]]
+    
+this key is in subsub = 99
+
+[other root]
+
+
+    just a key = with a value
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (unquoted_string
+        (string_content)))
+    (sub_section_1
+      name: (section_name
+        (nametag))
+      (sub_section_2
+        name: (section_name
+          (nametag))
+        (setting
+          key: (key)
+          operator: (assignment_operator)
+          value: (integer)))
+      (sub_section_2
+        name: (section_name
+          (nametag))
+        (setting
+          key: (key)
+          operator: (assignment_operator)
+          value: (integer)))))
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (unquoted_string
+        (string_content)))))
+
+================================================================================
+weird sections spacing
+================================================================================
+
+#!jinja2   
+    
+{% set HELLO=False %}    
+[  scheduling   ]    
+    initial cycle point = 20140101T00
+    [[  special tasks  ]]    
+        sequential = foo , bar ,  baz   
+    [[   graph  ]]   
+        T00, T12  ="""   
+        a => b   
+        foo => bar &  baz  """   
+        
+   [  runtime   ]    
+ [[baz ]] 
+    [[  foo,bar   ,  a,  b  ]]   
+%include "inc.cylc"   
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+      (comment)
+      (jinja2_statement)
+      (top_section
+        (section_name
+          (nametag))
+        (setting
+          (key)
+          (assignment_operator)
+          (datetime))
+        (sub_section_1
+          (section_name
+            (nametag))
+          (setting
+            (key)
+            (assignment_operator)
+            (unquoted_string
+              (string_content))))
+        (graph_section
+          (section_name)
+          (graph_setting
+            (recurrence)
+            (assignment_operator)
+            (multiline_graph_string
+              (graph_string_content
+                (graph_task
+                  (task_name
+                    (nametag)))
+                (graph_arrow)
+                (graph_task
+                  (task_name
+                    (nametag)))
+                (graph_task
+                  (task_name
+                    (nametag)))
+                (graph_arrow)
+                (graph_task
+                  (task_name
+                    (nametag)))
+                (graph_logical)
+                (graph_task
+                  (task_name
+                    (nametag))))))))
+      (runtime_section
+        (section_name)
+        (task_section
+          (namespace
+            (task_name
+              (nametag))))
+        (task_section
+          (namespace
+            (task_name
+              (nametag))
+            (task_name
+              (nametag))
+            (task_name
+              (nametag))
+            (task_name
+              (nametag)))))
+      (include_statement
+        (include_directive)
+        (quoted_string
+          (string_content))))

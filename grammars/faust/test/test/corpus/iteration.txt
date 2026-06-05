@@ -1,0 +1,89 @@
+====
+Par iteration
+====
+
+nHarmonics = 4;
+process = par(i, nHarmonics, _) :> /(nHarmonics) * si.smoo;
+
+---
+(program
+  (definition variable: (identifier) value: (int))
+  (definition
+    variable: (identifier)
+    value: (merge
+      left: (iteration
+        type: (par)
+        current_iter: (identifier)
+        num_iters: (identifier)
+        expression: (wire))
+      right: (infix
+        left: (partial operator: (div) operand: (identifier))
+        operator: (mult)
+        right: (access environment: (identifier) definition: (identifier))))))
+
+====
+Seq iteration
+====
+
+nBands = 4;
+process = seq(i, nBands, oneBand(i));
+
+---
+(program
+  (definition variable: (identifier) value: (int))
+  (definition
+    variable: (identifier)
+    value: (iteration
+      type: (seq)
+      current_iter: (identifier)
+      num_iters: (identifier)
+      expression: (function_call callee: (identifier) (arguments (identifier))))))
+
+====
+Sum iteration
+====
+
+nHarmonics = 4;
+process = sum(i, nHarmonics, _)/(nHarmonics) * si.smoo;
+
+---
+(program
+  (definition
+    variable: (identifier)
+    value: (int))
+  (definition
+    variable: (identifier)
+    value: (infix
+      left: (infix
+        left: (iteration
+          type: (sum)
+          current_iter: (identifier)
+          num_iters: (identifier)
+          expression: (wire))
+        operator: (div)
+        right: (identifier))
+      operator: (mult)
+      right: (access environment: (identifier) definition: (identifier)))))
+
+====
+Prod iteration
+====
+
+nOscs = 4;
+process = prod(i, nOscs, _) * si.smoo;
+
+---
+(program
+  (definition
+    variable: (identifier)
+    value: (int))
+  (definition
+    variable: (identifier)
+    value: (infix
+      left: (iteration
+        type: (prod)
+        current_iter: (identifier)
+        num_iters: (identifier)
+        expression: (wire))
+      operator: (mult)
+      right: (access environment: (identifier) definition: (identifier)))))

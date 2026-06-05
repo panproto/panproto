@@ -1,0 +1,159 @@
+================================================================================
+PermissionSet with lowercase permissions keyword
+================================================================================
+
+permissionset 23 "Internal BaseApp Obj. - Exec"
+{
+    Access = Public;
+    Assignable = false;
+    Caption = 'Internal BaseApp Obj. - Exec';
+
+    permissions = Table "CDS Coupled Business Unit" = X,
+                  Table "CRM Freight Terms" = X,
+                  Codeunit "Application Area Cache" = X,
+                  codeunit "Emit Database Wait Statistics" = X,
+                  Query CalcRsvQtyOnPicksShipsWithIT = X,
+                  Query "Sales by Cust. Grp. Chart Mgt." = X;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (permissionset_declaration
+    (permissionset_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (tabledata_permission_list
+        (tabledata_permission
+          (table_keyword)
+          table_name: (quoted_identifier)
+          permission: (permission_type))
+        (tabledata_permission
+          (table_keyword)
+          table_name: (quoted_identifier)
+          permission: (permission_type))
+        (tabledata_permission
+          (codeunit_keyword)
+          table_name: (quoted_identifier)
+          permission: (permission_type))
+        (tabledata_permission
+          (codeunit_keyword)
+          table_name: (quoted_identifier)
+          permission: (permission_type))
+        (tabledata_permission
+          (query_keyword)
+          table_name: (identifier)
+          permission: (permission_type))
+        (tabledata_permission
+          (query_keyword)
+          table_name: (quoted_identifier)
+          permission: (permission_type))))))
+
+================================================================================
+PermissionSet with mixed case permissions
+================================================================================
+
+permissionset 50100 "Test Permissions"
+{
+    Permissions = Table Customer = RID,
+                  tabledata "Sales Header" = RIMD,
+                  PAGE "Customer List" = X,
+                  Report "Customer - List" = X,
+                  XMLport "Export Customers" = X;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (permissionset_declaration
+    (permissionset_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (tabledata_permission_list
+        (tabledata_permission
+          (table_keyword)
+          table_name: (identifier)
+          permission: (permission_type))
+        (tabledata_permission
+          table_name: (quoted_identifier)
+          permission: (permission_type))
+        (tabledata_permission
+          (page_keyword)
+          table_name: (quoted_identifier)
+          permission: (permission_type))
+        (tabledata_permission
+          (report_keyword)
+          table_name: (quoted_identifier)
+          permission: (permission_type))
+        (tabledata_permission
+          (xmlport_keyword)
+          table_name: (quoted_identifier)
+          permission: (permission_type))))))
+
+================================================================================
+PermissionSet with preprocessor in permissions
+================================================================================
+
+permissionset 50101 "Conditional Permissions"
+{
+    Permissions = 
+#if CLEAN24
+                  Table "New Customer Table" = X,
+                  Codeunit "New Processing Unit" = X,
+#else
+                  Table "Old Customer Table" = X,
+                  Codeunit "Old Processing Unit" = X,
+#endif
+                  Query "Common Query" = X;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (permissionset_declaration
+    (permissionset_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (tabledata_permission_list
+        (preproc_conditional_permissions
+          (preproc_if
+            (preproc_open)
+            condition: (identifier))
+          (tabledata_permission
+            (table_keyword)
+            table_name: (quoted_identifier)
+            permission: (permission_type))
+          (tabledata_permission
+            (codeunit_keyword)
+            table_name: (quoted_identifier)
+            permission: (permission_type))
+          (preproc_else)
+          (tabledata_permission
+            (table_keyword)
+            table_name: (quoted_identifier)
+            permission: (permission_type))
+          (tabledata_permission
+            (codeunit_keyword)
+            table_name: (quoted_identifier)
+            permission: (permission_type))
+          (preproc_endif
+            (preproc_close)))
+        (tabledata_permission
+          (query_keyword)
+          table_name: (quoted_identifier)
+          permission: (permission_type))))))

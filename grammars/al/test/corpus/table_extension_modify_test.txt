@@ -1,0 +1,96 @@
+================================================================================
+Table extension with modify field statements
+================================================================================
+
+tableextension 50000 "Test Extension" extends "Base Table"
+{
+    fields
+    {
+        modify("Electronic Document")
+        {
+            trigger OnAfterValidate()
+            begin
+                // Validation logic
+            end;
+        }
+        modify("Document Type")
+        {
+            Caption = 'Modified Caption';
+            ToolTip = 'Modified tooltip';
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (tableextension_declaration
+    (tableextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (modify_modification
+        target: (quoted_identifier)
+        (trigger_declaration
+          (trigger_keyword)
+          name: (identifier)
+          (code_block
+            (begin_keyword)
+            (comment)
+            (end_keyword))))
+      (modify_modification
+        target: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (string_literal))))))
+
+================================================================================
+Table extension with field and modify statements combined
+================================================================================
+
+tableextension 50001 "Mixed Extension" extends "Base Table"
+{
+    fields
+    {
+        field(50000; "New Field"; Text[50])
+        {
+            Caption = 'New Field';
+        }
+        modify("Existing Field")
+        {
+            Caption = 'Updated Caption';
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (tableextension_declaration
+    (tableextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (string_literal)))
+      (modify_modification
+        target: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (string_literal))))))

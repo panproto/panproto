@@ -1,0 +1,67 @@
+=====================================
+Single line code block
+=====================================
+
+/**
+ * ```
+ * console.log('Hello world!')
+ * ```
+ */
+
+---
+
+(document
+  (description
+    (code_block
+      (code_block_line))))
+
+=====================================
+Code block inside tag
+=====================================
+
+/**
+ * @example
+ * ```typescript
+ * console.log('Hello world!')
+ * ```
+ */
+
+---
+
+(document
+  (tag
+    (tag_name)
+    (description
+      (code_block
+        (code_block_language)
+        (code_block_line)))))
+
+=====================================
+Multiple code blocks with comments
+=====================================
+
+/**
+ * Here's a code example:
+ *
+ * ```typescript
+ * console.log('Hello world!')
+ * console.log('Goodbye world!')
+ * ```
+ *
+ * Here's another one:
+ *
+ * ```
+ * console.log('Test')
+ * ```
+ */
+
+---
+
+(document
+  (description
+    (code_block
+      (code_block_language)
+      (code_block_line)
+      (code_block_line))
+    (code_block
+      (code_block_line))))

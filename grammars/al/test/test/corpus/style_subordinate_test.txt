@@ -1,0 +1,46 @@
+================================================================================
+Style property with Subordinate value
+================================================================================
+
+page 123 "Test Page"
+{
+    layout
+    {
+        area(content)
+        {
+            label(TestLabel)
+            {
+                ApplicationArea = All;
+                CaptionClass = ActualTranslation;
+                Style = Subordinate;
+                StyleExpr = TRUE;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (label_section
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (boolean)))))))

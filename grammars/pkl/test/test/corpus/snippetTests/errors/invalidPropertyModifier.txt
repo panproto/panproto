@@ -1,0 +1,16 @@
+===
+errors/invalidPropertyModifier.pkl
+===
+
+open foo: Int = 42
+---
+
+(module
+  (classProperty
+    (modifier)
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (intLiteralExpr)))

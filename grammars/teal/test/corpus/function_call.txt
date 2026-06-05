@@ -1,0 +1,202 @@
+================================================================================
+Basic call
+================================================================================
+
+print("hello world")
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_call
+    called_object: (identifier)
+    arguments: (arguments
+      (string
+        content: (string_content)))))
+
+================================================================================
+Multiple arguments
+================================================================================
+
+print(a, b)
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_call
+    called_object: (identifier)
+    arguments: (arguments
+      (identifier)
+      (identifier))))
+
+================================================================================
+Basic single string arg
+================================================================================
+
+print "hello world"
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_call
+    called_object: (identifier)
+    arguments: (arguments
+      (string
+        content: (string_content)))))
+
+================================================================================
+Basic single table arg
+================================================================================
+
+print {}
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_call
+    called_object: (identifier)
+    arguments: (arguments
+      (table_constructor))))
+
+================================================================================
+Call table entry
+================================================================================
+
+foo.bar()
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_call
+    called_object: (index
+      (identifier)
+      key: (identifier))
+    arguments: (arguments)))
+
+================================================================================
+Call table index
+================================================================================
+
+foo[bar]()
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_call
+    called_object: (index
+      (identifier)
+      expr_key: (identifier))
+    arguments: (arguments)))
+
+================================================================================
+Call table entry of table entry
+================================================================================
+
+foo.bar.baz()
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_call
+    called_object: (index
+      (index
+        (identifier)
+        key: (identifier))
+      key: (identifier))
+    arguments: (arguments)))
+
+================================================================================
+Higher order calls
+================================================================================
+
+func_that_returns_func()()
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_call
+    called_object: (function_call
+      called_object: (identifier)
+      arguments: (arguments))
+    arguments: (arguments)))
+
+================================================================================
+More higher order calls
+================================================================================
+
+func_that_returns_func()()()()()()()
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_call
+    called_object: (function_call
+      called_object: (function_call
+        called_object: (function_call
+          called_object: (function_call
+            called_object: (function_call
+              called_object: (function_call
+                called_object: (identifier)
+                arguments: (arguments))
+              arguments: (arguments))
+            arguments: (arguments))
+          arguments: (arguments))
+        arguments: (arguments))
+      arguments: (arguments))
+    arguments: (arguments)))
+
+================================================================================
+Even more higher order calls
+================================================================================
+
+func_that_returns_func "hello" "world" "foo" "bar"
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_call
+    called_object: (function_call
+      called_object: (function_call
+        called_object: (function_call
+          called_object: (identifier)
+          arguments: (arguments
+            (string
+              content: (string_content))))
+        arguments: (arguments
+          (string
+            content: (string_content))))
+      arguments: (arguments
+        (string
+          content: (string_content))))
+    arguments: (arguments
+      (string
+        content: (string_content)))))
+
+================================================================================
+You get the idea
+================================================================================
+
+func_that_returns_func "hello" { this = "is" } "getting" "silly"
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_call
+    called_object: (function_call
+      called_object: (function_call
+        called_object: (function_call
+          called_object: (identifier)
+          arguments: (arguments
+            (string
+              content: (string_content))))
+        arguments: (arguments
+          (table_constructor
+            (table_entry
+              key: (identifier)
+              value: (string
+                content: (string_content))))))
+      arguments: (arguments
+        (string
+          content: (string_content))))
+    arguments: (arguments
+      (string
+        content: (string_content)))))

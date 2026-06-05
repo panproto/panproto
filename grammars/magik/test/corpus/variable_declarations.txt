@@ -1,0 +1,251 @@
+================================================================================
+dynamic
+================================================================================
+
+_block
+  _dynamic !terminal!
+  _dynamic !output!, !terminal!
+_endblock
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (block
+      (dynamic
+        (dynamic_variable))
+      (dynamic
+        (dynamic_variable)
+        (dynamic_variable)))))
+
+================================================================================
+dynamic import
+================================================================================
+
+_block
+  _dynamic _import !terminal!
+_endblock
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (block
+      (dynamic_import
+        (dynamic_variable)))))
+
+================================================================================
+dynamic block assignment
+================================================================================
+
+_block
+	_dynamic !terminal! << _unset
+_endblock
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (block
+      (dynamic
+        (dynamic_variable)
+        (unset)))))
+
+================================================================================
+global
+================================================================================
+
+_block
+  _global gis_program_manager
+  _global sw:gis_program_manager
+  _global !current_view!
+  _global gis_program_manager, sw:sw_module_manager, !current_view!
+_endblock
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (block
+      (global
+        (identifier))
+      (global
+        (global_variable))
+      (global
+        (dynamic_variable))
+      (global
+        (identifier)
+        (global_variable)
+        (dynamic_variable)))))
+
+================================================================================
+global top level assignment
+================================================================================
+
+_global gis_program_manager << _unset
+_global !current_view! << _unset
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (identifier)
+    (unset))
+  (fragment
+    (dynamic_variable)
+    (unset)))
+
+================================================================================
+global constant top level assignment
+================================================================================
+
+_global _constant gis_program_manager << _unset
+_global _constant !current_view! << _unset
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (identifier)
+    (unset))
+  (fragment
+    (dynamic_variable)
+    (unset)))
+
+================================================================================
+global constant top level assignment with pragma
+================================================================================
+
+_pragma(classify_level=basic)
+_global _constant gis_program_manager << _unset
+
+_pragma(classify_level=basic)
+_global _constant !current_view! << _unset
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (pragma)
+    (identifier)
+    (unset))
+  (fragment
+    (pragma)
+    (dynamic_variable)
+    (unset)))
+
+================================================================================
+local
+================================================================================
+
+_block
+  _local a_name
+  _local a_init << 1
+  _local (a_init, _gather a_gather) << (_scatter b_values)
+  _local (_gather a_init) << b_values
+  _local a_init << _false, b_init
+  _local a_init << _false, b_init << _true
+  _local a_init << _false, b_init, c_init << _true
+_endblock
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (block
+      (local
+        (identifier))
+      (local
+        (identifier)
+        (number))
+      (local
+        (identifier)
+        (identifier)
+        (parenthesized_expression
+          (scatter
+            (variable))))
+      (local
+        (identifier)
+        (variable))
+      (local
+        (identifier)
+        (false)
+        (identifier))
+      (local
+        (identifier)
+        (false)
+        (identifier)
+        (true))
+      (local
+        (identifier)
+        (false)
+        (identifier)
+        (identifier)
+        (true)))))
+
+================================================================================
+constant
+================================================================================
+
+_block
+  _constant max_size << 1
+_endblock
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (block
+      (constant
+        (identifier)
+        (number)))))
+
+================================================================================
+constant local
+================================================================================
+
+_block
+  _constant _local max_size << 1
+_endblock
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (block
+      (constant
+        (identifier)
+        (number)))))
+
+================================================================================
+local constant
+================================================================================
+
+_block
+  _local _constant max_size << 1
+_endblock
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (block
+      (constant
+        (identifier)
+        (number)))))
+
+================================================================================
+import
+================================================================================
+
+_block
+  _import x
+_endblock
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (block
+      (import
+        (identifier)))))

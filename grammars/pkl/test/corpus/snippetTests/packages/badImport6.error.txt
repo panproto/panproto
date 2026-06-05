@@ -1,0 +1,20 @@
+===
+packages/badImport6.error.pkl
+===
+
+import "package://localhost:0/badPackageZipUrl@1.0.0#/Bug.pkl"
+
+res: Bug
+
+---
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))))

@@ -1,0 +1,87 @@
+==================
+entry command
+==================
+
+ENTRY(_start)
+
+----
+
+(source_file)
+
+==================
+sections with output section
+==================
+
+SECTIONS
+{
+  .text : { *(.text) }
+}
+
+----
+
+(source_file)
+
+==================
+multiple output sections
+==================
+
+SECTIONS
+{
+  .text : { *(.text) *(.text.*) }
+  .data : { *(.data) }
+  .bss : { *(.bss) }
+}
+
+----
+
+(source_file)
+
+==================
+memory command
+==================
+
+MEMORY
+{
+  ram (rwx) : ORIGIN = 0x20000000, LENGTH = 64K
+  flash (rx) : ORIGIN = 0x08000000, LENGTH = 256K
+}
+
+----
+
+(source_file)
+
+==================
+symbol assignment
+==================
+
+_stack_top = 0x20010000;
+
+----
+
+(source_file)
+
+==================
+section with address and region
+==================
+
+SECTIONS
+{
+  .text 0x08000000 : { *(.text) } > flash
+}
+
+----
+
+(source_file)
+
+==================
+keep and align
+==================
+
+SECTIONS
+{
+  .init : { KEEP(*(.init)) . = ALIGN(4); }
+}
+
+----
+
+(source_file)

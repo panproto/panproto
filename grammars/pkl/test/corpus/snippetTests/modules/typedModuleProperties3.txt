@@ -1,0 +1,20 @@
+===
+modules/typedModuleProperties3.pkl
+===
+
+res1: String(!isEmpty) = ""
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (constrainedType
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (logicalNotExpr
+          (unqualifiedAccessExpr
+            (identifier)))))
+    (slStringLiteralExpr)))

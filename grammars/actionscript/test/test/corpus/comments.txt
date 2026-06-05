@@ -1,0 +1,32 @@
+=============
+line_comments
+=============
+
+// Hello, world!
+// Hello there, general Kenobi.
+
+---
+
+(program
+    (line_comment)
+    (line_comment)
+)
+
+==============
+block_comments
+==============
+
+/* This is a block comment
+such wow
+amazing */
+
+/* I am impressed
+// by the block comments
+capacities */
+
+---
+
+(program
+    (block_comment)
+    (block_comment)
+)

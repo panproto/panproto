@@ -1,0 +1,69 @@
+================================================================================
+include statement
+================================================================================
+
+%include "some-file.cylc"
+
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (include_statement
+    (include_directive)
+    (quoted_string
+      (string_content))))
+
+================================================================================
+include statement with unquoted path
+================================================================================
+
+%include file.cylc
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (include_statement
+    (include_directive)
+    (unquoted_string
+      (string_content))))
+
+================================================================================
+comment with "include statement"
+================================================================================
+
+# Some header comment here. This is not an %include statement.
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (comment))
+
+================================================================================
+include statement after section
+================================================================================
+
+[some-section]
+    %include "file2.cylc" # tabulation is ignored -> Is root-leveled.
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag)))
+  (include_statement
+    directive: (include_directive)
+    path: (quoted_string
+      (string_content)))
+  (comment))
+
+================================================================================
+error: include statement with path in multiline string
+:error
+================================================================================
+
+%include """some-file.cylc"""
+
+--------------------------------------------------------------------------------
+
+(pass)

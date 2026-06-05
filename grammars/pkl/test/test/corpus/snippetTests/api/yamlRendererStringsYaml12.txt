@@ -1,0 +1,22 @@
+===
+api/yamlRendererStringsYaml12.pkl
+===
+
+amends "yamlRendererStringsCompat.pkl"
+
+renderer { mode = "1.2" }
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (slStringLiteralExpr
+          (slStringLiteralPart))))))

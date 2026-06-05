@@ -1,0 +1,48 @@
+===
+errors/cannotInferParent3.pkl
+===
+
+class Person {
+  name: String
+}
+
+res1: Mapping<Person, String> = new {
+  [new { name = "Pigeon" }] = "Pigeon"
+}
+
+---
+
+(module
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))))
+    (newExpr
+      (objectBody
+        (objectEntry
+          (newExpr
+            (objectBody
+              (objectProperty
+                (identifier)
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))))
+          (slStringLiteralExpr
+            (slStringLiteralPart)))))))

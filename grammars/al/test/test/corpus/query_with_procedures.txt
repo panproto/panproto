@@ -1,0 +1,414 @@
+================================================================================
+Query with internal procedure
+================================================================================
+
+query 100 "Test Query"
+{
+    QueryType = Normal;
+    Caption = 'Test Query';
+
+    elements
+    {
+        dataitem(Item; Item)
+        {
+            column(ItemNo; "No.")
+            {
+            }
+            column(Description; Description)
+            {
+            }
+        }
+    }
+
+    internal procedure SetFilter(FilterValue: Text)
+    begin
+        CurrQuery.SetFilter(ItemNo, FilterValue);
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          field_name: (quoted_identifier))
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          field_name: (identifier))))
+    (procedure
+      modifier: (procedure_modifier
+        (internal_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (text_type))))
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (member_expression
+            object: (identifier)
+            member: (identifier))
+          arguments: (argument_list
+            (identifier)
+            (identifier)))
+        (end_keyword)))))
+
+================================================================================
+Query with multiple procedures and tracking filter
+================================================================================
+
+query 7308 CalcOutstandQtyOnWhseActLine
+{
+    QueryType = Normal;
+    Access = Internal;
+    DataAccessIntent = ReadOnly;
+    Caption = 'Calc. Outstand. Qty. on Whse. Act. Line based on Cross-Dock', Locked = true;
+
+    elements
+    {
+        dataitem(WarehActLine; "Warehouse Activity Line")
+        {
+            DataItemTableFilter = "Activity Type" = const(true), "Breakbulk No." = filter(<> 0 | '');
+            SqlJoinType = InnerJoin;
+
+            filter(Filter_No_; "No.")
+            {
+            }
+
+            column(Filter_Item_No_; "Item No.")
+            {
+            }
+            column(LineNo_; "Line No.")
+            {
+            }
+            column(SourceLineNo_; "Source Line No.")
+            {
+            }
+
+            dataitem(WhseActivityLineToCheck; "Warehouse Activity Line")
+            {
+                DataItemLink = "Activity Type" = WarehActLine."Activity Type",
+                              "No." = WarehActLine."No.",
+                              "Bin Code" = WarehActLine."Bin Code",
+                              "Item No." = WarehActLine."Item No.",
+                              "Unit of Measure Code" = WarehActLine."Unit of Measure Code";
+                DataItemTableFilter = "Action Type" = const(1);
+                SqlJoinType = InnerJoin;
+
+                filter(Filter_Lot_No_; "Lot No.")
+                {
+                }
+                filter(Serial_No_; "Serial No.")
+                {
+                }
+                filter(Package_No_; "Package No.")
+                {
+                }
+                filter(LineNo2_; "Line No.")
+                {
+                }
+                filter(Variant_Code; "Variant Code")
+                {
+                }
+
+                column(SumOutstandingQtyBase; "Qty. Outstanding (Base)")
+                {
+                    Method = Sum;
+                }
+            }
+        }
+    }
+
+    internal procedure SetTrackingFilterFromItemTrackingSetupIfNotBlankIfRequired(WhseItemTrackingSetup: Record "Item Tracking Setup")
+    begin
+        if WhseItemTrackingSetup."Serial No." <> '' then
+            if WhseItemTrackingSetup."Serial No. Required" then
+                CurrQuery.SetRange(Serial_No_, WhseItemTrackingSetup."Serial No.")
+            else
+                CurrQuery.SetFilter(Serial_No_, '%1|%2', WhseItemTrackingSetup."Serial No.", '');
+
+        if WhseItemTrackingSetup."Lot No." <> '' then
+            if WhseItemTrackingSetup."Lot No. Required" then
+                CurrQuery.SetRange(Filter_Lot_No_, WhseItemTrackingSetup."Lot No.")
+            else
+                CurrQuery.SetFilter(Filter_Lot_No_, '%1|%2', WhseItemTrackingSetup."Lot No.", '');
+
+        if WhseItemTrackingSetup."Package No." <> '' then
+            if WhseItemTrackingSetup."Package No. Required" then
+                CurrQuery.SetRange(Package_No_, WhseItemTrackingSetup."Package No.")
+            else
+                CurrQuery.SetFilter(Package_No_, '%1|%2', WhseItemTrackingSetup."Package No.", '');
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (internal_keyword))))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (caption_value
+        (string_literal)
+        (property_name)
+        (boolean)))
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (link_value_list
+            (link_value
+              field: (quoted_identifier)
+              value: (boolean))
+            (link_value
+              field: (quoted_identifier)
+              (filter_keyword)
+              value: (filter_value
+                (integer)
+                (string_literal)))))
+        (property
+          name: (property_name)
+          value: (identifier))
+        (query_filter
+          (filter_keyword)
+          name: (identifier)
+          field_name: (quoted_identifier))
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          field_name: (quoted_identifier))
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          field_name: (quoted_identifier))
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          field_name: (quoted_identifier))
+        (query_dataitem
+          (dataitem_keyword)
+          name: (identifier)
+          table_name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (quoted_identifier)
+                value: (identifier)
+                value: (quoted_identifier))
+              (link_value
+                field: (quoted_identifier)
+                value: (identifier)
+                value: (quoted_identifier))
+              (link_value
+                field: (quoted_identifier)
+                value: (identifier)
+                value: (quoted_identifier))
+              (link_value
+                field: (quoted_identifier)
+                value: (identifier)
+                value: (quoted_identifier))
+              (link_value
+                field: (quoted_identifier)
+                value: (identifier)
+                value: (quoted_identifier))))
+          (property
+            name: (property_name)
+            value: (property_expression
+              (comparison_expression
+                left: (quoted_identifier)
+                operator: (comparison_operator)
+                right: (call_expression
+                  function: (identifier)
+                  arguments: (argument_list
+                    (integer))))))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (query_filter
+            (filter_keyword)
+            name: (identifier)
+            field_name: (quoted_identifier))
+          (query_filter
+            (filter_keyword)
+            name: (identifier)
+            field_name: (quoted_identifier))
+          (query_filter
+            (filter_keyword)
+            name: (identifier)
+            field_name: (quoted_identifier))
+          (query_filter
+            (filter_keyword)
+            name: (identifier)
+            field_name: (quoted_identifier))
+          (query_filter
+            (filter_keyword)
+            name: (identifier)
+            field_name: (quoted_identifier))
+          (query_column
+            (column_keyword)
+            name: (identifier)
+            field_name: (quoted_identifier)
+            (property
+              name: (property_name)
+              value: (identifier))))))
+    (procedure
+      modifier: (procedure_modifier
+        (internal_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier)))))
+      (code_block
+        (begin_keyword)
+        (if_statement
+          (if_keyword)
+          condition: (comparison_expression
+            left: (member_expression
+              object: (identifier)
+              member: (quoted_identifier))
+            operator: (comparison_operator)
+            right: (string_literal))
+          (then_keyword)
+          then_branch: (if_statement
+            (if_keyword)
+            condition: (member_expression
+              object: (identifier)
+              member: (quoted_identifier))
+            (then_keyword)
+            then_branch: (call_expression
+              function: (member_expression
+                object: (identifier)
+                member: (identifier))
+              arguments: (argument_list
+                (identifier)
+                (member_expression
+                  object: (identifier)
+                  member: (quoted_identifier))))
+            (else_keyword)
+            else_branch: (call_expression
+              function: (member_expression
+                object: (identifier)
+                member: (identifier))
+              arguments: (argument_list
+                (identifier)
+                (string_literal)
+                (member_expression
+                  object: (identifier)
+                  member: (quoted_identifier))
+                (string_literal)))))
+        (if_statement
+          (if_keyword)
+          condition: (comparison_expression
+            left: (member_expression
+              object: (identifier)
+              member: (quoted_identifier))
+            operator: (comparison_operator)
+            right: (string_literal))
+          (then_keyword)
+          then_branch: (if_statement
+            (if_keyword)
+            condition: (member_expression
+              object: (identifier)
+              member: (quoted_identifier))
+            (then_keyword)
+            then_branch: (call_expression
+              function: (member_expression
+                object: (identifier)
+                member: (identifier))
+              arguments: (argument_list
+                (identifier)
+                (member_expression
+                  object: (identifier)
+                  member: (quoted_identifier))))
+            (else_keyword)
+            else_branch: (call_expression
+              function: (member_expression
+                object: (identifier)
+                member: (identifier))
+              arguments: (argument_list
+                (identifier)
+                (string_literal)
+                (member_expression
+                  object: (identifier)
+                  member: (quoted_identifier))
+                (string_literal)))))
+        (if_statement
+          (if_keyword)
+          condition: (comparison_expression
+            left: (member_expression
+              object: (identifier)
+              member: (quoted_identifier))
+            operator: (comparison_operator)
+            right: (string_literal))
+          (then_keyword)
+          then_branch: (if_statement
+            (if_keyword)
+            condition: (member_expression
+              object: (identifier)
+              member: (quoted_identifier))
+            (then_keyword)
+            then_branch: (call_expression
+              function: (member_expression
+                object: (identifier)
+                member: (identifier))
+              arguments: (argument_list
+                (identifier)
+                (member_expression
+                  object: (identifier)
+                  member: (quoted_identifier))))
+            (else_keyword)
+            else_branch: (call_expression
+              function: (member_expression
+                object: (identifier)
+                member: (identifier))
+              arguments: (argument_list
+                (identifier)
+                (string_literal)
+                (member_expression
+                  object: (identifier)
+                  member: (quoted_identifier))
+                (string_literal)))))
+        (end_keyword)))))

@@ -1,0 +1,41 @@
+========================================================================
+RunPageLink with Table as field name
+========================================================================
+pageextension 50000 "Test" extends "Source"
+{
+    actions
+    {
+        addlast(Category_Process)
+        {
+            action(EmailRecipients)
+            {
+                RunPageLink = Table = const("Bank Account"), "No." = field("No.");
+            }
+        }
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (pageextension_declaration
+    (pageextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (addlast_action_modification
+        target: (identifier)
+        (action_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (identifier
+                  (table_keyword))
+                value: (quoted_identifier))
+              (link_value
+                field: (quoted_identifier)
+                value: (quoted_identifier)))))))))

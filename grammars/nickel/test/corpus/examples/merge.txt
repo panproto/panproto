@@ -1,0 +1,262 @@
+================================================================================
+main.ncl
+================================================================================
+
+# Merge several blocks into one final configuration. In a real world case, one
+# would also want contracts to validate the shape of the data.
+let server = import "server.ncl" in
+let security = import "security.ncl" in
+# Disabling firewall in the final result
+server & security & {firewall.enabled = false}
+
+--------------------------------------------------------------------------------
+
+(term
+  (comment)
+  (comment)
+  (uni_term
+    (let_expr
+      (let_in_block
+        (let_binding
+          (pattern
+            (ident))
+          (term
+            (uni_term
+              (infix_expr
+                (applicative
+                  (static_string
+                    (chunk_literal_single
+                      (str_literal)))))))))
+      (term
+        (uni_term
+          (let_expr
+            (let_in_block
+              (let_binding
+                (pattern
+                  (ident))
+                (term
+                  (uni_term
+                    (infix_expr
+                      (applicative
+                        (static_string
+                          (chunk_literal_single
+                            (str_literal)))))))))
+            (comment)
+            (term
+              (uni_term
+                (infix_expr
+                  (infix_expr
+                    (infix_expr
+                      (applicative
+                        (record_operand
+                          (atom
+                            (ident)))))
+                    (infix_b_op_6)
+                    (infix_expr
+                      (applicative
+                        (record_operand
+                          (atom
+                            (ident))))))
+                  (infix_b_op_6)
+                  (infix_expr
+                    (applicative
+                      (record_operand
+                        (atom
+                          (uni_record
+                            (last_field
+                              (field_decl
+                                (field_def
+                                  (field_path
+                                    (field_path_elem
+                                      (ident))
+                                    (field_path_elem
+                                      (ident)))
+                                  (term
+                                    (uni_term
+                                      (infix_expr
+                                        (applicative
+                                          (record_operand
+                                            (atom
+                                              (bool))))))))))))))))))))))))
+
+================================================================================
+server.ncl
+================================================================================
+
+{
+  server.host.ip = "182.168.1.1",
+  server.host.port = 80,
+  server.host.name = "hello-world.net",
+}
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (uni_record
+              (field_decl
+                (field_def
+                  (field_path
+                    (field_path_elem
+                      (ident))
+                    (field_path_elem
+                      (ident))
+                    (field_path_elem
+                      (ident)))
+                  (term
+                    (uni_term
+                      (infix_expr
+                        (applicative
+                          (record_operand
+                            (atom
+                              (str_chunks
+                                (str_chunks_single
+                                  (chunk_literal_single
+                                    (str_literal))))))))))))
+              (field_decl
+                (field_def
+                  (field_path
+                    (field_path_elem
+                      (ident))
+                    (field_path_elem
+                      (ident))
+                    (field_path_elem
+                      (ident)))
+                  (term
+                    (uni_term
+                      (infix_expr
+                        (applicative
+                          (record_operand
+                            (atom
+                              (num_literal)))))))))
+              (field_decl
+                (field_def
+                  (field_path
+                    (field_path_elem
+                      (ident))
+                    (field_path_elem
+                      (ident))
+                    (field_path_elem
+                      (ident)))
+                  (term
+                    (uni_term
+                      (infix_expr
+                        (applicative
+                          (record_operand
+                            (atom
+                              (str_chunks
+                                (str_chunks_single
+                                  (chunk_literal_single
+                                    (str_literal)))))))))))))))))))
+
+================================================================================
+security.ncl
+================================================================================
+
+{
+  server.host.options = "TLS",
+
+  firewall.enabled | default = true,
+  firewall.type = "iptables",
+  firewall.open_ports = [21, 80, 443],
+}
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (uni_record
+              (field_decl
+                (field_def
+                  (field_path
+                    (field_path_elem
+                      (ident))
+                    (field_path_elem
+                      (ident))
+                    (field_path_elem
+                      (ident)))
+                  (term
+                    (uni_term
+                      (infix_expr
+                        (applicative
+                          (record_operand
+                            (atom
+                              (str_chunks
+                                (str_chunks_single
+                                  (chunk_literal_single
+                                    (str_literal))))))))))))
+              (field_decl
+                (field_def
+                  (field_path
+                    (field_path_elem
+                      (ident))
+                    (field_path_elem
+                      (ident)))
+                  (annot
+                    (annot_atom))
+                  (term
+                    (uni_term
+                      (infix_expr
+                        (applicative
+                          (record_operand
+                            (atom
+                              (bool)))))))))
+              (field_decl
+                (field_def
+                  (field_path
+                    (field_path_elem
+                      (ident))
+                    (field_path_elem
+                      (ident)))
+                  (term
+                    (uni_term
+                      (infix_expr
+                        (applicative
+                          (record_operand
+                            (atom
+                              (str_chunks
+                                (str_chunks_single
+                                  (chunk_literal_single
+                                    (str_literal))))))))))))
+              (field_decl
+                (field_def
+                  (field_path
+                    (field_path_elem
+                      (ident))
+                    (field_path_elem
+                      (ident)))
+                  (term
+                    (uni_term
+                      (infix_expr
+                        (applicative
+                          (record_operand
+                            (atom
+                              (term
+                                (uni_term
+                                  (infix_expr
+                                    (applicative
+                                      (record_operand
+                                        (atom
+                                          (num_literal)))))))
+                              (term
+                                (uni_term
+                                  (infix_expr
+                                    (applicative
+                                      (record_operand
+                                        (atom
+                                          (num_literal)))))))
+                              (term
+                                (uni_term
+                                  (infix_expr
+                                    (applicative
+                                      (record_operand
+                                        (atom
+                                          (num_literal))))))))))))))))))))))

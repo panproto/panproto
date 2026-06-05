@@ -1,0 +1,100 @@
+==================
+Option field with OptionOrdinalValues property
+==================
+
+table 50000 "Test Table"
+{
+    fields
+    {
+        field(1; StateCode; Option)
+        {
+            OptionMembers = " ",Active,Inactive;
+            OptionOrdinalValues = -1, 0, 1;
+        }
+    }
+}
+
+---
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (option_type))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (identifier))
+            (option_member
+              (identifier))))
+        (property
+          name: (property_name)
+          value: (signed_integer_list
+            (integer)
+            (integer)
+            (integer)))))))
+
+==================
+Option field with complex OptionOrdinalValues
+==================
+
+table 50001 "Test Table"
+{
+    fields
+    {
+        field(2; RegistrationStatus; Option)
+        {
+            OptionMembers = " ",Unknown,Unregistered,InProgress,Registered,Error;
+            OptionOrdinalValues = -1, 192350000, 192350001, 192350002, 192350003, 192350004;
+        }
+    }
+}
+
+---
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (option_type))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (identifier))
+            (option_member
+              (identifier))
+            (option_member
+              (identifier))
+            (option_member
+              (identifier))
+            (option_member
+              (identifier))))
+        (property
+          name: (property_name)
+          value: (signed_integer_list
+            (integer)
+            (integer)
+            (integer)
+            (integer)
+            (integer)
+            (integer)))))))

@@ -1,0 +1,25 @@
+===
+errors/objectCannotHavePredicateMember.pkl
+===
+
+class Foo
+
+res1 = new Foo {
+  [[true]] = 42
+}
+
+---
+
+(module
+  (clazz
+    (identifier))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (memberPredicate
+          (trueLiteralExpr)
+          (intLiteralExpr))))))

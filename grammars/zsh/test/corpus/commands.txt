@@ -1,0 +1,1002 @@
+
+
+cat file1.txt
+git diff --word-diff=color -- file1.txt file2.txt
+echo $sing\
+levar
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (word -))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (word -)
+    argument: (word -)
+    argument: (word -)
+    argument: (word -)
+    argument: (word -))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (simple_expansion -
+      (variable_name -))
+    argument: (word -)))
+
+
+==================================================
+
+==================================================
+
+"$a/$b" c
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (string -
+        (simple_expansion -
+          (variable_name -))
+        (string_content -)
+        (simple_expansion -
+          (variable_name -))))
+    argument: (word -)))
+
+
+==================================================
+
+==================================================
+
+exit 1
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (number -)))
+
+
+==================================================
+
+==================================================
+
+VAR1=1 ./script/test
+VAR1=a VAR2="ok" git diff --word-diff=color
+
+----------
+
+(program -
+  (command -
+    (variable_assignment -
+      name: (variable_name -)
+      value: (number -))
+    name: (command_name -
+      (word -)))
+  (command -
+    (variable_assignment -
+      name: (variable_name -)
+      value: (word -))
+    (variable_assignment -
+      name: (variable_name -)
+      value: (string -
+        (string_content -)))
+    name: (command_name -
+      (word -))
+    argument: (word -)
+    argument: (word -)))
+
+
+==================================================
+
+==================================================
+
+VAR1=
+VAR2= echo
+
+----------
+
+(program -
+  (variable_assignment -
+    name: (variable_name -))
+  (command -
+    (variable_assignment -
+      name: (variable_name -))
+    name: (command_name -
+      (word -))))
+
+
+==================================================
+
+==================================================
+
+whoami > /dev/null
+cat a b > /dev/null
+2>&1 whoami
+echo "foobar" >&2
+[ ! command -v go &>/dev/null ] && return
+
+if [ ]; then
+	>aa >bb
+fi
+
+exec {VIRTWL[0]} {VIRTWL[1]} <&- >&-
+exec {VIRTWL[0]}<&- {VIRTWL[1]}>&-
+
+grep 2>/dev/null -q "^/usr/bin/scponly$" /etc/shells
+
+x <x a b c
+
+----------
+
+(program -
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -)))
+    redirect: (file_redirect -
+      destination: (word -)))
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -))
+      argument: (word -)
+      argument: (word -))
+    redirect: (file_redirect -
+      destination: (word -)))
+  (command -
+    redirect: (file_redirect -
+      descriptor: (file_descriptor -)
+      destination: (number -))
+    name: (command_name -
+      (word -)))
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -))
+      argument: (string -
+        (string_content -)))
+    redirect: (file_redirect -
+      destination: (number -)))
+  (list -
+    (test_command -
+      (redirected_statement -
+        body: (negated_command -
+          (command -
+            name: (command_name -
+              (word -))
+            argument: (word -)
+            argument: (word -)))
+        redirect: (file_redirect -
+          destination: (word -))))
+    (command -
+      name: (command_name -
+        (word -))))
+  (if_statement -
+    condition: (test_command -)
+    (redirected_statement -
+      redirect: (file_redirect -
+        destination: (word -))
+      redirect: (file_redirect -
+        destination: (word -))))
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -))
+      argument: (concatenation -
+        (word -)
+        (word -)
+        (word -)
+        (number -)
+        (word -)
+        (word -))
+      argument: (concatenation -
+        (word -)
+        (word -)
+        (word -)
+        (number -)
+        (word -)
+        (word -)))
+    redirect: (file_redirect -)
+    redirect: (file_redirect -))
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -))
+      argument: (concatenation -
+        (word -)
+        (word -)
+        (word -)
+        (number -)
+        (word -)
+        (word -)))
+    redirect: (file_redirect -
+      destination: (concatenation -
+        (word -)
+        (word -)
+        (word -)
+        (number -)
+        (word -)
+        (word -)))
+    redirect: (file_redirect -))
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -)))
+    redirect: (file_redirect -
+      descriptor: (file_descriptor -)
+      destination: (word -)
+      destination: (word -)
+      destination: (string -
+        (string_content -))
+      destination: (word -)))
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -)))
+    redirect: (file_redirect -
+      destination: (word -)
+      destination: (word -)
+      destination: (word -)
+      destination: (word -))))
+
+
+==================================================
+
+==================================================
+
+whoami >| /dev/null
+cat a b >| /dev/null
+
+----------
+
+(program -
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -)))
+    redirect: (file_redirect -
+      destination: (word -)))
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -))
+      argument: (word -)
+      argument: (word -))
+    redirect: (file_redirect -
+      destination: (word -))))
+
+
+==================================================
+
+==================================================
+
+node <<JS
+console.log("hi")
+JS
+
+bash -c <<JS
+echo hi
+JS
+
+newins <<-EOF - org.freedesktop.Notifications.service
+	[D-BUS Service]
+	Name=org.freedesktop.Notifications
+	Exec=/usr/libexec/notification-daemon
+EOF
+
+----------
+
+(program -
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -)))
+    redirect: (heredoc_redirect -
+      (heredoc_start -)
+      (heredoc_body -)
+      (heredoc_end -)))
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -))
+      argument: (word -))
+    redirect: (heredoc_redirect -
+      (heredoc_start -)
+      (heredoc_body -)
+      (heredoc_end -)))
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -)))
+    redirect: (heredoc_redirect -
+      (heredoc_start -)
+      argument: (word -)
+      argument: (word -)
+      (heredoc_body -)
+      (heredoc_end -))))
+
+
+==================================================
+
+==================================================
+
+node <<JS
+a $B ${C}
+JS
+
+exit
+
+----------
+
+(program -
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -)))
+    redirect: (heredoc_redirect -
+      (heredoc_start -)
+      (heredoc_body -
+        (simple_expansion -
+          (variable_name -))
+        (heredoc_content -)
+        (expansion -
+          (variable_name -))
+        (heredoc_content -))
+      (heredoc_end -)))
+  (command -
+    name: (command_name -
+      (word -))))
+
+
+==================================================
+
+==================================================
+
+cat <<EOF > $tmpfile
+a $B ${C}
+EOF
+
+wc -l $tmpfile
+
+----------
+
+(program -
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -)))
+    redirect: (heredoc_redirect -
+      (heredoc_start -)
+      redirect: (file_redirect -
+        destination: (simple_expansion -
+          (variable_name -)))
+      (heredoc_body -
+        (simple_expansion -
+          (variable_name -))
+        (heredoc_content -)
+        (expansion -
+          (variable_name -))
+        (heredoc_content -))
+      (heredoc_end -)))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (word -)
+    argument: (simple_expansion -
+      (variable_name -))))
+
+
+==================================================
+
+==================================================
+
+FOO=bar echo <<EOF 2> err.txt > hello.txt
+hello
+EOF
+
+----------
+
+(program -
+  (redirected_statement -
+    body: (command -
+      (variable_assignment -
+        name: (variable_name -)
+        value: (word -))
+      name: (command_name -
+        (word -)))
+    redirect: (heredoc_redirect -
+      (heredoc_start -)
+      redirect: (file_redirect -
+        descriptor: (file_descriptor -)
+        destination: (word -))
+      redirect: (file_redirect -
+        destination: (word -))
+      (heredoc_body -)
+      (heredoc_end -))))
+
+
+==================================================
+
+==================================================
+
+one <<EOF | grep two
+three
+EOF
+
+----------
+
+(program -
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -)))
+    redirect: (heredoc_redirect -
+      (heredoc_start -)
+      (pipeline -
+        (command -
+          name: (command_name -
+            (word -))
+          argument: (word -)))
+      (heredoc_body -)
+      (heredoc_end -))))
+
+
+==================================================
+
+==================================================
+
+cat  << EOF
+DEV_NAME=\$(lsblk)
+EOF
+
+----------
+
+(program -
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -)))
+    redirect: (heredoc_redirect -
+      (heredoc_start -)
+      (heredoc_body -)
+      (heredoc_end -))))
+
+
+==================================================
+
+==================================================
+
+cat << 'EOF'
+a=$b
+EOF
+
+cat << "EOF"
+a=$b
+EOF
+
+cat <<"END OF FILE"
+hello,
+world
+END OF FILE
+
+cat << \EOF
+EOF
+
+----------
+
+(program -
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -)))
+    redirect: (heredoc_redirect -
+      (heredoc_start -)
+      (heredoc_body -)
+      (heredoc_end -)))
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -)))
+    redirect: (heredoc_redirect -
+      (heredoc_start -)
+      (heredoc_body -)
+      (heredoc_end -)))
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -)))
+    redirect: (heredoc_redirect -
+      (heredoc_start -)
+      (heredoc_body -)
+      (heredoc_end -)))
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -)))
+    redirect: (heredoc_redirect -
+      (heredoc_start -)
+      (heredoc_body -)
+      (heredoc_end -))))
+
+
+==================================================
+
+==================================================
+
+usage() {
+	cat <<-EOF
+		Usage: ${0##*/} FOO BAR
+	EOF
+}
+
+----------
+
+(program -
+  (function_definition -
+    name: (word -)
+    body: (compound_statement -
+      (redirected_statement -
+        body: (command -
+          name: (command_name -
+            (word -)))
+        redirect: (heredoc_redirect -
+          (heredoc_start -)
+          (heredoc_body -
+            (expansion -
+              (special_variable_name -)
+              (word -))
+            (heredoc_content -))
+          (heredoc_end -))))))
+
+
+==================================================
+
+==================================================
+
+node <<JS
+JS
+
+node << 'SJ'
+SJ
+
+usage() {
+	cat <<-EOF
+	EOF
+}
+
+node << 'EOF' > temp
+EOF
+
+----------
+
+(program -
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -)))
+    redirect: (heredoc_redirect -
+      (heredoc_start -)
+      (heredoc_body -)
+      (heredoc_end -)))
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -)))
+    redirect: (heredoc_redirect -
+      (heredoc_start -)
+      (heredoc_body -)
+      (heredoc_end -)))
+  (function_definition -
+    name: (word -)
+    body: (compound_statement -
+      (redirected_statement -
+        body: (command -
+          name: (command_name -
+            (word -)))
+        redirect: (heredoc_redirect -
+          (heredoc_start -)
+          (heredoc_body -)
+          (heredoc_end -)))))
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -)))
+    redirect: (heredoc_redirect -
+      (heredoc_start -)
+      redirect: (file_redirect -
+        destination: (word -))
+      (heredoc_body -)
+      (heredoc_end -))))
+
+
+==================================================
+
+==================================================
+
+node <<_DELIMITER_WITH_UNDERSCORES_
+Hello.
+_DELIMITER_WITH_UNDERSCORES_
+
+node <<'```'
+Hello.
+```
+
+node <<!HEREDOC!
+Hello.
+!HEREDOC!
+
+node <<\'
+Hello.
+'
+
+node <<\\
+Hello.
+\
+
+----------
+
+(program -
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -)))
+    redirect: (heredoc_redirect -
+      (heredoc_start -)
+      (heredoc_body -)
+      (heredoc_end -)))
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -)))
+    redirect: (heredoc_redirect -
+      (heredoc_start -)
+      (heredoc_body -)
+      (heredoc_end -)))
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -)))
+    redirect: (heredoc_redirect -
+      (heredoc_start -)
+      (heredoc_body -)
+      (heredoc_end -)))
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -)))
+    redirect: (heredoc_redirect -
+      (heredoc_start -)
+      (heredoc_body -)
+      (heredoc_end -)))
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -)))
+    redirect: (heredoc_redirect -
+      (heredoc_start -)
+      (heredoc_body -)
+      (heredoc_end -))))
+
+
+==================================================
+
+==================================================
+
+cat <<-_EOF_ || die "cat EOF failed"
+	#!/bin/sh
+	echo hello
+_EOF_
+
+----------
+
+(program -
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -)))
+    redirect: (heredoc_redirect -
+      (heredoc_start -)
+      right: (command -
+        name: (command_name -
+          (word -))
+        argument: (string -
+          (string_content -)))
+      (heredoc_body -)
+      (heredoc_end -))))
+
+
+==================================================
+
+==================================================
+
+cat <<EOF
+# check out this regex '^EOF$'
+EOF
+
+----------
+
+(program -
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -)))
+    redirect: (heredoc_redirect -
+      (heredoc_start -)
+      (heredoc_body -)
+      (heredoc_end -))))
+
+
+==================================================
+
+==================================================
+
+cat <<OUTER
+Outer Heredoc Start
+$(cat <<INNER
+Inner Heredoc Content
+$(cat <<INNERMOST
+Innermost Heredoc Content
+INNERMOST
+)
+INNER)
+Outer Heredoc End
+OUTER
+
+----------
+
+(program -
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (word -)))
+    redirect: (heredoc_redirect -
+      (heredoc_start -)
+      (heredoc_body -
+        (command_substitution -
+          (redirected_statement -
+            body: (command -
+              name: (command_name -
+                (word -)))
+            redirect: (heredoc_redirect -
+              (heredoc_start -)
+              (heredoc_body -
+                (command_substitution -
+                  (redirected_statement -
+                    body: (command -
+                      name: (command_name -
+                        (word -)))
+                    redirect: (heredoc_redirect -
+                      (heredoc_start -)
+                      (heredoc_body -)
+                      (heredoc_end -))))
+                (heredoc_content -))
+              (heredoc_end -))))
+        (heredoc_content -))
+      (heredoc_end -))))
+
+
+==================================================
+
+==================================================
+
+node <<< foo
+
+while read -u 3 entry; do
+  echo $entry
+done 3<<<"$ENTRIES"
+
+$(tc-getCC) -Werror -Wl,-l:libobjc.so.${ver} -x objective-c \
+		- <<<$'int main() {}' -o /dev/null 2> /dev/null;
+
+<<<string cmd arg
+
+cmd arg <<<string
+
+cmd <<<string arg
+
+<<<string
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (word -))
+    redirect: (herestring_redirect -
+      (word -)))
+  (redirected_statement -
+    body: (while_statement -
+      condition: (command -
+        name: (command_name -
+          (word -))
+        argument: (word -)
+        argument: (number -)
+        argument: (word -))
+      body: (do_group -
+        (command -
+          name: (command_name -
+            (word -))
+          argument: (simple_expansion -
+            (variable_name -)))))
+    (herestring_redirect -
+      descriptor: (file_descriptor -)
+      (string -
+        (simple_expansion -
+          (variable_name -)))))
+  (redirected_statement -
+    body: (command -
+      name: (command_name -
+        (command_substitution -
+          (command -
+            name: (command_name -
+              (word -)))))
+      argument: (word -)
+      argument: (concatenation -
+        (word -)
+        (expansion -
+          (variable_name -)))
+      argument: (word -)
+      argument: (word -)
+      argument: (word -)
+      redirect: (herestring_redirect -
+        (ansi_c_string -))
+      argument: (word -)
+      argument: (word -))
+    redirect: (file_redirect -
+      descriptor: (file_descriptor -)
+      destination: (word -)))
+  (command -
+    redirect: (herestring_redirect -
+      (word -))
+    name: (command_name -
+      (word -))
+    argument: (word -))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (word -)
+    redirect: (herestring_redirect -
+      (word -)))
+  (command -
+    name: (command_name -
+      (word -))
+    redirect: (herestring_redirect -
+      (word -))
+    argument: (word -))
+  (redirected_statement -
+    redirect: (herestring_redirect -
+      (word -))))
+
+
+==================================================
+
+==================================================
+
+echo ${a[1 + 2]}
+
+echo ${b[1234 % 2]}
+
+${words[++counter]}
+
+${array[(($number+1))]}
+
+${array[((number+1))]}
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (expansion -
+      (subscript -
+        name: (variable_name -)
+        index: (binary_expression -
+          left: (number -)
+          right: (number -)))))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (expansion -
+      (subscript -
+        name: (variable_name -)
+        index: (binary_expression -
+          left: (number -)
+          right: (number -)))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (subscript -
+          name: (variable_name -)
+          index: (unary_expression -
+            (word -))))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (subscript -
+          name: (variable_name -)
+          index: (arithmetic_expansion -
+            (binary_expression -
+              left: (simple_expansion -
+                (variable_name -))
+              right: (number -)))))))
+  (command -
+    name: (command_name -
+      (expansion -
+        (subscript -
+          name: (variable_name -)
+          index: (arithmetic_expansion -
+            (binary_expression -
+              left: (variable_name -)
+              right: (number -))))))))
+
+
+==================================================
+
+==================================================
+
+echo $
+echo "${module}"$
+echo $$
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (word -)))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (concatenation -
+      (string -
+        (expansion -
+          (variable_name -)))))
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (simple_expansion -
+      (special_variable_name -))))
+
+
+==================================================
+
+==================================================
+
+$(( $( ver_cut 2 ) - 1 ))
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (arithmetic_expansion -
+        (binary_expression -
+          left: (command_substitution -
+            (command -
+              name: (command_name -
+                (word -))
+              argument: (number -)))
+          right: (number -))))))
+
+
+==================================================
+
+==================================================
+
+bin/ls /usr/bin
+
+----------
+
+(program -
+  (command -
+    name: (command_name -
+      (word -))
+    argument: (word -)))

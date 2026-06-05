@@ -1,0 +1,30 @@
+================================================================================
+space in intercycle annotation
+================================================================================
+
+[scheduling]
+    [[graph]]
+        P1 = my_task[ -P1   ] => my_task
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    (section_name
+      (nametag))
+    (graph_section
+      (section_name)
+      (graph_setting
+        (recurrence)
+        (assignment_operator)
+        (unquoted_graph_string
+          (graph_string_content
+            (graph_task
+              (task_name
+                (nametag))
+              (intercycle_annotation
+                (recurrence)))
+            (graph_arrow)
+            (graph_task
+              (task_name
+              (nametag)))))))))

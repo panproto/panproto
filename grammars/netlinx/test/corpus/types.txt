@@ -1,0 +1,176 @@
+========================================
+Intrinsic types
+========================================
+
+char a;
+widechar a;
+integer a;
+sinteger a;
+long a;
+slong a;
+float a;
+double a;
+
+dev a;
+devchan a;
+devlev a;
+
+---
+
+(source_file
+  (declaration
+    (intrinsic_type
+      (primitive_type
+        (char_keyword)))
+    (identifier))
+  (declaration
+    (intrinsic_type
+      (primitive_type
+        (widechar_keyword)))
+    (identifier))
+  (declaration
+    (intrinsic_type
+      (primitive_type
+        (integer_keyword)))
+    (identifier))
+  (declaration
+    (intrinsic_type
+      (primitive_type
+        (sinteger_keyword)))
+    (identifier))
+  (declaration
+    (intrinsic_type
+      (primitive_type
+        (long_keyword)))
+    (identifier))
+  (declaration
+    (intrinsic_type
+      (primitive_type
+        (slong_keyword)))
+    (identifier))
+  (declaration
+    (intrinsic_type
+      (primitive_type
+        (float_keyword)))
+    (identifier))
+  (declaration
+    (intrinsic_type
+      (primitive_type
+        (double_keyword)))
+    (identifier))
+  (declaration
+    (intrinsic_type
+      (structured_type
+        (dev_keyword)))
+    (identifier))
+  (declaration
+    (intrinsic_type
+      (structured_type
+        (devchan_keyword)))
+    (identifier))
+  (declaration
+    (intrinsic_type
+      (structured_type
+        (devlev_keyword)))
+    (identifier)))
+
+===================================
+System Types
+===================================
+
+// Event data types
+TDATA event_data
+TBUTTON button_data
+TCHANNEL channel_data
+TLEVEL level_data
+TTIMELINE timeline_data
+TCUSTOM custom_data
+
+// Network structures
+URL_STRUCT url_data
+DNS_STRUCT dns_data
+IP_ADDRESS_STRUCT ip_data
+
+// Device information
+DEV_INFO_STRUCT device_data
+
+// Clock manager
+CLKMGR_TIMESERVER_STRUCT timeserver
+
+// Data feed types
+DATA_FEED feed
+DATA_FIELD field
+DATA_RECORD record
+
+// Login information
+LAST_LOGIN_INFO login_data
+
+---
+
+(source_file
+  (comment)
+  (declaration
+    (system_type
+      (tdata))
+    (identifier))
+  (declaration
+    (system_type
+      (tbutton))
+    (identifier))
+  (declaration
+    (system_type
+      (tchannel))
+    (identifier))
+  (declaration
+    (system_type
+      (tlevel))
+    (identifier))
+  (declaration
+    (system_type
+      (ttimeline))
+    (identifier))
+  (declaration
+    (system_type
+      (tcustom))
+    (identifier))
+  (comment)
+  (declaration
+    (system_type
+      (url_struct))
+    (identifier))
+  (declaration
+    (system_type
+      (dns_struct))
+    (identifier))
+  (declaration
+    (system_type
+      (ip_address_struct))
+    (identifier))
+  (comment)
+  (declaration
+    (system_type
+      (dev_info_struct))
+    (identifier))
+  (comment)
+  (declaration
+    (system_type
+      (clkmgr_timeserver_struct))
+    (identifier))
+  (comment)
+  (declaration
+    (system_type
+      (data_feed))
+    (identifier))
+  (declaration
+    (system_type
+      (data_field))
+    (identifier))
+  (declaration
+    (system_type
+      (data_record))
+    (identifier))
+  (comment)
+  (declaration
+    (system_type
+      (last_login_info))
+    (identifier)))

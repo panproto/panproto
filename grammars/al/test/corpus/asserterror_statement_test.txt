@@ -1,0 +1,236 @@
+================================================================================
+Basic asserterror statement
+================================================================================
+
+codeunit 50100 "Test Asserterror"
+{
+    procedure TestAssertError();
+    begin
+        asserterror Error('This should be caught');
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (asserterror_statement
+          (asserterror_keyword)
+          body: (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (string_literal))))
+        (end_keyword)))))
+
+================================================================================
+Asserterror with method call
+================================================================================
+
+codeunit 50101 "Test Asserterror Methods"
+{
+    procedure TestAssertErrorWithMethod();
+    var
+        Customer: Record Customer;
+    begin
+        asserterror Customer.Validate("No.", 'INVALID');
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (identifier)))))
+      (code_block
+        (begin_keyword)
+        (asserterror_statement
+          (asserterror_keyword)
+          body: (call_expression
+            function: (member_expression
+              object: (identifier)
+              member: (identifier))
+            arguments: (argument_list
+              (quoted_identifier)
+              (string_literal))))
+        (end_keyword)))))
+
+================================================================================
+Asserterror with enum value
+================================================================================
+
+codeunit 50102 "Test Asserterror Enum"
+{
+    procedure TestAssertErrorEnum();
+    var
+        InteractionTemplate: Record "Interaction Template";
+        WizardAction: Enum "Wizard Action";
+    begin
+        asserterror InteractionTemplate.Validate("Wizard Action", WizardAction::Merge);
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier))))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (object_reference_type
+              object_type: (enum_keyword)
+              reference: (quoted_identifier)))))
+      (code_block
+        (begin_keyword)
+        (asserterror_statement
+          (asserterror_keyword)
+          body: (call_expression
+            function: (member_expression
+              object: (identifier)
+              member: (identifier))
+            arguments: (argument_list
+              (quoted_identifier)
+              (qualified_enum_value
+                enum_type: (identifier)
+                value: (identifier)))))
+        (end_keyword)))))
+
+================================================================================
+Asserterror in test procedure
+================================================================================
+
+codeunit 50103 "Unit Test Example"
+{
+    Subtype = Test;
+    
+    [Test]
+    procedure TestExpectedError();
+    var
+        Assert: Codeunit Assert;
+    begin
+        asserterror Error('Expected error');
+        Assert.ExpectedError('Expected error');
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (object_reference_type
+              object_type: (codeunit_keyword)
+              reference: (identifier)))))
+      (code_block
+        (begin_keyword)
+        (asserterror_statement
+          (asserterror_keyword)
+          body: (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (string_literal))))
+        (call_expression
+          function: (member_expression
+            object: (identifier)
+            member: (identifier))
+          arguments: (argument_list
+            (string_literal)))
+        (end_keyword)))))
+
+================================================================================
+Asserterror with code block
+================================================================================
+
+codeunit 50104 "Test Asserterror Block"
+{
+    procedure TestAssertErrorBlock()
+    var
+        Variable: Integer;
+    begin
+        asserterror
+        begin
+            Variable := 10;
+            Error("Test");
+        end;
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (asserterror_statement
+          (asserterror_keyword)
+          body: (code_block
+            (begin_keyword)
+            (assignment_statement
+              left: (identifier)
+              right: (integer))
+            (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (quoted_identifier)))
+            (end_keyword)))
+        (end_keyword)))))

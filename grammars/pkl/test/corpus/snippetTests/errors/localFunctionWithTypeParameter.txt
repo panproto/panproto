@@ -1,0 +1,18 @@
+===
+errors/localFunctionWithTypeParameter.pkl
+===
+
+local function x<T>() = x
+---
+
+(module
+  (classMethod
+    (methodHeader
+      (modifier)
+      (identifier)
+      (typeParameterList
+        (typeParameter
+          (identifier)))
+      (parameterList))
+    (unqualifiedAccessExpr
+      (identifier))))

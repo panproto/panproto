@@ -1,0 +1,137 @@
+====================================
+occurs
+====================================
+       identification division.
+       program-id. a.
+       data division.
+       working-storage section.
+       01 lv1.
+         03 lv3 occurs 3.
+           05 lv5 pic x.
+       procedure division.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (data_division
+      (working_storage_section
+        (data_description
+          (level_number)
+          (entry_name))
+        (data_description
+          (level_number)
+          (entry_name)
+          (occurs_clause
+            num: (integer)))
+        (data_description
+          (level_number)
+          (entry_name)
+          (picture_clause
+            (picture_x)))))
+    (procedure_division)))
+====================================
+occurs to
+====================================
+       identification division.
+       program-id. a.
+       data division.
+       working-storage section.
+       01 lv1.
+         03 lv3 occurs 3 to 5.
+           05 lv5 pic x.
+       procedure division.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (data_division
+      (working_storage_section
+        (data_description
+          (level_number)
+          (entry_name))
+        (data_description
+          (level_number)
+          (entry_name)
+          (occurs_clause
+            num: (integer)
+            to: (integer)))
+        (data_description
+          (level_number)
+          (entry_name)
+          (picture_clause
+            (picture_x)))))
+    (procedure_division)))
+====================================
+occurs times
+====================================
+       identification division.
+       program-id. a.
+       data division.
+       working-storage section.
+       01 lv1.
+         03 lv3 occurs 3 times.
+           05 lv5 pic x.
+       procedure division.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (data_division
+      (working_storage_section
+        (data_description
+          (level_number)
+          (entry_name))
+        (data_description
+          (level_number)
+          (entry_name)
+          (occurs_clause
+            num: (integer)))
+        (data_description
+          (level_number)
+          (entry_name)
+          (picture_clause
+            (picture_x)))))
+    (procedure_division)))
+====================================
+occurs depending
+====================================
+       identification division.
+       program-id. a.
+       data division.
+       working-storage section.
+       01 lv1.
+         03 lv3 occurs 3 depending l.
+           05 lv5 pic x.
+       01 l pic x.
+       procedure division.
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (data_division
+      (working_storage_section
+        (data_description
+          (level_number)
+          (entry_name))
+        (data_description
+          (level_number)
+          (entry_name)
+          (occurs_clause
+            num: (integer)
+            depending: (qualified_word
+              (WORD))))
+        (data_description
+          (level_number)
+          (entry_name)
+          (picture_clause
+            (picture_x)))
+        (data_description
+          (level_number)
+          (entry_name)
+          (picture_clause
+            (picture_x)))))
+    (procedure_division)))

@@ -1,0 +1,26 @@
+==================
+try command
+==================
+
+foo:
+    TRY
+        RUN echo $v
+    FINALLY
+        SAVE ARTIFACT /foo
+    END
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (try_command
+            body: (block
+              (run_command
+                command: (shell_fragment)))
+            finally: (block
+              (save_artifact_command
+                src: (string
+                  (unquoted_string))))))))
+

@@ -1,0 +1,254 @@
+================================================================================
+Table with TableType Temporary
+================================================================================
+
+table 109 "Net Balances Parameters"
+{
+    Caption = 'Net Balances Parameters';
+    Tabletype = Temporary;
+    DataClassification = CustomerContent;
+
+    fields
+    {
+        field(1; ID; Code[20])
+        {
+            Caption = 'ID';
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (code_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (string_literal))))))
+
+================================================================================
+Table with TableType in different cases
+================================================================================
+
+table 110 "Test Table"
+{
+    TableType = Normal;
+    TABLETYPE = CRM;
+    tabletype = External;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))))
+
+================================================================================
+Table with all TableType values
+================================================================================
+
+table 111 "Test All Types"
+{
+    TableType = Normal;
+}
+
+table 112 "Test Table"
+{
+    TableType = Temporary;
+}
+
+table 113 "Test Table"
+{
+    TableType = External;
+}
+
+table 114 "Test Table"
+{
+    TableType = System;
+}
+
+table 115 "Test Table"
+{
+    TableType = CRM;
+}
+
+table 116 "Test Table"
+{
+    TableType = ExchangeObject;
+}
+
+table 117 "Test Table"
+{
+    TableType = ExternalSQL;
+}
+
+table 118 "Test Table"
+{
+    TableType = Exchange;
+}
+
+table 119 "Test Table"
+{
+    TableType = MicrosoftGraph;
+}
+
+table 120 "Test Table"
+{
+    TableType = MasterDataIntegration;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier)))
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier)))
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier)))
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (keyword_identifier)))
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier)))
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier)))
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier)))
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier)))
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier)))
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))))
+
+================================================================================
+Table with TableType and other properties
+================================================================================
+
+table 121 "Complex Table"
+{
+    Caption = 'Complex Table';
+    TableType = Temporary;
+    DataPerCompany = false;
+    Access = Internal;
+    
+    fields
+    {
+        field(1; ID; Integer)
+        {
+            Caption = 'ID';
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (internal_keyword))))
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (string_literal))))))

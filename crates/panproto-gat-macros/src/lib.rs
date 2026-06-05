@@ -565,7 +565,7 @@ impl Parse for DeriveTheoryInput {
 ///
 /// Surface:
 ///
-/// ```ignore
+/// ```text
 /// derive_theory! {
 ///     #[derive(Eq, Hash)]
 ///     ThVertex<Vertex, Str> {
@@ -819,7 +819,7 @@ impl Parse for InductiveInput {
 ///
 /// Surface:
 ///
-/// ```ignore
+/// ```text
 /// inductive! {
 ///     Nat {
 ///         zero : Nat,

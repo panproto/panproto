@@ -1,0 +1,310 @@
+================================================================================
+h3 (uppercase) heading
+================================================================================
+HELLO
+
+Test
+
+GUI COOL ~
+Text
+
+
+--------------------------------------------------------------------------------
+
+(help_file
+  (block
+    (line
+      (h3
+        (heading))))
+  (block
+    (line
+      (word)))
+  (block
+    (line
+      (column_heading
+        (heading
+          (word)
+          (word))
+        (delimiter)))
+    (line
+      (word))))
+
+================================================================================
+h3 (uppercase) heading, multiple words
+================================================================================
+HELLO WORLD
+
+  LEADING-SPACE-NOT-A-HEADING
+
+
+--------------------------------------------------------------------------------
+
+(help_file
+  (block
+    (line
+      (h3
+        (heading))))
+  (block
+    (line
+      (word))))
+
+================================================================================
+h3 heading with tag
+================================================================================
+HELLO WORLD        *abc*
+
+Test
+
+
+--------------------------------------------------------------------------------
+
+(help_file
+  (block
+    (line
+      (h3
+        (heading)
+        (tag
+          (word)))))
+  (block
+    (line
+      (word))))
+
+================================================================================
+column_heading lowercase
+================================================================================
+test-Test ~
+
+Below
+
+
+--------------------------------------------------------------------------------
+
+(help_file
+  (block
+    (line
+      (column_heading
+        (heading
+          (word))
+        (delimiter))))
+  (block
+    (line
+      (word))))
+
+================================================================================
+column_heading no space before tilde (FIXME)
+================================================================================
+test~
+
+Below
+
+
+--------------------------------------------------------------------------------
+
+(help_file
+  (block
+    (line
+      (word)))
+  (block
+    (line
+      (word))))
+
+================================================================================
+column_heading with multiple words
+================================================================================
+Multiple words ~
+
+nvim_ui_try_resize({width}, {height})                   *nvim_ui_try_resize()*
+    TODO: Documentation
+
+    Attributes: ~
+        |RPC| only
+
+
+--------------------------------------------------------------------------------
+
+(help_file
+  (block
+    (line
+      (column_heading
+        (heading
+          (word)
+          (word))
+        (delimiter))))
+  (block
+    (line
+      (word)
+      (word)
+      (argument
+        (word))
+      (word)
+      (argument
+        (word))
+      (word)
+      (tag
+        (word)))
+    (line
+      (word)
+      (word)))
+  (block
+    (line
+      (column_heading
+        (heading
+          (word))
+        (delimiter)))
+    (line
+      (taglink
+        (word))
+      (word))))
+
+================================================================================
+column_heading should NOT parse atoms (links, tags, etc.) (FIXME)
+================================================================================
+    Example: >
+            echo spellbadword("the quik brown fox")
+<			'quik', 'bad' ~
+
+    Text.
+
+
+--------------------------------------------------------------------------------
+
+(help_file
+  (block
+    (line
+      (word)
+      (codeblock
+        (code
+          (line)))))
+  (block
+    (line
+      (column_heading
+        (heading
+          (optionlink
+            (word))
+          (word)
+          (optionlink
+            (word)))
+        (delimiter))))
+  (block
+    (line
+      (word)
+      (word))))
+
+================================================================================
+NOT h3 uppercase heading
+================================================================================
+^V	0x16	 22	(SYN)
+^W	0x17	 23	END
+
+ABC not-h3
+
+4. 'runtimepath' `/xxx;yyy/baz`.The
+   `/foo/bar`-and-`/abc`.
+5. PRODUCT of 3.
+   ...`/lua`-path,-leaving:
+
+
+--------------------------------------------------------------------------------
+
+(help_file
+  (block
+    (line
+      (word)
+      (word)
+      (word)
+      (word)
+      (word))
+    (line
+      (word)
+      (word)
+      (word)
+      (word)))
+  (block
+    (line
+      (word)
+      (word)))
+  (block
+    (line_li
+      (prefix)
+      (line
+        (optionlink
+          (word))
+        (codespan
+          (word))
+        (word)
+        (word))
+      (line)
+      (line
+        (codespan
+          (word))
+        (word)
+        (word)))
+    (line_li
+      (prefix)
+      (line
+        (word)
+        (word)
+        (word)
+        (word))
+      (line)
+      (line
+        (word)
+        (word)
+        (word)
+        (codespan
+          (word))
+        (word)
+        (word)
+        (word)))))
+
+================================================================================
+NOT column_heading
+================================================================================
+tilde ~/foo/bar foo~ bar
+trailing-space-is-NOT-column_heading ~ 
+
+buffer-diagram
+|-----|
+|foo  |
+|~    |
+|~    |
+|-----|
+
+
+--------------------------------------------------------------------------------
+
+(help_file
+  (block
+    (line
+      (word)
+      (word)
+      (word)
+      (word)
+      (word))
+    (line
+      (word)
+      (word)))
+  (block
+    (line
+      (word))
+    (line
+      (taglink
+        (word)))
+    (line
+      (word)
+      (ERROR
+        (word))
+      (word))
+    (line
+      (word)
+      (ERROR
+        (word))
+      (word))
+    (line
+      (word)
+      (ERROR
+        (word))
+      (word))
+    (line
+      (taglink
+        (word)))))

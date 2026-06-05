@@ -1,0 +1,201 @@
+================================================================================
+Simple keyword definitions
+================================================================================
+
+*** Keywords ***
+
+I Am A User Defined Keyword
+    Foo Bar
+    Do Something    foo=bar
+    ...             Another argument
+    Do More Stuff   pow=123
+
+    Empty Lines Should Be Allowed
+
+    RETURN    123
+
+I Am Another User Defined Keyword
+
+    Do Something Cool     with=123
+    ...                   and=234
+
+    Expect Everything To Work
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (keywords_section
+      (section_header)
+      (keyword_definition
+        (name
+          (name_chunk))
+        (body
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk))))
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk))
+              (arguments
+                (argument
+                  (text_chunk))
+                (continuation
+                  (ellipses)
+                  (argument
+                    (text_chunk))))))
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk))
+              (arguments
+                (argument
+                  (text_chunk)))))
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk))))
+          (statement
+            (return_statement
+              (return_value
+                (text_chunk))))))
+      (keyword_definition
+        (name
+          (name_chunk))
+        (body
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk))
+              (arguments
+                (argument
+                  (text_chunk))
+                (continuation
+                  (ellipses)
+                  (argument
+                    (text_chunk))))))
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk)))))))))
+
+================================================================================
+Keyword settings
+================================================================================
+
+*** Keywords ***
+
+I Am A User Defined Keyword
+    [Documentation]   I am keyword documentation
+    ...
+    ...               I often span multiple lines
+    [Tags]            foo   bar
+    [Arguments]       ${First argument}   ${Second argument}    ${Default}=value
+    [Return]          ${Return value}
+    [Teardown]        I Am A Teardown Keyword     With    Arguments
+    [Timeout]         1 minute
+
+    Log To Console    Test!
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section
+    (keywords_section
+      (section_header)
+      (keyword_definition
+        (name
+          (name_chunk))
+        (body
+          (keyword_setting
+            (keyword_setting_name)
+            (arguments
+              (argument
+                (text_chunk))
+              (continuation
+                (ellipses))
+              (continuation
+                (ellipses)
+                (argument
+                  (text_chunk)))))
+          (keyword_setting
+            (keyword_setting_name)
+            (arguments
+              (argument
+                (text_chunk))
+              (argument
+                (text_chunk))))
+          (keyword_setting
+            (keyword_setting_name)
+            (arguments
+              (argument
+                (scalar_variable
+                  (variable_name)))
+              (argument
+                (scalar_variable
+                  (variable_name)))
+              (argument
+                (scalar_variable
+                  (variable_name))
+                (text_chunk))))
+          (keyword_setting
+            (keyword_setting_name)
+            (arguments
+              (argument
+                (scalar_variable
+                  (variable_name)))))
+          (keyword_setting
+            (keyword_setting_name)
+            (arguments
+              (argument
+                (text_chunk))
+              (argument
+                (text_chunk))
+              (argument
+                (text_chunk))))
+          (keyword_setting
+            (keyword_setting_name)
+            (arguments
+              (argument
+                (text_chunk))))
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk))
+              (arguments
+                (argument
+                  (text_chunk))))))))))
+
+================================================================================
+Keywords with embedded parameters
+================================================================================
+
+*** Keywords ***
+
+Numbers ${A} + ${B} Should Equal ${C}
+    Foo Bar
+
+-------
+
+(source_file
+  (section
+    (keywords_section
+      (section_header)
+      (keyword_definition
+        (name
+          (name_chunk)
+          (scalar_variable
+            (variable_name))
+          (name_chunk)
+          (scalar_variable
+            (variable_name))
+          (name_chunk)
+          (scalar_variable
+            (variable_name)))
+        (body
+          (statement
+            (keyword_invocation
+              (keyword
+                (name_chunk)))))))))

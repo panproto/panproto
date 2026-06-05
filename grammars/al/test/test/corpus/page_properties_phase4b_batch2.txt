@@ -1,0 +1,84 @@
+==================
+Page Properties Phase 4B Batch 2 - Web Service Properties
+==================
+
+page 50111 "Test Phase 4B Batch 2"
+{
+    PageType = API;
+    SourceTable = Customer;
+    EntityCaption = 'Customer Entity';
+    EntityCaptionML = ENU='Customer Entity',DAN='Kundeobjekt';
+    EntityName = 'customer';
+    EntitySetCaption = 'Customers';
+    EntitySetCaptionML = ENU='Customers',DAN='Kunder';
+    EntitySetName = 'customers';
+
+    layout
+    {
+        area(content)
+        {
+            group(General)
+            {
+                field("No."; Rec."No.")
+                {
+                }
+            }
+        }
+    }
+}
+
+---
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (ml_value_list
+        (ml_value_pair
+          language: (identifier)
+          value: (string_literal))
+        (ml_value_pair
+          language: (identifier)
+          value: (string_literal))))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (ml_value_list
+        (ml_value_pair
+          language: (identifier)
+          value: (string_literal))
+        (ml_value_pair
+          language: (identifier)
+          value: (string_literal))))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (group_section
+          (group_keyword)
+          name: (identifier)
+          (page_field
+            name: (quoted_identifier)
+            source: (member_expression
+              object: (identifier)
+              member: (quoted_identifier))))))))

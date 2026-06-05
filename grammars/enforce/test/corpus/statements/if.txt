@@ -1,0 +1,66 @@
+================================================================================
+if expression then statement
+================================================================================
+void foo() {
+	if (true) a;
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method (type_void) (identifier) (block
+	(if (literal_bool) (statement_expression (identifier))))))
+
+================================================================================
+if expression then block
+================================================================================
+void foo() {
+	if (true) {}
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method (type_void) (identifier) (block
+	(if (literal_bool) (block)))))
+
+================================================================================
+if expression then statement else statement
+================================================================================
+void foo() {
+	if (true) a; else b;
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method (type_void) (identifier) (block
+	(if
+		(literal_bool)
+		(statement_expression (identifier))
+		(statement_expression (identifier))))))
+
+================================================================================
+if expression then block else block
+================================================================================
+void foo() {
+	if (true) {
+	} else {
+	}
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method (type_void) (identifier) (block
+	(if
+		(literal_bool)
+		(block)
+		(block)))))
+
+================================================================================
+if chain
+================================================================================
+void foo() {
+	if (true) {
+	} else if (true) {
+	} else {
+	}
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method (type_void) (identifier) (block
+	(if
+		(literal_bool)
+		(block)
+		(if
+			(literal_bool)
+			(block)
+			(block))))))

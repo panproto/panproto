@@ -1,0 +1,87 @@
+===========
+Separator Action Test
+===========
+
+page 50000 "Test Page"
+{
+    actions
+    {
+        area(Processing)
+        {
+            action(Action1)
+            {
+                Caption = 'Action 1';
+            }
+
+            separator(Sep1)
+            {
+            }
+
+            action(Action2)
+            {
+                Caption = 'Action 2';
+            }
+
+            group(ActionGroup)
+            {
+                Caption = 'Group';
+
+                action(Action3)
+                {
+                    Caption = 'Action 3';
+                }
+
+                separator(Sep2)
+                {
+                }
+
+                action(Action4)
+                {
+                    Caption = 'Action 4';
+                }
+            }
+        }
+    }
+}
+
+---
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal)))
+        (separator_action
+          name: (identifier))
+        (action_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal)))
+        (action_group_section
+          (group_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (action_declaration
+            name: (identifier)
+            (property
+              name: (property_name)
+              value: (string_literal)))
+          (separator_action
+            name: (identifier))
+          (action_declaration
+            name: (identifier)
+            (property
+              name: (property_name)
+              value: (string_literal))))))))

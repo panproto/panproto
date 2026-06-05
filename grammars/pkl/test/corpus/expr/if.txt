@@ -1,0 +1,15 @@
+===
+if
+===
+
+foo = if (true) 1 else 2
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (ifExpr
+      (trueLiteralExpr)
+      (intLiteralExpr)
+      (intLiteralExpr))))

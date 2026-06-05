@@ -1,0 +1,72 @@
+========================
+comment
+========================
+
+// Some comment that is
+
+---
+
+(source_file
+  (comment))
+
+
+========================
+Multiline comment
+========================
+
+// Some comment
+  with nested line that
+  are still commented
+
+tag
+
+---
+
+(source_file
+  (comment)
+  (tag
+    (tag_name)))
+
+========================
+Multiline comment following buffered code
+========================
+
+p
+  != 'javascript'
+//-
+  Comment content
+
+tag
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (children
+    (unescaped_buffered_code
+      (javascript))))
+  (comment)
+  (tag
+    (tag_name)))
+
+========================
+Multiline comment starting on next line
+========================
+
+tag
+  //-
+    Comment
+    Comment
+
+tag
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (children
+      (comment)))
+  (tag
+    (tag_name)))

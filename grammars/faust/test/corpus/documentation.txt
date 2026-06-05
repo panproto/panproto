@@ -1,0 +1,51 @@
+====
+Documentation
+====
+
+<mdoc>
+\title{<metadata>name</metadata>}
+\author{<metadata>author</metadata>}
+\date{\today}
+\maketitle
+
+\begin{tabular}{ll}
+  \hline
+  \textbf{name}		& <metadata>name</metadata> \\
+  \textbf{version} 	& <metadata>version</metadata> \\
+  \textbf{author} 	& <metadata>author</metadata> \\
+  \textbf{license} 	& <metadata>license</metadata> \\
+  \textbf{copyright} 	& <metadata>copyright</metadata> \\
+  \hline
+\end{tabular}
+\bigskip
+\section{The number one}
+1, or "one", is an important integer.
+\subsection{Other integers}
+\texttt{one} is not the only integer. Another integer is -1, or "negative one".
+<equation>one</equation>
+\section{Block-diagram schema of process}
+This process is illustrated on figure 1.
+<diagram>process</diagram>
+<listing mdoctags="false" dependencies="false" distributed="false" />
+<notice/>
+<notice />
+</mdoc>
+
+---
+(program
+  (documentation
+    (doc_metadata)
+    (doc_metadata)
+    (doc_metadata)
+    (doc_metadata)
+    (doc_metadata)
+    (doc_metadata)
+    (doc_metadata)
+    (doc_equation)
+    (doc_diagram)
+    (doc_listing 
+      (doc_attribute (key) (value))
+      (doc_attribute (key) (value))
+      (doc_attribute (key) (value)))
+    (doc_notice)
+    (doc_notice)))

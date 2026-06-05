@@ -1,0 +1,168 @@
+================================================================================
+Page with region directives for code organization
+================================================================================
+
+page 50100 "Manufacturing Factbox"
+{
+    PageType = CardPart;
+    SourceTable = "Prod. Order Component";
+
+    layout
+    {
+        area(content)
+        {
+            field("Item No."; Rec."Item No.")
+            {
+                ApplicationArea = Manufacturing;
+                ToolTip = 'Specifies the item number.';
+            }
+            field("Quantity"; Rec.Quantity)
+            {
+                ApplicationArea = Manufacturing;
+            }
+        }
+    }
+
+    var
+        Item: Record Item;
+
+    #region Private Methods
+    local procedure GetItem(): Boolean
+    begin
+        if Rec."Item No." <> '' then
+            exit(Item.Get(Rec."Item No."));
+        exit(false);
+    end;
+
+    local procedure ShowNo(): Code[20]
+    begin
+        if Rec."Item No." = '' then
+            exit('');
+        exit(Rec."Item No.");
+    end;
+    #endregion
+
+    #region Event Handlers
+    trigger OnAfterGetCurrRecord()
+    begin
+        GetItem();
+    end;
+    #endregion
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (quoted_identifier))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (quoted_identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (quoted_identifier))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal)))
+        (page_field
+          name: (quoted_identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (identifier))
+          (property
+            name: (property_name)
+            value: (identifier)))))
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (record_type
+            reference: (identifier)))))
+    (preproc_region)
+    (procedure
+      modifier: (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      return_type: (type_specification
+        (basic_type))
+      (code_block
+        (begin_keyword)
+        (if_statement
+          (if_keyword)
+          condition: (comparison_expression
+            left: (member_expression
+              object: (identifier)
+              member: (quoted_identifier))
+            operator: (comparison_operator)
+            right: (string_literal))
+          (then_keyword)
+          then_branch: (exit_statement
+            (exit_keyword)
+            return_value: (call_expression
+              function: (member_expression
+                object: (identifier)
+                member: (identifier))
+              arguments: (argument_list
+                (member_expression
+                  object: (identifier)
+                  member: (quoted_identifier))))))
+        (exit_statement
+          (exit_keyword)
+          return_value: (boolean))
+        (end_keyword)))
+    (procedure
+      modifier: (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      return_type: (type_specification
+        (code_type
+          length: (integer)))
+      (code_block
+        (begin_keyword)
+        (if_statement
+          (if_keyword)
+          condition: (comparison_expression
+            left: (member_expression
+              object: (identifier)
+              member: (quoted_identifier))
+            operator: (comparison_operator)
+            right: (string_literal))
+          (then_keyword)
+          then_branch: (exit_statement
+            (exit_keyword)
+            return_value: (string_literal)))
+        (exit_statement
+          (exit_keyword)
+          return_value: (member_expression
+            object: (identifier)
+            member: (quoted_identifier)))
+        (end_keyword)))
+    (preproc_endregion)
+    (preproc_region)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list))
+        (end_keyword)))
+    (preproc_endregion)))

@@ -1,0 +1,97 @@
+================================================================================
+Field with Image property and trigger in cuegroup
+================================================================================
+
+page 123 "Test Page"
+{
+    layout
+    {
+        area(content)
+        {
+            cuegroup("My User Tasks")
+            {
+                Caption = 'My User Tasks';
+                field("UserTaskManagement.GetMyPendingUserTasksCount"; UserTaskManagement.GetMyPendingUserTasksCount())
+                {
+                    ApplicationArea = Basic, Suite;
+                    Caption = 'Pending User Tasks';
+                    Image = Checklist;
+                    ToolTip = 'Specifies the number of pending tasks that are assigned to you or to a group that you are a member of.';
+
+                    trigger OnDrillDown()
+                    var
+                        UserTaskList: Page "User Task List";
+                    begin
+                        UserTaskList.SetPageToShowMyPendingUserTasks();
+                        UserTaskList.Run();
+                    end;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (cuegroup_section
+          (cuegroup_keyword)
+          name: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (page_field
+            name: (quoted_identifier)
+            source: (call_expression
+              function: (member_expression
+                object: (identifier)
+                member: (identifier))
+              arguments: (argument_list))
+            (property
+              name: (property_name)
+              value: (option_member_list
+                (option_member
+                  (identifier))
+                (option_member
+                  (identifier))))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (trigger_declaration
+              (trigger_keyword)
+              name: (identifier)
+              (var_section
+                (var_keyword)
+                (variable_declaration
+                  name: (identifier)
+                  type: (type_specification
+                    (object_reference_type
+                      object_type: (page_keyword)
+                      reference: (quoted_identifier)))))
+              (code_block
+                (begin_keyword)
+                (call_expression
+                  function: (member_expression
+                    object: (identifier)
+                    member: (identifier))
+                  arguments: (argument_list))
+                (call_expression
+                  function: (member_expression
+                    object: (identifier)
+                    member: (identifier))
+                  arguments: (argument_list))
+                (end_keyword)))))))))

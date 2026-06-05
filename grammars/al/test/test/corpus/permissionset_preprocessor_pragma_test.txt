@@ -1,0 +1,223 @@
+================================================================================
+PermissionSet with preprocessor and pragma directives in permissions
+================================================================================
+
+permissionset 301 "No. Series - Read"
+{
+    Access = Internal;
+    Assignable = false;
+    IncludedPermissionSets = "No. Series - Objects";
+
+    Permissions =
+        tabledata "No. Series" = R,
+        tabledata "No. Series Line" = R,
+#if not CLEAN24
+#pragma warning disable AL0432
+        tabledata "No. Series Line Sales" = R,
+        tabledata "No. Series Line Purchase" = R,
+#pragma warning restore AL0432
+#endif
+        tabledata "No. Series Relationship" = R,
+        tabledata "No. Series Tenant" = r;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (permissionset_declaration
+    (permissionset_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (internal_keyword))))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (quoted_identifier))
+    (property
+      name: (property_name)
+      value: (tabledata_permission_list
+        (tabledata_permission
+          table_name: (quoted_identifier)
+          permission: (permission_type))
+        (tabledata_permission
+          table_name: (quoted_identifier)
+          permission: (permission_type))
+        (preproc_conditional_permissions
+          (preproc_if
+            (preproc_open)
+            condition: (preproc_not_expression
+              (identifier)))
+          (pragma)
+          (tabledata_permission
+            table_name: (quoted_identifier)
+            permission: (permission_type))
+          (tabledata_permission
+            table_name: (quoted_identifier)
+            permission: (permission_type))
+          (pragma)
+          (preproc_endif
+            (preproc_close)))
+        (tabledata_permission
+          table_name: (quoted_identifier)
+          permission: (permission_type))
+        (tabledata_permission
+          table_name: (quoted_identifier)
+          permission: (permission_type))))))
+
+================================================================================
+PermissionSet with preprocessor else branch and pragma
+================================================================================
+
+permissionset 50200 "Test Permissions"
+{
+    Permissions =
+#if CLEAN25
+        tabledata "Modern Table" = RIMD,
+#else
+#pragma warning disable AL0432
+        tabledata "Legacy Table" = RIM,
+        tabledata "Old Table" = R,
+#pragma warning restore AL0432
+#endif
+        tabledata "Common Table" = R;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (permissionset_declaration
+    (permissionset_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (tabledata_permission_list
+        (preproc_conditional_permissions
+          (preproc_if
+            (preproc_open)
+            condition: (identifier))
+          (tabledata_permission
+            table_name: (quoted_identifier)
+            permission: (permission_type))
+          (preproc_else)
+          (pragma)
+          (tabledata_permission
+            table_name: (quoted_identifier)
+            permission: (permission_type))
+          (tabledata_permission
+            table_name: (quoted_identifier)
+            permission: (permission_type))
+          (pragma)
+          (preproc_endif
+            (preproc_close)))
+        (tabledata_permission
+          table_name: (quoted_identifier)
+          permission: (permission_type))))))
+
+================================================================================
+PermissionSet with multiple pragma directives in preprocessor
+================================================================================
+
+permissionset 50300 "Complex Permissions"
+{
+    Permissions =
+        tabledata Customer = R,
+#if not CLEAN24
+#pragma warning disable AL0432
+#pragma warning disable AL0603
+        tabledata "Deprecated Customer Extension" = RIMD,
+#pragma warning restore AL0603
+#pragma warning restore AL0432
+#endif
+        tabledata Vendor = R;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (permissionset_declaration
+    (permissionset_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (tabledata_permission_list
+        (tabledata_permission
+          table_name: (identifier)
+          permission: (permission_type))
+        (preproc_conditional_permissions
+          (preproc_if
+            (preproc_open)
+            condition: (preproc_not_expression
+              (identifier)))
+          (pragma)
+          (pragma)
+          (tabledata_permission
+            table_name: (quoted_identifier)
+            permission: (permission_type))
+          (pragma)
+          (pragma)
+          (preproc_endif
+            (preproc_close)))
+        (tabledata_permission
+          table_name: (identifier)
+          permission: (permission_type))))))
+
+================================================================================
+PermissionSet with pragma between every permission in preprocessor
+================================================================================
+
+permissionset 50400 "Pragma Heavy Permissions"
+{
+    Permissions =
+#if not CLEAN26
+#pragma warning disable AL0432
+        tabledata "Table1" = R,
+#pragma warning disable AL0603
+        tabledata "Table2" = RIM,
+#pragma warning restore AL0603
+        tabledata "Table3" = D,
+#pragma warning restore AL0432
+#endif
+        tabledata "Table4" = RIMD;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (permissionset_declaration
+    (permissionset_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (tabledata_permission_list
+        (preproc_conditional_permissions
+          (preproc_if
+            (preproc_open)
+            condition: (preproc_not_expression
+              (identifier)))
+          (pragma)
+          (tabledata_permission
+            table_name: (quoted_identifier)
+            permission: (permission_type))
+          (pragma)
+          (tabledata_permission
+            table_name: (quoted_identifier)
+            permission: (permission_type))
+          (pragma)
+          (tabledata_permission
+            table_name: (quoted_identifier)
+            permission: (permission_type))
+          (pragma)
+          (preproc_endif
+            (preproc_close)))
+        (tabledata_permission
+          table_name: (quoted_identifier)
+          permission: (permission_type))))))

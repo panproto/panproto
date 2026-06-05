@@ -1,0 +1,193 @@
+==================
+Interfaces
+==================
+
+
+interface foo {
+    type alias = string;
+    fn1: func(hey: u32, ho: string) -> bool;
+    fn2: func() -> result<bool, u32>;
+    fn3: func() -> option<bool>;
+
+    resource res {
+        constructor();
+        fn1: func(p: string) -> result<u32, aaa>;
+        fn2: func(%p: borrow<string>) -> result<u32, aaa>;
+    }
+
+    record rec2 {
+        num: u32,
+    }
+
+    flags fl {
+        a,
+        b,
+    }
+
+    enum en {
+        a,
+        b,
+    }
+
+    variant var {
+        a,
+        b,
+    }
+}
+
+---
+
+(source_file
+  (interface_item
+    name: (id)
+    (body
+      (type_item
+        alias: (id)
+        type: (ty))
+      (func_item
+        name: (id)
+        (func_type
+          (param_list
+            (named_type
+              name: (id)
+              type: (ty))
+            (named_type
+              name: (id)
+              type: (ty)))
+          (result_list
+            (ty))))
+      (func_item
+        name: (id)
+        (func_type
+          (param_list)
+          (result_list
+            (ty
+              (result
+                (ty)
+                (ty))))))
+      (func_item
+        name: (id)
+        (func_type
+          (param_list)
+          (result_list
+            (ty
+              (option
+                (ty))))))
+      (resource_item
+        name: (id)
+        (body
+          (resource_method
+            (param_list))
+          (resource_method
+            (func_item
+              name: (id)
+              (func_type
+                (param_list
+                  (named_type
+                    name: (id)
+                    type: (ty)))
+                (result_list
+                  (ty
+                    (result
+                      (ty)
+                      (ty
+                        (id))))))))
+          (resource_method
+            (func_item
+              name: (id)
+              (func_type
+                (param_list
+                  (named_type
+                    name: (id)
+                    type: (ty
+                      (handle
+                        (id)))))
+                (result_list
+                  (ty
+                    (result
+                      (ty)
+                      (ty
+                        (id))))))))))
+      (record_item
+        name: (id)
+        (body
+          (record_field
+            name: (id)
+            type: (ty))))
+      (flags_items
+        name: (id)
+        (body
+          (flags_field)
+          (flags_field)))
+      (enum_items
+        name: (id)
+        (body
+          (enum_case)
+          (enum_case)))
+      (variant_items
+        name: (id)
+        (body
+          (variant_case
+            name: (id))
+          (variant_case
+            name: (id)))))))
+
+==================
+Use Items
+==================
+interface my-interface {
+    use an-interface.{a, list, of, names};
+    use my:dependency/the-interface.{more, names as foo};
+    use wasi:http/types@1.0.0.{request, response};
+    use types.{errno as my-errno};
+}
+
+---
+
+(source_file
+  (interface_item
+    (id)
+    (body
+      (use_item
+        (use_path
+          (id))
+        (definitions
+          (use_names_item
+            (id))
+          (use_names_item
+            (id))
+          (use_names_item
+            (id))
+          (use_names_item
+            (id))))
+      (use_item
+        (use_path
+          (id)
+          (id)
+          (id))
+        (definitions
+          (use_names_item
+            (id))
+          (use_names_item
+            (alias_item
+              (id)
+              (id)))))
+      (use_item
+        (use_path
+          (id)
+          (id)
+          (id)
+          (version))
+        (definitions
+          (use_names_item
+            (id))
+          (use_names_item
+            (id))))
+      (use_item
+        (use_path
+          (id))
+        (definitions
+          (use_names_item
+            (alias_item
+              (id)
+              (id))))))))

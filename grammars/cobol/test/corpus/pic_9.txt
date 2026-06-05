@@ -1,0 +1,71 @@
+====================================
+PIC 9
+====================================
+       identification division.
+       program-id. a.
+       data division.
+       working-storage section.
+       01 str1 PIC 99Z(10).
+       01 str2 PIC 99ZZ(2).
+       01 str3 PIC 99ZZ.
+       01 str4 PIC 9.
+       01 str5 PIC 999.
+       01 str6 PIC 99(10)9.
+       01 str7 PIC 9V9(10).
+       01 str8 PIC 9(5)V9(10).
+       01 str2h9 PIC 9(5)99(2)V9(10).
+       procedure division.
+---
+
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (data_division
+      (working_storage_section
+        (data_description
+          (level_number)
+          (entry_name)
+          (picture_clause
+            (picture_9)))
+        (data_description
+          (level_number)
+          (entry_name)
+          (picture_clause
+            (picture_9)))
+        (data_description
+          (level_number)
+          (entry_name)
+          (picture_clause
+            (picture_9)))
+        (data_description
+          (level_number)
+          (entry_name)
+          (picture_clause
+            (picture_9)))
+        (data_description
+          (level_number)
+          (entry_name)
+          (picture_clause
+            (picture_9)))
+        (data_description
+          (level_number)
+          (entry_name)
+          (picture_clause
+            (picture_9)))
+        (data_description
+          (level_number)
+          (entry_name)
+          (picture_clause
+            (picture_9)))
+        (data_description
+          (level_number)
+          (entry_name)
+          (picture_clause
+            (picture_9)))
+        (data_description
+          (level_number)
+          (entry_name)
+          (picture_clause
+            (picture_9)))))
+    (procedure_division)))

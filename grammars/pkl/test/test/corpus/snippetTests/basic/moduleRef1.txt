@@ -1,0 +1,108 @@
+===
+basic/moduleRef1.pkl
+===
+
+module test
+
+const a = 42
+
+m1 = module.a
+
+foo {
+  b = 43
+  m2 = module.a
+  m3 = module.foo.b
+  local c = () -> module.foo.b
+  m4 = c.apply()
+}
+
+m5 = f()
+
+m6 = new Person {}
+
+function f() = module.a
+
+class Person {
+  age = module.a
+}
+
+
+---
+
+(module
+  (moduleHeader
+    (moduleClause
+
+      (qualifiedIdentifier
+        (identifier))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (intLiteralExpr))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (moduleExpr)
+      (identifier)))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (intLiteralExpr))
+      (objectProperty
+        (identifier)
+        (qualifiedAccessExpr
+          (moduleExpr)
+          (identifier)))
+      (objectProperty
+        (identifier)
+        (qualifiedAccessExpr
+          (qualifiedAccessExpr
+            (moduleExpr)
+            (identifier))
+          (identifier)))
+      (objectProperty
+        (modifier)
+        (identifier)
+        (functionLiteralExpr
+          (parameterList)
+          (qualifiedAccessExpr
+            (qualifiedAccessExpr
+              (moduleExpr)
+              (identifier))
+            (identifier))))
+      (objectProperty
+        (identifier)
+        (qualifiedAccessExpr
+          (unqualifiedAccessExpr
+            (identifier))
+          (identifier)
+          (argumentList)))))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList)))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody)))
+  (classMethod
+    (methodHeader
+      (identifier)
+      (parameterList))
+    (qualifiedAccessExpr
+      (moduleExpr)
+      (identifier)))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (qualifiedAccessExpr
+          (moduleExpr)
+          (identifier))))))

@@ -1,0 +1,63 @@
+===
+any
+===
+
+const a: * = null;
+
+---
+
+(program
+    (constant_declaration
+        (identifier)
+        (type_hint (any_type))
+        (null)
+    )
+)
+
+============
+multi scoped
+============
+
+const a: a.b.c.d = null;
+
+---
+
+(program
+    (constant_declaration
+        (identifier)
+        (type_hint
+            (scoped_data_type
+                (identifier)
+                (scoped_data_type
+                    (identifier)
+                    (scoped_data_type (identifier) (identifier))
+                )
+            )
+        )
+        (null)
+    )
+)
+
+=================
+generic data type
+=================
+
+const a: a.Vector.<Vector.<b>> = null;
+
+---
+
+(program
+    (constant_declaration
+        (identifier)
+        (type_hint
+            (scoped_data_type
+                (identifier)
+                (generic_data_type
+                    (identifier)
+                    (generic_data_type (identifier) (identifier))
+                )
+            )
+        )
+        (null)
+    )
+)

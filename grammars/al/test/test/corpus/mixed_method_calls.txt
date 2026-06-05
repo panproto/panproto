@@ -1,0 +1,151 @@
+==================
+Mixed Method Types
+==================
+codeunit 50100 MyCodeunit
+{
+    var
+        Cust: Record Customer;
+        Amount: Decimal;
+    trigger OnRun()
+    begin
+        Message('Hello');
+        Cust.Get('10000');
+        Amount := 100;
+        Message('Amount: %1', Amount);
+        Cust.SetRange("No.", '10000', '20000');
+        if Cust.FindSet() then begin
+            Message('Found records');
+        end;
+    end;
+}
+---
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        (identifier)
+        (type_specification
+          (record_type
+            (identifier))))
+      (variable_declaration
+        (identifier)
+        (type_specification
+          (basic_type))))
+    (trigger_declaration
+      (trigger_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          (identifier)
+          (argument_list
+            (string_literal)))
+        (call_expression
+          (member_expression
+            (identifier)
+            (identifier))
+          (argument_list
+            (string_literal)))
+        (assignment_statement
+          (identifier)
+          (integer))
+        (call_expression
+          (identifier)
+          (argument_list
+            (string_literal)
+            (identifier)))
+        (call_expression
+          (member_expression
+            (identifier)
+            (identifier))
+          (argument_list
+            (quoted_identifier)
+            (string_literal)
+            (string_literal)))
+        (if_statement
+          (if_keyword)
+          (call_expression
+            (member_expression
+              (identifier)
+              (identifier))
+            (argument_list))
+          (then_keyword)
+          (code_block
+            (begin_keyword)
+            (call_expression
+              (identifier)
+              (argument_list
+                (string_literal)))
+            (end_keyword)))
+        (end_keyword)))))
+
+==================
+Complex Parameter Calls
+==================
+codeunit 50100 MyCodeunit
+{
+    var
+        Cust: Record Customer;
+    trigger OnRun()
+    begin
+        Error('Cannot process customer %1 with balance %2', 
+            Cust."No.",
+            Cust."Balance (LCY)");
+        if Cust.Get(Cust."No.") then begin
+            Message('Found');
+        end;
+    end;
+}
+---
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        (identifier)
+        (type_specification
+          (record_type
+            (identifier)))))
+    (trigger_declaration
+      (trigger_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          (identifier)
+          (argument_list
+            (string_literal)
+            (member_expression
+              (identifier)
+              (quoted_identifier))
+            (member_expression
+              (identifier)
+              (quoted_identifier))))
+        (if_statement
+          (if_keyword)
+          (call_expression
+            (member_expression
+              (identifier)
+              (identifier))
+            (argument_list
+              (member_expression
+                (identifier)
+                (quoted_identifier))))
+          (then_keyword)
+          (code_block
+            (begin_keyword)
+            (call_expression
+              (identifier)
+              (argument_list
+                (string_literal)))
+            (end_keyword)))
+        (end_keyword)))))

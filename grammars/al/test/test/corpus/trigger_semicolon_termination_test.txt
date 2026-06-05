@@ -1,0 +1,110 @@
+================================================================================
+Trigger with semicolon termination after parameters
+================================================================================
+
+codeunit 50000 "Install Codeunit"
+{
+    Subtype = Install;
+
+    trigger OnInstallAppPerCompany();
+    var
+        UpgradeTagDefinitions: Codeunit "CDC Upgrade Tag Definitions";
+    begin
+        UpgradeTagDefinitions.SetDCUpgradeTagsCompany();
+    end;
+
+    trigger OnInstallAppPerDatabase();
+    var
+        TelemetryManagement: Codeunit "CTS-SYS Telemetry";
+    begin
+        TelemetryManagement.LogMessage('Install', 'Database install completed');
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (object_reference_type
+              object_type: (codeunit_keyword)
+              reference: (quoted_identifier)))))
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (member_expression
+            object: (identifier)
+            member: (identifier))
+          arguments: (argument_list))
+        (end_keyword)))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (object_reference_type
+              object_type: (codeunit_keyword)
+              reference: (quoted_identifier)))))
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (member_expression
+            object: (identifier)
+            member: (identifier))
+          arguments: (argument_list
+            (string_literal)
+            (string_literal)))
+        (end_keyword)))))
+
+================================================================================
+Trigger without semicolon (backward compatibility)
+================================================================================
+
+codeunit 50001 "Normal Codeunit"
+{
+    trigger OnRun()
+    var
+        Message: Text;
+    begin
+        Message := 'Hello World';
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (text_type))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (identifier)
+          right: (string_literal))
+        (end_keyword)))))

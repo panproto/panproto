@@ -1,0 +1,86 @@
+==================
+Table extension with preprocessor conditional procedures
+==================
+
+tableextension 123 "Test Extension" extends Item
+{
+#if not CLEAN25
+    [Obsolete('Replaced by new method', '25.0')]
+    procedure OldMethod()
+    begin
+        Message('Old implementation');
+    end;
+#endif
+
+#if not CLEAN25
+    [Obsolete('Another obsolete method', '25.0')]
+    [IntegrationEvent(false, false)]
+    procedure OnBeforeValidateField(var Rec: Record Item)
+    begin
+    end;
+#endif
+}
+
+---
+
+(source_file
+  (tableextension_declaration
+    (tableextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (identifier)
+    (preproc_conditional
+      (preproc_if
+        (preproc_open)
+        condition: (preproc_not_expression
+          (identifier)))
+      (attribute_item
+        attribute: (attribute_content
+          name: (identifier)
+          arguments: (attribute_arguments
+            (attribute_argument_list
+              (string_literal)
+              (string_literal)))))
+      (procedure
+        (procedure_keyword)
+        name: (identifier)
+        (code_block
+          (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (string_literal)))))
+      (preproc_endif
+        (preproc_close)))
+    (preproc_conditional
+      (preproc_if
+        (preproc_open)
+        condition: (preproc_not_expression
+          (identifier)))
+      (attribute_item
+        attribute: (attribute_content
+          name: (identifier)
+          arguments: (attribute_arguments
+            (attribute_argument_list
+              (string_literal)
+              (string_literal)))))
+      (attribute_item
+        attribute: (attribute_content
+          name: (identifier)
+          arguments: (attribute_arguments
+            (attribute_argument_list
+              (boolean)
+              (boolean)))))
+      (procedure
+        (procedure_keyword)
+        name: (identifier)
+        (parameter_list
+          (parameter
+            modifier: (var_keyword)
+            name: (identifier)
+            type: (type_specification
+              (record_type
+                reference: (identifier)))))
+        (code_block))
+      (preproc_endif
+        (preproc_close)))))

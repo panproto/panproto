@@ -1,0 +1,556 @@
+==========================
+Simple class diagram
+==========================
+
+ classDiagram
+      Animal <|-- Duck
+      Animal <|-- Fish
+      Animal <|-- Zebra
+      Animal : +int age
+      Animal : +String gender
+      Animal: +isMammal()
+      Animal: +mate()
+      class Duck{
+          +String beakColor
+          +swim()
+          +quack()
+      }
+      class Fish{
+          -int sizeInFeet
+          -canEat()
+      }
+      class Zebra{
+          +bool is_wild
+          +run()
+      }
+
+---
+
+(source_file
+  (diagram_class
+    (class_stmt_relation
+      (class_name
+        (class_name_body))
+      (class_relation
+        (class_reltype_extension)
+        (class_linetype_solid))
+      (class_name
+        (class_name_body)))
+    (class_stmt_relation
+      (class_name
+        (class_name_body))
+      (class_relation
+        (class_reltype_extension)
+        (class_linetype_solid))
+      (class_name
+        (class_name_body)))
+    (class_stmt_relation
+      (class_name
+        (class_name_body))
+      (class_relation
+        (class_reltype_extension)
+        (class_linetype_solid))
+      (class_name
+        (class_name_body)))
+    (class_stmt_method
+      (class_name
+        (class_name_body))
+      (class_method_line
+        (class_visibility_public)))
+    (class_stmt_method
+      (class_name
+        (class_name_body))
+      (class_method_line
+        (class_visibility_public)))
+    (class_stmt_method
+      (class_name
+        (class_name_body))
+      (class_method_line
+        (class_visibility_public)))
+    (class_stmt_method
+      (class_name
+        (class_name_body))
+      (class_method_line
+        (class_visibility_public)))
+    (class_stmt_class
+      (class_name
+        (class_name_body))
+      (class_method_line
+        (class_visibility_public))
+      (class_method_line
+        (class_visibility_public))
+      (class_method_line
+        (class_visibility_public)))
+    (class_stmt_class
+      (class_name
+        (class_name_body))
+      (class_method_line
+        (class_visibility_private))
+      (class_method_line
+        (class_visibility_private)))
+    (class_stmt_class
+      (class_name
+        (class_name_body))
+      (class_method_line
+        (class_visibility_public))
+      (class_method_line
+        (class_visibility_public)))))
+
+
+==========================
+Class
+==========================
+
+classDiagram
+    class BankAccount
+    BankAccount : +String owner
+    BankAccount : +Bigdecimal balance
+    BankAccount : +deposit(amount)
+    BankAccount : +withdrawl(amount)
+
+---
+
+(source_file
+  (diagram_class
+    (class_stmt_class
+      (class_name
+        (class_name_body)))
+    (class_stmt_method
+      (class_name
+        (class_name_body))
+      (class_method_line
+        (class_visibility_public)))
+    (class_stmt_method
+      (class_name
+        (class_name_body))
+      (class_method_line
+        (class_visibility_public)))
+    (class_stmt_method
+      (class_name
+        (class_name_body))
+      (class_method_line
+        (class_visibility_public)))
+    (class_stmt_method
+      (class_name
+        (class_name_body))
+      (class_method_line
+        (class_visibility_public)))))
+
+
+==========================
+Define a class
+==========================
+
+classDiagram
+    class Animal
+    Vehicle <|-- Car
+
+---
+
+(source_file
+  (diagram_class
+    (class_stmt_class
+      (class_name
+        (class_name_body)))
+    (class_stmt_relation
+      (class_name
+        (class_name_body))
+      (class_relation
+        (class_reltype_extension)
+        (class_linetype_solid))
+      (class_name
+        (class_name_body)))))
+
+
+
+
+==========================
+Define Members of a class with method notation
+==========================
+
+classDiagram
+class BankAccount
+BankAccount : +String owner
+BankAccount : +BigDecimal balance
+BankAccount : +deposit(amount)
+BankAccount : +withdrawal(amount)
+
+---
+
+(source_file
+  (diagram_class
+    (class_stmt_class
+      (class_name
+        (class_name_body)))
+    (class_stmt_method
+      (class_name
+        (class_name_body))
+      (class_method_line
+        (class_visibility_public)))
+    (class_stmt_method
+      (class_name
+        (class_name_body))
+      (class_method_line
+        (class_visibility_public)))
+    (class_stmt_method
+      (class_name
+        (class_name_body))
+      (class_method_line
+        (class_visibility_public)))
+    (class_stmt_method
+      (class_name
+        (class_name_body))
+      (class_method_line
+        (class_visibility_public)))))
+
+
+
+
+==========================
+Define Members of a class with class notation
+==========================
+
+classDiagram
+class BankAccount{
+    +String owner
+    +BigDecimal balance
+    +deposit(amount)
+    +withdrawl(amount)
+}
+
+---
+
+(source_file
+  (diagram_class
+    (class_stmt_class
+      (class_name
+        (class_name_body))
+      (class_method_line
+        (class_visibility_public))
+      (class_method_line
+        (class_visibility_public))
+      (class_method_line
+        (class_visibility_public))
+      (class_method_line
+        (class_visibility_public)))))
+
+
+==========================
+Generic types
+==========================
+
+classDiagram
+class Square~Shape~{
+    int id
+    List~int~ position
+    setPoints(List~int~ points)
+    getPoints() List~int~
+}
+
+Square : -List~string~ messages
+Square : +setMessages(List~string~ messages)
+Square : +getMessages() List~string~
+
+---
+
+(source_file
+  (diagram_class
+    (class_stmt_class
+      (class_name
+        (class_name_body)
+        (class_generics
+          (class_name)))
+      (class_method_line)
+      (class_method_line)
+      (class_method_line)
+      (class_method_line))
+    (class_stmt_method
+      (class_name
+        (class_name_body))
+      (class_method_line
+        (class_visibility_private)))
+    (class_stmt_method
+      (class_name
+        (class_name_body))
+      (class_method_line
+        (class_visibility_public)))
+    (class_stmt_method
+      (class_name
+        (class_name_body))
+      (class_method_line
+        (class_visibility_public)))))
+
+==========================
+Relationship
+==========================
+
+classDiagram
+classA <|-- classB
+classC *-- classD
+classE o-- classF
+classG <-- classH
+classI -- classJ
+classK <.. classL
+classM <|.. classN
+classO .. classP
+classA --|> classB : Inheritance
+classC --* classD : Composition
+classE --o classF : Aggregation
+classG --> classH : Association
+classI -- classJ : Link(Solid)
+classK ..> classL : Dependency
+classM ..|> classN : Realization
+classO .. classP : Link(Dashed)
+Animal <|--|> Zebra
+
+---
+
+(source_file
+  (diagram_class
+    (class_stmt_relation
+      (class_name
+        (class_name_body))
+      (class_relation
+        (class_reltype_extension)
+        (class_linetype_solid))
+      (class_name
+        (class_name_body)))
+    (class_stmt_relation
+      (class_name
+        (class_name_body))
+      (class_relation
+        (class_reltype_composition)
+        (class_linetype_solid))
+      (class_name
+        (class_name_body)))
+    (class_stmt_relation
+      (class_name
+        (class_name_body))
+      (class_relation
+        (class_reltype_aggregation)
+        (class_linetype_solid))
+      (class_name
+        (class_name_body)))
+    (class_stmt_relation
+      (class_name
+        (class_name_body))
+      (class_relation
+        (class_reltype_dependency)
+        (class_linetype_solid))
+      (class_name
+        (class_name_body)))
+    (class_stmt_relation
+      (class_name
+        (class_name_body))
+      (class_relation
+        (class_linetype_solid))
+      (class_name
+        (class_name_body)))
+    (class_stmt_relation
+      (class_name
+        (class_name_body))
+      (class_relation
+        (class_reltype_dependency)
+        (class_linetype_dotted))
+      (class_name
+        (class_name_body)))
+    (class_stmt_relation
+      (class_name
+        (class_name_body))
+      (class_relation
+        (class_reltype_extension)
+        (class_linetype_dotted))
+      (class_name
+        (class_name_body)))
+    (class_stmt_relation
+      (class_name
+        (class_name_body))
+      (class_relation
+        (class_linetype_dotted))
+      (class_name
+        (class_name_body)))
+    (class_stmt_relation
+      (class_name
+        (class_name_body))
+      (class_relation
+        (class_linetype_solid)
+        (class_reltype_extension))
+      (class_name
+        (class_name_body))
+      (class_label))
+    (class_stmt_relation
+      (class_name
+        (class_name_body))
+      (class_relation
+        (class_linetype_solid)
+        (class_reltype_composition))
+      (class_name
+        (class_name_body))
+      (class_label))
+    (class_stmt_relation
+      (class_name
+        (class_name_body))
+      (class_relation
+        (class_linetype_solid)
+        (class_reltype_aggregation))
+      (class_name
+        (class_name_body))
+      (class_label))
+    (class_stmt_relation
+      (class_name
+        (class_name_body))
+      (class_relation
+        (class_linetype_solid)
+        (class_reltype_dependency))
+      (class_name
+        (class_name_body))
+      (class_label))
+    (class_stmt_relation
+      (class_name
+        (class_name_body))
+      (class_relation
+        (class_linetype_solid))
+      (class_name
+        (class_name_body))
+      (class_label))
+    (class_stmt_relation
+      (class_name
+        (class_name_body))
+      (class_relation
+        (class_linetype_dotted)
+        (class_reltype_dependency))
+      (class_name
+        (class_name_body))
+      (class_label))
+    (class_stmt_relation
+      (class_name
+        (class_name_body))
+      (class_relation
+        (class_linetype_dotted)
+        (class_reltype_extension))
+      (class_name
+        (class_name_body))
+      (class_label))
+    (class_stmt_relation
+      (class_name
+        (class_name_body))
+      (class_relation
+        (class_linetype_dotted))
+      (class_name
+        (class_name_body))
+      (class_label))
+    (class_stmt_relation
+      (class_name
+        (class_name_body))
+      (class_relation
+        (class_reltype_extension)
+        (class_linetype_solid)
+        (class_reltype_extension))
+      (class_name
+        (class_name_body)))))
+
+
+==========================
+Cardinality / Multiplicity
+==========================
+
+classDiagram
+    Customer "1" --> "*" Ticket
+    Student "1" --> "1..*" Course
+    Galaxy --> "many" Star : Contains
+
+---
+
+(source_file
+  (diagram_class
+    (class_stmt_relation
+      (class_name
+        (class_name_body))
+      (cardinality)
+      (class_relation
+        (class_linetype_solid)
+        (class_reltype_dependency))
+      (cardinality)
+      (class_name
+        (class_name_body)))
+    (class_stmt_relation
+      (class_name
+        (class_name_body))
+      (cardinality)
+      (class_relation
+        (class_linetype_solid)
+        (class_reltype_dependency))
+      (cardinality)
+      (class_name
+        (class_name_body)))
+    (class_stmt_relation
+      (class_name
+        (class_name_body))
+      (class_relation
+        (class_linetype_solid)
+        (class_reltype_dependency))
+      (cardinality)
+      (class_name
+        (class_name_body))
+      (class_label))))
+
+
+==========================
+Annotation
+==========================
+
+classDiagram
+class Shape
+<<interface>> Shape
+Shape : noOfVertices
+Shape : draw()
+class Shape{
+    <<interface>>
+    noOfVertices
+    draw()
+}
+class Color{
+    <<enumeration>>
+    RED
+    BLUE
+    GREEN
+    WHITE
+    BLACK
+}
+
+---
+
+(source_file
+  (diagram_class
+    (class_stmt_class
+      (class_name
+        (class_name_body)))
+    (class_stmt_annotation
+      (annotation)
+      (class_name
+        (class_name_body)))
+    (class_stmt_method
+      (class_name
+        (class_name_body))
+      (class_method_line))
+    (class_stmt_method
+      (class_name
+        (class_name_body))
+      (class_method_line))
+    (class_stmt_class
+      (class_name
+        (class_name_body))
+      (class_annotation_line
+        (annotation))
+      (class_method_line)
+      (class_method_line))
+    (class_stmt_class
+      (class_name
+        (class_name_body))
+      (class_annotation_line
+        (annotation))
+      (class_method_line)
+      (class_method_line)
+      (class_method_line)
+      (class_method_line)
+      (class_method_line))))

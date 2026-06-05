@@ -1,0 +1,148 @@
+===
+classes/constraints7.pkl
+===
+
+import "pkl:test"
+
+const function add(x, y) = x + y
+
+class X {
+  function subtract(x, y) = x - y
+  y: Y(multiply(subtract(add(5, 4), 3), 2) == z)
+}
+
+class Y {
+  function multiply(x, y) = x * y
+  z: Int
+}
+
+res1 = new X {
+  y {
+    z = 12
+  }
+}
+
+res2 = test.catch(() ->
+  new X {
+    y {
+      z = 13
+    }
+  }.y
+)
+
+---
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (classMethod
+    (methodHeader
+      (modifier)
+      (identifier)
+      (parameterList
+        (typedIdentifier
+          (identifier))
+        (typedIdentifier
+          (identifier))))
+    (additiveExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (unqualifiedAccessExpr
+        (identifier))))
+  (clazz
+    (identifier)
+    (classBody
+      (classMethod
+        (methodHeader
+          (identifier)
+          (parameterList
+            (typedIdentifier
+              (identifier))
+            (typedIdentifier
+              (identifier))))
+        (additiveExpr
+          (unqualifiedAccessExpr
+            (identifier))
+          (unqualifiedAccessExpr
+            (identifier))))
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (constrainedType
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (equalityExpr
+              (unqualifiedAccessExpr
+                (identifier)
+                (argumentList
+                  (unqualifiedAccessExpr
+                    (identifier)
+                    (argumentList
+                      (unqualifiedAccessExpr
+                        (identifier)
+                        (argumentList
+                          (intLiteralExpr)
+                          (intLiteralExpr)))
+                      (intLiteralExpr)))
+                  (intLiteralExpr)))
+              (unqualifiedAccessExpr
+                (identifier))))))))
+  (clazz
+    (identifier)
+    (classBody
+      (classMethod
+        (methodHeader
+          (identifier)
+          (parameterList
+            (typedIdentifier
+              (identifier))
+            (typedIdentifier
+              (identifier))))
+        (multiplicativeExpr
+          (unqualifiedAccessExpr
+            (identifier))
+          (unqualifiedAccessExpr
+            (identifier))))
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (objectBody
+            (objectProperty
+              (identifier)
+              (intLiteralExpr)))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (qualifiedAccessExpr
+            (newExpr
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))
+              (objectBody
+                (objectProperty
+                  (identifier)
+                  (objectBody
+                    (objectProperty
+                      (identifier)
+                      (intLiteralExpr))))))
+            (identifier)))))))

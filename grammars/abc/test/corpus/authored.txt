@@ -1,0 +1,90 @@
+==================
+Minimal tune
+==================
+X:1
+T:Scale
+M:4/4
+K:C
+CDEF GABc|
+
+---
+
+(file_structure)
+
+==================
+Two bars
+==================
+X:1
+T:Two Bars
+M:4/4
+K:G
+GABc defg|gfed cBAG|
+
+---
+
+(file_structure)
+
+==================
+Descending scale
+==================
+X:1
+T:Descending
+M:4/4
+K:C
+cBAG FEDC|
+
+---
+
+(file_structure)
+
+==================
+Accidentals
+==================
+X:1
+T:Accidentals
+M:4/4
+K:C
+^C _D =E ^F|
+
+---
+
+(file_structure)
+
+==================
+Octave marks
+==================
+X:1
+T:Octaves
+M:4/4
+K:C
+C,C c c'|
+
+---
+
+(file_structure)
+
+==================
+Repeated notes
+==================
+X:1
+T:Repeats
+M:4/4
+K:C
+CCCC GGGG|cccc gggg|
+
+---
+
+(file_structure)
+
+==================
+Tune with key D
+==================
+X:1
+T:In D
+M:3/4
+K:D
+DEF GAB|cBA GFE|
+
+---
+
+(file_structure)

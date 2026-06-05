@@ -1,0 +1,37 @@
+===
+basic/typeResolution2.pkl
+===
+
+extends "typeResolution1.pkl"
+
+class Person2 { name = "person2" }
+
+pp1: Person1
+pp2: Person2
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))))

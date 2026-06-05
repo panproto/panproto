@@ -1,0 +1,18 @@
+==================
+expose command
+==================
+
+foo:
+  EXPOSE 22/tcp 1234
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (expose_command
+            (string
+              (unquoted_string))
+            (string
+              (unquoted_string))))))

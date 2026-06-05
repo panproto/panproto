@@ -1,0 +1,11 @@
+====================================
+comment
+====================================
+aaaaaa identification division.
+aaaaaa program-id. a.  ,,, ;;;                                          aaaaa
+      *aaaa
+---
+(start
+  (program_definition
+    (identification_division
+      (program_name))))

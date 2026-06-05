@@ -1,0 +1,57 @@
+================================================================================
+DataCaptionExpression property with expressions
+================================================================================
+
+page 123 "Test Page"
+{
+    Caption = 'Test Page';
+    DataCaptionExpression = DocumentType + ' ' + DocumentNo + ' - ' + PayToName;
+    PageType = Card;
+
+    layout
+    {
+        area(content)
+        {
+            field(TestField; TestField)
+            {
+                ApplicationArea = All;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (property_expression
+        (additive_expression
+          left: (additive_expression
+            left: (additive_expression
+              left: (additive_expression
+                left: (identifier)
+                right: (string_literal))
+              right: (identifier))
+            right: (string_literal))
+          right: (identifier))))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))))))

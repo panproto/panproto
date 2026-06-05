@@ -1,0 +1,518 @@
+==================
+Parse comment
+==================
+
+# comment
+daemon off;
+
+---
+
+(source_file
+  (comment)
+  (directive
+    (keyword)
+    (boolean
+        (off))))
+
+==================
+Boolean directives
+==================
+
+accept_mutex on;
+daemon off;
+master_process on;
+multi_accept on;
+pcre_jit off;
+
+---
+
+(source_file
+   (directive
+     (keyword)
+     (boolean
+      (on)))
+   (directive
+     (keyword)
+     (boolean
+      (off)))
+   (directive
+     (keyword)
+     (boolean
+      (on)))
+   (directive
+     (keyword)
+     (boolean
+      (on)))
+   (directive
+     (keyword)
+     (boolean
+      (off)))
+    )
+
+==================
+Time directives
+==================
+
+accept_mutex_delay 500ms;
+accept_mutex_delay      500s;
+worker_shutdown_timeout 1s;
+worker_shutdown_timeout 1m;
+timer_resolution 1h;
+
+---
+
+(source_file
+    (directive
+            (keyword)
+            (time))
+    (directive
+            (keyword)
+            (time))
+    (directive
+            (keyword)
+            (time))
+    (directive
+            (keyword)
+            (time))
+    (directive
+            (keyword)
+            (time))
+    )
+
+==================
+Number directives
+==================
+
+worker_aio_requests 500;
+worker_connections      1000.1;
+worker_priority 1;
+worker_rlimit_nofile 1;
+
+---
+
+(source_file
+    (directive
+            (keyword)
+            (numeric_literal))
+    (directive
+            (keyword)
+            (numeric_literal))
+    (directive
+            (keyword)
+            (numeric_literal))
+    (directive
+            (keyword)
+            (numeric_literal))
+    )
+
+==================
+Number or auto directives
+==================
+
+worker_processes 500;
+worker_processes      1000.1;
+worker_processes auto;
+
+---
+
+(source_file
+    (directive
+            (keyword)
+            (numeric_literal))
+    (directive
+            (keyword)
+            (numeric_literal))
+    (directive
+            (keyword)
+            (auto))
+    )
+
+==================
+debug_points directives
+==================
+
+debug_points abort;
+debug_points      stop;
+
+---
+
+(source_file
+    (directive
+            (keyword)
+            (constant))
+    (directive
+            (keyword)
+            (constant))
+    )
+
+==================
+File directives
+==================
+
+load_module modules/ngx_mail_module.so;
+lock_file      logs/nginx.lock;
+pid      logs/nginx.pid;
+
+---
+
+(source_file
+    (directive
+            (keyword)
+            (file))
+    (directive
+            (keyword)
+            (file))
+    (directive
+            (keyword)
+            (file))
+    )
+
+==================
+include directives
+==================
+
+include modules/ngx_mail_module.so;
+include      vhosts/*.conf;
+
+---
+
+(source_file
+    (directive
+            (keyword)
+            (file))
+    (directive
+            (keyword)
+            (mask))
+    )
+
+==================
+use directive
+==================
+
+use select;
+use poll;
+use kqueue;
+use epoll;
+use /dev/poll;
+use eventport;
+
+---
+
+(source_file
+    (directive
+            (keyword)
+            (constant))
+    (directive
+            (keyword)
+            (constant))
+    (directive
+            (keyword)
+            (constant))
+    (directive
+            (keyword)
+            (constant))
+    (directive
+            (keyword)
+            (constant))
+    (directive
+            (keyword)
+            (constant))
+    )
+
+==================
+working_directory directive
+==================
+
+working_directory modules;
+
+---
+
+(source_file
+    (directive
+            (keyword)
+            (file))
+    )
+
+==================
+worker_rlimit_core directive
+==================
+
+worker_rlimit_core 100m;
+
+---
+
+(source_file
+    (directive
+            (keyword)
+            (size))
+    )
+
+==================
+worker_cpu_affinity directive
+==================
+
+worker_cpu_affinity auto;
+worker_cpu_affinity 0001 0010 0100 1000;
+worker_cpu_affinity 0101 1010;
+worker_cpu_affinity auto 01010101;
+
+---
+
+(source_file
+    (directive
+            (keyword)
+            (auto))
+    (directive
+            (keyword)
+            (cpumask)
+            (cpumask)
+            (cpumask)
+            (cpumask))
+    (directive
+            (keyword)
+            (cpumask)
+            (cpumask))
+    (directive
+            (keyword)
+            (auto)
+            (cpumask))
+    )
+
+==================
+debug_connection directive
+==================
+
+debug_connection 127.0.0.1;
+debug_connection localhost;
+debug_connection 192.0.2.0/24;
+debug_connection ::1;
+debug_connection 2001:0db8::/32;
+debug_connection unix:;
+
+---
+
+(source_file
+    (directive
+            (keyword)
+            (value))
+    (directive
+            (keyword)
+            (value))
+    (directive
+            (keyword)
+            (value))
+    (directive
+            (keyword)
+            (value))
+    (directive
+            (keyword)
+            (value))
+    (directive
+            (keyword)
+            (value))
+    )
+
+
+==================
+env directive
+==================
+
+env MALLOC_OPTIONS;
+env PERL5LIB=/data/site/modules;
+env OPENSSL_ALLOW_PROXY_CERTS=1;
+
+---
+
+(source_file
+    (directive
+            (keyword)
+            (variable))
+    (directive
+            (keyword)
+            (variable)
+            (value))
+    (directive
+            (keyword)
+            (variable)
+            (value))
+    )
+
+==================
+error_log directive
+==================
+
+error_log logs/error.log error;
+error_log logs/error.log        error;
+error_log logs/error.log;
+
+---
+
+(source_file
+    (directive
+            (keyword)
+            (file)
+            (level))
+    (directive
+            (keyword)
+            (file)
+            (level))
+    (directive
+            (keyword)
+            (file))
+    )
+
+==================
+ssl_engine directive
+==================
+
+ssl_engine device;
+
+---
+
+(source_file
+    (directive
+            (keyword)
+            (value))
+    )
+
+==================
+thread_pool directive
+==================
+
+thread_pool name threads=32;
+thread_pool default threads=32 max_queue=65536;
+
+---
+
+(source_file
+    (directive
+        (keyword)
+        (value)
+        (variable
+            (keyword)
+            (numeric_literal)))
+    (directive
+            (keyword)
+            (value)
+            (variable
+                (keyword)
+                (numeric_literal))
+            (variable
+                (keyword)
+                (numeric_literal)
+                ))
+    )
+
+
+==================
+user directive
+==================
+
+user device;
+user user group;
+
+---
+
+(source_file
+    (directive
+            (keyword)
+            (value))
+    (directive
+            (keyword)
+            (value)
+            (value))
+    )
+
+==================
+events directive
+==================
+
+events {
+    worker_connections   2000;
+
+    # use [ kqueue | epoll | /dev/poll | select | poll ];
+    use kqueue;
+}
+
+---
+
+(source_file
+    (directive
+        (keyword)
+        (block
+            (directive
+                (keyword)
+                (numeric_literal))
+            (comment)
+            (directive
+                (keyword)
+                (constant))))
+)
+
+
+==================
+multiline string
+==================
+
+log_format main      '$remote_addr - $remote_user [$time_local] '
+                    '"$request" $status $bytes_sent '
+                    '"$http_referer" "$http_user_agent" '
+                    '"$gzip_ratio"';
+
+---
+
+(source_file
+    (attribute
+        (keyword)
+        (value)
+        (quoted_string_literal)
+        (quoted_string_literal)
+        (quoted_string_literal)
+        (quoted_string_literal)))
+
+
+==================
+map
+==================
+    # If we receive X-Forwarded-Proto, pass it through; otherwise, pass along the
+    # scheme used to connect to this server
+    map $http_x_forwarded_proto $proxy_x_forwarded_proto {
+      default $http_x_forwarded_proto;
+      '' $scheme;
+    }
+
+    # If we receive Upgrade, set Connection to "upgrade"; otherwise, delete any
+    # Connection header that may have been passed to this server
+    map $http_upgrade $proxy_connection {
+      default upgrade;
+      '' close;
+    }
+
+---
+
+    (source_file
+      (comment)
+      (comment)
+      (map
+        (var)
+        (var)
+        (block
+          (attribute
+            (keyword)
+            (value))
+          (attribute
+            (keyword)
+            (value))))
+      (comment)
+      (comment)
+      (map
+        (var)
+        (var)
+        (block
+          (attribute
+            (keyword)
+            (value))
+          (attribute
+            (keyword)
+            (value)))))
+

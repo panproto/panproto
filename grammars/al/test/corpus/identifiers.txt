@@ -1,0 +1,75 @@
+==================
+Basic identifiers
+==================
+
+table 50100 MyTable
+{
+    fields
+    {
+        field(1; MyField; Integer)
+        {
+        }
+    }
+}
+
+---
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (basic_type))))))
+
+==================
+Field identifiers
+==================
+
+table 50105 "Field Test Table"
+{
+    fields
+    {
+        field(1; "MyField"; Integer)
+        {
+        }
+        field(2; MyField2; Text[100])
+        {
+        }
+        field(3; "MyField No."; Code[20])
+        {
+        }
+    }
+}
+
+---
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        (integer)
+        (quoted_identifier)
+        (type_specification
+          (basic_type)))
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (text_type
+            (integer))))
+      (field_declaration
+        (integer)
+        (quoted_identifier)
+        (type_specification
+          (code_type
+            (integer)))))))

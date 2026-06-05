@@ -1,0 +1,50 @@
+============
+default only
+============
+
+switch (expr) {
+    default:
+        break;
+}
+
+---
+
+
+(program
+    (switch_statement
+        (parenthesized_expression (identifier))
+        (switch_body
+            (switch_default (break_statement))
+        )
+    )
+)
+
+==========
+some cases
+==========
+
+switch(n) {
+    case 1:
+        break;
+    case 2:
+        break;
+    case 3:
+        break;
+    default:
+        break;
+}
+
+---
+
+
+(program
+    (switch_statement
+        (parenthesized_expression (identifier))
+        (switch_body
+            (switch_case (number) (break_statement))
+            (switch_case (number) (break_statement))
+            (switch_case (number) (break_statement))
+            (switch_default (break_statement))
+        )
+    )
+)

@@ -1,0 +1,19 @@
+===
+annotation/annotation6.pkl
+===
+
+@Int someProperty: String = "hi"
+---
+
+(module
+  (classProperty
+    (annotation
+      (qualifiedIdentifier
+        (identifier)))
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (slStringLiteralExpr
+      (slStringLiteralPart))))

@@ -1,0 +1,371 @@
+================================================================================
+module: exports empty
+================================================================================
+
+module A () where
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (header
+    (module
+      (module_id))
+    (exports)))
+
+================================================================================
+module: exports regular
+================================================================================
+
+module A (
+  a',
+  A,
+  A(),
+  A(..),
+  A(a, a),
+) where
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (header
+    (module
+      (module_id))
+    (exports
+      (export
+        (variable))
+      (export
+        (name))
+      (export
+        (name)
+        (children))
+      (export
+        (name)
+        (children
+          (all_names)))
+      (export
+        (name)
+        (children
+          (variable)
+          (variable))))))
+
+================================================================================
+module: exports symbolic
+================================================================================
+
+module A (
+  (<>)((:<>), A),
+  (:++),
+) where
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (header
+    (module
+      (module_id))
+    (exports
+      (export
+        (prefix_id
+          (operator))
+        (children
+          (prefix_id
+            (constructor_operator))
+          (constructor)))
+      (export
+        (prefix_id
+          (constructor_operator))))))
+
+================================================================================
+module: exports type
+================================================================================
+
+module A (
+  type A,
+  type (<>),
+  type (:++),
+) where
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (header
+    (module
+      (module_id))
+    (exports
+      (export
+        (namespace)
+        (name))
+      (export
+        (namespace)
+        (prefix_id
+          (operator)))
+      (export
+        (namespace)
+        (prefix_id
+          (constructor_operator))))))
+
+================================================================================
+module: exports pattern
+================================================================================
+
+module A (
+  pattern A,
+  pattern (<>),
+  A (.., a, ..),
+) where
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (header
+    (module
+      (module_id))
+    (exports
+      (export
+        (namespace)
+        (name))
+      (export
+        (namespace)
+        (prefix_id
+          (operator)))
+      (export
+        (name)
+        (children
+          (all_names)
+          (variable)
+          (all_names))))))
+
+================================================================================
+module: exports module
+================================================================================
+
+module A (
+  a,
+  module A,
+  module A.A.A,
+) where
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (header
+    (module
+      (module_id))
+    (exports
+      (export
+        (variable))
+      (module_export
+        (module
+          (module_id)))
+      (module_export
+        (module
+          (module_id)
+          (module_id)
+          (module_id))))))
+
+================================================================================
+module: exports qualified
+================================================================================
+
+module A (
+  A.A.a,
+  type (A.A.++),
+  type (A.A.:++),
+  A.A.A,
+  A.A.A((<=<), (:++), A, a),
+  type A.A((>>), A),
+  pattern A.A((>>), A),
+) where
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (header
+    (module
+      (module_id))
+    (exports
+      (export
+        (qualified
+          (module
+            (module_id)
+            (module_id))
+          (variable)))
+      (export
+        (namespace)
+        (prefix_id
+          (qualified
+            (module
+              (module_id)
+              (module_id))
+            (operator))))
+      (export
+        (namespace)
+        (prefix_id
+          (qualified
+            (module
+              (module_id)
+              (module_id))
+            (constructor_operator))))
+      (export
+        (qualified
+          (module
+            (module_id)
+            (module_id))
+          (name)))
+      (export
+        (qualified
+          (module
+            (module_id)
+            (module_id))
+          (name))
+        (children
+          (prefix_id
+            (operator))
+          (prefix_id
+            (constructor_operator))
+          (constructor)
+          (variable)))
+      (export
+        (namespace)
+        (qualified
+          (module
+            (module_id))
+          (name))
+        (children
+          (prefix_id
+            (operator))
+          (constructor)))
+      (export
+        (namespace)
+        (qualified
+          (module
+            (module_id))
+          (name))
+        (children
+          (prefix_id
+            (operator))
+          (constructor))))))
+
+================================================================================
+module: exports zero indent
+================================================================================
+module A (
+A
+, a,
+A
+) where
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (header
+    (module
+      (module_id))
+    (exports
+      (export
+        (name))
+      (export
+        (variable))
+      (export
+        (name)))))
+
+================================================================================
+module: qualified
+================================================================================
+
+module A.A'.A where
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (header
+    (module
+      (module_id)
+      (module_id)
+      (module_id))))
+
+================================================================================
+module: export minus
+================================================================================
+
+module A (type (-), (-)) where
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (header
+    (module
+      (module_id))
+    (exports
+      (export
+        (namespace)
+        (prefix_id
+          (operator)))
+      (export
+        (prefix_id
+          (operator))))))
+
+================================================================================
+module: export dot
+================================================================================
+
+module A (type (.), (.)) where
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (header
+    (module
+      (module_id))
+    (exports
+      (export
+        (namespace)
+        (prefix_id
+          (operator)))
+      (export
+        (prefix_id
+          (operator))))))
+
+================================================================================
+module: no trailing comma
+================================================================================
+
+module A (
+  A,
+  A
+) where
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (header
+    (module
+      (module_id))
+    (exports
+      (export
+        (name))
+      (export
+        (name)))))
+
+================================================================================
+module: namespace for type child
+================================================================================
+
+module A (
+  A (type A, A, ..)
+) where
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (header
+    (module
+      (module_id))
+    (exports
+      (export
+        (name)
+        (children
+          (associated_type
+            (name))
+          (constructor)
+          (all_names))))))

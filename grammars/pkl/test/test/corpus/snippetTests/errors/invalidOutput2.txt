@@ -1,0 +1,22 @@
+===
+errors/invalidOutput2.pkl
+===
+
+class Test {}
+
+output: Test = new {}
+
+---
+
+(module
+  (clazz
+    (identifier)
+    (classBody))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (newExpr
+      (objectBody))))

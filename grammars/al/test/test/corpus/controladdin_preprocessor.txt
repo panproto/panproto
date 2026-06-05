@@ -1,0 +1,273 @@
+================================================================================
+ControlAddIn with preprocessor directives around procedures
+================================================================================
+
+controladdin PowerBIManagement
+{
+    RequestedHeight = 320;
+    MinimumHeight = 180;
+    RequestedWidth = 300;
+    MinimumWidth = 200;
+
+    Scripts = 'https://example.com/script1.js',
+              'https://example.com/script2.js';
+    
+    event ControlAddInReady();
+
+    procedure InitializeFrame(FrameRatio: Decimal);
+
+#if not CLEAN26
+    [Obsolete('Use the new method instead.', '26.0')]
+    procedure OldMethod(Param: Text);
+#endif
+
+#if not CLEAN25
+    procedure AnotherOldMethod(Param1: Text; Param2: Integer);
+    
+    procedure YetAnotherOldMethod(Param: Boolean);
+#endif
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (controladdin_declaration
+    (controladdin_keyword)
+    object_name: (identifier)
+    (property
+      name: (property_name)
+      value: (integer))
+    (property
+      name: (property_name)
+      value: (integer))
+    (property
+      name: (property_name)
+      value: (integer))
+    (property
+      name: (property_name)
+      value: (integer))
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (string_literal))
+        (option_member
+          (string_literal))))
+    (event_declaration
+      (event_keyword)
+      name: (identifier))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (interface_procedure_suffix))
+    (preproc_conditional_controladdin
+      (preproc_if
+        (preproc_open)
+        condition: (preproc_not_expression
+          (identifier)))
+      (attribute_item
+        attribute: (attribute_content
+          name: (identifier)
+          arguments: (attribute_arguments
+            (attribute_argument_list
+              (string_literal)
+              (string_literal)))))
+      (interface_procedure
+        (procedure_keyword)
+        name: (identifier)
+        (parameter_list
+          (parameter
+            name: (identifier)
+            type: (type_specification
+              (text_type))))
+        (interface_procedure_suffix))
+      (preproc_endif
+        (preproc_close)))
+    (preproc_conditional_controladdin
+      (preproc_if
+        (preproc_open)
+        condition: (preproc_not_expression
+          (identifier)))
+      (interface_procedure
+        (procedure_keyword)
+        name: (identifier)
+        (parameter_list
+          (parameter
+            name: (identifier)
+            type: (type_specification
+              (text_type)))
+          (parameter
+            name: (identifier)
+            type: (type_specification
+              (basic_type))))
+        (interface_procedure_suffix))
+      (interface_procedure
+        (procedure_keyword)
+        name: (identifier)
+        (parameter_list
+          (parameter
+            name: (identifier)
+            type: (type_specification
+              (basic_type))))
+        (interface_procedure_suffix))
+      (preproc_endif
+        (preproc_close)))))
+
+================================================================================
+ControlAddIn with nested preprocessor blocks
+================================================================================
+
+controladdin TestAddin
+{
+    RequestedHeight = 100;
+    
+#if CLEAN30
+    procedure NewMethod();
+#else
+    #if not CLEAN25
+        procedure OldMethod();
+    #else
+        procedure VeryOldMethod();
+    #endif
+#endif
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (controladdin_declaration
+    (controladdin_keyword)
+    object_name: (identifier)
+    (property
+      name: (property_name)
+      value: (integer))
+    (preproc_conditional_controladdin
+      (preproc_if
+        (preproc_open)
+        condition: (identifier))
+      (interface_procedure
+        (procedure_keyword)
+        name: (identifier)
+        (interface_procedure_suffix))
+      (preproc_else)
+      (preproc_conditional_controladdin
+        (preproc_if
+          (preproc_open)
+          condition: (preproc_not_expression
+            (identifier)))
+        (interface_procedure
+          (procedure_keyword)
+          name: (identifier)
+          (interface_procedure_suffix))
+        (preproc_else)
+        (interface_procedure
+          (procedure_keyword)
+          name: (identifier)
+          (interface_procedure_suffix))
+        (preproc_endif
+          (preproc_close)))
+      (preproc_endif
+        (preproc_close)))))
+
+================================================================================
+ControlAddIn ending with preprocessor block
+================================================================================
+
+namespace System.Integration.PowerBI;
+
+controladdin PowerBIManagement
+{
+    RequestedHeight = 320;
+
+    event ControlAddInReady();
+
+    procedure InitializeFrame(FrameRatio: Decimal);
+
+#if not CLEAN25
+    [Obsolete('Call the procedure SetToken instead.', '25.0')]
+    procedure EmbedReport(ReportLink: Text; ReportId: Text; AuthToken: Text);
+    
+    procedure EmbedDashboard(DashboardLink: Text; DashboardId: Text; AuthToken: Text);
+#endif
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (namespace_declaration
+    (namespace_keyword)
+    name: (namespace_name
+      (identifier)
+      (identifier)
+      (identifier)))
+  (controladdin_declaration
+    (controladdin_keyword)
+    object_name: (identifier)
+    (property
+      name: (property_name)
+      value: (integer))
+    (event_declaration
+      (event_keyword)
+      name: (identifier))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (interface_procedure_suffix))
+    (preproc_conditional_controladdin
+      (preproc_if
+        (preproc_open)
+        condition: (preproc_not_expression
+          (identifier)))
+      (attribute_item
+        attribute: (attribute_content
+          name: (identifier)
+          arguments: (attribute_arguments
+            (attribute_argument_list
+              (string_literal)
+              (string_literal)))))
+      (interface_procedure
+        (procedure_keyword)
+        name: (identifier)
+        (parameter_list
+          (parameter
+            name: (identifier)
+            type: (type_specification
+              (text_type)))
+          (parameter
+            name: (identifier)
+            type: (type_specification
+              (text_type)))
+          (parameter
+            name: (identifier)
+            type: (type_specification
+              (text_type))))
+        (interface_procedure_suffix))
+      (interface_procedure
+        (procedure_keyword)
+        name: (identifier)
+        (parameter_list
+          (parameter
+            name: (identifier)
+            type: (type_specification
+              (text_type)))
+          (parameter
+            name: (identifier)
+            type: (type_specification
+              (text_type)))
+          (parameter
+            name: (identifier)
+            type: (type_specification
+              (text_type))))
+        (interface_procedure_suffix))
+      (preproc_endif
+        (preproc_close)))))

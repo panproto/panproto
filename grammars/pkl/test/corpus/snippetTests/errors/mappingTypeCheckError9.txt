@@ -1,0 +1,69 @@
+===
+errors/mappingTypeCheckError9.pkl
+===
+
+local mapping1: Mapping<String, Int> = new { ["foo"] = 1 }
+local mapping2: Mapping<String, String> = mapping1
+local mapping3 = (mapping2) { ["bar"] =  "2" }
+
+first = mapping3["foo"]
+
+---
+
+(module
+  (classProperty
+    (modifier)
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))))
+    (newExpr
+      (objectBody
+        (objectEntry
+          (slStringLiteralExpr
+            (slStringLiteralPart))
+          (intLiteralExpr)))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))))
+    (unqualifiedAccessExpr
+      (identifier)))
+  (classProperty
+    (modifier)
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (objectEntry
+          (slStringLiteralExpr
+            (slStringLiteralPart))
+          (slStringLiteralExpr
+            (slStringLiteralPart))))))
+  (classProperty
+    (identifier)
+    (subscriptExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (slStringLiteralExpr
+        (slStringLiteralPart)))))

@@ -1,0 +1,260 @@
+==============================
+Brief description
+==============================
+
+/*! \brief Brief description.
+ *         Brief description continued.
+ *
+ *  Detailed description starts here.
+ */
+
+---
+
+(document
+  (brief_header
+    (tag_name)
+    (brief_description
+      (brief_text)))
+  (description))
+
+========================================
+Brief description ending with dot
+========================================
+
+/** Brief description which ends at this dot. Details follow
+ *  here.
+ */
+
+---
+
+(document
+  (brief_header
+    (brief_description))
+  (description))
+
+========================================
+Function docs with \
+========================================
+
+/*!
+	\param a an integer argument.
+	\param s a constant character pointer.
+	\return The test results
+	\sa QTstyle_Test(), ~QTstyle_Test(), testMeToo() and publicVar()
+*/
+
+---
+
+(document
+  (tag
+    (tag_name)
+    (identifier)
+    (description))
+  (tag
+    (tag_name)
+    (identifier)
+    (description))
+  (tag
+    (tag_name)
+    (description))
+  (tag
+    (tag_name)
+    (function_link)
+    (function_link)
+    (function_link)
+    (function_link)))
+
+========================================
+Function docs with @
+========================================
+
+/**
+  * A pure virtual member.
+  * @see testMe()
+  * @param c1 the first argument.
+  * @param c2 the second argument.
+*/
+
+---
+
+(document
+  (brief_header
+    (brief_description))
+  (tag
+    (tag_name)
+    (description
+      (function_link)))
+  (tag
+    (tag_name)
+    (identifier)
+    (description))
+  (tag
+    (tag_name)
+    (identifier)
+    (description)))
+
+========================================
+Storageclass
+========================================
+
+/**< [in] docs for input parameter v. */
+
+---
+
+(document
+  (tag
+    (storageclass)
+    (description)))
+
+=======================================
+Param with Storageclass
+=======================================
+
+/*!
+   Copies bytes from a source memory area to a destination memory area,
+   where both areas may not overlap.
+   @param[out] dest The memory area to copy to.
+   @param[in]  src  The memory area to copy from.
+   @param[in]  n    The number of bytes to copy
+  */
+
+---
+
+(document
+  (brief_header
+    (brief_description))
+  (tag
+    (tag_name)
+    (storageclass)
+    (identifier)
+    (description))
+  (tag
+    (tag_name)
+    (storageclass)
+    (identifier)
+    (description))
+  (tag
+    (tag_name)
+    (storageclass)
+    (identifier)
+    (description)))
+
+=======================================
+Multiple Params
+=======================================
+
+/** Sets the position.
+    @param x,y,z Coordinates of the position in 3D space.
+  */
+
+---
+
+(document
+  (brief_header
+    (brief_description))
+  (tag
+    (tag_name)
+    (identifier)
+    (identifier)
+    (identifier)
+    (description)))
+
+=======================================
+Function Links
+=======================================
+
+/*! Test
+ * @see foo()
+ * @see ::bar
+ * @see baz::qux(int quux)
+*/
+
+---
+
+(document
+  (description)
+  (tag
+    (tag_name)
+    (description
+      (function_link)))
+  (tag
+    (tag_name)
+    (description
+      (function_link)))
+  (tag
+    (tag_name)
+    (description
+      (function_link))))
+
+=======================================
+URL Links
+=======================================
+
+/*! Test
+ * <a href="http://www.example.com">Example</a>
+ */
+
+---
+
+(document
+  (description
+    (link
+      (text))))
+
+=======================================
+Param
+=======================================
+
+/*!
+ * \param foo foo
+ */
+
+---
+
+(document (tag (tag_name) (identifier) (description)))
+
+=======================================
+Code Blocks
+=======================================
+
+/*!
+ ```c
+ int main() {
+	 return 0;
+ }
+ ```
+
+ @code{.cpp}
+ int main() {
+	 return 0;
+ }
+ @endcode
+ */
+
+---
+
+(document
+  (code_block
+    (code_block_start)
+    (code_block_language)
+    (code_block_content)
+    (code_block_end))
+  (code_block
+    (code_block_language)
+    (code_block_content)))
+
+=======================================
+Code Word
+=======================================
+
+/*!
+ * My function foo
+ It returns \c void
+*/
+
+---
+
+(document
+  (description
+    (code_word
+      (code))))

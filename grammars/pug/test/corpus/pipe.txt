@@ -1,0 +1,201 @@
+========================
+Tag with piped content
+=========================
+
+div
+  |Content here
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (children
+      (pipe (content)))))
+
+========================
+Tag with blank piped content + tag
+=========================
+
+div
+  |
+  | Content here
+  |
+  div
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (children
+     (pipe)
+     (pipe (content))
+     (pipe)
+     (tag (tag_name))
+    )
+))
+
+========================
+Tag with double blank piped content + tag
+=========================
+
+div
+  |
+  |
+  | Content here
+  |
+  |
+  div
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (children
+     (pipe)
+     (pipe)
+     (pipe (content))
+     (pipe)
+     (pipe)
+     (tag (tag_name))
+    )
+))
+
+
+========================
+Tags with pipes in between with no content
+=========================
+
+a content
+|
+|
+a content
+|
+| 
+a content
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (content))
+  (pipe)
+  (pipe)
+  (tag
+    (tag_name)
+    (content))
+  (pipe)
+  (pipe
+    (content))
+  (tag
+    (tag_name)
+    (content)))
+
+========================
+Complex tags with pipes in between with no content
+=========================
+
+a(href='//google.com') Google
+|
+|
+a(class='button' href='//google.com') Google
+|
+|
+a(class='button', href='//google.com') Google
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (attributes
+      (attribute
+        (attribute_name)
+        (quoted_attribute_value
+          (attribute_value))))
+    (content))
+  (pipe)
+  (pipe)
+  (tag
+    (tag_name)
+    (attributes
+      (attribute
+        (attribute_name)
+        (quoted_attribute_value
+          (attribute_value)))
+      (attribute
+        (attribute_name)
+        (quoted_attribute_value
+          (attribute_value))))
+    (content))
+  (pipe)
+  (pipe)
+  (tag
+    (tag_name)
+    (attributes
+      (attribute
+        (attribute_name)
+        (quoted_attribute_value
+          (attribute_value)))
+      (attribute
+        (attribute_name)
+        (quoted_attribute_value
+          (attribute_value))))
+    (content)))
+
+
+========================
+Tag with piped content
+=========================
+
+div
+  |Content here
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (children
+      (pipe (content)))))
+
+========================
+Content Javascript
+=========================
+
+div
+  |Content {{ some JS code here }} Content
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (children
+    (pipe (content) (javascript) (content)))))
+
+========================
+Multiline with dot
+=========================
+
+div.
+  Content here
+  more
+  content here,
+
+tag
+
+---
+
+(source_file
+  (tag
+    (tag_name)
+    (children
+      (content)
+      (content)
+      (content)))
+  (tag
+    (tag_name)))

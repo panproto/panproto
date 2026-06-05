@@ -1,0 +1,167 @@
+================================================================================
+taglink alone
+================================================================================
+|world|
+
+
+--------------------------------------------------------------------------------
+
+(help_file
+  (block
+    (line
+      (taglink
+        (word)))))
+
+================================================================================
+taglink in text
+================================================================================
+|(|, |)|, |`|, |{|, |}|.
+
+Hello |world| hello
+
+|-+|	+[num]	line
+|-e|	-e	Ex
+|-|	-	minus
+
+
+
+--------------------------------------------------------------------------------
+
+(help_file
+  (block
+    (line
+      (taglink
+        (word))
+      (word)
+      (taglink
+        (word))
+      (word)
+      (taglink
+        (word))
+      (word)
+      (taglink
+        (word))
+      (word)
+      (taglink
+        (word))
+      (word)))
+  (block
+    (line
+      (word)
+      (taglink
+        (word))
+      (word)))
+  (block
+    (line
+      (taglink
+        (word))
+      (word)
+      (word)
+      (word)
+      (word))
+    (line
+      (taglink
+        (word))
+      (word)
+      (word))
+    (line
+      (taglink
+        (word))
+      (word)
+      (word))))
+
+================================================================================
+taglink in parentheses
+================================================================================
+(|aaa|) {|aaa|}
+
+
+--------------------------------------------------------------------------------
+
+(help_file
+  (block
+    (line
+      (word)
+      (taglink
+        (word))
+      (word)
+      (argument
+        (word)))))
+
+================================================================================
+NOT a taglink
+================================================================================
+whitespace |world foo bar|
+	    |
+	rx  |
+	rx  |	ry
+adjacent || |||
+table-borders |=========| |---------|
+
+- {event}  (String|Array) event
+
+Note: ":autocmd" can...
+'|' works:
+	:augroup mine | au! BufRead | augroup END
+
+
+--------------------------------------------------------------------------------
+
+(help_file
+  (block
+    (line
+      (word)
+      (word)
+      (ERROR
+        (word))
+      (word)
+      (word))
+    (line
+      (word))
+    (line
+      (word)
+      (word))
+    (line
+      (word)
+      (word)
+      (word))
+    (line
+      (word)
+      (word)
+      (word))
+    (line
+      (word)
+      (taglink
+        (word))
+      (taglink
+        (word))))
+  (block
+    (line_li
+      (prefix)
+      (line
+        (argument
+          (word))
+        (word)
+        (word)
+        (word))
+      (line)))
+  (block
+    (line
+      (note)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word))
+    (line
+      (word)
+      (word))
+    (line
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word))))

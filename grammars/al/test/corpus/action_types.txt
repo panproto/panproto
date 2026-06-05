@@ -1,0 +1,124 @@
+========================================================================
+Actionref declaration
+========================================================================
+
+page 50100 MyPage
+{
+    actions
+    {
+        area(Promoted)
+        {
+            actionref(MyRef; MyAction)
+            {
+            }
+        }
+    }
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (actionref_declaration
+          promoted_name: (identifier)
+          action_name: (identifier))))))
+
+========================================================================
+Systemaction declaration
+========================================================================
+
+page 50100 MyPage
+{
+    actions
+    {
+        area(SystemActions)
+        {
+            systemaction(MyAction)
+            {
+            }
+        }
+    }
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (systemaction_declaration
+          name: (identifier))))))
+
+========================================================================
+Customaction declaration
+========================================================================
+
+page 50100 MyPage
+{
+    actions
+    {
+        area(Processing)
+        {
+            customaction(MyCustom)
+            {
+            }
+        }
+    }
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (customaction_declaration
+          name: (identifier))))))
+
+========================================================================
+Fileuploadaction declaration
+========================================================================
+
+page 50100 MyPage
+{
+    actions
+    {
+        area(Processing)
+        {
+            fileuploadaction(MyUpload)
+            {
+            }
+        }
+    }
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (fileuploadaction_declaration
+          name: (identifier))))))

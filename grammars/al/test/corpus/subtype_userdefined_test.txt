@@ -1,0 +1,217 @@
+================================================================================
+SubType property with UserDefined value in BLOB field
+================================================================================
+
+table 12345 TestTable
+{
+    fields
+    {
+        field(122; "Approval Template"; BLOB)
+        {
+            Caption = 'Approval Template';
+            DataClassification = CustomerContent;
+            SubType = UserDefined;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (identifier))
+        (property
+          name: (property_name)
+          value: (identifier))))))
+
+================================================================================
+SubType property with existing values (Install, Upgrade, Test)
+================================================================================
+
+codeunit 23456 TestCodeunit
+{
+    Subtype = Install;
+    
+    procedure TestInstallProcedure()
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))
+
+================================================================================
+SubType property case variations with UserDefined
+================================================================================
+
+table 34567 CaseTestTable
+{
+    fields
+    {
+        field(1; "User Defined Field"; BLOB)
+        {
+            Subtype = userdefined;
+        }
+        field(2; "Mixed Case Field"; BLOB)
+        {
+            Subtype = UserDefined;
+        }
+        field(3; "Upper Case Field"; BLOB)
+        {
+            Subtype = USERDEFINED;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (identifier)))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (identifier)))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (identifier))))))
+
+================================================================================
+SubType property mixed with other BLOB field properties
+================================================================================
+
+table 45678 ComprehensiveTable
+{
+    fields
+    {
+        field(10; "Template Data"; BLOB)
+        {
+            Caption = 'Template Data';
+            DataClassification = CustomerContent;
+            SubType = UserDefined;
+            Description = 'Stores user defined template data';
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (identifier))
+        (property
+          name: (property_name)
+          value: (identifier))
+        (property
+          name: (property_name)
+          value: (string_literal))))))
+
+================================================================================
+SubType property in different object types (codeunit vs table)
+================================================================================
+
+codeunit 56789 UpgradeCodeunit
+{
+    Subtype = Upgrade;
+}
+
+table 67890 BlobTable
+{
+    fields
+    {
+        field(1; "Data"; BLOB)
+        {
+            SubType = UserDefined;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (property
+      name: (property_name)
+      value: (identifier)))
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (identifier))))))

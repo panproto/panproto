@@ -1,0 +1,209 @@
+==================
+Medium examples #1
+==================
+
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    root /var/www/html;
+    index index.html;
+    server_name _;
+    location / {
+       try_files $uri $uri/ =404;
+    }
+    location /api/ {
+           proxy_pass http://localhost:8080/;
+           proxy_http_version 1.1;
+           proxy_set_header Upgrade $http_upgrade;
+           proxy_set_header Connection 'upgrade';
+           proxy_set_header Host $host;
+           proxy_cache_bypass $http_upgrade;
+    }
+
+}
+
+---
+
+    (source_file
+      (attribute
+        (keyword)
+        (block
+          (attribute
+            (keyword)
+            (numeric_literal)
+            (value))
+          (attribute
+            (keyword)
+            (value)
+            (value))
+          (attribute
+            (keyword)
+            (value))
+          (attribute
+            (keyword)
+            (value))
+          (attribute
+            (keyword)
+            (value))
+          (location
+            (location_route)
+            (block
+              (attribute
+                (keyword)
+                (value)
+                (value)
+                (value))))
+          (location
+            (location_route)
+            (block
+              (attribute
+                (keyword)
+                (value))
+              (attribute
+                (keyword)
+                (numeric_literal))
+              (attribute
+                (keyword)
+                (value)
+                (value))
+              (attribute
+                (keyword)
+                (value)
+                (quoted_string_literal))
+              (attribute
+                (keyword)
+                (value)
+                (value))
+              (attribute
+                (keyword)
+                (value)))))))
+
+
+==================
+Medium examples #2
+==================
+
+server {
+    listen 80;
+
+    location = / {
+        root /var/www/html;
+        index index.html index.htm;
+    }
+
+    location /user/ {
+        proxy_pass http://backend;
+    }
+
+    location ~* \.php$ {
+        fastcgi_pass unix:/var/run/php/php7.4-fpm.sock;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        fastcgi_intercept_errors on;
+    }
+}
+
+---
+    (source_file
+      (attribute
+        (keyword)
+        (block
+          (attribute
+            (keyword)
+            (numeric_literal))
+          (location
+            (location_modifier)
+            (location_route)
+            (block
+              (attribute
+                (keyword)
+                (value))
+              (attribute
+                (keyword)
+                (value)
+                (value))))
+          (location
+            (location_route)
+            (block
+              (attribute
+                (keyword)
+                (value))))
+          (location
+            (location_modifier)
+            (location_route)
+            (block
+              (attribute
+                (keyword)
+                (value))
+              (directive
+                (keyword)
+                (file))
+              (attribute
+                (keyword)
+                (value)
+                (value))
+              (attribute
+                (keyword)
+                (boolean
+                  (on))))))))
+
+==================
+Medium examples #3
+==================
+
+server {
+    listen 443 ssl;
+    ssl_certificate /path/to/your/cert.pem;
+    ssl_certificate_key /path/to/your/key.pem;
+    server_name example.com;
+    return 301 https://www.example.com$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    ssl_certificate /path/to/your/cert.pem;
+    ssl_certificate_key /path/to/your/key.pem;
+    server_name www.example.com;
+    # Your normal web content block goes here
+}
+
+---
+
+    (source_file
+      (attribute
+        (keyword)
+        (block
+          (attribute
+            (keyword)
+            (numeric_literal)
+            (value))
+          (attribute
+            (keyword)
+            (value))
+          (attribute
+            (keyword)
+            (value))
+          (attribute
+            (keyword)
+            (value))
+          (directive
+            (keyword)
+            (numeric_literal)
+            (value))))
+      (attribute
+        (keyword)
+        (block
+          (attribute
+            (keyword)
+            (numeric_literal)
+            (value))
+          (attribute
+            (keyword)
+            (value))
+          (attribute
+            (keyword)
+            (value))
+          (attribute
+            (keyword)
+            (value))
+          (comment))))

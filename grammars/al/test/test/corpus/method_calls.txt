@@ -1,0 +1,257 @@
+==================
+Generic Method Call
+==================
+codeunit 50100 MyCodeunit
+{
+    trigger OnRun()
+    begin
+        Message('Hello World');
+        Error('This is an error');
+        Confirm('Are you sure?');
+    end;
+}
+---
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          (identifier)
+          (argument_list
+            (string_literal)))
+        (call_expression
+          (identifier)
+          (argument_list
+            (string_literal)))
+        (call_expression
+          (identifier)
+          (argument_list
+            (string_literal)))
+        (end_keyword)))))
+
+==================
+Record Method Calls
+==================
+codeunit 50100 MyCodeunit
+{
+    var
+        Customer: Record Customer;
+    trigger OnRun()
+    begin
+        Customer.Get('10000');
+        Message('Found customer');
+        Customer.SetRange("No.", '10000', '20000');
+        Customer.FindSet(true, false);
+    end;
+}
+---
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        (identifier)
+        (type_specification
+          (record_type
+            (identifier)))))
+    (trigger_declaration
+      (trigger_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          (member_expression
+            (identifier)
+            (identifier))
+          (argument_list
+            (string_literal)))
+        (call_expression
+          (identifier)
+          (argument_list
+            (string_literal)))
+        (call_expression
+          (member_expression
+            (identifier)
+            (identifier))
+          (argument_list
+            (quoted_identifier)
+            (string_literal)
+            (string_literal)))
+        (call_expression
+          (member_expression
+            (identifier)
+            (identifier))
+          (argument_list
+            (boolean)
+            (boolean)))
+        (end_keyword)))))
+
+==================
+Boolean Method Conditions
+==================
+codeunit 50100 MyCodeunit
+{
+    var
+        Customer: Record Customer;
+    trigger OnRun()
+    begin
+        if Customer.Get('10000') then
+            Message('Found customer');
+        
+        if Customer.FindSet() then begin
+            repeat
+                if Customer.Next() then
+                    Message('Next customer');
+            until Customer."No." = '';
+        end;
+    end;
+}
+---
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        (identifier)
+        (type_specification
+          (record_type
+            (identifier)))))
+    (trigger_declaration
+      (trigger_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (if_statement
+          (if_keyword)
+          (call_expression
+            (member_expression
+              (identifier)
+              (identifier))
+            (argument_list
+              (string_literal)))
+          (then_keyword)
+          (call_expression
+            (identifier)
+            (argument_list
+              (string_literal))))
+        (if_statement
+          (if_keyword)
+          (call_expression
+            (member_expression
+              (identifier)
+              (identifier))
+            (argument_list))
+          (then_keyword)
+          (code_block
+            (begin_keyword)
+            (repeat_statement
+              (repeat_keyword)
+              (if_statement
+                (if_keyword)
+                (call_expression
+                  (member_expression
+                    (identifier)
+                    (identifier))
+                  (argument_list))
+                (then_keyword)
+                (call_expression
+                  (identifier)
+                  (argument_list
+                    (string_literal))))
+              (until_keyword)
+              (comparison_expression
+                (member_expression
+                  (identifier)
+                  (quoted_identifier))
+                (comparison_operator)
+                (string_literal)))
+            (end_keyword)))
+        (end_keyword)))))
+
+==================
+Mixed Method Calls With Parameters
+==================
+
+codeunit 50100 MyCodeunit
+{
+    var
+        Customer: Record Customer;
+        Amount: Decimal;
+    trigger OnRun()
+    begin
+        if Customer.Get('10000') then begin
+            Amount := Customer."Credit Amount";
+            Message('Credit Amount: %1', Amount);
+            Customer.SetFilter("Credit Amount", '>%1', Amount);
+        end;
+    end;
+}
+---
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        (identifier)
+        (type_specification
+          (record_type
+            (identifier))))
+      (variable_declaration
+        (identifier)
+        (type_specification
+          (basic_type))))
+    (trigger_declaration
+      (trigger_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (if_statement
+          (if_keyword)
+          (call_expression
+            (member_expression
+              (identifier)
+              (identifier))
+            (argument_list
+              (string_literal)))
+          (then_keyword)
+          (code_block
+            (begin_keyword)
+            (assignment_statement
+              (identifier)
+              (member_expression
+                (identifier)
+                (quoted_identifier)))
+            (call_expression
+              (identifier)
+              (argument_list
+                (string_literal)
+                (identifier)))
+            (call_expression
+              (member_expression
+                (identifier)
+                (identifier))
+              (argument_list
+                (quoted_identifier)
+                (string_literal)
+                (identifier)))
+            (end_keyword)))
+        (end_keyword)))))

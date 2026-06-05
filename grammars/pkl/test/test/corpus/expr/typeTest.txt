@@ -1,0 +1,40 @@
+===
+typeTest
+===
+foo = bar is Int(this < 0)
+
+qux = bar as Float
+
+corge = bar as foo.Bar
+---
+
+(module
+  (classProperty
+    (identifier)
+    (typeTestExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (constrainedType
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (comparisonExpr
+          (thisExpr)
+          (intLiteralExpr)))))
+  (classProperty
+    (identifier)
+    (typeCastExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))))
+  (classProperty
+    (identifier)
+    (typeCastExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)
+          (identifier))))))

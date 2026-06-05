@@ -1,0 +1,289 @@
+========================================
+new-window: simple
+========================================
+
+new-window
+neww
+new-window top
+neww top
+
+---
+
+(file
+  (new_window_directive
+    (command))
+  (new_window_directive
+    (command))
+  (new_window_directive
+    (command))
+  (new_window_directive
+    (command)))
+
+========================================
+new-window: flags
+========================================
+
+new-window -a
+new-window -b
+new-window -d
+new-window -k
+new-window -P
+new-window -S
+new-window -abdkPS
+
+---
+
+(file
+  (new_window_directive
+    (command)
+    (command_line_option))
+  (new_window_directive
+    (command)
+    (command_line_option))
+  (new_window_directive
+    (command)
+    (command_line_option))
+  (new_window_directive
+    (command)
+    (command_line_option))
+  (new_window_directive
+    (command)
+    (command_line_option))
+  (new_window_directive
+    (command)
+    (command_line_option))
+  (new_window_directive
+    (command)
+    (command_line_option)))
+
+========================================
+new-window: flags + shell
+========================================
+
+new-window -a top
+new-window -b top
+new-window -d top
+new-window -k top
+new-window -P top
+new-window -S top
+new-window -abdkPS top
+
+---
+
+(file
+  (new_window_directive
+    (command)
+    (command_line_option))
+  (new_window_directive
+    (command)
+    (command_line_option))
+  (new_window_directive
+    (command)
+    (command_line_option))
+  (new_window_directive
+    (command)
+    (command_line_option))
+  (new_window_directive
+    (command)
+    (command_line_option))
+  (new_window_directive
+    (command)
+    (command_line_option))
+  (new_window_directive
+    (command)
+    (command_line_option)))
+
+========================================
+new-window: options
+========================================
+
+new-window -c /tmp
+new-window -e VAR=value
+new-window -e VAR1=value1 -e VAR2=value2
+new-window -F "#{session_name}:#{window_index}"
+new-window -n mywin
+new-window -t :2
+new-window -c /tmp -e VAR=value -e VAR2=value2 -F "#{session_name}:#{window_index}" -n mywin -t :2
+
+---
+
+(file
+  (new_window_directive
+    (command)
+    (command_line_option)
+    (start_directory))
+  (new_window_directive
+    (command)
+    (command_line_option)
+    (environment))
+  (new_window_directive
+    (command)
+    (command_line_option)
+    (environment)
+    (command_line_option)
+    (environment))
+  (new_window_directive
+    (command)
+    (command_line_option)
+    (format
+      (str_double_quotes
+        (expr_double_quotes
+          (name))
+        (expr_double_quotes
+          (name)))))
+  (new_window_directive
+    (command)
+    (command_line_option)
+    (window_name))
+  (new_window_directive
+    (command)
+    (command_line_option)
+    (window))
+  (new_window_directive
+    (command)
+    (command_line_option)
+    (start_directory)
+    (command_line_option)
+    (environment)
+    (command_line_option)
+    (environment)
+    (command_line_option)
+    (format
+      (str_double_quotes
+        (expr_double_quotes
+          (name))
+        (expr_double_quotes
+          (name))))
+    (command_line_option)
+    (window_name)
+    (command_line_option)
+    (window)))
+
+========================================
+new-window: options + shell
+========================================
+
+new-window -c /tmp top
+new-window -e VAR=value top
+new-window -e VAR1=value1 -e VAR2=value2 top
+new-window -F "#{session_name}:#{window_index}" top
+new-window -n mywin top
+new-window -t :2 top
+new-window -c /tmp -e VAR=value -e VAR2=value2 -F "#{session_name}:#{window_index}" -n mywin  -t :2 top
+
+---
+
+(file
+  (new_window_directive
+    (command)
+    (command_line_option)
+    (start_directory))
+  (new_window_directive
+    (command)
+    (command_line_option)
+    (environment))
+  (new_window_directive
+    (command)
+    (command_line_option)
+    (environment)
+    (command_line_option)
+    (environment))
+  (new_window_directive
+    (command)
+    (command_line_option)
+    (format
+      (str_double_quotes
+        (expr_double_quotes
+          (name))
+        (expr_double_quotes
+          (name)))))
+  (new_window_directive
+    (command)
+    (command_line_option)
+    (window_name))
+  (new_window_directive
+    (command)
+    (command_line_option)
+    (window))
+  (new_window_directive
+    (command)
+    (command_line_option)
+    (start_directory)
+    (command_line_option)
+    (environment)
+    (command_line_option)
+    (environment)
+    (command_line_option)
+    (format
+      (str_double_quotes
+        (expr_double_quotes
+          (name))
+        (expr_double_quotes
+          (name))))
+    (command_line_option)
+    (window_name)
+    (command_line_option)
+    (window)))
+
+========================================
+new-window: complex
+========================================
+
+new-window -P -F "#{window_id}" -n scratch vim
+new-window -e VAR1=foo -e VAR2=bar -n envtest bash
+new-window -k -t :3
+neww -c ~/projects -t :2 "make build"
+
+new-window -c "#{pane_current_path}"
+bind c new-window -c "#{pane_current_path}"
+
+---
+
+(file
+  (new_window_directive
+    (command)
+    (command_line_option)
+    (command_line_option)
+    (format
+      (str_double_quotes
+        (expr_double_quotes
+          (name))))
+    (command_line_option)
+    (window_name))
+  (new_window_directive
+    (command)
+    (command_line_option)
+    (environment)
+    (command_line_option)
+    (environment)
+    (command_line_option)
+    (window_name))
+  (new_window_directive
+    (command)
+    (command_line_option)
+    (command_line_option)
+    (window))
+  (new_window_directive
+    (command)
+    (command_line_option)
+    (start_directory)
+    (command_line_option)
+    (window)
+    (str_double_quotes))
+  (new_window_directive
+    (command)
+    (command_line_option)
+    (start_directory
+      (str_double_quotes
+        (expr_double_quotes
+          (name)))))
+  (bind_key_directive
+    (command)
+    (key)
+    (new_window_directive
+      (command)
+      (command_line_option)
+      (start_directory
+        (str_double_quotes
+          (expr_double_quotes
+            (name)))))))

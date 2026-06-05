@@ -1,0 +1,89 @@
+====================================
+Special pattern
+====================================
+
+BEGIN {}
+BEGINFILE {}
+END {}
+ENDFILE {}
+
+------------------------------------
+
+(program
+  (rule
+    (pattern)
+    (block))
+  (rule
+    (pattern)
+    (block))
+  (rule
+    (pattern)
+    (block))
+  (rule
+    (pattern)
+    (block)))
+
+====================================
+Regex pattern
+====================================
+
+/[a-z]/
+
+------------------------------------
+
+(program
+  (rule
+    (pattern
+      (regex
+         (regex_pattern)))))
+
+====================================
+Range pattern
+====================================
+
+NR == 1, NR == 2
+
+------------------------------------
+
+(program
+  (rule
+    (pattern
+      (range_pattern
+         (binary_exp
+           (identifier)
+           (number))
+         (binary_exp
+           (identifier)
+           (number))))))
+
+====================================
+Logical operator pattern
+====================================
+
+/[a-z]/ && NR > 5
+
+------------------------------------
+
+(program
+  (rule
+    (pattern
+      (binary_exp
+         (regex
+           (regex_pattern))
+         (binary_exp
+           (identifier)
+           (number))))))
+
+====================================
+Regex pattern with comment sign
+====================================
+
+/#/
+
+------------------------------------
+
+(program
+  (rule
+    (pattern
+      (regex
+         (regex_pattern)))))

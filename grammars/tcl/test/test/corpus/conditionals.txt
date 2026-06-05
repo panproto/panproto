@@ -1,0 +1,60 @@
+================================================================================
+Conditionals
+================================================================================
+
+if $hello {
+    echo hi
+} elseif $hello {
+    echo hi
+} else {
+    echo bye
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (if
+    (expr
+      (variable_substitution
+        (id)))
+    (braced_word
+      (command
+        (simple_word)
+        (word_list
+          (simple_word))))
+    (elseif
+      (expr
+        (variable_substitution
+          (id)))
+      (braced_word
+        (command
+          (simple_word)
+          (word_list
+            (simple_word)))))
+    (else
+      (braced_word
+        (command
+          (simple_word)
+          (word_list
+            (simple_word)))))))
+
+================================================================================
+Empty statement block
+================================================================================
+
+if {1} {
+}
+
+if {1} {
+}
+
+--------------------------------------------------------------------------------
+(source_file
+  (if
+    (expr
+      (number))
+    (braced_word))
+  (if
+    (expr
+      (number))
+    (braced_word)))

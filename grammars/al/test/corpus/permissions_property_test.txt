@@ -1,0 +1,179 @@
+================================================================================
+Codeunit with Permissions property
+================================================================================
+
+codeunit 50100 "Permission Test"
+{
+    Permissions = tabledata "Sales Header" = r,
+                  tabledata "Sales Line" = rimd,
+                  tabledata Customer = R;
+    
+    trigger OnRun()
+    begin
+        Message('Test');
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (tabledata_permission_list
+        (tabledata_permission
+          table_name: (quoted_identifier)
+          permission: (permission_type))
+        (tabledata_permission
+          table_name: (quoted_identifier)
+          permission: (permission_type))
+        (tabledata_permission
+          table_name: (identifier)
+          permission: (permission_type))))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list
+            (string_literal)))
+        (end_keyword)))))
+
+================================================================================
+Report with TestPermissions property
+================================================================================
+
+report 50100 "Test Report"
+{
+    TestPermissions = Disabled;
+    
+    dataset
+    {
+        dataitem(Customer; Customer)
+        {
+            column(No; "No.")
+            {
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (report_column
+          (column_keyword)
+          name: (identifier)
+          source: (quoted_identifier))))))
+
+================================================================================
+Page with multiple permission properties
+================================================================================
+
+page 50100 "Customer Card Extension"
+{
+    Permissions = tabledata "Customer" = rm,
+                  tabledata "Cust. Ledger Entry" = r;
+    TestPermissions = RestrictedProperties;
+    
+    PageType = Card;
+    SourceTable = Customer;
+    
+    layout
+    {
+        area(Content)
+        {
+            field("No."; Rec."No.")
+            {
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (tabledata_permission_list
+        (tabledata_permission
+          table_name: (quoted_identifier)
+          permission: (permission_type))
+        (tabledata_permission
+          table_name: (quoted_identifier)
+          permission: (permission_type))))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (quoted_identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (quoted_identifier)))))))
+
+================================================================================
+TestPermissions with NonRestrictedProperties value
+================================================================================
+
+codeunit 50101 "Non Restricted Test"
+{
+    TestPermissions = NonRestrictedProperties;
+    
+    procedure TestProc()
+    begin
+        Message('Test');
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list
+            (string_literal)))
+        (end_keyword)))))

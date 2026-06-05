@@ -1,0 +1,62 @@
+===
+lambdas/equality.pkl
+===
+
+res1 = (() -> 1) == (() -> 1)
+res2 = (() -> 1) == (() -> 2)
+res3 = (() -> 1) == ((x) -> 1)
+
+local lambda = () -> 1
+
+res4 = lambda == lambda
+---
+
+(module
+  (classProperty
+    (identifier)
+    (equalityExpr
+      (parenthesizedExpr
+        (functionLiteralExpr
+          (parameterList)
+          (intLiteralExpr)))
+      (parenthesizedExpr
+        (functionLiteralExpr
+          (parameterList)
+          (intLiteralExpr)))))
+  (classProperty
+    (identifier)
+    (equalityExpr
+      (parenthesizedExpr
+        (functionLiteralExpr
+          (parameterList)
+          (intLiteralExpr)))
+      (parenthesizedExpr
+        (functionLiteralExpr
+          (parameterList)
+          (intLiteralExpr)))))
+  (classProperty
+    (identifier)
+    (equalityExpr
+      (parenthesizedExpr
+        (functionLiteralExpr
+          (parameterList)
+          (intLiteralExpr)))
+      (parenthesizedExpr
+        (functionLiteralExpr
+          (parameterList
+            (typedIdentifier
+              (identifier)))
+          (intLiteralExpr)))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (functionLiteralExpr
+      (parameterList)
+      (intLiteralExpr)))
+  (classProperty
+    (identifier)
+    (equalityExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (unqualifiedAccessExpr
+        (identifier)))))

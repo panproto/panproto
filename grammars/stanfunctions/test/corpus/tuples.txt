@@ -1,0 +1,228 @@
+================================================================================
+Tuples - functions
+================================================================================
+
+functions {
+    array[,,] tuple(real, vector) foo(tuple(real, array[,] int) arg);
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (functions
+    (function_definition
+      (return_type
+        (unsized_type
+          (unsized_dims)
+          (unsized_tuple_type
+            (unsized_type
+              (basic_type))
+            (unsized_type
+              (basic_type)))))
+      (function_declarator
+        (identifier)
+        (parameter_list
+          (parameter_declaration
+            (unsized_type
+              (unsized_tuple_type
+                (unsized_type
+                  (basic_type))
+                (unsized_type
+                  (unsized_dims)
+                  (basic_type))))
+            (identifier))))
+      (empty_statement))))
+
+================================================================================
+Tuples - sized types
+================================================================================
+
+data {
+    tuple(array[2] real<lower=0>, int) foo;
+}
+
+parameters {
+    array[2] tuple(simplex[3], tuple(ordered[2], real<lower=1>)) bar;
+}
+
+model {
+    tuple(array[2] real, int) baz;
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (data
+    (top_var_decl_no_assign
+      (topvar_tuple_type
+        (arr_dims
+          (integer_literal))
+        (top_var_type
+          (real_type
+            (type_constraint
+              (range_lower
+                (integer_literal)))))
+        (top_var_type
+          (int_type)))
+      (identifier)))
+  (parameters
+    (top_var_decl_no_assign
+      (arr_dims
+        (integer_literal))
+      (topvar_tuple_type
+        (top_var_type
+          (simplex_type
+            (integer_literal)))
+        (topvar_tuple_type
+          (top_var_type
+            (ordered_type
+              (integer_literal)))
+          (top_var_type
+            (real_type
+              (type_constraint
+                (range_lower
+                  (integer_literal)))))))
+      (identifier)))
+  (model
+    (var_decl
+      (sized_tuple_type
+        (arr_dims
+          (integer_literal))
+        (sized_basic_type)
+        (sized_basic_type))
+      (identifier))))
+
+================================================================================
+Tuples - expressions
+================================================================================
+
+model {
+    tuple(array[2] real, int) baz;
+    baz = ({1.2, 3.4}, 4);
+    baz.1[1] = 1.3;
+    print(baz.1);
+    print((1.4,(1.5, 1.6, (1.7, [1.2]))));
+    int foo = baz.2;
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (model
+    (var_decl
+      (sized_tuple_type
+        (arr_dims
+          (integer_literal))
+        (sized_basic_type)
+        (sized_basic_type))
+      (identifier))
+    (assignment_statement
+      (lhs
+        (variable_expression
+          (identifier)))
+      (assignment_op)
+      (tuple_expression
+        (array_expression
+          (real_literal
+            (integer_literal)
+            (integer_literal))
+          (real_literal
+            (integer_literal)
+            (integer_literal)))
+        (integer_literal)))
+    (assignment_statement
+      (lhs
+        (indexed_lhs
+          (lhs
+            (tuple_proj_lhs
+              (lhs
+                (variable_expression
+                  (identifier)))))
+          (index
+            (integer_literal))))
+      (assignment_op)
+      (real_literal
+        (integer_literal)
+        (integer_literal)))
+    (print_statement
+      (tuple_projection
+        (variable_expression
+          (identifier))))
+    (print_statement
+      (tuple_expression
+        (real_literal
+          (integer_literal)
+          (integer_literal))
+        (tuple_expression
+          (real_literal
+            (integer_literal)
+            (integer_literal))
+          (real_literal
+            (integer_literal)
+            (integer_literal))
+          (tuple_expression
+            (real_literal
+              (integer_literal)
+              (integer_literal))
+            (vector_expression
+              (real_literal
+                (integer_literal)
+                (integer_literal)))))))
+    (var_decl
+      (sized_basic_type)
+      (identifier)
+      (tuple_projection
+        (variable_expression
+          (identifier))))))
+
+================================================================================
+Tuples - unpacking
+================================================================================
+
+model {
+    tuple(array[2] real, int) baz = ({1.2, 3.4}, 4);
+    int foo;
+    array[2] real bar;
+    (bar, foo) = baz;
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (model
+    (var_decl
+      (sized_tuple_type
+        (arr_dims
+          (integer_literal))
+        (sized_basic_type)
+        (sized_basic_type))
+      (identifier)
+      (tuple_expression
+        (array_expression
+          (real_literal
+            (integer_literal)
+            (integer_literal))
+          (real_literal
+            (integer_literal)
+            (integer_literal)))
+        (integer_literal)))
+    (var_decl
+      (sized_basic_type)
+      (identifier))
+    (var_decl
+      (arr_dims
+        (integer_literal))
+      (sized_basic_type)
+      (identifier))
+    (assignment_statement
+      (lhs
+        (tuple_pack_lhs
+          (lhs
+            (variable_expression
+              (identifier)))
+          (lhs
+            (variable_expression
+              (identifier)))))
+      (assignment_op)
+      (variable_expression
+        (identifier)))))

@@ -1,0 +1,487 @@
+================================================================================
+unterminated string
+================================================================================
+"abc
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (ERROR))
+
+================================================================================
+unterminated symbol
+================================================================================
+:"abc
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (symbol
+    (MISSING """)))
+
+================================================================================
+unterminated regex
+================================================================================
+/foo
+--------------------------------------------------------------------------------
+
+(source_file
+  (ERROR))
+
+================================================================================
+regex with incorrect modifiers
+================================================================================
+/foo/if
+--------------------------------------------------------------------------------
+
+(source_file
+  (regex
+    (regex_modifier))
+  (ERROR
+    (identifier)))
+
+================================================================================
+unterminated percent literal string
+================================================================================
+%(asdf
+--------------------------------------------------------------------------------
+
+(source_file
+  (ERROR))
+
+================================================================================
+unterminated percent literal array
+================================================================================
+%w(1
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (ERROR
+    (string)))
+
+================================================================================
+incorrectly escaped %q string
+================================================================================
+%q[\]]
+--------------------------------------------------------------------------------
+
+(source_file
+  (string)
+  (ERROR))
+
+================================================================================
+percent literal nesting too deep
+================================================================================
+%q(
+((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((
+
+)
+
+%q(
+((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((
+))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+)
+--------------------------------------------------------------------------------
+
+(source_file
+  (string)
+  (string)
+  (ERROR))
+
+================================================================================
+too many nested percent literals
+================================================================================
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+1
+})
+})
+})
+})
+})
+})
+})
+})
+})
+})
+})
+})
+})
+})
+})
+})
+
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+%(#{
+1
+})
+})
+})
+})
+})
+})
+})
+})
+})
+})
+})
+})
+})
+})
+})
+})
+})
+})
+--------------------------------------------------------------------------------
+
+(source_file
+  (string
+    (interpolation
+      (string
+        (interpolation
+          (string
+            (interpolation
+              (string
+                (interpolation
+                  (string
+                    (interpolation
+                      (string
+                        (interpolation
+                          (string
+                            (interpolation
+                              (string
+                                (interpolation
+                                  (string
+                                    (interpolation
+                                      (string
+                                        (interpolation
+                                          (string
+                                            (interpolation
+                                              (string
+                                                (interpolation
+                                                  (string
+                                                    (interpolation
+                                                      (string
+                                                        (interpolation
+                                                          (string
+                                                            (interpolation
+                                                              (string
+                                                                (interpolation
+                                                                  (integer)))))))))))))))))))))))))))))))))
+  (string
+    (interpolation
+      (string
+        (interpolation
+          (string
+            (interpolation
+              (string
+                (interpolation
+                  (string
+                    (interpolation
+                      (string
+                        (interpolation
+                          (string
+                            (interpolation
+                              (string
+                                (interpolation
+                                  (string
+                                    (interpolation
+                                      (string
+                                        (interpolation
+                                          (string
+                                            (interpolation
+                                              (string
+                                                (interpolation
+                                                  (string
+                                                    (interpolation
+                                                      (string
+                                                        (interpolation
+                                                          (string
+                                                            (interpolation
+                                                              (string
+                                                                (ERROR)
+                                                                (ERROR)
+                                                                (interpolation
+                                                                  (integer))))))))))))))))))))))))))))))))))
+
+================================================================================
+error recovery of curly brace
+================================================================================
+a {{{{{{{
+--------------------------------------------------------------------------------
+
+(source_file
+  (identifier)
+  (ERROR))
+
+================================================================================
+invalid symbols
+================================================================================
+alias A = +
+alias B = /
+alias C = %
+alias D = u
+puts(** foo)
+--------------------------------------------------------------------------------
+
+(source_file
+  (ERROR
+    (constant))
+  (op_call
+    (operator)
+    (assign
+      (identifier)
+      (ERROR)
+      (regex
+        (MISSING "/")))))
+
+================================================================================
+too many heredocs
+================================================================================
+[<<-a, <<-b, <<-c, <<-d, <<-e, <<-f, <<-g, <<-h, <<-i, <<-j, <<-k, <<-l, <<-m, <<-n, <<-o, <<-p, <<-q]
+1
+a
+2
+b
+3
+c
+4
+d
+5
+e
+6
+f
+7
+g
+8
+h
+9
+i
+10
+j
+11
+k
+12
+l
+13
+m
+14
+n
+15
+o
+16
+p
+17
+q
+--------------------------------------------------------------------------------
+
+(source_file
+  (array
+    (heredoc_start)
+    (heredoc_start)
+    (heredoc_start)
+    (heredoc_start)
+    (heredoc_start)
+    (heredoc_start)
+    (heredoc_start)
+    (heredoc_start)
+    (heredoc_start)
+    (heredoc_start)
+    (heredoc_start)
+    (heredoc_start)
+    (heredoc_start)
+    (heredoc_start)
+    (heredoc_start)
+    (heredoc_start)
+    (ERROR)
+    (op_call
+      (operator)
+      (identifier)))
+  (heredoc_body
+    (heredoc_content)
+    (heredoc_end))
+  (heredoc_body
+    (heredoc_content)
+    (heredoc_end))
+  (heredoc_body
+    (heredoc_content)
+    (heredoc_end))
+  (heredoc_body
+    (heredoc_content)
+    (heredoc_end))
+  (heredoc_body
+    (heredoc_content)
+    (heredoc_end))
+  (heredoc_body
+    (heredoc_content)
+    (heredoc_end))
+  (heredoc_body
+    (heredoc_content)
+    (heredoc_end))
+  (heredoc_body
+    (heredoc_content)
+    (heredoc_end))
+  (heredoc_body
+    (heredoc_content)
+    (heredoc_end))
+  (heredoc_body
+    (heredoc_content)
+    (heredoc_end))
+  (heredoc_body
+    (heredoc_content)
+    (heredoc_end))
+  (heredoc_body
+    (heredoc_content)
+    (heredoc_end))
+  (heredoc_body
+    (heredoc_content)
+    (heredoc_end))
+  (heredoc_body
+    (heredoc_content)
+    (heredoc_end))
+  (heredoc_body
+    (heredoc_content)
+    (heredoc_end))
+  (heredoc_body
+    (heredoc_content)
+    (heredoc_end))
+  (integer)
+  (identifier))
+
+================================================================================
+heredoc identifier too long
+================================================================================
+# okay
+a = <<-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+       aaaaaa
+       aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+# too long (256 bytes when encoded as UTF-8)
+b = <<-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb💣
+       bbbbbb
+       bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb💣
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (comment)
+  (assign
+    (identifier)
+    (heredoc_start))
+  (heredoc_body
+    (heredoc_content)
+    (heredoc_end))
+  (comment)
+  (op_call
+    (identifier)
+    (ERROR)
+    (operator)
+    (op_call
+      (operator)
+      (identifier)))
+  (identifier)
+  (identifier))
+
+================================================================================
+heredoc buffer filled
+================================================================================
+# 25x🔥 + 25x🚨 + 25x💥 + 25x💩 + 25x💢 + 3x💀 = 512 bytes after UTF-8 encoding
+p <<-🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥, <<-🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨, <<-💥💥💥💥💥💥💥💥💥💥💥💥💥💥💥💥💥💥💥💥💥💥💥💥💥, <<-💩💩💩💩💩💩💩💩💩💩💩💩💩💩💩💩💩💩💩💩💩💩💩💩💩, <<-💢💢💢💢💢💢💢💢💢💢💢💢💢💢💢💢💢💢💢💢💢💢💢💢💢, <<-💀💀💀, <<-does_not_fit
+1
+🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥
+2
+🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨
+3
+💥💥💥💥💥💥💥💥💥💥💥💥💥💥💥💥💥💥💥💥💥💥💥💥💥
+4
+💩💩💩💩💩💩💩💩💩💩💩💩💩💩💩💩💩💩💩💩💩💩💩💩💩
+5
+💢💢💢💢💢💢💢💢💢💢💢💢💢💢💢💢💢💢💢💢💢💢💢💢💢
+6
+💀💀💀
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (comment)
+  (op_call
+    (call
+      (identifier)
+      (argument_list
+        (heredoc_start)
+        (heredoc_start)
+        (heredoc_start)
+        (heredoc_start)
+        (heredoc_start)
+        (heredoc_start)))
+    (ERROR)
+    (operator)
+    (op_call
+      (operator)
+      (identifier)))
+  (heredoc_body
+    (heredoc_content)
+    (heredoc_end))
+  (heredoc_body
+    (heredoc_content)
+    (heredoc_end))
+  (heredoc_body
+    (heredoc_content)
+    (heredoc_end))
+  (heredoc_body
+    (heredoc_content)
+    (heredoc_end))
+  (heredoc_body
+    (heredoc_content)
+    (heredoc_end))
+  (heredoc_body
+    (heredoc_content)
+    (heredoc_end)))
+
+================================================================================
+unterminated quoted heredoc
+================================================================================
+<<-'missing_quote
+missing_quote
+--------------------------------------------------------------------------------
+
+(source_file
+  (op_call
+    (MISSING identifier)
+    (operator)
+    (op_call
+      (operator)
+      (ERROR)
+      (identifier)))
+  (identifier))

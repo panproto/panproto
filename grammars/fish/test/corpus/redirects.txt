@@ -1,0 +1,186 @@
+================================================================================
+Command with redirect - write
+================================================================================
+
+echo ''    >       test
+echo ''    &>      test
+echo ''    0>      test
+echo ''    >>      test
+echo ''    1>>     test
+echo ''    11>>    test
+echo ''    >?      test
+echo ''    2>?     test
+echo ''    &>?     test
+echo ''    >&0
+echo ''    >>&1
+echo ''    >&-
+echo ''    1>>&-
+# This was a failing test case until commit 72782892baf48b84133007bb0fddfda55be61b45
+systemctl 2>/dev/null $argv
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (word)
+    argument: (single_quote_string)
+    redirect: (file_redirect
+      operator: (direction)
+      destination: (word)))
+  (command
+    name: (word)
+    argument: (single_quote_string)
+    redirect: (file_redirect
+      operator: (direction)
+      destination: (word)))
+  (command
+    name: (word)
+    argument: (single_quote_string)
+    redirect: (file_redirect
+      operator: (direction)
+      destination: (word)))
+  (command
+    name: (word)
+    argument: (single_quote_string)
+    redirect: (file_redirect
+      operator: (direction)
+      destination: (word)))
+  (command
+    name: (word)
+    argument: (single_quote_string)
+    redirect: (file_redirect
+      operator: (direction)
+      destination: (word)))
+  (command
+    name: (word)
+    argument: (single_quote_string)
+    redirect: (file_redirect
+      operator: (direction)
+      destination: (word)))
+  (command
+    name: (word)
+    argument: (single_quote_string)
+    redirect: (file_redirect
+      operator: (direction)
+      destination: (word)))
+  (command
+    name: (word)
+    argument: (single_quote_string)
+    redirect: (file_redirect
+      operator: (direction)
+      destination: (word)))
+  (command
+    name: (word)
+    argument: (single_quote_string)
+    redirect: (file_redirect
+      operator: (direction)
+      destination: (word)))
+  (command
+    name: (word)
+    argument: (single_quote_string)
+    redirect: (stream_redirect))
+  (command
+    name: (word)
+    argument: (single_quote_string)
+    redirect: (stream_redirect))
+  (command
+    name: (word)
+    argument: (single_quote_string)
+    redirect: (stream_redirect))
+  (command
+    name: (word)
+    argument: (single_quote_string)
+    redirect: (stream_redirect))
+  (comment)
+  (command
+    name: (word)
+    redirect: (file_redirect
+      operator: (direction)
+      destination: (word))
+    argument: (variable_expansion
+      (variable_name))))
+
+================================================================================
+Command with redirect - read
+================================================================================
+
+echo ''     < 	    test
+echo ''     0< 	    test
+echo ''     1< 	    test
+echo ''     2< 	    test
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (word)
+    argument: (single_quote_string)
+    redirect: (file_redirect
+      operator: (direction)
+      destination: (word)))
+  (command
+    name: (word)
+    argument: (single_quote_string)
+    redirect: (file_redirect
+      operator: (direction)
+      destination: (word)))
+  (command
+    name: (word)
+    argument: (single_quote_string)
+    redirect: (file_redirect
+      operator: (direction)
+      destination: (word)))
+  (command
+    name: (word)
+    argument: (single_quote_string)
+    redirect: (file_redirect
+      operator: (direction)
+      destination: (word))))
+
+================================================================================
+Redirected block/statement
+================================================================================
+
+begin
+    echo 1
+end >> somefile.txt
+
+function example; end >&-
+function example; end 2>&-
+function example; end 2>>&-
+function example; end 2<&2
+function example; end 2> file.o
+
+--------------------------------------------------------------------------------
+
+(program
+  (redirect_statement
+    (begin_statement
+      (command
+        name: (word)
+        argument: (integer)))
+    (file_redirect
+      operator: (direction)
+      destination: (word)))
+  (redirect_statement
+    (function_definition
+      name: (word))
+    (stream_redirect))
+  (redirect_statement
+    (function_definition
+      name: (word))
+    (stream_redirect))
+  (redirect_statement
+    (function_definition
+      name: (word))
+    (stream_redirect))
+  (redirect_statement
+    (function_definition
+      name: (word))
+    (stream_redirect))
+  (redirect_statement
+    (function_definition
+      name: (word))
+    (file_redirect
+      operator: (direction)
+      destination: (word))))

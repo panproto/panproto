@@ -1,0 +1,119 @@
+==================
+Local variable
+==================
+
+local x = 1
+local name = "hello"
+
+---
+
+(source_file)
+
+==================
+Typed local
+==================
+
+local count: number = 0
+local label: string = "abc"
+
+---
+
+(source_file)
+
+==================
+Function definition
+==================
+
+local function add(a: number, b: number): number
+	return a + b
+end
+
+---
+
+(source_file)
+
+==================
+If statement
+==================
+
+if x > 0 then
+	print("positive")
+elseif x < 0 then
+	print("negative")
+else
+	print("zero")
+end
+
+---
+
+(source_file)
+
+==================
+Numeric for loop
+==================
+
+for i = 1, 10 do
+	print(i)
+end
+
+---
+
+(source_file)
+
+==================
+Generic for loop
+==================
+
+for key, value in pairs(t) do
+	print(key, value)
+end
+
+---
+
+(source_file)
+
+==================
+Table constructor
+==================
+
+local config = {
+	name = "test",
+	count = 3,
+	enabled = true,
+}
+
+---
+
+(source_file)
+
+==================
+While loop
+==================
+
+while running do
+	step()
+end
+
+---
+
+(source_file)
+
+==================
+Type alias
+==================
+
+type Point = { x: number, y: number }
+
+---
+
+(source_file)
+
+==================
+Method call
+==================
+
+local result = object:method(1, 2)
+
+---
+
+(source_file)

@@ -1,0 +1,120 @@
+===================
+84-nm-drivers.rules
+===================
+
+SUBSYSTEM!="net", GOTO="nm_drivers_end"
+ACTION!="add|change|move", GOTO="nm_drivers_end"
+
+# Determine ID_NET_DRIVER if there's no ID_NET_DRIVER or DRIVERS (old udev?)
+ENV{ID_NET_DRIVER}=="?*", GOTO="nm_drivers_end"
+DRIVERS=="?*", GOTO="nm_drivers_end"
+PROGRAM="/bin/sh -c '/usr/sbin/ethtool -i $$1 |/usr/bin/sed -n s/^driver:\ //p' -- $env{INTERFACE}", ENV{ID_NET_DRIVER}="%c"
+
+LABEL="nm_drivers_end"
+
+----
+
+(rules
+  (rule
+    (match
+      (match_op)
+      (value
+        (content)))
+    (assignment
+      (assignment_op)
+      (value
+        (content))))
+  (rule
+    (match
+      (match_op)
+      (value
+        (content
+          (pattern)
+          (pattern))))
+    (assignment
+      (assignment_op)
+      (value
+        (content))))
+  (comment)
+  (rule
+    (match
+      (env_var)
+      (match_op)
+      (value
+        (content
+          (pattern)
+          (pattern))))
+    (assignment
+      (assignment_op)
+      (value
+        (content))))
+  (rule
+    (match
+      (match_op)
+      (value
+        (content
+          (pattern)
+          (pattern))))
+    (assignment
+      (assignment_op)
+      (value
+        (content))))
+  (rule
+    (match
+      (assignment_op)
+      (value
+        (content
+          (var_sub)
+          (pattern)
+          (var_sub
+            (env_var)))))
+    (assignment
+      (env_var)
+      (assignment_op)
+      (value
+        (content
+          (fmt_sub)))))
+  (rule
+    (assignment
+      (assignment_op)
+      (value
+        (content)))))
+
+======================
+90-daxctl-device.rules
+======================
+
+ACTION=="add", SUBSYSTEM=="dax", TAG+="systemd",\
+  PROGRAM="/usr/bin/systemd-escape -p --template=daxdev-reconfigure@.service $env{DEVNAME}",\
+  ENV{SYSTEMD_WANTS}="%c"
+
+----
+
+(rules
+  (rule
+    (match
+      (match_op)
+      (value
+        (content)))
+    (match
+      (match_op)
+      (value
+        (content)))
+    (assignment
+      (assignment_op)
+      (value
+        (content)))
+    (linebreak)
+    (match
+      (assignment_op)
+      (value
+        (content
+          (var_sub
+            (env_var)))))
+    (linebreak)
+    (assignment
+      (env_var)
+      (assignment_op)
+      (value
+        (content
+          (fmt_sub))))))

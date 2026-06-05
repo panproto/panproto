@@ -1,0 +1,59 @@
+==================
+Excerpt from a real rosetta program
+==================
+
+INCLUDE ran4.seq
+( This is some text )
+
+100      CONSTANT #drawers
+#drawers CONSTANT #players
+
+CREATE drawers  #drawers CELLS ALLOT                    \ index 0..#drawers-1
+
+: drawer[]  ( n -- addr )   \ return address of drawer n
+    CELLS drawers +
+    ( comment in definition )
+;
+
+---
+
+(source_file
+  (builtin
+    (core))
+  (word)
+  (comment
+    (block_comment))
+  (number
+    (decimal_number))
+  (builtin
+    (core))
+  (word)
+  (word)
+  (builtin
+    (core))
+  (word)
+  (builtin
+    (core))
+  (word)
+  (word)
+  (builtin
+    (core))
+  (builtin
+    (core))
+  (comment
+    (line_comment))
+  (word_definition
+    (start_definition)
+    (word)
+    (comment
+      (stack_effect))
+    (comment
+      (line_comment))
+    (builtin
+      (core))
+    (word)
+    (builtin
+      (operator))
+    (comment
+      (block_comment))
+    (end_definition)))

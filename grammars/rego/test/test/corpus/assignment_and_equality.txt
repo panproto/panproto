@@ -1,0 +1,126 @@
+================================================================================
+assignment
+================================================================================
+
+package test.block
+
+x := 100
+
+--------------------------------------------------------------------------------
+(source_file
+  (module
+    (package)
+    (ref
+      (var)
+      (ref_arg
+        (ref_arg_dot
+          (var))))
+    (policy
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (assignment)
+          (term
+            (scalar
+              (number))))))))
+
+================================================================================
+comparison
+================================================================================
+
+package test.block
+
+rule {
+    x == y
+}
+
+--------------------------------------------------------------------------------
+(source_file
+  (module
+    (package)
+    (ref
+      (var)
+      (ref_arg
+        (ref_arg_dot
+          (var))))
+    (policy
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (open_curly)
+          (query
+            (literal
+              (expr
+                (expr_infix
+                  (expr
+                    (term
+                      (ref
+                        (var))))
+                  (infix_operator
+                    (bool_operator))
+                  (expr
+                    (term
+                      (ref
+                        (var))))))))
+          (close_curly))))))
+
+
+================================================================================
+unification
+================================================================================
+
+package test.block
+
+rule {
+    [x, "world"] = ["hello", y]
+}
+
+--------------------------------------------------------------------------------
+(source_file
+  (module
+    (package)
+    (ref
+      (var)
+      (ref_arg
+        (ref_arg_dot
+          (var))))
+    (policy
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (open_curly)
+          (query
+            (literal
+              (expr
+                (expr_infix
+                  (expr
+                    (term
+                      (ref
+                        (array
+                          (open_bracket)
+                          (term
+                            (ref
+                              (var)))
+                          (term
+                            (scalar
+                              (string (quoted_string))))
+                          (close_bracket)))))
+                  (infix_operator
+                    (assignment_operator
+                      (unification)))
+                  (expr
+                    (term
+                      (ref
+                        (array
+                          (open_bracket)
+                          (term
+                            (scalar
+                              (string (quoted_string))))
+                          (term
+                            (ref
+                              (var)))
+                          (close_bracket)))))))))
+          (close_curly))))))

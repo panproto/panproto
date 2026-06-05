@@ -1,0 +1,107 @@
+================================================================================
+variable declaration
+================================================================================
+int x;
+--------------------------------------------------------------------------------
+(compilation_unit
+	(decl_variable
+		(type_int)
+		(identifier)))
+
+================================================================================
+variable declaration with init
+================================================================================
+int x = 69;
+--------------------------------------------------------------------------------
+(compilation_unit
+	(decl_variable
+		(type_int)
+		(identifier)
+		(literal_int)))
+
+================================================================================
+variable declaration with inferred type
+================================================================================
+auto x = 69;
+--------------------------------------------------------------------------------
+(compilation_unit
+	(decl_variable
+		(identifier)
+		(literal_int)))
+
+================================================================================
+multiple variables declaration
+================================================================================
+int x, y, z;
+--------------------------------------------------------------------------------
+(compilation_unit
+	(decl_variable
+		(type_int)
+		(identifier)
+		(identifier)
+		(identifier)))
+
+================================================================================
+multiple variables declaration with initialization
+================================================================================
+int x, y = 69, z;
+--------------------------------------------------------------------------------
+(compilation_unit
+	(decl_variable
+		type: (type_int)
+		name: (identifier)
+		name: (identifier)
+		init: (literal_int)
+		name: (identifier)))
+
+================================================================================
+array declaration
+================================================================================
+int x[];
+int x[69];
+--------------------------------------------------------------------------------
+(compilation_unit
+	(decl_variable
+		type: (type_int)
+		name: (identifier))
+	(decl_variable
+		type: (type_int)
+		name: (identifier)
+		init_size: (literal_int)))
+
+================================================================================
+array declaration with initialization
+================================================================================
+int x[] = {1, 2, 3};
+int x[69] = {1, 2, 3};
+--------------------------------------------------------------------------------
+(compilation_unit
+	(decl_variable
+		type: (type_int)
+		name: (identifier)
+		init: (array_creation
+			(literal_int)
+			(literal_int)
+			(literal_int)))
+	(decl_variable
+		type: (type_int)
+		name: (identifier)
+		init_size: (literal_int)
+		init: (array_creation
+			(literal_int)
+			(literal_int)
+			(literal_int))))
+
+================================================================================
+variable declaration with function declarator
+================================================================================
+Point point(1, 2, 3);
+--------------------------------------------------------------------------------
+(compilation_unit
+	(decl_variable
+		type: (type_identifier (identifier))
+		name: (identifier)
+		(actual_parameters
+			(actual_parameter (literal_int))
+			(actual_parameter (literal_int))
+			(actual_parameter (literal_int)))))

@@ -1,0 +1,268 @@
+==================
+Page-level triggers
+==================
+
+page 50000 "Test Page Triggers"
+{
+    PageType = Card;
+    SourceTable = Customer;
+    
+    layout
+    {
+        area(Content)
+        {
+            group(GroupName)
+            {
+                field(Name; Rec.Name)
+                {
+                    ApplicationArea = All;
+                }
+            }
+        }
+    }
+    
+    // Basic page triggers that were already supported
+    trigger OnInit()
+    begin
+        IsInitialized := true;
+    end;
+    
+    trigger OnOpenPage()
+    begin
+        Message('Page opened');
+    end;
+    
+    trigger OnClosePage()
+    begin
+        Message('Page closed');
+    end;
+    
+    trigger OnAfterGetRecord()
+    begin
+        CalcFields("No. of Orders");
+    end;
+    
+    // New page triggers added in the fix
+    trigger OnAfterGetCurrRecord()
+    begin
+        CurrRecordID := Rec.RecordId;
+    end;
+    
+    trigger OnNewRecord()
+    begin
+        Rec.Type := Rec.Type::Customer;
+    end;
+    
+    trigger OnInsertRecord()
+    begin
+        InsertedCount += 1;
+        exit(true);
+    end;
+    
+    trigger OnModifyRecord()
+    begin
+        ModifiedCount += 1;
+        exit(true);
+    end;
+    
+    trigger OnDeleteRecord()
+    begin
+        if not ConfirmDelete then
+            exit(false);
+        exit(true);
+    end;
+    
+    trigger OnQueryClosePage()
+    begin
+        if Rec.Modified then
+            exit(Confirm('Discard changes?'));
+        exit(true);
+    end;
+
+    var
+        IsInitialized: Boolean;
+        CurrRecordID: RecordID;
+        InsertedCount: Integer;
+        ModifiedCount: Integer;
+        ConfirmDelete: Boolean;
+}
+
+---
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (group_section
+          (group_keyword)
+          name: (identifier)
+          (page_field
+            name: (identifier)
+            source: (member_expression
+              object: (identifier)
+              member: (identifier))
+            (property
+              name: (property_name)
+              value: (identifier))))))
+    (comment)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (identifier)
+          right: (boolean))
+        (end_keyword)))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list
+            (string_literal)))
+        (end_keyword)))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list
+            (string_literal)))
+        (end_keyword)))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list
+            (quoted_identifier)))
+        (end_keyword)))
+    (comment)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (identifier)
+          right: (member_expression
+            object: (identifier)
+            member: (identifier)))
+        (end_keyword)))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (member_expression
+            object: (identifier)
+            member: (identifier))
+          right: (qualified_enum_value
+            enum_type: (member_expression
+              object: (identifier)
+              member: (identifier))
+            value: (identifier)))
+        (end_keyword)))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (identifier)
+          right: (integer))
+        (exit_statement
+          (exit_keyword)
+          return_value: (boolean))
+        (end_keyword)))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (identifier)
+          right: (integer))
+        (exit_statement
+          (exit_keyword)
+          return_value: (boolean))
+        (end_keyword)))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (if_statement
+          (if_keyword)
+          condition: (unary_expression
+            operand: (identifier))
+          (then_keyword)
+          then_branch: (exit_statement
+            (exit_keyword)
+            return_value: (boolean)))
+        (exit_statement
+          (exit_keyword)
+          return_value: (boolean))
+        (end_keyword)))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (if_statement
+          (if_keyword)
+          condition: (member_expression
+            object: (identifier)
+            member: (identifier))
+          (then_keyword)
+          then_branch: (exit_statement
+            (exit_keyword)
+            return_value: (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (string_literal)))))
+        (exit_statement
+          (exit_keyword)
+          return_value: (boolean))
+        (end_keyword)))
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type))))))

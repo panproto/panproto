@@ -1,0 +1,262 @@
+================================================================================
+IndentationControls property with identifier value
+================================================================================
+
+page 60001 TestIndentationPage
+{
+    layout
+    {
+        area(content)
+        {
+            repeater(Group)
+            {
+                IndentationColumn = Indentation;
+                IndentationControls = Name;
+                field(Selected; Selected)
+                {
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (repeater_section
+          (repeater_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (page_field
+            name: (identifier)
+            source: (identifier)))))))
+
+================================================================================
+IndentationControls property with quoted identifier value
+================================================================================
+
+page 60002 TestQuotedIndentationPage
+{
+    layout
+    {
+        area(content)
+        {
+            repeater(Control1)
+            {
+                IndentationColumn = "Indent Level";
+                IndentationControls = "Display Name";
+                field("No."; "No.")
+                {
+                    ApplicationArea = All;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (repeater_section
+          (repeater_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (quoted_identifier))
+          (property
+            name: (property_name)
+            value: (quoted_identifier))
+          (page_field
+            name: (quoted_identifier)
+            source: (quoted_identifier)
+            (property
+              name: (property_name)
+              value: (identifier))))))))
+
+================================================================================
+IndentationControls in G/L Account hierarchy list context
+================================================================================
+
+page 60003 "GL Account Selections"
+{
+    Caption = 'G/L Account Selections';
+    
+    layout
+    {
+        area(content)
+        {
+            repeater(Group)
+            {
+                IndentationColumn = Indentation;
+                IndentationControls = Name;
+                ShowAsTree = false;
+                field(Selected; Selected)
+                {
+                    ApplicationArea = All;
+                }
+                field("No."; "No.")
+                {
+                    ApplicationArea = All;
+                }
+                field(Name; Name)
+                {
+                    ApplicationArea = All;
+                    Style = Strong;
+                    StyleExpr = NameEmphasize;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (repeater_section
+          (repeater_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (boolean))
+          (page_field
+            name: (identifier)
+            source: (identifier)
+            (property
+              name: (property_name)
+              value: (identifier)))
+          (page_field
+            name: (quoted_identifier)
+            source: (quoted_identifier)
+            (property
+              name: (property_name)
+              value: (identifier)))
+          (page_field
+            name: (identifier)
+            source: (identifier)
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (identifier))))))))
+
+================================================================================
+IndentationControls with mixed properties in complex repeater
+================================================================================
+
+page 60004 ComplexHierarchyPage
+{
+    layout
+    {
+        area(content)
+        {
+            repeater(MainRepeater)
+            {
+                Caption = 'Hierarchy View';
+                IndentationColumn = "Level Field";
+                IndentationControls = "Primary Name";
+                Visible = ShowHierarchy;
+                ShowAsTree = false;
+                field(Code; Code)
+                {
+                    ApplicationArea = All;
+                    Editable = false;
+                }
+                field("Primary Name"; "Primary Name")
+                {
+                    ApplicationArea = All;
+                    Style = Strong;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (repeater_section
+          (repeater_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (quoted_identifier))
+          (property
+            name: (property_name)
+            value: (quoted_identifier))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (boolean))
+          (page_field
+            name: (identifier)
+            source: (identifier)
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (boolean)))
+          (page_field
+            name: (quoted_identifier)
+            source: (quoted_identifier)
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (identifier))))))))

@@ -1,0 +1,74 @@
+================================================================================
+Option type variable in page var section followed by other variables
+================================================================================
+
+page 6085759 "CDC Document Files Factbox"
+{
+    var
+        DocAttachMgt: Codeunit "CDC Document Attachment Mgt.";
+        IsAttachedDocEdited: Boolean;
+        IsInfoPane: Boolean;
+        LastFilter: Text;
+        RecID: RecordID;
+        FindDocumentsUsing: Option " ","Source Record PK","Document Reference",Navigate;
+        TableNo: Integer;
+        TargetDocTableNo: Integer;
+        CreatedDocTableNo: Integer;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (object_reference_type
+            object_type: (codeunit_keyword)
+            reference: (quoted_identifier))))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (text_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (option_type
+            (option_member_list
+              (option_member
+                (quoted_identifier))
+              (option_member
+                (quoted_identifier))
+              (option_member
+                (quoted_identifier))
+              (option_member
+                (identifier))))))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type))))))

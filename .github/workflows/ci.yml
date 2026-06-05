@@ -74,7 +74,10 @@ jobs:
         with:
           key: ${{ matrix.rust }}
       - uses: taiki-e/install-action@nextest
-      - run: cargo nextest run --workspace
+      # The `ci` nextest profile skips the two multi-minute full-corpus emit
+      # gates; they run in the scheduled `corpus-gate` workflow (and locally by
+      # default). See `.config/nextest.toml`.
+      - run: cargo nextest run --workspace --profile ci
       - run: cargo test --doc --workspace
 
   feature-check:

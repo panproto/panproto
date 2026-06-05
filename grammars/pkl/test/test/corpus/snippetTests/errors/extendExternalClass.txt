@@ -1,0 +1,12 @@
+===
+errors/extendExternalClass.pkl
+===
+
+class Person extends Any
+---
+
+(module
+  (clazz
+    (identifier)      (classExtendsClause
+      (qualifiedIdentifier
+        (identifier)))))

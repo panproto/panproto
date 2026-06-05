@@ -1,0 +1,114 @@
+===============
+AL Built-in Functions Test
+===============
+
+codeunit 50100 "Test Built-in Functions"
+{
+    procedure TestRecordMethods()
+    var
+        Customer: Record Customer;
+        SalesHeader: Record "Sales Header";
+    begin
+        // SETCURRENTKEY - Sets the current key for record iteration
+        Customer.SETCURRENTKEY("No.");
+        Customer.SETCURRENTKEY("Name", "City");
+        
+        // SETRANGE - Sets a filter range on a field
+        Customer.SETRANGE("Customer Posting Group", 'DOMESTIC');
+        Customer.SETRANGE("Credit Limit (LCY)", 1000, 5000);
+        
+        // FINDFIRST - Finds the first record
+        if Customer.FINDFIRST then
+            Customer.SETFILTER("Balance (LCY)", '>%1', 0);
+            
+        // FINDSET - Finds a set of records
+        if Customer.FINDSET then
+            repeat
+                // Process records
+            until Customer.NEXT = 0;
+            
+        // ISEMPTY - Checks if a record set is empty
+        if Customer.ISEMPTY then
+            exit;
+            
+        // SETFILTER - Sets a complex filter
+        Customer.SETFILTER("Date Filter", '%1..%2', 20240101D, 20241231D);
+        Customer.SETFILTER("No.", 'C*');
+        
+        // SETRECFILTER - Sets record filter
+        Customer.SETRECFILTER;
+        
+        // GETVIEW - Gets the current view
+        Customer.GETVIEW;
+    end;
+    
+    procedure TestDialogFunctions()
+    var
+        Customer: Record Customer;
+    begin
+        // CONFIRM - Shows a confirmation dialog
+        if CONFIRM('Do you want to continue?') then
+            exit;
+            
+        if CONFIRM('Delete customer %1?', Customer."No.") then
+            Customer.DELETE;
+    end;
+    
+    procedure TestPageFunctions()
+    var
+        CustomerList: Page "Customer List";
+        Customer: Record Customer;
+    begin
+        // RUNMODAL - Runs a page/report modally
+        RUNMODAL(PAGE::"Customer List");
+        RUNMODAL(PAGE::"Customer Card", Customer);
+        
+        // SETTABLEVIEW - Sets a table view on a report
+        CustomerList.SETTABLEVIEW(Customer);
+    end;
+    
+    procedure TestDatabaseReferences()
+    var
+        RecRef: RecordRef;
+    begin
+        // DATABASE references
+        RecRef.OPEN(DATABASE::Customer);
+        RecRef.OPEN(DATABASE::"Sales Header");
+        
+        if RecRef.READPERMISSION then
+            RecRef.CLOSE;
+    end;
+    
+    procedure TestEnumComparisons()
+    var
+        SalesHeader: Record "Sales Header";
+    begin
+        // Status enum comparisons
+        if SalesHeader.Status = SalesHeader.Status::Open then
+            exit;
+            
+        case SalesHeader.Status of
+            SalesHeader.Status::Open:
+                begin
+                    // Handle open status
+                end;
+            SalesHeader.Status::Released:
+                begin
+                    // Handle released status
+                end;
+        end;
+    end;
+    
+    procedure TestMethodChaining()
+    var
+        JsonObject: JsonObject;
+        JsonToken: JsonToken;
+        JsonValue: JsonValue;
+    begin
+        // Method chaining
+        if JsonObject.Get('property').AsValue().AsText() <> '' then
+            exit;
+            
+        JsonObject.Get('nested').AsObject().Get('value').AsValue();
+    end;
+}

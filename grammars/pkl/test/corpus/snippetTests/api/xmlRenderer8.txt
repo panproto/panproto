@@ -1,0 +1,36 @@
+===
+api/xmlRenderer8.pkl
+===
+
+import "pkl:xml"
+
+m = new Mixin {}
+
+output {
+  renderer = new xml.Renderer {}
+}
+
+---
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody)))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)
+              (identifier)))
+          (objectBody))))))

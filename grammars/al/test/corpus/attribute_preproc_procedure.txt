@@ -1,0 +1,248 @@
+================================================================================
+Var section followed by attributed procedure in preprocessor
+================================================================================
+
+table 50000 "Test"
+{
+    var
+        GlobalVar: Record "Test Record";
+        Helper: Codeunit "Test Helper";
+
+#if not CLEAN24
+    [Obsolete('Field length will be increased', '24.0')]
+    procedure TestProc(Param: Text[30]) Result: Text
+#else
+    procedure TestProc(Param: Text[50]) Result: Text
+#endif
+    var
+        LocalVar: Text;
+    begin
+        Result := Param;
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (record_type
+            reference: (quoted_identifier))))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (object_reference_type
+            object_type: (codeunit_keyword)
+            reference: (quoted_identifier))))
+      (preproc_split_procedure
+        (preproc_if
+          (preproc_open)
+          condition: (preproc_not_expression
+            (identifier)))
+        (attribute_item
+          attribute: (attribute_content
+            name: (identifier)
+            arguments: (attribute_arguments
+              (attribute_argument_list
+                (string_literal)
+                (string_literal)))))
+        (procedure_keyword)
+        name: (identifier)
+        (parameter_list
+          (parameter
+            name: (identifier)
+            type: (type_specification
+              (text_type
+                length: (integer)))))
+        return_value: (identifier)
+        return_type: (type_specification
+          (text_type))
+        (preproc_else)
+        (procedure_keyword)
+        name: (identifier)
+        (parameter_list
+          (parameter
+            name: (identifier)
+            type: (type_specification
+              (text_type
+                length: (integer)))))
+        return_value: (identifier)
+        return_type: (type_specification
+          (text_type))
+        (preproc_endif
+          (preproc_close))
+        (var_section
+          (var_keyword)
+          (variable_declaration
+            name: (identifier)
+            type: (type_specification
+              (text_type))))
+        (code_block
+          (begin_keyword)
+          (assignment_statement
+            left: (identifier)
+            right: (identifier))
+          (end_keyword))))))
+
+================================================================================
+Multiple attributes in preprocessor branch
+================================================================================
+
+table 50000 "Test Table"
+{
+    fields
+    {
+        field(1; "ID"; Integer) { }
+    }
+
+#if CLEAN24
+    [NonDebuggable]
+    [Scope('OnPrem')]
+    [Obsolete('Use new version', '24.0')]
+    procedure TestProcNew()
+#else
+    [Scope('Cloud')]
+    procedure TestProcOld()
+#endif
+    begin
+        Message('Test');
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))))
+    (preproc_split_procedure
+      (preproc_if
+        (preproc_open)
+        condition: (identifier))
+      (attribute_item
+        attribute: (attribute_content
+          name: (identifier)))
+      (attribute_item
+        attribute: (attribute_content
+          name: (identifier)
+          arguments: (attribute_arguments
+            (attribute_argument_list
+              (string_literal)))))
+      (attribute_item
+        attribute: (attribute_content
+          name: (identifier)
+          arguments: (attribute_arguments
+            (attribute_argument_list
+              (string_literal)
+              (string_literal)))))
+      (procedure_keyword)
+      name: (identifier)
+      (preproc_else)
+      (attribute_item
+        attribute: (attribute_content
+          name: (identifier)
+          arguments: (attribute_arguments
+            (attribute_argument_list
+              (string_literal)))))
+      (procedure_keyword)
+      name: (identifier)
+      (preproc_endif
+        (preproc_close))
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list
+            (string_literal)))
+        (end_keyword)))))
+
+================================================================================
+Attribute with split procedure header
+================================================================================
+
+table 50000 "Test"
+{
+    var
+        Config: Record "Config";
+
+    [BusinessEvent(false, false)]
+#if CLEAN25
+    procedure OnBeforeAction(var Rec: Record "Test"; var IsHandled: Boolean)
+#else  
+    procedure OnBeforeAction(var Rec: Record "Test")
+#endif
+    begin
+        // Event
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (record_type
+            reference: (quoted_identifier)))))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (boolean)
+            (boolean)))))
+    (preproc_split_procedure
+      (preproc_if
+        (preproc_open)
+        condition: (identifier))
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier))))
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (preproc_else)
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier)))))
+      (preproc_endif
+        (preproc_close))
+      (code_block
+        (begin_keyword)
+        (comment)
+        (end_keyword)))))

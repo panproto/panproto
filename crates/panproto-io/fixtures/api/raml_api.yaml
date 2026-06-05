@@ -1,0 +1,34 @@
+#%RAML 1.0
+title: World Music API
+version: v1
+baseUri: http://example.api.com/{version}
+mediaType: application/json
+types:
+  Song:
+    type: object
+    properties:
+      title: string
+      length:
+        type: number
+        minimum: 0
+        maximum: 600.0
+/songs:
+  get:
+    description: Get all songs 🎵
+    queryParameters:
+      genre:
+        description: filter by genre
+        required: false
+    responses:
+      200:
+        body:
+          application/json:
+            example: |
+              [{"title": "Café", "length": 215.5}]
+  /{songId}:
+    get:
+      responses:
+        200:
+          body:
+            application/json:
+              type: Song

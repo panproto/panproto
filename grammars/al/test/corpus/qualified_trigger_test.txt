@@ -1,0 +1,180 @@
+================================================================================
+Qualified trigger with provider and event
+================================================================================
+
+page 50100 "Camera Test"
+{
+    trigger CameraProvider::PictureAvailable(PictureName: Text; PictureFilePath: Text)
+    begin
+        Message('Picture: %1', PictureName);
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (text_type)))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (text_type))))
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list
+            (string_literal)
+            (identifier)))
+        (end_keyword)))))
+
+================================================================================
+Multiple qualified triggers
+================================================================================
+
+page 50200 "Provider Events"
+{
+    trigger DataProvider::DataReady()
+    begin
+        ProcessData();
+    end;
+    
+    trigger NetworkService::ConnectionLost(ErrorCode: Integer)
+    begin
+        HandleDisconnect(ErrorCode);
+    end;
+    
+    trigger AuthProvider::TokenExpired(Token: Text; ExpiryTime: DateTime)
+    begin
+        RefreshToken(Token);
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list))
+        (end_keyword)))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list
+            (identifier)))
+        (end_keyword)))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (text_type)))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list
+            (identifier)))
+        (end_keyword)))))
+
+================================================================================
+Regular triggers alongside qualified triggers
+================================================================================
+
+page 50300 "Mixed Triggers"
+{
+    trigger OnOpenPage()
+    begin
+        Initialize();
+    end;
+    
+    trigger Camera::PictureReady(Path: Text)
+    begin
+        LoadPicture(Path);
+    end;
+    
+    trigger OnClosePage()
+    begin
+        Cleanup();
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list))
+        (end_keyword)))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (text_type))))
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list
+            (identifier)))
+        (end_keyword)))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list))
+        (end_keyword)))))

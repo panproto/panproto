@@ -1,0 +1,244 @@
+==================
+Blank node labels
+==================
+
+SELECT * {
+  _:s :p :o
+}
+
+---
+
+(unit
+  (select_query
+    (select_clause) 
+    (where_clause
+      (group_graph_pattern
+        (triples_block 
+          (triples_same_subject 
+            (blank_node_label) 
+            (property_list 
+              (property
+                (path_element
+                  (prefixed_name (namespace) (pn_local)))
+                (object_list
+                  (prefixed_name (namespace) (pn_local)))))))))))
+
+=====================
+Group graph patterns
+=====================
+
+SELECT * {
+  ?s ?p ?o .
+  ?s ?p ?o
+  { ?s ?p ?o }
+  { ?s ?p ?o }
+}
+
+---
+
+(unit 
+  (select_query 
+    (select_clause) 
+    (where_clause 
+      (group_graph_pattern
+        (triples_block
+          (triples_same_subject
+            (var)
+            (property_list (property
+              (var) 
+              (object_list (var)))))
+          (triples_same_subject
+            (var)
+            (property_list (property
+              (var)
+              (object_list (var))))))
+        (group_or_union_graph_pattern
+          (group_graph_pattern
+            (triples_block
+              (triples_same_subject
+                (var) 
+                (property_list (property
+                  (var)
+                  (object_list (var))))))))
+        (group_or_union_graph_pattern
+          (group_graph_pattern
+            (triples_block
+              (triples_same_subject
+                (var)
+                (property_list (property
+                  (var)
+                  (object_list (var)))))))))))) 
+
+====================
+Empty group pattern
+====================
+
+SELECT * {}
+
+---
+
+(unit
+  (select_query
+    (select_clause)
+    (where_clause (group_graph_pattern))))
+
+=======
+Filter
+=======
+
+SELECT * {
+  ?s ?p ?o
+  FILTER (?s > 0)
+}
+
+---
+
+(unit
+  (select_query
+    (select_clause)
+    (where_clause
+      (group_graph_pattern
+        (triples_block
+          (triples_same_subject
+            (var)
+            (property_list (property
+              (var)
+              (object_list (var))))))
+          (filter
+            (bracketted_expression
+              (binary_expression
+                (var)
+                (integer))))))))
+
+=================
+Optional pattern
+=================
+
+SELECT * {
+  {} OPTIONAL { ?s ?p ?o }
+  OPTIONAL { ?s ?p ?o }
+
+}
+
+---
+
+(unit 
+  (select_query
+    (select_clause)
+    (where_clause
+      (group_graph_pattern
+        (group_or_union_graph_pattern (group_graph_pattern))
+        (optional_graph_pattern
+          (group_graph_pattern
+            (triples_block
+              (triples_same_subject
+                (var)
+                (property_list (property
+                  (var)
+                  (object_list (var))))))))
+        (optional_graph_pattern
+          (group_graph_pattern
+            (triples_block
+              (triples_same_subject
+                (var)
+                (property_list (property
+                  (var)
+                  (object_list (var))))))))))))
+
+
+============================
+Optional pattern constraint
+============================
+
+SELECT * {
+  OPTIONAL { 
+    ?s ?p ?o
+    FILTER (?s < 10)
+  }
+}
+
+---
+
+(unit 
+  (select_query
+    (select_clause)
+    (where_clause
+      (group_graph_pattern
+        (optional_graph_pattern
+          (group_graph_pattern
+            (triples_block
+              (triples_same_subject
+                (var)
+                (property_list (property
+                  (var)
+                  (object_list (var))))))
+            (filter
+              (bracketted_expression
+                (binary_expression
+                  (var)
+                  (integer))))))))))
+
+======================
+Matching alternatives
+======================
+
+SELECT * {
+  { ?s ?p ?o }
+  UNION
+  { ?s ?p ?o }
+}
+
+---
+
+(unit
+  (select_query
+    (select_clause)
+    (where_clause
+      (group_graph_pattern
+        (group_or_union_graph_pattern
+          (group_graph_pattern
+            (triples_block
+              (triples_same_subject
+                (var)
+                (property_list (property
+                  (var)
+                  (object_list (var)))))))
+          (group_graph_pattern
+            (triples_block
+              (triples_same_subject
+                (var)
+                (property_list (property
+                  (var)
+                  (object_list (var))))))))))))
+
+=========
+Negation
+=========
+
+SELECT * {
+  ?s ?p ?o
+  FILTER NOT EXISTS { ?s ?p ?o }
+  MINUS { ?s ?p ?o }
+}
+
+---
+
+(unit (select_query 
+  (select_clause)
+  (where_clause (group_graph_pattern
+    (triples_block (triples_same_subject
+      (var)
+      (property_list (property
+        (var)
+        (object_list (var))))))
+    (filter (not_exists_func (group_graph_pattern (triples_block (triples_same_subject
+      (var)
+      (property_list (property
+        (var)
+        (object_list (var)))))))))
+    (minus_graph_pattern (group_graph_pattern (triples_block (triples_same_subject
+        (var)
+        (property_list (property
+          (var)
+          (object_list (var))))))))))))
+

@@ -1,0 +1,228 @@
+========================================================================
+Table with fields section
+========================================================================
+table 50100 MyTable
+{
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; Name; Text[100]) { }
+        field(3; Amount; Decimal) { }
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        (integer)
+        (quoted_identifier)
+        (type_specification
+          (code_type
+            (integer))))
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (text_type
+            (integer))))
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (basic_type))))))
+
+========================================================================
+Field with properties
+========================================================================
+table 50100 T
+{
+    fields
+    {
+        field(1; "No."; Code[20])
+        {
+            Caption = 'Number';
+            DataClassification = CustomerContent;
+        }
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        (integer)
+        (quoted_identifier)
+        (type_specification
+          (code_type
+            (integer)))
+        (property
+          (property_name)
+          (string_literal))
+        (property
+          (property_name)
+          (identifier))))))
+
+========================================================================
+Keys section
+========================================================================
+table 50100 T
+{
+    keys
+    {
+        key(PK; "No.") { Clustered = true; }
+        key(Name; Name, "No.") { }
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (identifier)
+    (keys_section
+      (keys_keyword)
+      (key_declaration
+        (key_keyword)
+        (identifier)
+        (field_list
+          (quoted_identifier))
+        (property
+          (property_name)
+          (boolean)))
+      (key_declaration
+        (key_keyword)
+        (identifier)
+        (field_list
+          (identifier)
+          (quoted_identifier))))))
+
+========================================================================
+Fieldgroups section
+========================================================================
+table 50100 T
+{
+    fieldgroups
+    {
+        fieldgroup(DropDown; "No.", Name) { }
+        fieldgroup(Brick; "No.", Name, Amount) { }
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (identifier)
+    (fieldgroups_section
+      (fieldgroups_keyword)
+      (fieldgroup_declaration
+        (fieldgroup_keyword)
+        (identifier)
+        (field_list
+          (quoted_identifier)
+          (identifier)))
+      (fieldgroup_declaration
+        (fieldgroup_keyword)
+        (identifier)
+        (field_list
+          (quoted_identifier)
+          (identifier)
+          (identifier))))))
+
+========================================================================
+Table with fields keys and fieldgroups
+========================================================================
+table 50100 MyTable
+{
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; Name; Text[100]) { }
+    }
+    keys
+    {
+        key(PK; "No.") { Clustered = true; }
+    }
+    fieldgroups
+    {
+        fieldgroup(DropDown; "No.", Name) { }
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        (integer)
+        (quoted_identifier)
+        (type_specification
+          (code_type
+            (integer))))
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (text_type
+            (integer)))))
+    (keys_section
+      (keys_keyword)
+      (key_declaration
+        (key_keyword)
+        (identifier)
+        (field_list
+          (quoted_identifier))
+        (property
+          (property_name)
+          (boolean))))
+    (fieldgroups_section
+      (fieldgroups_keyword)
+      (fieldgroup_declaration
+        (fieldgroup_keyword)
+        (identifier)
+        (field_list
+          (quoted_identifier)
+          (identifier))))))
+
+========================================================================
+Field without body block
+========================================================================
+table 50100 T
+{
+    fields
+    {
+        field(1; "No."; Code[20])
+    }
+}
+------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        (integer)
+        (quoted_identifier)
+        (type_specification
+          (code_type
+            (integer)))))))

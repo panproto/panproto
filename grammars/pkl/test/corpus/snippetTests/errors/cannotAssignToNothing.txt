@@ -1,0 +1,15 @@
+===
+errors/cannotAssignToNothing.pkl
+===
+
+value: nothing = "foo"
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (nothingType))
+    (slStringLiteralExpr
+      (slStringLiteralPart))))

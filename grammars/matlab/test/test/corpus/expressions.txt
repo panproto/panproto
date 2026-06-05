@@ -1,0 +1,342 @@
+================================================================================
+Binary Expressions: Simple Expressions
+================================================================================
+
+1 + 2
+1+2
+1 +2
+1+ 2
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (binary_operator
+    (number)
+    (number))
+  (binary_operator
+    (number)
+    (number))
+  (binary_operator
+    (number)
+    (number))
+  (binary_operator
+    (number)
+    (number)))
+
+================================================================================
+Binary Expressions: Associativity
+================================================================================
+
+ 2 * a + b;
+ 2 * (a + b);
+-2 * a + b;
+ a ^ 2 + 3
+ a ^ 2 * 3
+ 2 * x ^ 3
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (binary_operator
+    (binary_operator
+      (number)
+      (identifier))
+    (identifier))
+  (binary_operator
+    (number)
+    (parenthesis
+      (binary_operator
+        (identifier)
+        (identifier))))
+  (binary_operator
+    (binary_operator
+      (unary_operator
+        (number))
+      (identifier))
+    (identifier))
+  (binary_operator
+    (binary_operator
+      (identifier)
+      (number))
+    (number))
+  (binary_operator
+    (binary_operator
+      (identifier)
+      (number))
+    (number))
+  (binary_operator
+    (number)
+    (binary_operator
+      (identifier)
+      (number))))
+
+================================================================================
+Boolean Expressions: Simple Expressions
+================================================================================
+
+a && b
+a || b
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (boolean_operator
+    (identifier)
+    (identifier))
+  (boolean_operator
+    (identifier)
+    (identifier)))
+
+================================================================================
+Boolean Expressions: Associativity
+================================================================================
+
+a && b || c && d
+a || b && c || d
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (boolean_operator
+    (boolean_operator
+      (identifier)
+      (identifier))
+    (boolean_operator
+      (identifier)
+      (identifier)))
+  (boolean_operator
+    (boolean_operator
+      (identifier)
+      (boolean_operator
+        (identifier)
+        (identifier)))
+    (identifier)))
+
+================================================================================
+Unary Expressions: Simple
+================================================================================
+
+~a
++a
+-a
++-a
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (not_operator
+    (identifier))
+  (unary_operator
+    (identifier))
+  (unary_operator
+    (identifier))
+  (unary_operator
+    (unary_operator
+      (identifier))))
+
+================================================================================
+Comparison Expressions: Simple Expressions
+================================================================================
+
+a == b
+a < b
+a <= b
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (comparison_operator
+    (identifier)
+    (identifier))
+  (comparison_operator
+    (identifier)
+    (identifier))
+  (comparison_operator
+    (identifier)
+    (identifier)))
+
+================================================================================
+Comparison Expressions: Composition
+================================================================================
+
+a + b == -c
+a + b == c && d
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (comparison_operator
+    (binary_operator
+      (identifier)
+      (identifier))
+    (unary_operator
+      (identifier)))
+  (boolean_operator
+    (comparison_operator
+      (binary_operator
+        (identifier)
+        (identifier))
+      (identifier))
+    (identifier)))
+
+================================================================================
+Postfix Expressions: Simple Expressions
+================================================================================
+
+A'
+A.'
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (postfix_operator
+    (identifier))
+  (postfix_operator
+    (identifier)))
+
+================================================================================
+Postfix Expressions: Composition
+================================================================================
+
+~A'
+-A'
+A'^2
+A^2'
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (not_operator
+    (postfix_operator
+      (identifier)))
+  (unary_operator
+    (postfix_operator
+      (identifier)))
+  (binary_operator
+    (postfix_operator
+      (identifier))
+    (number))
+  (binary_operator
+    (identifier)
+    (postfix_operator
+      (number))))
+
+================================================================================
+Expressions: Function Arguments
+================================================================================
+
+f(1:a-((1+(b>1))*c))
+f((1:10)')
+f((1:10).')
+f(+(1:10))
+f(-(1:10))
+f(~(1:10))
+f(a&&b)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_call
+    (identifier)
+    (arguments
+      (range
+        (number)
+        (binary_operator
+          (identifier)
+          (parenthesis
+            (binary_operator
+              (parenthesis
+                (binary_operator
+                  (number)
+                  (parenthesis
+                    (comparison_operator
+                      (identifier)
+                      (number)))))
+              (identifier)))))))
+  (function_call
+    (identifier)
+    (arguments
+      (postfix_operator
+        (parenthesis
+          (range
+            (number)
+            (number))))))
+  (function_call
+    (identifier)
+    (arguments
+      (postfix_operator
+        (parenthesis
+          (range
+            (number)
+            (number))))))
+  (function_call
+    (identifier)
+    (arguments
+      (unary_operator
+        (parenthesis
+          (range
+            (number)
+            (number))))))
+  (function_call
+    (identifier)
+    (arguments
+      (unary_operator
+        (parenthesis
+          (range
+            (number)
+            (number))))))
+  (function_call
+    (identifier)
+    (arguments
+      (not_operator
+        (_expression
+          (parenthesis
+            (range
+              (number)
+              (number)))))))
+  (function_call
+    (identifier)
+    (arguments
+      (boolean_operator
+        (_expression
+          (identifier))
+        (_expression
+          (identifier))))))
+
+================================================================================
+Expressions: Indirect Field
+================================================================================
+
+tbl.(1)
+tbl.("name")
+tbl.(var)
+tbl.(2-1)
+tbl.(a')
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (field_expression
+    (identifier)
+    (indirect_access
+      (number)))
+  (field_expression
+    (identifier)
+    (indirect_access
+      (string
+        (string_content))))
+  (field_expression
+    (identifier)
+    (indirect_access
+      (identifier)))
+  (field_expression
+    (identifier)
+    (indirect_access
+      (binary_operator
+        (number)
+        (number))))
+  (field_expression
+    (identifier)
+    (indirect_access
+      (postfix_operator
+        (identifier)))))

@@ -1,0 +1,35 @@
+================================================================================
+Map field
+================================================================================
+
+syntax = "proto3";
+
+message Project {
+  map<string, int32> attributes = 1;
+  map<int64, Project> projects = 2;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (syntax)
+  (message
+    (message_name
+      (identifier))
+    (message_body
+      (map_field
+        (key_type)
+        (type)
+        (identifier)
+        (field_number
+          (int_lit
+            (decimal_lit))))
+      (map_field
+        (key_type)
+        (type
+          (message_or_enum_type
+            (identifier)))
+        (identifier)
+        (field_number
+          (int_lit
+            (decimal_lit)))))))

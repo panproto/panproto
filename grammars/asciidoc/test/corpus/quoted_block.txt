@@ -1,0 +1,148 @@
+===========
+quoted_block
+===========
+
+[quote,Monty Python and the Holy Grail]
+____
+Dennis: Come and see the violence inherent in the system. Help! Help! I'm being repressed!
+
+King Arthur: Bloody peasant!
+
+Dennis: Oh, what a giveaway! Did you hear that? Did you hear that, eh? That's what I'm on about! Did you see him repressing me? You saw him, Didn't you?
+____
+
+> I hold it that a little rebellion now and then is a good thing,
+> and as necessary in the political world as storms in the physical.
+> -- Thomas Jefferson, Papers of Thomas Jefferson: Volume 11
+
+> > What's new?
+>
+> I've got Markdown in my asciidoc!
+>
+> > Like what?
+>
+> * Blockquotes
+> * Headings
+> * Fenced code blocks
+>
+> > Is there more?
+>
+> Yep. asciidoc and Markdown share a lot of common syntax already.
+
+"I hold it that a little rebellion now and then is a good thing,
+and as necessary in the political world as storms in the physical."
+-- Thomas Jefferson, Papers of Thomas Jefferson: Volume 11
+
+-----
+
+(document
+  (block_element
+    (section_block
+      (element_attr
+        (element_attr_marker)
+        (attr_value)
+        (element_attr_marker))
+      (quoted_block
+        (quoted_block_start_marker)
+        (line)
+        (line)
+        (line)
+        (quoted_block_end_marker))))
+  (block_element
+    (section_block
+      (quoted_md_block
+        (quoted_block_md_marker)
+        (line)
+        (quoted_block_md_marker)
+        (line)
+        (quoted_block_md_marker)
+        (line)
+        (quoted_block_md_marker)
+        (line)
+        (quoted_block_md_marker)
+        (quoted_block_md_marker)
+        (line)
+        (quoted_block_md_marker)
+        (quoted_block_md_marker)
+        (line)
+        (quoted_block_md_marker)
+        (quoted_block_md_marker)
+        (line)
+        (quoted_block_md_marker)
+        (line)
+        (quoted_block_md_marker)
+        (line)
+        (quoted_block_md_marker)
+        (quoted_block_md_marker)
+        (line)
+        (quoted_block_md_marker)
+        (quoted_block_md_marker)
+        (line))))
+  (block_element
+    (section_block
+      (paragraph
+        (line))))
+  (block_element
+    (section_block
+      (paragraph
+        (line)
+        (quoted_line
+          (quoted_paragraph_marker)
+          (line))))))
+
+=================================
+quoted_block_variable_length
+=================================
+
+_____
+A quoted block with five underscores.
+_____
+
+________
+A quoted block with eight underscores.
+________
+
+-----
+
+(document
+  (block_element
+    (section_block
+      (quoted_block
+        (quoted_block_start_marker)
+        (line)
+        (quoted_block_end_marker))))
+  (block_element
+    (section_block
+      (quoted_block
+        (quoted_block_start_marker)
+        (line)
+        (quoted_block_end_marker)))))
+
+===================================
+quoted_block_nested_variable_length
+===================================
+
+______
+Outer quoted block.
+
+____
+Inner quoted block.
+____
+
+Back to outer.
+______
+
+-----
+
+(document
+  (block_element
+    (section_block
+      (quoted_block
+        (quoted_block_start_marker)
+        (line)
+        (quoted_block
+          (quoted_block_start_marker)
+          (line)
+          (quoted_block_end_marker))
+        (line)
+        (quoted_block_end_marker)))))

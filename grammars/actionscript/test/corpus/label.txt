@@ -1,0 +1,31 @@
+============
+labeled loop
+============
+
+loop1: while (True) {
+    if (a == b) {
+        break loop1;
+    } else {
+        continue loop1;
+    }
+}
+
+---
+
+(program
+    (labeled_statement
+        (identifier)
+        (while_statement
+            (parenthesized_expression (identifier))
+            (statement_block
+                (if_statement
+                    (parenthesized_expression (binary_expression (identifier) (identifier)))
+                    (statement_block (break_statement (identifier)))
+                    (else_clause
+                        (statement_block (continue_statement (identifier)))
+                    )
+                )
+            )
+        )
+    )
+)

@@ -1,0 +1,48 @@
+================================================================================
+Rego alias for package
+================================================================================
+
+package myexample
+
+example_rule {
+  true
+} {
+  1 == 1
+}
+--------------------------------------------------------------------------------
+
+(source_file
+  (module
+    (package)
+    (ref
+      (var))
+    (policy
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (open_curly)
+          (query
+            (literal
+              (expr
+                (term
+                  (scalar
+                    (boolean))))))
+          (close_curly))
+        (rule_body
+          (open_curly)
+          (query
+            (literal
+              (expr
+                (expr_infix
+                  (expr
+                    (term
+                      (scalar
+                        (number))))
+                  (infix_operator
+                    (bool_operator))
+                  (expr
+                    (term
+                      (scalar
+                        (number))))))))
+          (close_curly))))))

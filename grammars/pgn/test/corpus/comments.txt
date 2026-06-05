@@ -1,0 +1,639 @@
+================================================================================
+Freestanding leading semicolon comments
+================================================================================
+
+; this is
+; a section
+
+[Event "?"]
+
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (freestanding_comment
+    (rest_of_line_comment
+      (rest_of_line_comment_delimiter_open)
+      (rest_of_line_comment_text))
+    (rest_of_line_comment
+      (rest_of_line_comment_delimiter_open)
+      (rest_of_line_comment_text)))
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (result_code)))
+
+================================================================================
+Freestanding leading percent comments
+================================================================================
+
+% this is
+% a section
+
+[Event "?"]
+
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (freestanding_comment
+    (rest_of_line_comment
+      (rest_of_line_comment_delimiter_open)
+      (rest_of_line_comment_text))
+    (rest_of_line_comment
+      (rest_of_line_comment_delimiter_open)
+      (rest_of_line_comment_text)))
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (result_code)))
+
+================================================================================
+Freestanding trailing semicolon comments
+================================================================================
+
+[Event "?"]
+
+0-1
+
+; that was
+; a section
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (result_code))
+  (freestanding_comment
+    (rest_of_line_comment
+      (rest_of_line_comment_delimiter_open)
+      (rest_of_line_comment_text))
+    (rest_of_line_comment
+      (rest_of_line_comment_delimiter_open)
+      (rest_of_line_comment_text))))
+
+================================================================================
+Freestanding trailing percent comments
+================================================================================
+
+[Event "?"]
+
+0-1
+
+% that was
+% a section
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (result_code))
+  (freestanding_comment
+    (rest_of_line_comment
+      (rest_of_line_comment_delimiter_open)
+      (rest_of_line_comment_text))
+    (rest_of_line_comment
+      (rest_of_line_comment_delimiter_open)
+      (rest_of_line_comment_text))))
+
+================================================================================
+Freestanding trailing inline-style comments
+================================================================================
+
+[Event "?"]
+
+0-1
+{postscript}
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (result_code))
+  (freestanding_comment
+    (inline_comment
+      (inline_comment_delimiter_open)
+      (inline_comment_text)
+      (inline_comment_delimiter_close))))
+
+
+================================================================================
+Rest-of-line comments in header
+================================================================================
+
+[Event "?"] ; note to self
+
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close))
+      (rest_of_line_comment
+        (rest_of_line_comment_delimiter_open)
+        (rest_of_line_comment_text)))
+    (result_code)))
+
+
+================================================================================
+Percent comments in movetext
+================================================================================
+
+[Event "?"]
+
+1. d4 Nf6 2. c4 e6
+% comment in movetext
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (move_number)
+      (san_move)
+      (san_move)
+      (move_number)
+      (san_move)
+      (san_move)
+      (rest_of_line_comment
+        (rest_of_line_comment_delimiter_open)
+        (rest_of_line_comment_text)))
+    (result_code)))
+
+================================================================================
+Percent comments in movetext preceded by whitespace
+================================================================================
+
+[Event "?"]
+
+1. d4 Nf6 2. c4 e6  
+% comment in movetext
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (move_number)
+      (san_move)
+      (san_move)
+      (move_number)
+      (san_move)
+      (san_move)
+      (rest_of_line_comment
+        (rest_of_line_comment_delimiter_open)
+        (rest_of_line_comment_text)))
+    (result_code)))
+
+================================================================================
+Semicolon comments in movetext
+================================================================================
+
+[Event "?"]
+
+1. d4 Nf6 2. c4 e6 ; comment in movetext
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (move_number)
+      (san_move)
+      (san_move)
+      (move_number)
+      (san_move)
+      (san_move)
+      (rest_of_line_comment
+        (rest_of_line_comment_delimiter_open)
+        (rest_of_line_comment_text)))
+    (result_code)))
+
+================================================================================
+Percent comments ("escapes") not in first column, an error
+================================================================================
+
+[Event "?"]
+
+1. d4 Nf6 2. c4 e6 % bad
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (move_number)
+      (san_move)
+      (san_move)
+      (move_number)
+      (san_move)
+      (san_move))
+    (ERROR)
+    (result_code)))
+
+================================================================================
+Inline comments in movetext
+================================================================================
+
+[Event "?"]
+
+1. d4 Nf6 2. c4 {comment in movetext} e6
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (move_number)
+      (san_move)
+      (san_move)
+      (move_number)
+      (san_move)
+      (inline_comment
+        (inline_comment_delimiter_open)
+        (inline_comment_text)
+        (inline_comment_delimiter_close))
+      (san_move))
+    (result_code)))
+
+================================================================================
+Multi-line inline comments in movetext
+================================================================================
+
+[Event "?"]
+
+1. d4 Nf6 2. c4 {comment in
+movetext} e6
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (move_number)
+      (san_move)
+      (san_move)
+      (move_number)
+      (san_move)
+      (inline_comment
+        (inline_comment_delimiter_open)
+        (inline_comment_text)
+        (inline_comment_delimiter_close))
+      (san_move))
+    (result_code)))
+
+================================================================================
+Inline comments may contain parentheses
+================================================================================
+
+[Event "?"]
+
+1. d4 Nf6 2. c4 {comment in movetext (2021)} e6
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (move_number)
+      (san_move)
+      (san_move)
+      (move_number)
+      (san_move)
+      (inline_comment
+        (inline_comment_delimiter_open)
+        (inline_comment_text)
+        (inline_comment_delimiter_close))
+      (san_move))
+    (result_code)))
+
+
+================================================================================
+Inline comments may contain balanced brackets
+================================================================================
+
+[Event "?"]
+
+1. d4 Nf6 2. c4 {comment in movetext {2021}} e6
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (move_number)
+      (san_move)
+      (san_move)
+      (move_number)
+      (san_move)
+      (inline_comment
+        (inline_comment_delimiter_open)
+        (inline_comment_text)
+        (inline_comment_delimiter_close))
+      (san_move))
+    (result_code)))
+
+================================================================================
+Inline comments may be empty
+================================================================================
+
+[Event "?"]
+
+1. d4 Nf6 2. c4 {} e6
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (move_number)
+      (san_move)
+      (san_move)
+      (move_number)
+      (san_move)
+      (inline_comment
+        (inline_comment_delimiter_open)
+        (inline_comment_delimiter_close))
+      (san_move))
+    (result_code)))
+
+================================================================================
+Old-style TWIC section comments
+================================================================================
+
+US Championships
+----------------
+
+[Event "ch-USA sf"]
+
+1. c4 c5
+1/2-1/2
+
+Zone 1.1
+---------
+
+[Event "zt 1.1"]
+
+1. d4 Nf6 1/2-1/2
+
+7th Monarch Assurance
+---------------------
+
+[Event "7th Monarch Assurance"]
+
+1. e4 c5
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (freestanding_comment
+    (old_style_twic_section_comment))
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (move_number)
+      (san_move)
+      (san_move))
+    (result_code))
+  (freestanding_comment
+    (old_style_twic_section_comment))
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (move_number)
+      (san_move)
+      (san_move))
+    (result_code))
+  (freestanding_comment
+    (old_style_twic_section_comment))
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (move_number)
+      (san_move)
+      (san_move))
+    (result_code)))
+
+================================================================================
+Ignore trailing unbalanced close brackets
+================================================================================
+
+[Event "?"]
+
+1. d4 Nf6 2. c4 e6 })
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (move_number)
+      (san_move)
+      (san_move)
+      (move_number)
+      (san_move)
+      (san_move))
+    (trailing_garbage)
+    (result_code)))
+
+================================================================================
+Multiple command comments in movetext
+================================================================================
+
+[Event "?"]
+
+1. d4 Nf6 2. c4 {[%clk 0:00:07][%eval -6.05] White is toast} e6
+0-1
+
+--------------------------------------------------------------------------------
+
+(series_of_games
+  (game
+    (header
+      (tagpair
+        (tagpair_delimiter_open)
+        (tagpair_key)
+        (double_quote)
+        (tagpair_value_contents)
+        (double_quote)
+        (tagpair_delimiter_close)))
+    (movetext
+      (move_number)
+      (san_move)
+      (san_move)
+      (move_number)
+      (san_move)
+      (inline_comment
+        (inline_comment_delimiter_open)
+        (inline_comment_text
+          (command
+            (command_delimiter_open)
+            (command_name)
+            (command_parameters)
+            (command_delimiter_close))
+          (command
+            (command_delimiter_open)
+            (command_name)
+            (command_parameters)
+            (command_delimiter_close)))
+        (inline_comment_delimiter_close))
+      (san_move))
+    (result_code)))

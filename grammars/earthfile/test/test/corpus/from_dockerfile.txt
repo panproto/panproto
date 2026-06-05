@@ -1,0 +1,78 @@
+==================
+from dockerfile command
+==================
+
+foo:
+  FROM DOCKERFILE ./
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (from_dockerfile_command
+            context: (string
+              (unquoted_string))))))
+
+
+==================
+from dockerfile with targets
+==================
+
+foo:
+  FROM DOCKERFILE -f +sometarget/Dockerfile +someothertarget/*
+
+
+---
+
+    (source_file
+      (target
+        (identifier)
+        (block
+          (from_dockerfile_command
+            (options
+              (docker_file
+                (target_artifact
+                  (target_ref
+                    (identifier))
+                  (unquoted_string))))
+            (target_artifact
+              (target_ref
+                (identifier))
+              (unquoted_string))))))
+
+==================
+from dockerfile command with options
+==================
+
+foo:
+  FROM DOCKERFILE \
+    -f Dockerfile.backend \
+    --build-arg version=1.2.3 \
+    --target prod \
+    ./
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (from_dockerfile_command
+            (line_continuation)
+            options: (options
+              (docker_file
+                value: (string
+                  (unquoted_string)))
+              (line_continuation)
+              (docker_build_arg
+                key: (identifier)
+                value: (string
+                  (unquoted_string)))
+              (line_continuation)
+              (docker_target
+                value: (identifier)))
+            (line_continuation)
+            context: (string
+              (unquoted_string))))))

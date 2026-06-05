@@ -1,0 +1,47 @@
+=========================
+vector with initial value
+=========================
+
+const ns: Vector.<Number> = new <Number>[1, 2, 3];
+
+---
+
+(program
+    (constant_declaration
+        (identifier)
+        (type_hint
+            (generic_data_type (identifier) (identifier))
+        )
+        (new_expression
+            (vector
+                (identifier)
+                (array (number) (number) (number))
+            )
+        )
+    )
+)
+
+============================
+vector without initial value
+============================
+
+const ns: Vector.<Number> = new Vector.<Number>();
+
+---
+
+(program
+    (constant_declaration
+        (identifier)
+        (type_hint
+            (generic_data_type (identifier) (identifier))
+        )
+        (call_expression
+            (new_expression
+                (generic_data_type
+                    (identifier)
+                    (identifier)
+                )
+            )
+        )
+    )
+)

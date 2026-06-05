@@ -1,0 +1,27 @@
+===
+listings/cacheStealingTypeCheck.pkl
+===
+
+amends "../../input-helper/listings/cacheStealingTypeCheck.pkl"
+
+foo {
+  "abcdx"
+  "ax"
+}
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectElement
+        (slStringLiteralExpr
+          (slStringLiteralPart)))
+      (objectElement
+        (slStringLiteralExpr
+          (slStringLiteralPart))))))

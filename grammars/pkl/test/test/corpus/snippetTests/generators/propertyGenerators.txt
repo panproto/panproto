@@ -1,0 +1,104 @@
+===
+generators/propertyGenerators.pkl
+===
+
+
+res1 {
+  x = "x"
+  when (1 + 1 == 2) { foo = "foo" }
+  when (1 + 1 == 3) { bar = "bar" }
+  y = "y"
+}
+
+class Person {
+  name: String = "Name"
+  age: Int = 21
+}
+
+res2 = new Person {
+  when (1 + 1 == 2) { name = "Pigeon" }
+  when (1 + 1 == 3) { age = 42 }
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (slStringLiteralExpr
+          (slStringLiteralPart)))
+      (whenGenerator
+        (equalityExpr
+          (additiveExpr
+            (intLiteralExpr)
+            (intLiteralExpr))
+          (intLiteralExpr))
+        (objectBody
+          (objectProperty
+            (identifier)
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))
+      (whenGenerator
+        (equalityExpr
+          (additiveExpr
+            (intLiteralExpr)
+            (intLiteralExpr))
+          (intLiteralExpr))
+        (objectBody
+          (objectProperty
+            (identifier)
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))
+      (objectProperty
+        (identifier)
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))
+        (slStringLiteralExpr
+          (slStringLiteralPart)))
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (whenGenerator
+          (equalityExpr
+            (additiveExpr
+              (intLiteralExpr)
+              (intLiteralExpr))
+            (intLiteralExpr))
+          (objectBody
+            (objectProperty
+              (identifier)
+              (slStringLiteralExpr
+                (slStringLiteralPart)))))
+        (whenGenerator
+          (equalityExpr
+            (additiveExpr
+              (intLiteralExpr)
+              (intLiteralExpr))
+            (intLiteralExpr))
+          (objectBody
+            (objectProperty
+              (identifier)
+              (intLiteralExpr))))))))

@@ -1,0 +1,29 @@
+===
+annotation/annotationIsNotExpression.pkl
+===
+
+class MyAnn extends Annotation
+
+local myAnn = MyAnn
+
+@myAnn
+foo = 1
+
+---
+
+(module
+  (clazz
+    (identifier)      (classExtendsClause
+      (qualifiedIdentifier
+        (identifier))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)))
+  (classProperty
+    (annotation
+      (qualifiedIdentifier
+        (identifier)))
+    (identifier)
+    (intLiteralExpr)))

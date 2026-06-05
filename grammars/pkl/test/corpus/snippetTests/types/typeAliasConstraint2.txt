@@ -1,0 +1,77 @@
+===
+types/typeAliasConstraint2.pkl
+===
+
+import ".../input-helper/types/typeAliasConstraint2.pkl" as helper
+
+foo: Int = 1
+bar: helper.MyTypeAlias(foo == 1) = new helper.MyClass {}
+
+function qux(bar: helper.MyTypeAlias(foo == 1)) = (bar) {}
+
+qux = qux(new helper.MyTypeAlias {})
+
+---
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart))
+    (identifier))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (intLiteralExpr))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (constrainedType
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)
+            (identifier)))
+        (equalityExpr
+          (unqualifiedAccessExpr
+            (identifier))
+          (intLiteralExpr))))
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)
+          (identifier)))
+      (objectBody)))
+  (classMethod
+    (methodHeader
+      (identifier)
+      (parameterList
+        (typedIdentifier
+          (identifier)
+          (typeAnnotation
+            (constrainedType
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)
+                  (identifier)))
+              (equalityExpr
+                (unqualifiedAccessExpr
+                  (identifier))
+                (intLiteralExpr)))))))
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody)))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)
+              (identifier)))
+          (objectBody))))))

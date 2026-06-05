@@ -1,0 +1,352 @@
+====================================
+Definition with zero args
+====================================
+
+function greet() {}
+
+------------------------------------
+
+(program
+  (func_def
+     (identifier)
+    (block)))
+
+====================================
+Definition with single arg
+====================================
+
+function greet(who) {}
+
+------------------------------------
+
+(program
+  (func_def
+     (identifier)
+    (param_list
+      (identifier))
+    (block)))
+
+====================================
+Definition with multiple arg
+====================================
+
+function greet(who, and_who) {}
+
+------------------------------------
+
+(program
+  (func_def
+     (identifier)
+    (param_list
+      (identifier)
+      (identifier))
+    (block)))
+
+====================================
+Definition with func keyword
+====================================
+
+func f() {}
+
+------------------------------------
+
+(program
+  (func_def
+     (identifier)
+    (block)))
+
+====================================
+Wrong definition with trailing comma
+====================================
+
+function greet(who,) {}
+
+------------------------------------
+
+(program
+  (func_def
+     (identifier)
+    (param_list
+      (identifier))
+    (ERROR)
+    (block)))
+
+====================================
+Call with zero arguments
+====================================
+
+greet()
+
+------------------------------------
+
+(program
+  (rule
+    (pattern
+      (func_call
+         (identifier)))))
+
+====================================
+Call with single argument
+====================================
+
+greet(a)
+
+------------------------------------
+
+(program
+  (rule
+    (pattern
+      (func_call
+         (identifier)
+        (args
+          (identifier))))))
+
+====================================
+Call with multiple arguments
+====================================
+
+greet("you", 42)
+
+------------------------------------
+
+(program
+  (rule
+    (pattern
+      (func_call
+         (identifier)
+        (args
+          (string)
+          (number))))))
+
+====================================
+Wrong call with trailing comma
+====================================
+
+greet(1,)
+
+------------------------------------
+
+(program
+  (rule
+    (pattern
+      (func_call
+         (identifier)
+        (args
+          (number))
+        (ERROR)))))
+
+====================================
+Indirect function call
+====================================
+
+@f()
+
+------------------------------------
+
+(program
+  (rule
+    (pattern
+      (indirect_func_call
+        (func_call
+           (identifier))))))
+
+====================================
+Cannot have NS among parameters
+====================================
+
+function fn(main::x) {}
+
+------------------------------------
+
+(program
+  (func_def
+     (identifier)
+    (param_list
+      (identifier))
+    (ERROR
+      (identifier))
+    (block)))
+
+====================================
+Param list has comment
+====================================
+
+function d(a,
+  # hi
+  c) {}
+
+------------------------------------
+
+(program
+  (func_def
+     (identifier)
+    (param_list
+      (identifier)
+      (comment)
+      (identifier))
+    (block)))
+
+====================================
+Whitespace with built-in function calls
+====================================
+
+{
+    and ()
+    asort (a)
+    asorti (a)
+    bindtextdomain ("/")
+    compl (x)
+    cos (x)
+    dcgettext (x)
+    dcngettext ("", "", 1)
+    exp (x)
+    gensub ("", "", "")
+    gsub ("", "")
+    index ("", "")
+    int (x)
+    isarray (a)
+    length ()
+    log (x)
+    lshift (x, 1)
+    match ("", "")
+    mktime ("")
+    or (x, x)
+    patsplit ("", a)
+    rand ()
+    rshift (x, 1)
+    sin (x)
+    split ("", a)
+    sprintf ("", "")
+    sqrt (x)
+    srand ()
+    strftime ()
+    strtonum ("1")
+    sub ("", "")
+    substr ("", 1)
+    systime ()
+    tolower ("")
+    toupper ("")
+    typeof (x)
+    xor (x, x)
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (func_call)
+      (func_call
+        (args
+          (identifier)))
+      (func_call
+        (args
+          (identifier)))
+      (func_call
+        (args
+          (string)))
+      (func_call
+        (args
+          (identifier)))
+      (func_call
+        (args
+          (identifier)))
+      (func_call
+        (args
+          (identifier)))
+      (func_call
+        (args
+          (string)
+          (string)
+          (number)))
+      (func_call
+        (args
+          (identifier)))
+      (func_call
+        (args
+          (string)
+          (string)
+          (string)))
+      (func_call
+        (args
+          (string)
+          (string)))
+      (func_call
+        (args
+          (string)
+          (string)))
+      (func_call
+        (args
+          (identifier)))
+      (func_call
+        (args
+          (identifier)))
+      (func_call)
+      (func_call
+        (args
+          (identifier)))
+      (func_call
+        (args
+          (identifier)
+          (number)))
+      (func_call
+        (args
+          (string)
+          (string)))
+      (func_call
+        (args
+          (string)))
+      (func_call
+        (args
+          (identifier)
+          (identifier)))
+      (func_call
+        (args
+          (string)
+          (identifier)))
+      (func_call)
+      (func_call
+        (args
+          (identifier)
+          (number)))
+      (func_call
+        (args
+          (identifier)))
+      (func_call
+        (args
+          (string)
+          (identifier)))
+      (func_call
+        (args
+          (string)
+          (string)))
+      (func_call
+        (args
+          (identifier)))
+      (func_call)
+      (func_call)
+      (func_call
+        (args
+          (string)))
+      (func_call
+        (args
+          (string)
+          (string)))
+      (func_call
+        (args
+          (string)
+          (number)))
+      (func_call)
+      (func_call
+        (args
+          (string)))
+      (func_call
+        (args
+          (string)))
+      (func_call
+        (args
+          (identifier)))
+      (func_call
+        (args
+          (identifier)
+          (identifier))))))

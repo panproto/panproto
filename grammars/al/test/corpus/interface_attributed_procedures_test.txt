@@ -1,0 +1,275 @@
+================================================================================
+Interface with Obsolete attributed procedure
+================================================================================
+
+interface "E-Document Integration"
+{
+    [Obsolete('Replaced by Send method in IDocumentSender interface.', '26.0')]
+    procedure Send(var EDocument: Record "E-Document"; var TempBlob: Codeunit "Temp Blob"; var IsAsync: Boolean);
+
+    procedure GetResponse(var EDocument: Record "E-Document"; var HttpRequest: HttpRequestMessage; var HttpResponse: HttpResponseMessage);
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (interface_declaration
+    (interface_keyword)
+    object_name: (quoted_identifier)
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (string_literal)
+            (string_literal)))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier))))
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (object_reference_type
+              object_type: (codeunit_keyword)
+              reference: (quoted_identifier))))
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (interface_procedure_suffix))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier))))
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (basic_type)))
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (interface_procedure_suffix))))
+
+================================================================================
+Interface with multiple attributed procedures
+================================================================================
+
+interface IDocumentService
+{
+    [Obsolete('Use new method with context parameter.', '25.0')]
+    procedure ProcessDocument(DocumentId: Guid): Boolean;
+
+    [Obsolete('Replaced by batch processing.', '26.0')]
+    procedure ProcessSingleDocument(var Document: Record Document);
+
+    [IntegrationEvent(false, false)]
+    procedure OnBeforeProcess(DocumentId: Guid);
+
+    procedure GetStatus(DocumentId: Guid): Enum "Document Status";
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (interface_declaration
+    (interface_keyword)
+    object_name: (identifier)
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (string_literal)
+            (string_literal)))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (basic_type))))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (string_literal)
+            (string_literal)))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (identifier)))))
+      (interface_procedure_suffix))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (boolean)
+            (boolean)))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (interface_procedure_suffix))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (object_reference_type
+            object_type: (enum_keyword)
+            reference: (quoted_identifier)))))))
+
+================================================================================
+Interface with mixed attributed and non-attributed procedures
+================================================================================
+
+interface IPaymentProvider
+{
+    procedure Initialize(var Config: Record "Payment Config");
+
+    [Obsolete('Use ProcessPaymentAsync instead.', '27.0')]
+    procedure ProcessPayment(Amount: Decimal; Currency: Code[10]): Boolean;
+
+    procedure ProcessPaymentAsync(Amount: Decimal; Currency: Code[10]; var JobId: Guid): Boolean;
+
+    [BusinessEvent(false)]
+    procedure OnPaymentCompleted(PaymentId: Guid; Status: Enum "Payment Status");
+
+    procedure GetTransactionDetails(TransactionId: Guid; var Details: JsonObject);
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (interface_declaration
+    (interface_keyword)
+    object_name: (identifier)
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier)))))
+      (interface_procedure_suffix))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (string_literal)
+            (string_literal)))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type)))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (code_type
+              length: (integer)))))
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (basic_type))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type)))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (code_type
+              length: (integer))))
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (basic_type))))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (boolean)))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type)))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (object_reference_type
+              object_type: (enum_keyword)
+              reference: (quoted_identifier)))))
+      (interface_procedure_suffix))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type)))
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (interface_procedure_suffix))))

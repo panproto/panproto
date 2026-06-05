@@ -1,0 +1,38 @@
+===
+errors/typeMismatchWithSameQualifiedClassName.pkl
+===
+
+module foo.bar
+
+import "typeMismatchHelper.pkl"
+
+class Baz
+
+baz: Baz = new typeMismatchHelper.Baz {}
+
+---
+
+(module
+  (moduleHeader
+    (moduleClause
+
+      (qualifiedIdentifier
+        (identifier)
+        (identifier))))
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (clazz
+    (identifier))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)
+          (identifier)))
+      (objectBody))))

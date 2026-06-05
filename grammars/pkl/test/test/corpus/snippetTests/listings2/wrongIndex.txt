@@ -1,0 +1,151 @@
+===
+listings2/wrongIndex.pkl
+===
+
+import "pkl:test"
+
+local x = new Listing {
+  when (false) { 0 }
+  "pigeon"
+}
+
+res1 = test.catch(() -> (x) {
+  when (false) { 0 }
+  [3] = "barn owl"
+})
+
+res2 = test.catch(() -> (x) {
+  when (false) { 0 }
+  [2 + 1] = "barn owl"
+})
+
+res3 = test.catch(() -> (x) {
+  when (false) { 0 }
+  [-1] = "barn owl"
+})
+
+res4 = test.catch(() -> (x) {
+  when (false) { 0 }
+  [-1 * 1] = "barn owl"
+})
+
+---
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (classProperty
+    (modifier)
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (whenGenerator
+          (falseLiteralExpr)
+          (objectBody
+            (objectElement
+              (intLiteralExpr))))
+        (objectElement
+          (slStringLiteralExpr
+            (slStringLiteralPart))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (amendExpr
+            (parenthesizedExpr
+              (unqualifiedAccessExpr
+                (identifier)))
+            (objectBody
+              (whenGenerator
+                (falseLiteralExpr)
+                (objectBody
+                  (objectElement
+                    (intLiteralExpr))))
+              (objectEntry
+                (intLiteralExpr)
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (amendExpr
+            (parenthesizedExpr
+              (unqualifiedAccessExpr
+                (identifier)))
+            (objectBody
+              (whenGenerator
+                (falseLiteralExpr)
+                (objectBody
+                  (objectElement
+                    (intLiteralExpr))))
+              (objectEntry
+                (additiveExpr
+                  (intLiteralExpr)
+                  (intLiteralExpr))
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (amendExpr
+            (parenthesizedExpr
+              (unqualifiedAccessExpr
+                (identifier)))
+            (objectBody
+              (whenGenerator
+                (falseLiteralExpr)
+                (objectBody
+                  (objectElement
+                    (intLiteralExpr))))
+              (objectEntry
+                (unaryMinusExpr
+                  (intLiteralExpr))
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (amendExpr
+            (parenthesizedExpr
+              (unqualifiedAccessExpr
+                (identifier)))
+            (objectBody
+              (whenGenerator
+                (falseLiteralExpr)
+                (objectBody
+                  (objectElement
+                    (intLiteralExpr))))
+              (objectEntry
+                (multiplicativeExpr
+                  (unaryMinusExpr
+                    (intLiteralExpr))
+                  (intLiteralExpr))
+                (slStringLiteralExpr
+                  (slStringLiteralPart))))))))))

@@ -1,0 +1,387 @@
+====
+CSS expression with empty block
+====
+
+package main
+
+css myClass() {}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (css_declaration
+    name: (css_identifier)
+    (parameter_list)))
+
+====
+CSS expression
+====
+
+package main
+
+css myClass() {
+  display: grid;
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (css_declaration
+    name: (css_identifier)
+    (parameter_list)
+    (css_property
+      name: (css_property_name)
+      value: (css_property_value))))
+
+====
+CSS expression with templ expression
+====
+
+package main
+
+css myClass(color string) {
+  color: { color };
+  font-size: calc(230 / 1em);
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (css_declaration
+    name: (css_identifier)
+    (parameter_list
+      (parameter_declaration
+        name: (identifier)
+        type: (type_identifier)))
+    (css_property
+      name: (css_property_name)
+      value: (expression
+        (identifier)))
+    (css_property
+      name: (css_property_name)
+      value: (css_property_value))))
+====
+CSS dynamic class
+====
+
+package main
+
+css myClass() {
+  font-size: 20px;
+}
+
+templ Foo() {
+  <div
+    name="vincent"
+    class={ `foo`, templ.SafeCSS(`color: red`), templ.KV("is-primary", true), myClass() }
+  >
+  </div>
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+    (css_declaration
+      (css_identifier)
+      (parameter_list)
+      (css_property
+        (css_property_name)
+        (css_property_value)))
+    (component_declaration
+      (component_identifier)
+      (parameter_list)
+      (component_block
+        (element
+          (tag_start
+            (element_identifier)
+            (attribute
+              (attribute_name)
+              (quoted_attribute_value
+                (attribute_value)))
+            (attribute
+              (attribute_name)
+              (dynamic_class_attribute_value
+                (raw_string_literal
+                  (raw_string_literal_content))
+                (call_expression
+                  (selector_expression
+                    (identifier)
+                    (field_identifier))
+                  (argument_list
+                    (raw_string_literal
+                      (raw_string_literal_content))))
+                (call_expression
+                  (selector_expression
+                    (identifier)
+                    (field_identifier))
+                  (argument_list
+                    (interpreted_string_literal
+                      (interpreted_string_literal_content))
+                    (true)))
+                (call_expression
+                  (identifier)
+                  (argument_list)))))
+          (tag_end
+            (element_identifier))))))
+
+===
+Style element
+===
+
+package main
+
+templ Foobar() {
+  <style type="text/css">
+    #foo {
+      color: red;
+    }
+  </style>
+  <h1 id="foo">Foobar</h1>
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (component_declaration
+    name: (component_identifier)
+    (parameter_list)
+    (component_block
+      (style_element
+        (style_tag_start
+          (attribute
+            name: (attribute_name)
+            value: (quoted_attribute_value
+              (attribute_value))))
+        (style_element_text)
+        (style_tag_end))
+      (element
+        (tag_start
+          name: (element_identifier)
+          (attribute
+            name: (attribute_name)
+            value: (quoted_attribute_value
+              (attribute_value))))
+        (element_text)
+        (tag_end
+          name: (element_identifier))))))
+
+===
+Raw style elements
+===
+
+package main
+
+templ Foobar() {
+  <style><!-- this is a comment {} <foobar> --></style>
+  <style>
+    #foo {
+      color: red;
+    }
+
+.customClass { display: grid }
+
+/* foo */
+font-size: 20px;
+
+  </style>
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (component_declaration
+    name: (component_identifier)
+    (parameter_list)
+    (component_block
+      (style_element
+        (style_tag_start)
+        (style_element_text)
+        (style_tag_end))
+      (style_element
+        (style_tag_start)
+        (style_element_text)
+        (style_tag_end)))))
+
+===
+Empty style element
+===
+
+package main
+
+templ Foobar() {
+  <style type="text/css">
+  </style>
+  <h1 id="foo">Foobar</h1>
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (component_declaration
+    name: (component_identifier)
+    (parameter_list)
+    (component_block
+      (style_element
+        (style_tag_start
+          (attribute
+            name: (attribute_name)
+            value: (quoted_attribute_value
+              (attribute_value))))
+        (style_element_text)
+        (style_tag_end))
+      (element
+        (tag_start
+          name: (element_identifier)
+          (attribute
+            name: (attribute_name)
+            value: (quoted_attribute_value
+              (attribute_value))))
+        (element_text)
+        (tag_end
+          name: (element_identifier))))))
+
+===
+Self closing style tag
+===
+
+package main
+
+templ Foobar() {
+  <style src="/app.js" />
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (component_declaration
+    name: (component_identifier)
+    (parameter_list)
+    (component_block
+      (style_element
+        (self_closing_style_tag
+          (attribute
+            name: (attribute_name)
+            value: (quoted_attribute_value
+              (attribute_value))))))))
+
+===
+Style tag with conditional attributes
+===
+
+package main
+
+templ Foobar(ok bool) {
+  <style
+    if ok {
+      ok="true"
+    }
+  >
+  display: grid;
+  </style>
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (component_declaration
+    name: (component_identifier)
+    (parameter_list
+      (parameter_declaration
+        name: (identifier)
+        type: (type_identifier)))
+    (component_block
+      (style_element
+        (style_tag_start
+          (conditional_attribute_if_statement
+            condition: (identifier)
+            consequence: (conditional_attribute_block
+              (attribute
+                name: (attribute_name)
+                value: (quoted_attribute_value
+                  (attribute_value))))))
+        (style_element_text)
+        (style_tag_end)))))
+
+===
+Style tag with spread attributes
+===
+
+package main
+
+templ Foobar(attrs templ.Attributes) {
+  <style { attrs... }>
+    display: grid;
+  </style>
+  <style
+      { attrs... }
+  />
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (component_declaration
+    name: (component_identifier)
+    (parameter_list
+      (parameter_declaration
+        name: (identifier)
+        type: (qualified_type
+          package: (package_identifier)
+          name: (type_identifier))))
+    (component_block
+      (style_element
+        (style_tag_start
+          (spread_attributes
+            name: (identifier)))
+        (style_element_text)
+        (style_tag_end))
+      (style_element
+        (self_closing_style_tag
+          (spread_attributes
+            name: (identifier)))))))
+
+===
+Self closing and non self closing style tag
+===
+
+package main
+
+templ Foobar() {
+  <style></style>
+  <style />
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (component_declaration
+    name: (component_identifier)
+    (parameter_list)
+    (component_block
+      (style_element
+        (style_tag_start)
+        (style_tag_end))
+      (style_element
+        (self_closing_style_tag)))))

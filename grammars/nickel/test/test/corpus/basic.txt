@@ -1,0 +1,883 @@
+================================================================================
+comment
+================================================================================
+
+# This is a comment.
+
+"This is a string."
+
+--------------------------------------------------------------------------------
+
+(term
+  (comment)
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (str_chunks
+              (str_chunks_single
+                (chunk_literal_single
+                  (str_literal))))))))))
+
+================================================================================
+identifier
+================================================================================
+
+abc
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (ident)))))))
+
+================================================================================
+identifier with minus
+================================================================================
+
+a-b
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (ident)))))))
+
+================================================================================
+identifier with '
+================================================================================
+
+a'
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (ident)))))))
+
+================================================================================
+identifier with _
+================================================================================
+
+_a_''''_'_
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (ident)))))))
+
+================================================================================
+enum tag (raw)
+================================================================================
+
+'abc
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (enum_tag
+              (raw_enum_tag))))))))
+
+================================================================================
+enum tag (quoted)
+================================================================================
+
+'"a + %{b} + c"
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (enum_tag
+              (quoted_enum_tag
+                (quoted_enum_tag_start)
+                (chunk_literal_single
+                  (str_literal))
+                (chunk_literal_single
+                  (percent))
+                (chunk_literal_single
+                  (str_literal))))))))))
+
+================================================================================
+identifier (builtin function)
+================================================================================
+
+%abc%
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (builtin)))))))
+
+================================================================================
+number int
+================================================================================
+
+123
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (num_literal)))))))
+
+================================================================================
+number float
+================================================================================
+
+123.456
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (num_literal)))))))
+
+================================================================================
+number int negative
+================================================================================
+
+-123
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (infix_expr
+        (applicative
+          (record_operand
+            (atom
+              (num_literal))))))))
+
+================================================================================
+number float negative
+================================================================================
+
+-123.456
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (infix_expr
+        (applicative
+          (record_operand
+            (atom
+              (num_literal))))))))
+
+================================================================================
+number binary
+================================================================================
+
+0b01
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (num_literal)))))))
+
+================================================================================
+number binary negative
+================================================================================
+
+-0b01
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (infix_expr
+        (applicative
+          (record_operand
+            (atom
+              (num_literal))))))))
+
+================================================================================
+number octal
+================================================================================
+
+0o07
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (num_literal)))))))
+
+================================================================================
+number octal negative
+================================================================================
+
+-0o07
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (infix_expr
+        (applicative
+          (record_operand
+            (atom
+              (num_literal))))))))
+
+================================================================================
+number hex
+================================================================================
+
+0xFa09
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (num_literal)))))))
+
+================================================================================
+number hex negative
+================================================================================
+
+-0xFa09
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (infix_expr
+        (applicative
+          (record_operand
+            (atom
+              (num_literal))))))))
+
+================================================================================
+infix binary operator: plus int int
+================================================================================
+
+1 + 2
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (infix_expr
+        (applicative
+          (record_operand
+            (atom
+              (num_literal)))))
+      (infix_b_op_4)
+      (infix_expr
+        (applicative
+          (record_operand
+            (atom
+              (num_literal))))))))
+
+================================================================================
+infix binary operator: plus int int: no space
+================================================================================
+
+1+2
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (infix_expr
+        (applicative
+          (record_operand
+            (atom
+              (num_literal)))))
+      (infix_b_op_4)
+      (infix_expr
+        (applicative
+          (record_operand
+            (atom
+              (num_literal))))))))
+
+================================================================================
+infix binary operator: plus int float
+================================================================================
+
+1 + 2.3
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (infix_expr
+        (applicative
+          (record_operand
+            (atom
+              (num_literal)))))
+      (infix_b_op_4)
+      (infix_expr
+        (applicative
+          (record_operand
+            (atom
+              (num_literal))))))))
+
+================================================================================
+infix binary operator: plus int int int
+================================================================================
+
+1 + 2 + 3
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (infix_expr
+        (infix_expr
+          (applicative
+            (record_operand
+              (atom
+                (num_literal)))))
+        (infix_b_op_4)
+        (infix_expr
+          (applicative
+            (record_operand
+              (atom
+                (num_literal))))))
+      (infix_b_op_4)
+      (infix_expr
+        (applicative
+          (record_operand
+            (atom
+              (num_literal))))))))
+
+================================================================================
+infix binary operator: minus int int
+================================================================================
+
+1 - 2
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (infix_expr
+        (applicative
+          (record_operand
+            (atom
+              (num_literal)))))
+      (infix_b_op_4)
+      (infix_expr
+        (applicative
+          (record_operand
+            (atom
+              (num_literal))))))))
+
+================================================================================
+infix binary operator: minus id id
+================================================================================
+
+a - b
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (infix_expr
+        (applicative
+          (record_operand
+            (atom
+              (ident)))))
+      (infix_b_op_4)
+      (infix_expr
+        (applicative
+          (record_operand
+            (atom
+              (ident))))))))
+
+================================================================================
+infix binary operator: minus int int: no space
+================================================================================
+
+1-2
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (infix_expr
+        (applicative
+          (record_operand
+            (atom
+              (num_literal)))))
+      (infix_b_op_4)
+      (infix_expr
+        (applicative
+          (record_operand
+            (atom
+              (num_literal))))))))
+
+================================================================================
+Ite (if then else)
+================================================================================
+
+if a then b else c
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (ite_expr
+      (term
+        (uni_term
+          (infix_expr
+            (applicative
+              (record_operand
+                (atom
+                  (ident)))))))
+      (term
+        (uni_term
+          (infix_expr
+            (applicative
+              (record_operand
+                (atom
+                  (ident)))))))
+      (term
+        (uni_term
+          (infix_expr
+            (applicative
+              (record_operand
+                (atom
+                  (ident))))))))))
+
+================================================================================
+let (bind)
+================================================================================
+
+let a = b in c
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (let_expr
+      (let_in_block
+        (let_binding
+          (pattern
+            (ident))
+          (term
+            (uni_term
+              (infix_expr
+                (applicative
+                  (record_operand
+                    (atom
+                      (ident)))))))))
+      (term
+        (uni_term
+          (infix_expr
+            (applicative
+              (record_operand
+                (atom
+                  (ident))))))))))
+
+================================================================================
+let (bind, comments)
+================================================================================
+
+let
+  # foo
+  a = b
+  # bar
+in
+  # baz
+  c
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (let_expr
+      (let_in_block
+        (comment)
+        (let_binding
+          (pattern
+            (ident))
+          (term
+            (uni_term
+              (infix_expr
+                (applicative
+                  (record_operand
+                    (atom
+                      (ident))))))))
+        (comment))
+      (comment)
+      (term
+        (uni_term
+          (infix_expr
+            (applicative
+              (record_operand
+                (atom
+                  (ident))))))))))
+
+================================================================================
+function
+================================================================================
+
+fun a => b
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (fun_expr
+      (pattern_fun
+        (ident))
+      (term
+        (uni_term
+          (infix_expr
+            (applicative
+              (record_operand
+                (atom
+                  (ident))))))))))
+
+================================================================================
+let Record (empty)
+================================================================================
+
+let a = 1 in { }
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (let_expr
+      (let_in_block
+        (let_binding
+          (pattern
+            (ident))
+          (term
+            (uni_term
+              (infix_expr
+                (applicative
+                  (record_operand
+                    (atom
+                      (num_literal)))))))))
+      (term
+        (uni_term
+          (infix_expr
+            (applicative
+              (record_operand
+                (atom
+                  (uni_record))))))))))
+
+================================================================================
+select (three ids)
+================================================================================
+
+u.v."x%{y}z"
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (record_operation_chain
+            (record_operand
+              (record_operation_chain
+                (record_operand
+                  (atom
+                    (ident)))
+                (ident)))
+            (str_chunks
+              (str_chunks_single
+                (chunk_literal_single
+                  (str_literal))
+                (chunk_expr
+                  (interpolation_start)
+                  (term
+                    (uni_term
+                      (infix_expr
+                        (applicative
+                          (record_operand
+                            (atom
+                              (ident)))))))
+                  (interpolation_end))
+                (chunk_literal_single
+                  (str_literal))))))))))
+
+================================================================================
+apply (multiple functions)
+================================================================================
+
+a b 1
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (applicative
+          (applicative
+            (record_operand
+              (atom
+                (ident))))
+          (record_operand
+            (atom
+              (ident))))
+        (record_operand
+          (atom
+            (num_literal)))))))
+
+================================================================================
+apply (multiple arguments)
+================================================================================
+
+a 1 "x"
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (applicative
+          (applicative
+            (record_operand
+              (atom
+                (ident))))
+          (record_operand
+            (atom
+              (num_literal))))
+        (record_operand
+          (atom
+            (str_chunks
+              (str_chunks_single
+                (chunk_literal_single
+                  (str_literal))))))))))
+
+================================================================================
+let bind apply
+================================================================================
+
+let
+  y = g f 0
+in y
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (let_expr
+      (let_in_block
+        (let_binding
+          (pattern
+            (ident))
+          (term
+            (uni_term
+              (infix_expr
+                (applicative
+                  (applicative
+                    (applicative
+                      (record_operand
+                        (atom
+                          (ident))))
+                    (record_operand
+                      (atom
+                        (ident))))
+                  (record_operand
+                    (atom
+                      (num_literal)))))))))
+      (term
+        (uni_term
+          (infix_expr
+            (applicative
+              (record_operand
+                (atom
+                  (ident))))))))))
+
+================================================================================
+operators
+================================================================================
+
+square 2 + -pi - 42.0
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (infix_expr
+        (infix_expr
+          (applicative
+            (applicative
+              (record_operand
+                (atom
+                  (ident))))
+            (record_operand
+              (atom
+                (num_literal)))))
+        (infix_b_op_4)
+        (infix_expr
+          (infix_expr
+            (applicative
+              (record_operand
+                (atom
+                  (ident)))))))
+      (infix_b_op_4)
+      (infix_expr
+        (applicative
+          (record_operand
+            (atom
+              (num_literal))))))))
+
+================================================================================
+parens
+================================================================================
+
+(123)
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (record_operand
+          (atom
+            (uni_term
+              (infix_expr
+                (applicative
+                  (record_operand
+                    (atom
+                      (num_literal))))))))))))
+
+================================================================================
+scientific notation
+================================================================================
+
+-1.5e4 + 1e2
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (infix_expr
+        (infix_expr
+          (applicative
+            (record_operand
+              (atom
+                (num_literal))))))
+      (infix_b_op_4)
+      (infix_expr
+        (applicative
+          (record_operand
+            (atom
+              (num_literal))))))))
+
+================================================================================
+curried dot operator
+================================================================================
+
+"foo"
+|> (.) { foo = "bar" }
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (infix_expr
+        (applicative
+          (record_operand
+            (atom
+              (str_chunks
+                (str_chunks_single
+                  (chunk_literal_single
+                    (str_literal))))))))
+      (infix_b_op_6)
+      (infix_expr
+        (applicative
+          (applicative
+            (record_operand
+              (atom
+                (curried_op))))
+          (record_operand
+            (atom
+              (uni_record
+                (last_field
+                  (field_decl
+                    (field_def
+                      (field_path
+                        (field_path_elem
+                          (ident)))
+                      (term
+                        (uni_term
+                          (infix_expr
+                            (applicative
+                              (record_operand
+                                (atom
+                                  (str_chunks
+                                    (str_chunks_single
+                                      (chunk_literal_single
+                                        (str_literal)))))))))))))))))))))

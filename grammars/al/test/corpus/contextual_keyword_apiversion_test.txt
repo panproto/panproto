@@ -1,0 +1,121 @@
+================================================================================
+ApiVersion as variable name in var section
+================================================================================
+
+page 50100 "Test Page"
+{
+    var
+        ApiVersion: Text;
+        IsReturnRefundsVisible: Boolean;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (text_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type))))))
+
+================================================================================
+ApiVersion with other contextual keywords in var section
+================================================================================
+
+page 50101 "API Test"
+{
+    var
+        ApiVersion: Text;
+        ApiVersionExpiryDate: Date;
+        ScopeChangeConfirmLbl: Label 'The access scope has changed.', Comment = 'Notification';
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (text_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (basic_type)
+        value: (string_literal)
+        (label_attribute
+          name: (identifier)
+          value: (string_literal))))))
+
+================================================================================
+Var section with ApiVersion and preprocessor conditionals
+================================================================================
+
+page 50102 "Shop Card"
+{
+    var
+        IsReturnRefundsVisible: Boolean;
+        ApiVersion: Text;
+        ApiVersionExpiryDate: Date;
+#if not CLEAN24
+        ReplaceOrderAttributeValueDisabled: Boolean;
+#endif
+        ScopeChangeConfirmLbl: Label 'The access scope of shop %1 has changed.', Comment = '%1 - Shop Code';
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (text_type)))
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type)))
+      (preproc_conditional_var
+        (preproc_if
+          (preproc_open)
+          condition: (preproc_not_expression
+            (identifier)))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type)))
+        (preproc_endif
+          (preproc_close)))
+      (variable_declaration
+        name: (identifier)
+        type: (basic_type)
+        value: (string_literal)
+        (label_attribute
+          name: (identifier)
+          value: (string_literal))))))

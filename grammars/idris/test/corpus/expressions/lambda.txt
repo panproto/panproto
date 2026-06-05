@@ -1,0 +1,235 @@
+================================================================================
+Lambda function
+================================================================================
+
+_ = \x, y => g x `f` g y
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (exp_lambda
+        (lambda_args
+          (pat_name
+            (loname))
+          (comma)
+          (pat_name
+            (loname)))
+        (lambda_exp
+          (exp_name
+            (loname))
+          (exp_name
+            (loname))
+          (exp_ticked
+            (exp_name
+              (loname)))
+          (exp_name
+            (loname))
+          (exp_name
+            (loname)))))))
+
+================================================================================
+With typed pattern
+================================================================================
+
+_ = f (\ 0 i : Int => ())
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (exp_name
+        (loname))
+      (exp_parens
+        (exp_lambda
+          (lambda_args
+            (quantity)
+            (pat_name
+              (loname))
+            (colon)
+            (exp_name
+              (caname)))
+          (lambda_exp
+            (unit)))))))
+
+================================================================================
+Type expression
+================================================================================
+
+_ = replace {p = \x => b = f x} _
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (exp_name
+        (loname))
+      (exp_braces
+        (explicit_arg
+          (loname)
+          (equal)
+          (exp_lambda
+            (lambda_args
+              (pat_name
+                (loname)))
+            (lambda_exp
+              (exp_name
+                (loname))
+              (equal)
+              (exp_name
+                (loname))
+              (exp_name
+                (loname))))))
+      (wildcard))))
+
+================================================================================
+Lambda cases
+================================================================================
+
+_ = f $ \case
+  Left a => _
+  Right b => _
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (exp_name
+        (loname))
+      (operator)
+      (exp_lambda_case
+        (alts
+          (alt
+            (pat_name
+              (caname))
+            (pat_name
+              (loname))
+            (wildcard))
+          (alt
+            (pat_name
+              (caname))
+            (pat_name
+              (loname))
+            (wildcard)))))))
+
+================================================================================
+Lambda case with space
+================================================================================
+
+_ = f $ \ case
+  X => _
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (exp_name
+        (loname))
+      (operator)
+      (exp_lambda_case
+        (alts
+          (alt
+            (pat_name
+              (caname))
+            (wildcard)))))))
+
+================================================================================
+Lambda case with impossible path
+================================================================================
+
+_ = No (\case Refl impossible)
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (exp_name
+        (caname))
+      (exp_parens
+        (exp_lambda_case
+          (alts
+            (alt
+              (pat_name
+                (caname))
+              (impossible))))))))
+
+================================================================================
+With let-in inside
+================================================================================
+
+_ = f $ \r,s,w => let (a, s', w') = f r s
+                  in Id (a, s', w <+> w')
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (exp_name
+        (loname))
+      (operator)
+      (exp_lambda
+        (lambda_args
+          (pat_name
+            (loname))
+          (comma)
+          (pat_name
+            (loname))
+          (comma)
+          (pat_name
+            (loname)))
+        (lambda_exp
+          (exp_let_in
+            (declarations
+              (lhs
+                (pat_parens
+                  (pat_name
+                    (loname))
+                  (tuple_operator)
+                  (pat_name
+                    (loname))
+                  (tuple_operator)
+                  (pat_name
+                    (loname))))
+              (rhs
+                (exp_name
+                  (loname))
+                (exp_name
+                  (loname))
+                (exp_name
+                  (loname))))
+            (in
+              (exp_name
+                (caname))
+              (exp_tuple
+                (exp_name
+                  (loname))
+                (tuple_operator)
+                (exp_name
+                  (loname))
+                (tuple_operator)
+                (exp_name
+                  (loname))
+                (operator)
+                (exp_name
+                  (loname))))))))))

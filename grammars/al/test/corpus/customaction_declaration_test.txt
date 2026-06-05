@@ -1,0 +1,115 @@
+================================================================================
+Page with customaction declaration in group
+================================================================================
+
+page 50100 "Test Page"
+{
+    actions
+    {
+        area(processing)
+        {
+            group(Flow)
+            {
+                Caption = 'Power Automate';
+                Image = Flow;
+                customaction(CreateFlowFromTemplate)
+                {
+                    ApplicationArea = Basic, Suite;
+                    Caption = 'Create Flow';
+                    ToolTip = 'Create a new flow in Power Automate';
+                    Visible = true;
+                    CustomActionType = FlowTemplateGallery;
+                    FlowTemplateCategoryName = 'd365bc_test';
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_group_section
+          (group_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (customaction_declaration
+            name: (identifier)
+            (property
+              name: (property_name)
+              value: (option_member_list
+                (option_member
+                  (identifier))
+                (option_member
+                  (identifier))))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (boolean))
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (string_literal))))))))
+
+================================================================================
+Customaction with flow environment ID
+================================================================================
+
+page 50101 "Flow Test"
+{
+    actions
+    {
+        area(navigation)
+        {
+            customaction(MyFlowAction)
+            {
+                Caption = 'My Flow Action';
+                CustomActionType = Flow;
+                FlowEnvironmentId = 'Default-12345-67890';
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (customaction_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal)))))))

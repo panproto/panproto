@@ -1,0 +1,33 @@
+==================
+Simple member access
+==================
+
+codeunit 50100 "Test"
+{
+    trigger OnRun()
+    begin
+        Cust.Get(Cust."No.");
+    end;
+}
+
+-------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (quoted_identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          (member_expression
+            (identifier)
+            (identifier))
+          (argument_list
+            (member_expression
+              (identifier)
+              (quoted_identifier))))
+        (end_keyword)))))

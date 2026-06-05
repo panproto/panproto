@@ -1,0 +1,11 @@
+==================
+Toolchain directive comment
+==================
+
+toolchain go1.21.5
+
+---
+
+(source_file
+	(toolchain_directive
+		name: (toolchain_name)))

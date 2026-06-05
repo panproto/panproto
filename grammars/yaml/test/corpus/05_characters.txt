@@ -1,0 +1,326 @@
+================================================================================
+Byte Order Mark
+================================================================================
+﻿# Comment only.
+
+--------------------------------------------------------------------------------
+
+(stream
+ (comment))
+
+================================================================================
+Invalid Byte Order Mark
+:error
+================================================================================
+- Invalid use of BOM
+﻿
+- Inside a document.
+
+--------------------------------------------------------------------------------
+
+================================================================================
+Block Structure Indicators
+================================================================================
+sequence:
+- one
+- two
+mapping:
+  ? sky
+  : blue
+  sea : green
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (block_node
+   (block_mapping
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (block_node
+      (block_sequence
+       (block_sequence_item
+        (flow_node
+         (plain_scalar
+          (string_scalar))))
+       (block_sequence_item
+        (flow_node
+         (plain_scalar
+          (string_scalar)))))))
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (block_node
+      (block_mapping
+       (block_mapping_pair
+        (flow_node
+         (plain_scalar
+          (string_scalar)))
+        (flow_node
+         (plain_scalar
+          (string_scalar))))
+       (block_mapping_pair
+        (flow_node
+         (plain_scalar
+          (string_scalar)))
+        (flow_node
+         (plain_scalar
+          (string_scalar)))))))))))
+
+================================================================================
+Flow Collection Indicators
+================================================================================
+sequence: [ one, two, ]
+mapping: { sky: blue, sea: green }
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (block_node
+   (block_mapping
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (flow_sequence
+       (flow_node
+        (plain_scalar
+         (string_scalar)))
+       (flow_node
+        (plain_scalar
+         (string_scalar))))))
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (flow_mapping
+       (flow_pair
+        (flow_node
+         (plain_scalar
+          (string_scalar)))
+        (flow_node
+         (plain_scalar
+          (string_scalar))))
+       (flow_pair
+        (flow_node
+         (plain_scalar
+          (string_scalar)))
+        (flow_node
+         (plain_scalar
+          (string_scalar)))))))))))
+
+================================================================================
+Comment Indicator
+================================================================================
+# Comment only.
+
+--------------------------------------------------------------------------------
+
+(stream
+ (comment))
+
+================================================================================
+Node Property Indicators
+================================================================================
+anchored: !local &anchor value
+alias: *anchor
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (block_node
+   (block_mapping
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (tag)
+      (anchor
+       (anchor_name))
+      (plain_scalar
+       (string_scalar))))
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (alias
+       (alias_name))))))))
+
+================================================================================
+Block Scalar Indicators
+================================================================================
+literal: |
+  some
+  text
+folded: >
+  some
+  text
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (block_node
+   (block_mapping
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (block_node
+      (block_scalar)))
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (block_node
+      (block_scalar)))))))
+
+================================================================================
+Quoted Scalar Indicators
+================================================================================
+single: 'text'
+double: "text"
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (block_node
+   (block_mapping
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (single_quote_scalar)))
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (double_quote_scalar)))))))
+
+================================================================================
+Directive Indicator
+================================================================================
+%YAML 1.2
+--- text
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (yaml_directive
+   (yaml_version))
+  (flow_node
+   (plain_scalar
+    (string_scalar)))))
+
+================================================================================
+Invalid use of Reserved Indicators
+:error
+================================================================================
+commercial-at: @text
+grave-accent: `text
+
+--------------------------------------------------------------------------------
+
+================================================================================
+Line Break Characters
+================================================================================
+|
+  Line break (no glyph)
+  Line break (glyphed)
+
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (block_node
+   (block_scalar))))
+
+================================================================================
+Tabs and Spaces
+================================================================================
+# Tabs and spaces
+quoted: "Quoted 	"
+block:	|
+  void main() {
+  	printf("Hello, world!\n");
+  }
+
+--------------------------------------------------------------------------------
+
+  (stream
+   (comment)
+   (document
+    (block_node
+     (block_mapping
+      (block_mapping_pair
+       (flow_node
+        (plain_scalar
+         (string_scalar)))
+       (flow_node
+        (double_quote_scalar)))
+      (block_mapping_pair
+       (flow_node
+        (plain_scalar
+         (string_scalar)))
+       (block_node
+        (block_scalar)))))))
+
+================================================================================
+Escaped Characters
+================================================================================
+"Fun with \\
+\" \a \b \e \f
+\n \r \t \v \0
+\  \_ \N \L \P
+\x41 \u0041 \U00000041"
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (flow_node
+   (double_quote_scalar
+    (escape_sequence)
+    (escape_sequence)
+    (escape_sequence)
+    (escape_sequence)
+    (escape_sequence)
+    (escape_sequence)
+    (escape_sequence)
+    (escape_sequence)
+    (escape_sequence)
+    (escape_sequence)
+    (escape_sequence)
+    (escape_sequence)
+    (escape_sequence)
+    (escape_sequence)
+    (escape_sequence)
+    (escape_sequence)
+    (escape_sequence)
+    (escape_sequence)
+    (escape_sequence)))))
+
+================================================================================
+Invalid Escaped Characters
+:error
+================================================================================
+Bad escapes:
+  "\c
+  \xq-"
+
+--------------------------------------------------------------------------------
+

@@ -1,0 +1,22 @@
+===
+errors/userDefinedTypeParameter1.pkl
+===
+
+class Box<A> {
+  element: A
+}
+---
+
+(module
+  (clazz
+    (identifier)
+    (typeParameterList
+      (typeParameter
+        (identifier)))
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))))))

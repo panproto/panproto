@@ -1,0 +1,46 @@
+===
+unionTypeDefaults
+===
+res: *Foo|Bar
+res2: Foo|*Bar
+res3: Foo|*Bar|Baz
+---
+
+(module
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (unionType
+        (defaultUnionType
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))
+        (declaredType
+          (qualifiedIdentifier
+            (identifier))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (unionType
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (defaultUnionType
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (unionType
+        (unionType
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (defaultUnionType
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))))
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))))))

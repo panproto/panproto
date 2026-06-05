@@ -1,0 +1,156 @@
+================================================================================
+FILTER pipe syntax in SubPageLink
+================================================================================
+
+page 50100 "Test Page"
+{
+    layout
+    {
+        area(Content)
+        {
+            part(AttachedFiles; "Document Files")
+            {
+                ApplicationArea = All;
+                SubPageLink = "Created Doc. Table No." = CONST(38),
+                              "Created Doc. Subtype" = FILTER(2 | 3),
+                              "Created Doc. No." = FIELD("No.");
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (part_section
+          (part_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (quoted_identifier)
+                value: (integer))
+              (link_value
+                field: (quoted_identifier)
+                (filter_keyword)
+                value: (filter_value
+                  (integer)
+                  (integer)))
+              (link_value
+                field: (quoted_identifier)
+                value: (quoted_identifier)))))))))
+
+================================================================================
+FILTER with multiple OR conditions
+================================================================================
+
+pageextension 50100 "Test Extension" extends "Customer List"
+{
+    layout
+    {
+        addafter(General)
+        {
+            part(TestPart; "Test Page")
+            {
+                SubPageLink = "Type" = FILTER(1 | 2 | 3 | 4),
+                              "Status" = FILTER(Open | Released);
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pageextension_declaration
+    (pageextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (addafter_modification
+        target: (identifier)
+        (part_section
+          (part_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (quoted_identifier)
+                (filter_keyword)
+                value: (filter_value
+                  (integer)
+                  (integer)
+                  (integer)
+                  (integer)))
+              (link_value
+                field: (quoted_identifier)
+                (filter_keyword)
+                value: (filter_value
+                  (identifier)
+                  (identifier))))))))))
+
+================================================================================
+FILTER with comparison operators
+================================================================================
+
+page 50100 "Test Page"
+{
+    layout
+    {
+        area(Content)
+        {
+            part(RelatedFiles; "Document Files")
+            {
+                SubPageLink = "Related Document No." = FILTER(<> ''),
+                              "Status" = FILTER(= 'Active');
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (part_section
+          (part_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (quoted_identifier)
+                (filter_keyword)
+                value: (filter_value
+                  (string_literal)))
+              (link_value
+                field: (quoted_identifier)
+                (filter_keyword)
+                value: (filter_value
+                  (string_literal))))))))))

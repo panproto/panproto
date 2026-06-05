@@ -1,0 +1,116 @@
+================================================================================
+Report with DataAccessIntent property variations
+================================================================================
+
+report 13 "VAT Register"
+{
+    DefaultLayout = RDLC;
+    RDLCLayout = './Finance/VAT/Reporting/VATRegister.rdlc';
+    ApplicationArea = Basic, Suite;
+    Caption = 'VAT Register';
+    UsageCategory = ReportsAndAnalysis;
+    DataAccessIntent = ReadOnly;
+
+    dataset
+    {
+        dataitem("G/L Register"; "G/L Register")
+        {
+            DataItemTableView = sorting("No.");
+            column(CompanyName; COMPANYPROPERTY.DisplayName())
+            {
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (identifier))
+        (option_member
+          (identifier))))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (quoted_identifier)
+        table_name: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (sorting_value
+            (quoted_identifier)))
+        (report_column
+          (column_keyword)
+          name: (identifier)
+          source: (call_expression
+            function: (member_expression
+              object: (identifier)
+              member: (identifier))
+            arguments: (argument_list)))))))
+
+================================================================================
+Report with DataAccessIntent ReadWrite case variation
+================================================================================
+
+report 14 "Test Report"
+{
+    Caption = 'Test Report';
+    dataAccessIntent = ReadWrite;
+
+    dataset
+    {
+        dataitem(Customer; Customer)
+        {
+            column(No; "No.")
+            {
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (report_column
+          (column_keyword)
+          name: (identifier)
+          source: (quoted_identifier))))))

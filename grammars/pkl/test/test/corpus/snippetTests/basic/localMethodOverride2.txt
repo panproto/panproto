@@ -1,0 +1,173 @@
+===
+basic/localMethodOverride2.pkl
+===
+
+
+open class Foo1 {
+  local function f() = "original"
+  foo {
+    x = f()
+  }
+}
+
+class Foo2 extends Foo1 {
+  local function f() = "override"
+}
+
+res1 = new Foo2 {}.foo.x
+
+
+open class Foo3 {
+  local function f() = "original"
+  foo {
+    x = f()
+  }
+}
+
+class Foo4 extends Foo3 {
+  function f() = "override"
+}
+
+res2 = new Foo4 {}.foo.x
+
+
+open class Foo5 {
+  function f() = "original"
+  foo {
+    x = f()
+  }
+}
+
+class Foo6 extends Foo5 {
+  local function f() = "override"
+}
+
+res3 = new Foo6 {}.foo.x
+
+---
+
+(module
+  (clazz
+    (modifier)
+    (identifier)
+    (classBody
+      (classMethod
+        (methodHeader
+          (modifier)
+          (identifier)
+          (parameterList))
+        (slStringLiteralExpr
+          (slStringLiteralPart)))
+      (classProperty
+        (identifier)
+        (objectBody
+          (objectProperty
+            (identifier)
+            (unqualifiedAccessExpr
+              (identifier)
+              (argumentList)))))))
+  (clazz
+    (identifier)      (classExtendsClause
+      (qualifiedIdentifier
+        (identifier)))
+    (classBody
+      (classMethod
+        (methodHeader
+          (modifier)
+          (identifier)
+          (parameterList))
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (qualifiedAccessExpr
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (objectBody))
+        (identifier))
+      (identifier)))
+  (clazz
+    (modifier)
+    (identifier)
+    (classBody
+      (classMethod
+        (methodHeader
+          (modifier)
+          (identifier)
+          (parameterList))
+        (slStringLiteralExpr
+          (slStringLiteralPart)))
+      (classProperty
+        (identifier)
+        (objectBody
+          (objectProperty
+            (identifier)
+            (unqualifiedAccessExpr
+              (identifier)
+              (argumentList)))))))
+  (clazz
+    (identifier)      (classExtendsClause
+      (qualifiedIdentifier
+        (identifier)))
+    (classBody
+      (classMethod
+        (methodHeader
+          (identifier)
+          (parameterList))
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (qualifiedAccessExpr
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (objectBody))
+        (identifier))
+      (identifier)))
+  (clazz
+    (modifier)
+    (identifier)
+    (classBody
+      (classMethod
+        (methodHeader
+          (identifier)
+          (parameterList))
+        (slStringLiteralExpr
+          (slStringLiteralPart)))
+      (classProperty
+        (identifier)
+        (objectBody
+          (objectProperty
+            (identifier)
+            (unqualifiedAccessExpr
+              (identifier)
+              (argumentList)))))))
+  (clazz
+    (identifier)      (classExtendsClause
+      (qualifiedIdentifier
+        (identifier)))
+    (classBody
+      (classMethod
+        (methodHeader
+          (modifier)
+          (identifier)
+          (parameterList))
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (qualifiedAccessExpr
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (objectBody))
+        (identifier))
+      (identifier))))

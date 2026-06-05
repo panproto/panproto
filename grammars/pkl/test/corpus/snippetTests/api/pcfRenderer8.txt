@@ -1,0 +1,16 @@
+===
+api/pcfRenderer8.pkl
+===
+
+m = new Mixin {}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody))))

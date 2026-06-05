@@ -1,0 +1,84 @@
+================================================================================
+Field with CaptionClass property using method call
+================================================================================
+
+table 50000 "Test Table" 
+{
+    fields
+    {
+        field(220; "Custom Search Field Date 1"; Date)
+        {
+            Caption = 'Custom Search Field Date 1';
+            CaptionClass = CustomColumnMgt.GetDocumentFieldCaption(220);
+            DataClassification = CustomerContent;
+            Editable = false;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (property_expression
+            (call_expression
+              function: (member_expression
+                object: (identifier)
+                member: (identifier))
+              arguments: (argument_list
+                (integer)))))
+        (property
+          name: (property_name)
+          value: (identifier))
+        (property
+          name: (property_name)
+          value: (boolean))))))
+
+================================================================================
+Field with CaptionClass property using string literal
+================================================================================
+
+table 50001 "Test Table 2"
+{
+    fields
+    {
+        field(1; TestField; Text[50])
+        {
+            CaptionClass = '1,2,3';
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (string_literal))))))

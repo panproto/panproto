@@ -1,0 +1,61 @@
+================================================================================
+Preprocessor split between procedure header and body
+================================================================================
+
+codeunit 134 "No. Series Setup Impl."
+{
+    procedure ValidateDefaultNos(var NoSeries: Record "No. Series")
+#if not CLEAN24
+#pragma warning disable AL0432
+    var
+        IsHandled: Boolean;
+    begin
+        IsHandled := false;
+#pragma warning restore AL0432
+#else
+    begin
+#endif
+        exit(true);
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier)))))
+      (preproc_split_procedure_body
+        (preproc_if
+          (preproc_open)
+          condition: (preproc_not_expression
+            (identifier)))
+        (pragma)
+        (var_section
+          (var_keyword)
+          (variable_declaration
+            name: (identifier)
+            type: (type_specification
+              (basic_type))))
+        (assignment_statement
+          left: (identifier)
+          right: (boolean))
+        (pragma)
+        (preproc_else)
+        (preproc_endif
+          (preproc_close))
+        (exit_statement
+          (exit_keyword)
+          return_value: (boolean))
+        (end_keyword)))))

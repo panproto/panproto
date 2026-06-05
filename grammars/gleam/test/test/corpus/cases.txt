@@ -1,0 +1,480 @@
+================================================================================
+Case examples
+================================================================================
+
+case value {
+  "A" -> True
+  _ -> False
+}
+
+case value {}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (case
+    (case_subjects
+      (identifier))
+    (case_clauses
+      (case_clause
+        (case_clause_patterns
+          (case_clause_pattern
+            (string
+              (quoted_content))))
+        (record
+          (constructor_name)))
+      (case_clause
+        (case_clause_patterns
+          (case_clause_pattern
+            (discard)))
+        (record
+          (constructor_name)))))
+  (case
+    (case_subjects
+      (identifier))))
+
+================================================================================
+Case examples
+================================================================================
+
+// From https://gleam.run/news/v0.31-keeping-dependencies-explicit/#quality-of-life-improvements
+pub fn listed(names: List(String), person: Person) -> String {
+  case names {
+    [name, ..names] if name == person.name -> True
+    [_, ..names] -> listed(names, person)
+    [] -> False
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (comment)
+  (function
+    (visibility_modifier)
+    (identifier)
+    (function_parameters
+      (function_parameter
+        (identifier)
+        (type
+          (type_identifier)
+          (type_arguments
+            (type_argument
+              (type
+                (type_identifier))))))
+      (function_parameter
+        (identifier)
+        (type
+          (type_identifier))))
+    (type
+      (type_identifier))
+    (block
+      (case
+        (case_subjects
+          (identifier))
+        (case_clauses
+          (case_clause
+            (case_clause_patterns
+              (case_clause_pattern
+                (list_pattern
+                  (identifier)
+                  (list_pattern_tail
+                    (identifier)))))
+            (case_clause_guard
+              (binary_expression
+                (identifier)
+                (field_access
+                  (identifier)
+                  (label))))
+            (record
+              (constructor_name)))
+          (case_clause
+            (case_clause_patterns
+              (case_clause_pattern
+                (list_pattern
+                  (discard)
+                  (list_pattern_tail
+                    (identifier)))))
+            (function_call
+              (identifier)
+              (arguments
+                (argument
+                  (identifier))
+                (argument
+                  (identifier)))))
+          (case_clause
+            (case_clause_patterns
+              (case_clause_pattern
+                (list_pattern)))
+            (record
+              (constructor_name))))))))
+
+================================================================================
+Pattern matching binaries with 'as'
+================================================================================
+
+// From https://gleam.run/news/v0.31-keeping-dependencies-explicit/#quality-of-life-improvements
+case tag {
+  "category " as key <> value
+  | "region " as key <> value
+  | "priority " as key <> value -> {
+    let key = string.trim(key)
+    Ok(Tag(key, value))
+  }
+  _ -> Error(Nil)
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (comment)
+  (case
+    (case_subjects
+      (identifier))
+    (case_clauses
+      (case_clause
+        (case_clause_patterns
+          (case_clause_pattern
+            (binary_expression
+              (binary_expression
+                (string
+                  (quoted_content))
+                (identifier))
+              (identifier)))
+          (case_clause_pattern
+            (binary_expression
+              (binary_expression
+                (string
+                  (quoted_content))
+                (identifier))
+              (identifier)))
+          (case_clause_pattern
+            (binary_expression
+              (binary_expression
+                (string
+                  (quoted_content))
+                (identifier))
+              (identifier))))
+        (block
+          (let
+            (identifier)
+            (function_call
+              (field_access
+                (identifier)
+                (label))
+              (arguments
+                (argument
+                  (identifier)))))
+          (record
+            (constructor_name)
+            (arguments
+              (argument
+                (record
+                  (constructor_name)
+                  (arguments
+                    (argument
+                      (identifier))
+                    (argument
+                      (identifier)))))))))
+      (case_clause
+        (case_clause_patterns
+          (case_clause_pattern
+            (discard)))
+        (record
+          (constructor_name)
+          (arguments
+            (argument
+              (record
+                (constructor_name)))))))))
+
+================================================================================
+Case with boolean negation in a guard
+================================================================================
+
+case var {
+  1 if !other_var -> True
+  _ -> False
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (case
+    (case_subjects
+      (identifier))
+    (case_clauses
+      (case_clause
+        (case_clause_patterns
+          (case_clause_pattern
+            (integer)))
+        (case_clause_guard
+          (boolean_negation
+            (identifier)))
+        (record
+          (constructor_name)))
+      (case_clause
+        (case_clause_patterns
+          (case_clause_pattern
+            (discard)))
+        (record
+          (constructor_name))))))
+
+================================================================================
+Case with int remainder in guard
+================================================================================
+
+case var {
+  _ if 11 % 2 == 0 -> True
+  _ -> False
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (case
+    (case_subjects
+      (identifier))
+    (case_clauses
+      (case_clause
+        (case_clause_patterns
+          (case_clause_pattern
+            (discard)))
+        (case_clause_guard
+          (binary_expression
+            (binary_expression
+              (integer)
+              (integer))
+            (integer)))
+        (record
+          (constructor_name)))
+      (case_clause
+        (case_clause_patterns
+          (case_clause_pattern
+            (discard)))
+        (record
+          (constructor_name))))))
+
+================================================================================
+Bit array pattern with arithmetic in segment size
+================================================================================
+
+case wibble {
+  <<_:size(wobble - 1)>> -> True
+    _ -> False
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (case
+    (case_subjects
+      (identifier))
+    (case_clauses
+      (case_clause
+        (case_clause_patterns
+          (case_clause_pattern
+            (bit_array_pattern
+              (bit_array_segment
+                (discard)
+                (bit_array_segment_options
+                  (bit_array_segment_option
+                    (binary_expression
+                      (identifier)
+                      (integer))))))))
+        (record
+          (constructor_name)))
+      (case_clause
+        (case_clause_patterns
+          (case_clause_pattern
+            (discard)))
+        (record
+          (constructor_name))))))
+
+================================================================================
+Bit array edge cases
+================================================================================
+
+// From `bit_array_test.gleam` in the stdlib
+<<>>
+<<0>>
+<<-1:32>>
+<<0:-8>>
+<<7:3>>
+<<-1:190>>
+<<0:-1>>
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (comment)
+  (bit_array)
+  (bit_array
+    (bit_array_segment
+      (integer)))
+  (bit_array
+    (bit_array_segment
+      (integer_negation
+        (integer))
+      (bit_array_segment_options
+        (integer))))
+  (bit_array
+    (bit_array_segment
+      (integer)
+      (bit_array_segment_options
+        (integer))))
+  (bit_array
+    (bit_array_segment
+      (integer)
+      (bit_array_segment_options
+        (integer))))
+  (bit_array
+    (bit_array_segment
+      (integer_negation
+        (integer))
+      (bit_array_segment_options
+        (integer))))
+  (bit_array
+    (bit_array_segment
+      (integer)
+      (bit_array_segment_options
+        (integer)))))
+
+================================================================================
+Nested tuple/field access in clause guard
+================================================================================
+
+case wibble {
+  _ if a.b.c -> True
+  _ if a.0.1 -> True
+  _ if a.b.0.a -> True
+  _ if a.0.a.0 -> True
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (case
+    subjects: (case_subjects
+      (identifier))
+    clauses: (case_clauses
+      (case_clause
+        patterns: (case_clause_patterns
+          (case_clause_pattern
+            (discard)))
+        guard: (case_clause_guard
+          (field_access
+            record: (field_access
+              record: (identifier)
+              field: (label))
+            field: (label)))
+        value: (record
+          name: (constructor_name)))
+      (case_clause
+        patterns: (case_clause_patterns
+          (case_clause_pattern
+            (discard)))
+        guard: (case_clause_guard
+          (tuple_access
+            tuple: (tuple_access
+              tuple: (identifier)
+              index: (integer))
+            index: (integer)))
+        value: (record
+          name: (constructor_name)))
+      (case_clause
+        patterns: (case_clause_patterns
+          (case_clause_pattern
+            (discard)))
+        guard: (case_clause_guard
+          (field_access
+            record: (tuple_access
+              tuple: (field_access
+                record: (identifier)
+                field: (label))
+              index: (integer))
+            field: (label)))
+        value: (record
+          name: (constructor_name)))
+      (case_clause
+        patterns: (case_clause_patterns
+          (case_clause_pattern
+            (discard)))
+        guard: (case_clause_guard
+          (tuple_access
+            tuple: (field_access
+              record: (tuple_access
+                tuple: (identifier)
+                index: (integer))
+              field: (label))
+            index: (integer)))
+        value: (record
+          name: (constructor_name))))))
+
+================================================================================
+Negative integer patterns in case clauses
+================================================================================
+
+case x {
+  0 -> some_value
+  -1 -> Wibble
+  -2 | -3 -> Wobble
+  -1_000 if condition -> Wubble
+}
+
+case x, y {
+  0, 0 -> some_value
+  -1, -2 -> Wibble
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (case
+    subjects: (case_subjects
+      (identifier))
+    clauses: (case_clauses
+      (case_clause
+        patterns: (case_clause_patterns
+          (case_clause_pattern
+            (integer)))
+        value: (identifier))
+      (case_clause
+        patterns: (case_clause_patterns
+          (case_clause_pattern
+            (integer)))
+        value: (record
+          name: (constructor_name)))
+      (case_clause
+        patterns: (case_clause_patterns
+          (case_clause_pattern
+            (integer))
+          (case_clause_pattern
+            (integer)))
+        value: (record
+          name: (constructor_name)))
+      (case_clause
+        patterns: (case_clause_patterns
+          (case_clause_pattern
+            (integer)))
+        guard: (case_clause_guard
+          (identifier))
+        value: (record
+          name: (constructor_name)))))
+  (case
+    subjects: (case_subjects
+      (identifier)
+      (identifier))
+    clauses: (case_clauses
+      (case_clause
+        patterns: (case_clause_patterns
+          (case_clause_pattern
+            (integer)
+            (integer)))
+        value: (identifier))
+      (case_clause
+        patterns: (case_clause_patterns
+          (case_clause_pattern
+            (integer)
+            (integer)))
+        value: (record
+          name: (constructor_name))))))

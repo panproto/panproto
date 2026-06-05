@@ -1,0 +1,122 @@
+================================================================================
+EventSubscriber attribute with pragma directives before procedure
+================================================================================
+
+codeunit 50100 "Test Codeunit"
+{
+    EventSubscriberInstance = Manual;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"CSC Core Session Manager", 'OnGetAccessToken', '', true, true)]
+#pragma warning disable AL0432
+    local procedure OnGetAccessToken(var AccessTokenValue: Text[1024]; var IsHandled: Boolean)
+    begin
+        AccessTokenValue := AccessToken;
+        IsHandled := (AccessToken <> '');
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"CSC License Management", 'OnIsAppActivated', '', true, true)]
+#pragma warning restore AL0432
+    local procedure OnIsAppActivated(var IsActivated: Boolean; var IsHandled: Boolean)
+    begin
+        IsActivated := ActivationState;
+        IsHandled := true;
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (qualified_enum_value
+              enum_type: (identifier)
+              value: (identifier))
+            (database_reference
+              keyword: (object_type_keyword)
+              table_name: (quoted_identifier))
+            (string_literal)
+            (string_literal)
+            (boolean)
+            (boolean)))))
+    (pragma)
+    (procedure
+      modifier: (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (text_type
+              length: (integer))))
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (identifier)
+          right: (identifier))
+        (assignment_statement
+          left: (identifier)
+          right: (parenthesized_expression
+            (comparison_expression
+              left: (identifier)
+              operator: (comparison_operator)
+              right: (string_literal))))
+        (end_keyword)))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (qualified_enum_value
+              enum_type: (identifier)
+              value: (identifier))
+            (database_reference
+              keyword: (object_type_keyword)
+              table_name: (quoted_identifier))
+            (string_literal)
+            (string_literal)
+            (boolean)
+            (boolean)))))
+    (pragma)
+    (procedure
+      modifier: (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (basic_type)))
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (identifier)
+          right: (identifier))
+        (assignment_statement
+          left: (identifier)
+          right: (boolean))
+        (end_keyword)))))

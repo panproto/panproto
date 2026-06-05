@@ -1,0 +1,91 @@
+================================================================================
+empty switch
+================================================================================
+void foo() {
+	switch (69) {}
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method return_type: (type_void) name: (identifier) body: (block
+	(switch
+		subject: (literal_int)
+		body: (switch_body)))))
+
+================================================================================
+switch with one empty case
+================================================================================
+void foo() {
+	switch (69) {
+		case 1:
+	}
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method return_type: (type_void) name: (identifier) body: (block
+	(switch
+		subject: (literal_int)
+		body: (switch_body
+			(switch_case label: (literal_int)))))))
+
+================================================================================
+switch with multiple empty cases
+================================================================================
+void foo() {
+	switch (69) {
+		case 1:
+		case 2:
+		case 3:
+	}
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method return_type: (type_void) name: (identifier) body: (block
+	(switch
+		subject: (literal_int)
+		body: (switch_body
+			(switch_case label: (literal_int))
+			(switch_case label: (literal_int))
+			(switch_case label: (literal_int)))))))
+
+================================================================================
+switch with one case
+================================================================================
+void foo() {
+	switch (69) {
+		case 1: break;
+	}
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method return_type: (type_void) name: (identifier) body: (block
+	(switch
+		subject: (literal_int)
+		body: (switch_body
+			(switch_case
+				label: (literal_int)
+				(break)))))))
+
+================================================================================
+switch with multiple case, fallthrough case and default branch
+================================================================================
+void foo() {
+	switch (69) {
+
+		case 1:
+		case 2:
+		b++;
+		break;
+
+		default:
+		c++;
+
+	}
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method return_type: (type_void) name: (identifier) body: (block
+	(switch
+		subject: (literal_int)
+		body: (switch_body
+			(switch_case label: (literal_int))
+			(switch_case
+				label: (literal_int)
+				(statement_expression (expression_suffix (identifier)))
+				(break))
+			default_case: (statement_expression (expression_suffix (identifier))))))))
+

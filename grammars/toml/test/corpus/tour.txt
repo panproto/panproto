@@ -1,0 +1,355 @@
+========
+Comments
+========
+
+# This is a TOML comment
+
+# This is a multiline
+# TOML comment
+
+---
+
+(document
+  (comment)
+  (comment)
+  (comment))
+
+==============
+Strings: basic
+==============
+
+str1 = "I'm a string."
+str2 = "You can \"quote\" me."
+str3 = "Name\tJos\u00E9\nLoc\tSF."
+
+---
+
+(document
+  (pair
+    (bare_key)
+    (string))
+  (pair
+    (bare_key)
+    (string
+      (escape_sequence)
+      (escape_sequence)))
+  (pair
+    (bare_key)
+    (string
+      (escape_sequence)
+      (escape_sequence)
+      (escape_sequence)
+      (escape_sequence))))
+
+=========================
+Strings: multi-line basic
+=========================
+
+str1 = """
+Roses are red
+Violets are blue"""
+
+str2 = """\
+  The quick brown \
+  fox jumps over \
+  the lazy dog.\
+  """
+
+---
+
+(document
+  (pair
+    (bare_key)
+    (string))
+  (pair
+    (bare_key)
+    (string
+      (escape_sequence)
+      (escape_sequence)
+      (escape_sequence)
+      (escape_sequence))))
+
+================
+Strings: literal
+================
+
+path = 'C:\Users\nodejs\templates'
+path2 = '\\User\admin$\system32'
+quoted = 'Tom "Dubs" Preston-Werner'
+regex = '<\i\c*\s*>'
+
+---
+
+(document
+  (pair
+    (bare_key)
+    (string))
+  (pair
+    (bare_key)
+    (string))
+  (pair
+    (bare_key)
+    (string))
+  (pair
+    (bare_key)
+    (string)))
+
+===========================
+Strings: multi-line literal
+===========================
+
+re = '''I [dw]on't need \d{2} apples'''
+lines = '''
+The first newline is
+trimmed in raw strings.
+All other whitespace
+is preserved.
+'''
+
+---
+
+(document
+  (pair
+    (bare_key)
+    (string))
+  (pair
+    (bare_key)
+    (string)))
+
+=================
+Numbers: integers
+=================
+
+int1 = +99
+int2 = 42
+int3 = 0
+int4 = -17
+
+----
+
+(document
+  (pair
+    (bare_key)
+    (integer))
+  (pair
+    (bare_key)
+    (integer))
+  (pair
+    (bare_key)
+    (integer))
+  (pair
+    (bare_key)
+    (integer)))
+
+====================
+Numbers: hexadecimal
+====================
+
+hex1 = 0xDEADBEEF
+hex2 = 0xdeadbeef
+hex3 = 0xdead_beef
+
+---
+
+(document
+  (pair
+    (bare_key)
+    (integer))
+  (pair
+    (bare_key)
+    (integer))
+  (pair
+    (bare_key)
+    (integer)))
+
+==============
+Numbers: octal
+==============
+
+oct1 = 0o01234567
+oct2 = 0o755
+
+---
+
+(document
+  (pair
+    (bare_key)
+    (integer))
+  (pair
+    (bare_key)
+    (integer)))
+
+===============
+Numbers: binary
+===============
+
+bin1 = 0b11010110
+
+---
+
+(document
+  (pair
+    (bare_key)
+    (integer)))
+
+===================
+Numbers: fractional
+===================
+
+float1 = +1.0
+float2 = 3.1415
+float3 = -0.01
+
+float8 = 224_617.445_991_228
+
+---
+
+(document
+  (pair
+    (bare_key)
+    (float))
+  (pair
+    (bare_key)
+    (float))
+  (pair
+    (bare_key)
+    (float))
+  (pair
+    (bare_key)
+    (float)))
+
+=================
+Numbers: exponent
+=================
+
+float4 = 5e+22
+float5 = 1e06
+float6 = -2E-2
+
+float7 = 6.626e-34
+
+----
+
+(document
+  (pair
+    (bare_key)
+    (float))
+  (pair
+    (bare_key)
+    (float))
+  (pair
+    (bare_key)
+    (float))
+  (pair
+    (bare_key)
+    (float)))
+
+=================
+Numbers: infinity
+=================
+
+infinite1 = inf
+infinite2 = +inf
+infinite3 = -inf
+
+---
+
+(document
+  (pair
+    (bare_key)
+    (float))
+  (pair
+    (bare_key)
+    (float))
+  (pair
+    (bare_key)
+    (float)))
+
+=====================
+Numbers: not a number
+=====================
+
+not1 = nan
+not2 = +nan
+not3 = -nan
+
+---
+
+(document
+  (pair
+    (bare_key)
+    (float))
+  (pair
+    (bare_key)
+    (float))
+  (pair
+    (bare_key)
+    (float)))
+
+================================
+Dates and Times: offset datetime
+================================
+
+odt1 = 1979-05-27T07:32:00Z
+odt2 = 1979-05-27T00:32:00-07:00
+odt3 = 1979-05-27T00:32:00.999999-07:00
+
+---
+
+(document
+  (pair
+    (bare_key)
+    (offset_date_time))
+  (pair
+    (bare_key)
+    (offset_date_time))
+  (pair
+    (bare_key)
+    (offset_date_time)))
+
+===============================
+Dates and Times: local datetime
+===============================
+
+ldt1 = 1979-05-27T07:32:00
+ldt2 = 1979-05-27T00:32:00.999999
+
+---
+
+(document
+  (pair
+    (bare_key)
+    (local_date_time))
+  (pair
+    (bare_key)
+    (local_date_time)))
+
+===========================
+Dates and Times: local date
+===========================
+
+ld1 = 1979-05-27
+
+---
+
+(document
+  (pair
+    (bare_key)
+    (local_date)))
+
+===========================
+Dates and Times: local time
+===========================
+
+lt1 = 07:32:00
+lt2 = 00:32:00.999999
+
+---
+
+(document
+  (pair
+    (bare_key)
+    (local_time))
+  (pair
+    (bare_key)
+    (local_time)))

@@ -1,0 +1,71 @@
+================================================================================
+XMLPort UseRequestPage property false
+================================================================================
+
+xmlport 149001 "BCPT Import/Export"
+{
+    Caption = 'BCPT Import/Export';
+    UseRequestPage = false;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (boolean))))
+
+================================================================================
+XMLPort UseRequestPage property true
+================================================================================
+
+xmlport 149002 "Test XMLPort"
+{
+    UseRequestPage = true;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (boolean))))
+
+================================================================================
+XMLPort with UseRequestPage and Direction properties
+================================================================================
+
+xmlport 149003 "Full XMLPort"
+{
+    UseRequestPage = true;
+    Direction = Export;
+    Format = Xml;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))))

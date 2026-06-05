@@ -1,0 +1,36 @@
+===
+Paths
+===
+
+.cmd
+/file
+./file
+../file
+/dir/
+./dir/
+../dir/
+./sub/file
+./sub/dir/
+./foo-bar
+./foo.bar
+./foo/**/*
+*dir*/bass.lock
+./subject-*
+
+---
+
+(source
+  (command)
+  (path)
+  (path)
+  (path)
+  (path)
+  (path)
+  (path)
+  (path)
+  (path)
+  (path)
+  (path)
+  (path)
+  (path)
+  (path))

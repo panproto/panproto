@@ -1,0 +1,226 @@
+================================================================================
+argument
+================================================================================
+argument: {arg}
+tuple: {arg,arg}
+keycode: CTRL-R {CTRL-R} {register CTRL-F}
+list of { uri:string, name: string } tables
+optional argument: {arg}?
+
+
+--------------------------------------------------------------------------------
+
+(help_file
+  (block
+    (line
+      (word)
+      (argument
+        (word)))
+    (line
+      (word)
+      (argument
+        (word)))
+    (line
+      (word)
+      (keycode)
+      (argument
+        (word))
+      (word)
+      (ERROR
+        (word))
+      (keycode)
+      (word))
+    (line
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word))
+    (line
+      (word)
+      (word)
+      (argument
+        (word)))))
+
+================================================================================
+multiple arguments on the same line
+================================================================================
+{foo} {bar} {baz}
+
+
+--------------------------------------------------------------------------------
+
+(help_file
+  (block
+    (line
+      (argument
+        (word))
+      (argument
+        (word))
+      (argument
+        (word)))))
+
+================================================================================
+argument in parentheses
+================================================================================
+({aaa})
+vim.foo({bar})
+vim.foo( {bar})
+nvim_foo({bar})
+nvim_foo({bar},{baz})
+nvim_foo({bar}, {baz})
+nvim_buf_detach_event[{buf}]
+
+
+--------------------------------------------------------------------------------
+
+(help_file
+  (block
+    (line
+      (word)
+      (argument
+        (word))
+      (word))
+    (line
+      (word)
+      (word)
+      (word)
+      (word)
+      (argument
+        (word))
+      (word))
+    (line
+      (word)
+      (word)
+      (word)
+      (word)
+      (argument
+        (word))
+      (word))
+    (line
+      (word)
+      (word)
+      (argument
+        (word))
+      (word))
+    (line
+      (word)
+      (word)
+      (argument
+        (word))
+      (word)
+      (argument
+        (word))
+      (word))
+    (line
+      (word)
+      (word)
+      (argument
+        (word))
+      (word)
+      (argument
+        (word))
+      (word))
+    (line
+      (word)
+      (word)
+      (argument
+        (word))
+      (word))))
+
+================================================================================
+NOT an argument
+================================================================================
+a '{' '}' block
+{foo "{bar}" `{baz}` |{baz| } {}
+foo { bar
+{ {} foo{{ foo{{{
+ {{
+ {{{
+{ }	foo
+,	inside { }:
+\}	literal } x
+\{	literal { x
+
+===============
+3. Netrw *netrw-ref* {{{1
+
+EXTERNAL *netrw-externapp* {{{2
+
+
+--------------------------------------------------------------------------------
+
+(help_file
+  (block
+    (line
+      (word)
+      (word)
+      (word)
+      (word)
+      (word)
+      (word))
+    (line
+      (word)
+      (ERROR
+        (word))
+      (word)
+      (codespan
+        (word))
+      (taglink
+        (word))
+      (word)
+      (word))
+    (line
+      (word)
+      (word)
+      (word))
+    (line
+      (word)
+      (word)
+      (word)
+      (word))
+    (line
+      (word))
+    (line
+      (word))
+    (line
+      (word)
+      (word)
+      (word))
+    (line
+      (word)
+      (word)
+      (word)
+      (word))
+    (line
+      (word)
+      (word)
+      (word)
+      (word))
+    (line
+      (word)
+      (word)
+      (word)
+      (word)))
+  (block
+    (line
+      (h1
+        (delimiter)
+        (heading
+          (word)
+          (word)
+          (word))
+        (tag
+          (word))
+        (word))))
+  (block
+    (line
+      (h3
+        (heading)
+        (tag
+          (word))
+        (word)))))

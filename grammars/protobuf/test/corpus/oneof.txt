@@ -1,0 +1,76 @@
+================================================================================
+Oneof
+================================================================================
+
+syntax = "proto3";
+
+message SampleMessage {
+  oneof test_oneof {
+    string name = 4;
+    SubMessage sub_message = 9;
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (syntax)
+  (message
+    (message_name
+      (identifier))
+    (message_body
+      (oneof
+        (identifier)
+        (oneof_field
+          (type)
+          (identifier)
+          (field_number
+            (int_lit
+              (decimal_lit))))
+        (empty_statement)
+        (oneof_field
+          (type
+            (message_or_enum_type
+              (identifier)))
+          (identifier)
+          (field_number
+            (int_lit
+              (decimal_lit))))
+        (empty_statement)))))
+
+================================================================================
+Oneof with option
+================================================================================
+
+syntax = "proto3";
+
+message SampleMessage {
+  oneof test_oneof {
+    option (my_option) = true;
+    string name = 4;
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (syntax)
+  (message
+    (message_name
+      (identifier))
+    (message_body
+      (oneof
+        (identifier)
+        (option
+          (full_ident
+            (identifier))
+          (constant
+            (bool
+              (true))))
+        (oneof_field
+          (type)
+          (identifier)
+          (field_number
+            (int_lit
+              (decimal_lit))))
+        (empty_statement)))))

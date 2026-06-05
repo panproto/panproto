@@ -1,0 +1,109 @@
+================================================================================
+Test codeunit with TestHttpRequestPolicy property
+================================================================================
+
+codeunit 50100 "Test Http Client"
+{
+    Subtype = Test;
+    TestHttpRequestPolicy = BlockOutboundRequests;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))))
+
+================================================================================
+Test codeunit with multiple test properties
+================================================================================
+
+codeunit 50101 "Advanced Test"
+{
+    Subtype = Test;
+    TestIsolation = Codeunit;
+    TestHttpRequestPolicy = BlockOutboundRequests;
+    
+    var
+        Assert: Codeunit "Library Assert";
+    
+    procedure TestMethod()
+    begin
+        Assert.IsTrue(true, 'Test should pass');
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (keyword_identifier
+        (codeunit_keyword)))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (object_reference_type
+            object_type: (codeunit_keyword)
+            reference: (quoted_identifier)))))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (member_expression
+            object: (identifier)
+            member: (identifier))
+          arguments: (argument_list
+            (boolean)
+            (string_literal)))
+        (end_keyword)))))
+
+================================================================================
+Test codeunit with case variations
+================================================================================
+
+codeunit 50102 "Case Test"
+{
+    Subtype = Test;
+    testhttprequestpolicy = blockoutboundrequests;
+    TESTHTTPREQUESTPOLICY = BLOCKOUTBOUNDREQUESTS;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))))

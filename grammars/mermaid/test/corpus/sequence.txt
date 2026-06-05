@@ -1,0 +1,346 @@
+==========================
+Simple sequence diagram
+==========================
+sequenceDiagram
+    Alice->>John: Hello John, how are you?
+    John-->>Alice: Great!
+    Alice-)John: See you later!
+
+---
+
+(source_file
+  (diagram_sequence
+    (sequence_stmt_signal
+      (sequence_actor)
+      (sequence_signal_type
+        (solid_arrow))
+      (sequence_actor)
+      (sequence_text))
+    (sequence_stmt_signal
+      (sequence_actor)
+      (sequence_signal_type
+        (dotted_arrow))
+      (sequence_actor)
+      (sequence_text))
+    (sequence_stmt_signal
+      (sequence_actor)
+      (sequence_signal_type
+        (solid_point))
+      (sequence_actor)
+      (sequence_text))))
+
+==========================
+Participant statement
+==========================
+sequenceDiagram
+    participant Alice
+    participant Bob
+    Alice->>Bob: Hi Bob
+    Bob->>Alice: Hi Alice
+
+---
+
+(source_file
+  (diagram_sequence
+    (sequence_stmt_participant
+      (sequence_actor))
+    (sequence_stmt_participant
+      (sequence_actor))
+    (sequence_stmt_signal
+      (sequence_actor)
+      (sequence_signal_type
+        (solid_arrow))
+      (sequence_actor)
+      (sequence_text))
+    (sequence_stmt_signal
+      (sequence_actor)
+      (sequence_signal_type
+        (solid_arrow))
+      (sequence_actor)
+      (sequence_text))))
+
+==========================
+Sequence_Actor statement
+==========================
+sequenceDiagram
+    sequence_actor Alice
+    sequence_actor Bob
+    Alice->>Bob: Hi Bob
+    Bob->>Alice: Hi Alice
+
+---
+
+(source_file
+  (diagram_sequence
+    (sequence_stmt_actor
+      (sequence_actor))
+    (sequence_stmt_actor
+      (sequence_actor))
+    (sequence_stmt_signal
+      (sequence_actor)
+      (sequence_signal_type
+        (solid_arrow))
+      (sequence_actor)
+      (sequence_text))
+    (sequence_stmt_signal
+      (sequence_actor)
+      (sequence_signal_type
+        (solid_arrow))
+      (sequence_actor)
+      (sequence_text))))
+
+==========================
+Participant with alias
+==========================
+sequenceDiagram
+    participant A as Alice
+    participant J as John
+    A->>J: Hello John, how are you?
+    J->>A: Great!
+
+---
+
+(source_file
+  (diagram_sequence
+    (sequence_stmt_participant
+      (sequence_actor)
+      (sequence_alias))
+    (sequence_stmt_participant
+      (sequence_actor)
+      (sequence_alias))
+    (sequence_stmt_signal
+      (sequence_actor)
+      (sequence_signal_type
+        (solid_arrow))
+      (sequence_actor)
+      (sequence_text))
+    (sequence_stmt_signal
+      (sequence_actor)
+      (sequence_signal_type
+        (solid_arrow))
+      (sequence_actor)
+      (sequence_text))))
+
+==========================
+Activation statement
+==========================
+sequenceDiagram
+    Alice->>John: Hello John, how are you?
+    activate John
+    John-->>Alice: Great!
+    deactivate John
+
+---
+
+(source_file
+  (diagram_sequence
+    (sequence_stmt_signal
+      (sequence_actor)
+      (sequence_signal_type
+        (solid_arrow))
+      (sequence_actor)
+      (sequence_text))
+    (sequence_stmt_activate
+      (sequence_actor))
+    (sequence_stmt_signal
+      (sequence_actor)
+      (sequence_signal_type
+        (dotted_arrow))
+      (sequence_actor)
+      (sequence_text))
+    (sequence_stmt_deactivate
+      (sequence_actor))))
+
+==================================
+Activation statement with sign
+==================================
+sequenceDiagram
+    Alice->>+John: Hello John, how are you?
+    Alice->>+John: John, can you hear me?
+    John-->>-Alice: Hi Alice, I can hear you!
+    John-->>-Alice: I feel great!
+
+---
+
+(source_file
+  (diagram_sequence
+    (sequence_stmt_signal
+      (sequence_actor)
+      (sequence_signal_type
+        (solid_arrow))
+      (sequence_signal_plus_sign)
+      (sequence_actor)
+      (sequence_text))
+    (sequence_stmt_signal
+      (sequence_actor)
+      (sequence_signal_type
+        (solid_arrow))
+      (sequence_signal_plus_sign)
+      (sequence_actor)
+      (sequence_text))
+    (sequence_stmt_signal
+      (sequence_actor)
+      (sequence_signal_type
+        (dotted_arrow))
+      (sequence_signal_minus_sign)
+      (sequence_actor)
+      (sequence_text))
+    (sequence_stmt_signal
+      (sequence_actor)
+      (sequence_signal_type
+        (dotted_arrow))
+      (sequence_signal_minus_sign)
+      (sequence_actor)
+      (sequence_text))))
+
+==================================
+Note statement (left/right of)
+==================================
+
+sequenceDiagram
+    participant John
+    note right of John: Text in note
+
+---
+
+(source_file
+  (diagram_sequence
+    (sequence_stmt_participant
+      (sequence_actor))
+    (sequence_stmt_note
+      (sequence_note_placement
+        (note_placement_right))
+      (sequence_actor)
+      (sequence_text))))
+
+==================================
+Note statement (over)
+==================================
+sequenceDiagram
+    Alice->John: Hello John, how are you?
+    note over Alice,John: A typical interaction
+
+---
+
+(source_file
+  (diagram_sequence
+    (sequence_stmt_signal
+      (sequence_actor)
+      (sequence_signal_type
+        (solid_open_arrow))
+      (sequence_actor)
+      (sequence_text))
+    (sequence_stmt_note
+      (sequence_actor)
+      (sequence_actor)
+      (sequence_text))))
+
+==================================
+Case insensitiveness
+==================================
+sequenceDiagram
+    autonumber
+    Autonumber
+    autoNumber
+    AutoNumber
+    AUTONUMBER
+
+---
+
+(source_file
+  (diagram_sequence
+    (sequence_stmt_autonumber)
+    (sequence_stmt_autonumber)
+    (sequence_stmt_autonumber)
+    (sequence_stmt_autonumber)
+    (sequence_stmt_autonumber)))
+
+==================================
+Parallel with text
+==================================
+sequenceDiagram
+    par Alice to Bob
+        Alice->>Bob: Hello guys!
+    and Alice to John
+        Alice->>John: Hello guys!
+    end
+    Bob-->>Alice: Hi Alice!
+    John-->>Alice: Hi Alice!
+
+---
+
+(source_file
+  (diagram_sequence
+    (sequence_stmt_par
+      (sequence_text)
+      (sequence_stmt_alt_branch
+        (sequence_stmt_signal
+          (sequence_actor)
+          (sequence_signal_type
+            (solid_arrow))
+          (sequence_actor)
+          (sequence_text)))
+      (sequence_text)
+      (sequence_stmt_alt_branch
+        (sequence_stmt_signal
+          (sequence_actor)
+          (sequence_signal_type
+            (solid_arrow))
+          (sequence_actor)
+          (sequence_text))))
+    (sequence_stmt_signal
+      (sequence_actor)
+      (sequence_signal_type
+        (dotted_arrow))
+      (sequence_actor)
+      (sequence_text))
+    (sequence_stmt_signal
+      (sequence_actor)
+      (sequence_signal_type
+        (dotted_arrow))
+      (sequence_actor)
+      (sequence_text))))
+
+==================================
+Parallel with no text
+==================================
+sequenceDiagram
+    par
+        Alice->>Bob: Hello guys!
+    and
+        Alice->>John: Hello guys!
+    end
+    Bob-->>Alice: Hi Alice!
+    John-->>Alice: Hi Alice!
+
+---
+
+(source_file
+  (diagram_sequence
+    (sequence_stmt_par
+      (sequence_stmt_alt_branch
+        (sequence_stmt_signal
+          (sequence_actor)
+          (sequence_signal_type
+            (solid_arrow))
+          (sequence_actor)
+          (sequence_text)))
+      (sequence_stmt_alt_branch
+        (sequence_stmt_signal
+          (sequence_actor)
+          (sequence_signal_type
+            (solid_arrow))
+          (sequence_actor)
+          (sequence_text))))
+    (sequence_stmt_signal
+      (sequence_actor)
+      (sequence_signal_type
+        (dotted_arrow))
+      (sequence_actor)
+      (sequence_text))
+    (sequence_stmt_signal
+      (sequence_actor)
+      (sequence_signal_type
+        (dotted_arrow))
+      (sequence_actor)
+      (sequence_text))))

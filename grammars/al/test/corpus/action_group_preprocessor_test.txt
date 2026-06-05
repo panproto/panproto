@@ -1,0 +1,152 @@
+==================
+Action group with preprocessor conditional actionref
+==================
+
+page 50000 "Extension Management"
+{
+    actions
+    {
+        area(Promoted)
+        {
+            group(Category_Manage)
+            {
+                Caption = 'Manage';
+#if not CLEAN25
+#pragma warning disable AL0432
+                actionref("Extension Marketplace_Promoted"; "Extension Marketplace")
+#pragma warning restore AL0432
+                {
+                    ObsoleteState = Pending;
+                    ObsoleteReason = 'This action will be obsoleted.';
+                    ObsoleteTag = '25.0';
+                    Visible = false;
+                }
+#endif
+                actionref("Upload Extension_Promoted"; "Upload Extension") { }
+            }
+        }
+    }
+}
+
+---
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_group_section
+          (group_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (preproc_conditional_actions
+            (preproc_if
+              (preproc_open)
+              condition: (preproc_not_expression
+                (identifier)))
+            (pragma)
+            (actionref_declaration
+              promoted_name: (quoted_identifier)
+              action_name: (quoted_identifier)
+              (pragma)
+              (property
+                name: (property_name)
+                value: (identifier))
+              (property
+                name: (property_name)
+                value: (string_literal))
+              (property
+                name: (property_name)
+                value: (string_literal))
+              (property
+                name: (property_name)
+                value: (boolean)))
+            (preproc_endif
+              (preproc_close)))
+          (actionref_declaration
+            promoted_name: (quoted_identifier)
+            action_name: (quoted_identifier)))))))
+
+==================
+Nested action groups with preprocessor conditionals
+==================
+
+page 50001 "Test Page"
+{
+    actions
+    {
+        area(processing)
+        {
+            group(OuterGroup)
+            {
+                Caption = 'Outer';
+                group(InnerGroup)
+                {
+                    Caption = 'Inner';
+#if CLEAN23
+                    action(NewAction)
+                    {
+                        Caption = 'New Action';
+                    }
+#else
+                    action(OldAction)
+                    {
+                        Caption = 'Old Action';
+                        ObsoleteState = Pending;
+                    }
+#endif
+                }
+            }
+        }
+    }
+}
+
+---
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_group_section
+          (group_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (action_group_section
+            (group_keyword)
+            name: (identifier)
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (preproc_conditional_actions
+              (preproc_if
+                (preproc_open)
+                condition: (identifier))
+              (action_declaration
+                name: (identifier)
+                (property
+                  name: (property_name)
+                  value: (string_literal)))
+              (preproc_else)
+              (action_declaration
+                name: (identifier)
+                (property
+                  name: (property_name)
+                  value: (string_literal))
+                (property
+                  name: (property_name)
+                  value: (identifier)))
+              (preproc_endif
+                (preproc_close)))))))))

@@ -1,0 +1,31 @@
+===
+errors/cannotAssignFixedProperty3.pkl
+===
+
+amends "../basic/fixedProperty2.pkl"
+
+p = new {
+  ...new Dynamic { name = "Osprey" }
+}
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (classProperty
+    (identifier)
+    (newExpr
+      (objectBody
+        (objectSpread
+          (newExpr
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (objectBody
+              (objectProperty
+                (identifier)
+                (slStringLiteralExpr
+                  (slStringLiteralPart))))))))))

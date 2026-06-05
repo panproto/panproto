@@ -1,0 +1,21 @@
+====================================
+Minimal COBOL program
+====================================
+
+       identification division.
+       program-id. a.
+       procedure division.
+       stop run.
+       stop run.
+
+---
+
+(start
+  (program_definition
+    (identification_division
+      (program_name))
+    (procedure_division
+      (stop_statement)
+      (period)
+      (stop_statement)
+      (period))))

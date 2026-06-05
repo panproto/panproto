@@ -1,0 +1,1040 @@
+====================================
+If statement block body
+====================================
+
+{ if (x) {} }
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (if_statement
+         (identifier)
+        (block)))))
+
+====================================
+If statement followed by newline
+====================================
+
+{ if (x) {}
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (if_statement
+         (identifier)
+        (block)))))
+
+====================================
+If statement statement body
+====================================
+
+{ if (x) print x; }
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (if_statement
+         (identifier)
+        (print_statement
+          (identifier))))))
+
+====================================
+If statement no body
+====================================
+
+{ if (x) ; }
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (if_statement
+         (identifier)))))
+
+====================================
+If statement statement follow up
+====================================
+
+{
+    if (1) a = 1;
+    a = 2;
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (if_statement
+         (number)
+        (assignment_exp
+           (identifier)
+           (number)))
+      (assignment_exp
+         (identifier)
+         (number)))))
+
+====================================
+If statement followed by comment
+====================================
+
+{
+  if (1) a = "a" 2 # Comment
+  b = 2
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (if_statement
+         (number)
+        (assignment_exp
+           (identifier)
+           (string_concat
+             (string)
+            (concatenating_space)
+             (number))))
+      (comment)
+      (assignment_exp
+         (identifier)
+         (number)))))
+
+====================================
+If condition followed by comment
+====================================
+
+{
+    if (1) # comment
+    1
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (if_statement
+         (number)
+        (comment)
+        (number)))))
+
+====================================
+If statement with multiple escape sym
+====================================
+
+/[\\]/ {
+  if (/[\\]/) {}
+}
+
+------------------------------------
+
+(program
+  (rule
+    (pattern
+      (regex
+         (regex_pattern)))
+    (block
+      (if_statement
+         (regex
+           (regex_pattern))
+        (block)))))
+
+====================================
+If-else statement with blocks
+====================================
+
+{
+  if (1) {}
+  else {}
+
+  if (1) {} else 2
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (if_statement
+         (number)
+        (block)
+        (else_clause
+          (block)))
+      (if_statement
+         (number)
+        (block)
+        (else_clause
+          (number))))))
+
+====================================
+If-else statement with statements
+====================================
+
+{
+  if (1) 1; else 2
+  
+  if (1) 1;
+  else 2
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (if_statement
+         (number)
+        (number)
+        (else_clause
+          (number)))
+      (if_statement
+         (number)
+        (number)
+        (else_clause
+          (number))))))
+
+====================================
+If-else with statement on newline
+====================================
+
+{
+    if (a)
+      print 1;
+    else if (b)
+      print 2;
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (if_statement
+         (identifier)
+        (print_statement
+          (number))
+        (else_clause
+          (if_statement
+             (identifier)
+            (print_statement
+              (number))))))))
+
+====================================
+If-else separated by comment
+====================================
+
+{
+    if (a) a = 2;
+    # Comment
+    else a = 3;
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (if_statement
+         (identifier)
+        (assignment_exp
+           (identifier)
+           (number))
+        (comment)
+        (else_clause
+          (assignment_exp
+             (identifier)
+             (number)))))))
+
+====================================
+If-else separated by multiline comment
+====================================
+
+{
+    if (a) a = 2;
+
+    # Comment
+
+    # Comment
+    else a = 3;
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (if_statement
+         (identifier)
+        (assignment_exp
+           (identifier)
+           (number))
+        (comment)
+        (comment)
+        (else_clause
+          (assignment_exp
+             (identifier)
+             (number)))))))
+
+====================================
+If-else-if statement
+====================================
+
+{
+  if (1) {}
+  else if (2) {}
+
+  print;
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (if_statement
+         (number)
+        (block)
+        (else_clause
+          (if_statement
+             (number)
+            (block))))
+      (print_statement))))
+
+====================================
+While statement statement body
+====================================
+
+{
+  while (1) print abc;
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (while_statement
+         (number)
+        (print_statement
+          (identifier))))))
+
+====================================
+While statement block body
+====================================
+
+{
+  while (1) {}
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (while_statement
+         (number)
+        (block)))))
+
+====================================
+Do-while statement block body
+====================================
+
+{
+  do {}
+  while (1)
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (do_while_statement
+        (block)
+         (number)))))
+
+====================================
+Do-while statement statement body
+====================================
+
+{
+  do print
+  while (1)
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (do_while_statement
+        (print_statement)
+         (number)))))
+
+====================================
+While statement with comment
+====================================
+
+{
+  while (1) # a
+  # b
+  {}
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (while_statement
+         (number)
+        (comment)
+        (comment)
+        (block)))))
+
+====================================
+While statement with no block body
+====================================
+
+{
+  while ("") ;
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (while_statement
+         (string)))))
+
+====================================
+Do-while statement with comment
+====================================
+
+{
+  do # a
+  {}
+  while (1)
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (do_while_statement
+        (comment)
+        (block)
+         (number)))))
+
+====================================
+For statement block body
+====================================
+
+{
+  for (x = 1; x <= 10; x++) {}
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (for_statement
+         (assignment_exp
+           (identifier)
+           (number))
+         (binary_exp
+           (identifier)
+           (number))
+         (update_exp
+           (identifier))
+        (block)))))
+
+====================================
+For statement statement body
+====================================
+
+{
+  for (x = 1; x <= 10; x++) print x;
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (for_statement
+         (assignment_exp
+           (identifier)
+           (number))
+         (binary_exp
+           (identifier)
+           (number))
+         (update_exp
+           (identifier))
+        (print_statement
+          (identifier))))))
+
+====================================
+For statement with comment
+====================================
+
+{
+  for (1; 1; 1) # a
+  {}
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (for_statement
+         (number)
+         (number)
+         (number)
+        (comment)
+        (block)))))
+
+====================================
+For statement with no body block
+====================================
+
+{
+  for (1; 1; 1) ; 
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (for_statement
+         (number)
+         (number)
+         (number)))))
+
+====================================
+For-in statement statement body
+====================================
+
+{
+  for (x in arr) print x, arr[x];
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (for_in_statement
+         (identifier)
+         (identifier)
+        (print_statement
+          (exp_list
+            (identifier)
+            (array_ref
+              (identifier)
+               (identifier))))))))
+
+====================================
+For-in statement block body
+====================================
+
+{
+  for (x in arr) {}
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (for_in_statement
+         (identifier)
+         (identifier)
+        (block)))))
+
+====================================
+For-in statement array reference
+====================================
+
+{
+  for (i in arr[t]) print i
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (for_in_statement
+         (identifier)
+         (array_ref
+          (identifier)
+           (identifier))
+        (print_statement
+          (identifier))))))
+
+====================================
+For-in statement with comment
+====================================
+
+{
+  for (i in arr) # a
+  {}
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (for_in_statement
+         (identifier)
+         (identifier)
+        (comment)
+        (block)))))
+
+====================================
+For-in statement with no body block
+====================================
+
+{
+  for (x in PROCINFO) ; 
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (for_in_statement
+         (identifier)
+         (identifier)))))
+
+====================================
+Delete statement
+====================================
+
+{
+  delete arr[i];
+  delete arr;
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (delete_statement
+        (array_ref
+          (identifier)
+           (identifier)))
+      (delete_statement
+        (identifier)))))
+
+====================================
+Exit statement
+====================================
+
+{
+  exit 1;
+  exit 1 + 1;
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (exit_statement
+        (number))
+      (exit_statement
+        (binary_exp
+           (number)
+           (number))))))
+
+====================================
+Return statement no value
+====================================
+
+{ return }
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (return_statement))))
+
+====================================
+Return statement with value
+====================================
+
+{ return 1; }
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (return_statement
+        (number)))))
+
+====================================
+Switch statement
+====================================
+
+{
+  switch(x) {
+    case 1:
+    case 2:
+    case /[a-z]/:
+      print x;
+      break;
+    default:
+      usage();
+      break;
+  }
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (switch_statement
+        (identifier)
+        (switch_body
+          (switch_case
+             (number))
+          (switch_case
+             (number))
+          (switch_case
+             (regex
+               (regex_pattern))
+            (print_statement
+              (identifier))
+            (break_statement))
+          (switch_default
+            (func_call
+               (identifier))
+            (break_statement)))))))
+
+====================================
+Switch statement with comment
+====================================
+
+{
+  switch(x) # a
+  {
+    case 1:
+      # b
+    default:
+      # c
+      break;
+  }
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (switch_statement
+        (identifier)
+        (comment)
+        (switch_body
+          (switch_case
+             (number)
+            (comment))
+          (switch_default
+            (comment)
+            (break_statement)))))))
+
+====================================
+Switch statement body comment
+====================================
+
+{
+  switch(1) {
+    # comment
+    case "hello":
+    case "world": # comment
+      break # comment
+  }
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (switch_statement
+        (number)
+        (switch_body
+          (comment)
+          (switch_case
+             (string))
+          (switch_case
+             (string)
+            (comment)
+            (break_statement))
+          (comment))))))
+
+====================================
+Switch statement empty default
+====================================
+
+{
+  switch(1) {
+    default:
+  }
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (switch_statement
+        (number)
+        (switch_body
+          (switch_default))))))
+
+====================================
+Print statement
+====================================
+
+{
+  print "abc";
+  print "abc", "a";
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (print_statement
+        (string))
+      (print_statement
+        (exp_list
+          (string)
+          (string))))))
+
+====================================
+Print statement output redirection
+====================================
+
+{
+  print "abc" > "file";
+  print "abc" >> "file";
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (redirected_io_statement
+        (print_statement
+          (string))
+         (string))
+      (redirected_io_statement
+        (print_statement
+          (string))
+         (string)))))
+
+====================================
+Print piped
+====================================
+
+{
+  print "abc" | "cat";
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (piped_io_statement
+        (print_statement
+          (string))
+         (string)))))
+
+====================================
+Print list piped
+====================================
+
+{
+  print "", "" | "some_command"
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (piped_io_statement
+        (print_statement
+          (exp_list
+            (string)
+            (string)))
+         (string)))))
+
+====================================
+Print with grouping and string concat
+====================================
+
+{
+  print (a) b
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (print_statement
+        (string_concat
+           (grouping
+            (identifier))
+          (concatenating_space)
+           (identifier))))))
+
+====================================
+Print binary expression
+====================================
+
+{
+  print a + b
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (print_statement
+        (binary_exp
+           (identifier)
+           (identifier))))))
+
+====================================
+Printf statement
+====================================
+
+{
+  printf "%d", 42;
+  printf("%d", 42);
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (printf_statement
+        (exp_list
+          (string)
+          (number)))
+      (printf_statement
+        (exp_list
+          (string)
+          (number))))))
+
+====================================
+Printf statement with getline
+====================================
+
+{
+  printf("cal" | getline);
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (printf_statement
+        (piped_io_exp
+           (string)
+          (getline_input))))))
+
+====================================
+Printf statement output redirection
+====================================
+
+{
+  printf "abc" > "file";
+  printf("abc") >> "file";
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (redirected_io_statement
+        (printf_statement
+          (string))
+         (string))
+      (redirected_io_statement
+        (printf_statement
+          (string))
+         (string)))))
+
+====================================
+Printf piped
+====================================
+
+{
+  printf("%s", "abc") | "cat";
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (piped_io_statement
+        (printf_statement
+          (exp_list
+            (string)
+            (string)))
+         (string)))))
+
+====================================
+Printf list piped
+====================================
+
+{
+  printf "%s", "" | "some_command"
+}
+
+------------------------------------
+
+(program
+  (rule
+    (block
+      (piped_io_statement
+        (printf_statement
+          (exp_list
+            (string)
+            (string)))
+         (string)))))

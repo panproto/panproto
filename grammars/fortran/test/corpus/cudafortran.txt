@@ -1,0 +1,110 @@
+================================================================================
+Variable declaration (with attributes)
+================================================================================
+
+program test
+    real, constant :: alpha
+    integer :: i
+    attributes(device) :: i
+end program test
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (variable_declaration
+      (intrinsic_type)
+      (type_qualifier)
+      (identifier))
+    (variable_declaration
+      (intrinsic_type)
+      (identifier))
+    (variable_modification
+      (variable_attributes)
+      (identifier))
+    (end_program_statement
+      (name))))
+
+================================================================================
+Functions (with attributes)
+================================================================================
+
+attributes(device) real(8) function current_time()
+  ! returns the wall clock time in seconds.
+  use mpi
+  current_time = mpi_wtime()
+end function
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (function
+    (function_statement
+      (procedure_attributes)
+      (intrinsic_type
+        (kind
+          (number_literal)))
+      (name))
+    (comment)
+    (use_statement
+      (module_name))
+    (assignment_statement
+      (identifier)
+      (call_expression
+        (identifier)
+        (argument_list)))
+    (end_function_statement)))
+
+================================================================================
+Cuda Kernel Call Expressions
+================================================================================
+
+program test
+    call dummy_cuda_kernel<<<1,n>>>(arg)
+    call dummy_cuda_kernel<<<1,n,m,stream(i)>>>(arg)
+    call dummy_cuda_kernel <<<1, &
+           n,m &
+           ,stream(i)
+    >>>(arg)
+end program
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (subroutine_call
+      (identifier)
+      (cuda_kernel_argument_list
+        (number_literal)
+        (identifier))
+      (argument_list
+        (identifier)))
+    (subroutine_call
+      (identifier)
+      (cuda_kernel_argument_list
+        (number_literal)
+        (identifier)
+        (identifier)
+        (call_expression
+          (identifier)
+          (argument_list
+            (identifier))))
+      (argument_list
+        (identifier)))
+    (subroutine_call
+      (identifier)
+      (cuda_kernel_argument_list
+        (number_literal)
+        (identifier)
+        (identifier)
+        (call_expression
+          (identifier)
+          (argument_list
+            (identifier))))
+      (argument_list
+        (identifier)))
+    (end_program_statement)))

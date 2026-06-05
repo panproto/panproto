@@ -1,0 +1,21 @@
+===
+Keyword chains
+===
+
+foo:bar
+foo:bar:baz
+
+---
+
+(source
+  (symbind
+	(symbol)
+	(keyword
+	  (symbol)))
+  (symbind
+	(symbind
+	  (symbol)
+	  (keyword
+		(symbol)))
+	(keyword
+	  (symbol))))

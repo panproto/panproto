@@ -1,0 +1,83 @@
+================================================================================
+Prompt dialog with PromptMode Generate and new area types
+================================================================================
+
+page 7410 "Item Subst. Suggestion"
+{
+    PageType = PromptDialog;
+    PromptMode = Generate;
+    
+    layout
+    {
+        area(Prompt)
+        {
+            field(SearchQuery; SearchQueryTxt)
+            {
+                ApplicationArea = All;
+                MultiLine = true;
+            }
+        }
+        area(Content)
+        {
+            part(ItemSubstLines; "Item Subst. Suggestion Sub")
+            {
+                ApplicationArea = All;
+            }
+        }
+        area(PromptOptions)
+        {
+            field(MatchingStyle; SearchStyle)
+            {
+                Caption = 'Matching';
+                ApplicationArea = All;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (boolean))))
+      (area_section
+        (area_keyword)
+        (part_section
+          (part_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (identifier))))
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (identifier)))))))

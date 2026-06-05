@@ -1,0 +1,139 @@
+================================================================================
+XMLPort tableelement with triggers
+================================================================================
+
+xmlport 50000 "Test Import"
+{
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(AITSuite; "AIT Test Suite")
+            {
+                trigger OnAfterInitRecord()
+                begin
+                    if SkipTestSuites.Contains(AITSuite.Code) then
+                        currXMLport.Skip();
+                end;
+
+                trigger OnBeforeInsertRecord()
+                begin
+                    ValidateRecord();
+                end;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (schema_section
+      (schema_keyword)
+      (xmlport_element
+        name: (identifier)
+        (xmlport_element
+          name: (identifier)
+          source: (quoted_identifier)
+          (trigger_declaration
+            (trigger_keyword)
+            name: (identifier)
+            (code_block
+              (begin_keyword)
+              (if_statement
+                (if_keyword)
+                condition: (call_expression
+                  function: (member_expression
+                    object: (identifier)
+                    member: (identifier))
+                  arguments: (argument_list
+                    (member_expression
+                      object: (identifier)
+                      member: (identifier))))
+                (then_keyword)
+                then_branch: (call_expression
+                  function: (member_expression
+                    object: (identifier)
+                    member: (identifier))
+                  arguments: (argument_list)))
+              (end_keyword)))
+          (trigger_declaration
+            (trigger_keyword)
+            name: (identifier)
+            (code_block
+              (begin_keyword)
+              (call_expression
+                function: (identifier)
+                arguments: (argument_list))
+              (end_keyword))))))))
+
+================================================================================
+XMLPort tableelement with properties and triggers
+================================================================================
+
+xmlport 50001 "Customer Import"
+{
+    schema
+    {
+        textelement(Data)
+        {
+            tableelement(Customer; Customer)
+            {
+                AutoUpdate = true;
+                MaxOccurs = Unbounded;
+                
+                trigger OnAfterGetRecord()
+                begin
+                    ProcessCustomer();
+                end;
+                
+                fieldattribute(No; Customer."No.")
+                {
+                    Occurrence = Required;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (schema_section
+      (schema_keyword)
+      (xmlport_element
+        name: (identifier)
+        (xmlport_element
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (trigger_declaration
+            (trigger_keyword)
+            name: (identifier)
+            (code_block
+              (begin_keyword)
+              (call_expression
+                function: (identifier)
+                arguments: (argument_list))
+              (end_keyword)))
+          (xmlport_attribute
+            name: (identifier)
+            source: (member_expression
+              object: (identifier)
+              member: (quoted_identifier))
+            (property
+              name: (property_name)
+              value: (identifier))))))))

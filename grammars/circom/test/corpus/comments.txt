@@ -1,0 +1,52 @@
+=====================================
+Template with comments
+=====================================
+pragma circom 2.0.0;
+
+/*
+coment annotation
+*/
+template Multiplier2(){
+   //Declaration of signals
+   signal input in1;
+   signal input in2;
+   signal output out; // comment2
+   out <== in1 * in2;
+}
+
+component main {public [in1,in2]} = Multiplier2();
+---
+(source_file
+      (pragma_directive
+        (circom_pragma_token
+          (circom_version)))
+      (comment)
+      (template_definition
+        (identifier)
+        (parameter_list)
+        (template_body
+          (comment)
+          (signal_declaration_statement
+            (signal_visibility)
+            (identifier))
+          (signal_declaration_statement
+            (signal_visibility)
+            (identifier))
+          (signal_declaration_statement
+            (signal_visibility)
+            (identifier))
+          (comment)
+          (expression_statement
+            (assignment_expression
+              (identifier)
+              (binary_expression
+                (identifier)
+                (identifier))))))
+      (main_component_definition
+        (main_component_public_signals
+          (parameter
+            (identifier))
+          (parameter
+            (identifier)))
+        (call_expression
+          (identifier))))

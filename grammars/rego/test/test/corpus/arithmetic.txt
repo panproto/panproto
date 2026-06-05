@@ -1,0 +1,265 @@
+================================================================================
+addition
+================================================================================
+
+package test.block
+
+x := y {
+    y := 1 + 1
+}
+--------------------------------------------------------------------------------
+(source_file
+  (module
+    (package)
+    (ref
+      (var)
+      (ref_arg
+        (ref_arg_dot
+          (var))))
+    (policy
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (assignment)
+          (term
+            (ref
+              (var))))
+        (rule_body
+          (open_curly)
+          (query
+            (literal
+              (expr
+                (expr_infix
+                  (expr
+                    (expr_infix
+                      (expr
+                        (term
+                          (ref
+                            (var))))
+                      (infix_operator
+                        (assignment_operator
+                          (assignment)))
+                      (expr
+                        (term
+                          (scalar
+                            (number))))))
+                  (infix_operator
+                    (arith_operator))
+                  (expr
+                    (term
+                      (scalar
+                        (number))))))))
+          (close_curly))))))
+================================================================================
+subtraction
+================================================================================
+
+package test.block
+
+x := y {
+    y := 1 - 1
+}
+--------------------------------------------------------------------------------
+(source_file
+  (module
+    (package)
+    (ref
+      (var)
+      (ref_arg
+        (ref_arg_dot
+          (var))))
+    (policy
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (assignment)
+          (term
+            (ref
+              (var))))
+        (rule_body
+          (open_curly)
+          (query
+            (literal
+              (expr
+                (expr_infix
+                  (expr
+                    (expr_infix
+                      (expr
+                        (term
+                          (ref
+                            (var))))
+                      (infix_operator
+                        (assignment_operator
+                          (assignment)))
+                      (expr
+                        (term
+                          (scalar
+                            (number))))))
+                  (infix_operator
+                    (arith_operator))
+                  (expr
+                    (term
+                      (scalar
+                        (number))))))))
+          (close_curly))))))
+================================================================================
+multiplication
+================================================================================
+
+package test.block
+
+x := y {
+    y := 1 * 1
+}
+--------------------------------------------------------------------------------
+(source_file
+  (module
+    (package)
+    (ref
+      (var)
+      (ref_arg
+        (ref_arg_dot
+          (var))))
+    (policy
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (assignment)
+          (term
+            (ref
+              (var))))
+        (rule_body
+          (open_curly)
+          (query
+            (literal
+              (expr
+                (expr_infix
+                  (expr
+                    (expr_infix
+                      (expr
+                        (term
+                          (ref
+                            (var))))
+                      (infix_operator
+                        (assignment_operator
+                          (assignment)))
+                      (expr
+                        (term
+                          (scalar
+                            (number))))))
+                  (infix_operator
+                    (arith_operator))
+                  (expr
+                    (term
+                      (scalar
+                        (number))))))))
+          (close_curly))))))
+================================================================================
+division
+================================================================================
+
+package test.block
+
+x := y {
+    y := 1 / 1
+}
+--------------------------------------------------------------------------------
+(source_file
+  (module
+    (package)
+    (ref
+      (var)
+      (ref_arg
+        (ref_arg_dot
+          (var))))
+    (policy
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (assignment)
+          (term
+            (ref
+              (var))))
+        (rule_body
+          (open_curly)
+          (query
+            (literal
+              (expr
+                (expr_infix
+                  (expr
+                    (expr_infix
+                      (expr
+                        (term
+                          (ref
+                            (var))))
+                      (infix_operator
+                        (assignment_operator
+                          (assignment)))
+                      (expr
+                        (term
+                          (scalar
+                            (number))))))
+                  (infix_operator
+                    (arith_operator))
+                  (expr
+                    (term
+                      (scalar
+                        (number))))))))
+          (close_curly))))))
+================================================================================
+remainder
+================================================================================
+
+package test.block
+
+x := y {
+    y := 1 % 1
+}
+--------------------------------------------------------------------------------
+(source_file
+  (module
+    (package)
+    (ref
+      (var)
+      (ref_arg
+        (ref_arg_dot
+          (var))))
+    (policy
+      (rule
+        (rule_head
+          (var))
+        (rule_body
+          (assignment)
+          (term
+            (ref
+              (var))))
+        (rule_body
+          (open_curly)
+          (query
+            (literal
+              (expr
+                (expr_infix
+                  (expr
+                    (expr_infix
+                      (expr
+                        (term
+                          (ref
+                            (var))))
+                      (infix_operator
+                        (assignment_operator
+                          (assignment)))
+                      (expr
+                        (term
+                          (scalar
+                            (number))))))
+                  (infix_operator
+                    (arith_operator))
+                  (expr
+                    (term
+                      (scalar
+                        (number))))))))
+          (close_curly))))))

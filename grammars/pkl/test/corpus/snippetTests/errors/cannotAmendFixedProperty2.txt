@@ -1,0 +1,24 @@
+===
+errors/cannotAmendFixedProperty2.pkl
+===
+
+amends "../basic/fixedProperty1.pkl"
+
+res3 {
+  name = "Osprey"
+}
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (slStringLiteralExpr
+          (slStringLiteralPart))))))

@@ -1,0 +1,146 @@
+================================================================================
+Array type
+================================================================================
+
+local x: {string}
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    type_annotation: (type_annotation
+      (table_type
+        value_type: (simple_type
+          name: (identifier))))))
+
+================================================================================
+Array type with initialization
+================================================================================
+
+local x: {string} = {}
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    type_annotation: (type_annotation
+      (table_type
+        value_type: (simple_type
+          name: (identifier))))
+    initializers: (expressions
+      (table_constructor))))
+
+================================================================================
+Map type
+================================================================================
+
+local x: {string:number}
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    type_annotation: (type_annotation
+      (table_type
+        key_type: (simple_type
+          name: (identifier))
+        value_type: (simple_type
+          name: (identifier))))))
+
+================================================================================
+Map type with initialization
+================================================================================
+
+local x: {string:number} = {}
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    type_annotation: (type_annotation
+      (table_type
+        key_type: (simple_type
+          name: (identifier))
+        value_type: (simple_type
+          name: (identifier))))
+    initializers: (expressions
+      (table_constructor))))
+
+================================================================================
+Tuple type
+================================================================================
+
+local x: {number, string}
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    type_annotation: (type_annotation
+      (table_type
+        tuple_type: (simple_type
+          name: (identifier))
+        tuple_type: (simple_type
+          name: (identifier))))))
+
+================================================================================
+Tuple type with initialization
+================================================================================
+
+local x: {number, string} = {}
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    type_annotation: (type_annotation
+      (table_type
+        tuple_type: (simple_type
+          name: (identifier))
+        tuple_type: (simple_type
+          name: (identifier))))
+    initializers: (expressions
+      (table_constructor))))
+
+================================================================================
+Tuple type with initialization
+================================================================================
+
+local types_seen: {(number|string):boolean} = {}
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    type_annotation: (type_annotation
+      (table_type
+        key_type: (type_union
+          (simple_type
+            name: (identifier))
+          (simple_type
+            name: (identifier)))
+        value_type: (simple_type
+          name: (identifier))))
+    initializers: (expressions
+      (table_constructor))))

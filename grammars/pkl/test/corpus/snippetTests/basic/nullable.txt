@@ -1,0 +1,239 @@
+===
+basic/nullable.pkl
+===
+
+amends "../snippetTest.pkl"
+
+facts {
+  ["equality"] {
+    null == null
+    !(null == 1)
+    !(1 == null)
+  }
+
+  ["inequality"] {
+    null != 1
+    1 != null
+    !(null != null)
+  }
+}
+
+examples {
+  ["literal"] {
+    null
+  }
+
+  ["coalescing"] {
+    null ?? 2
+    1 ?? 2
+    1 ?? 2 ?? 3
+    null ?? null ?? 3
+    new Person {}.age ?? 40
+  }
+
+  ["null-safe invocation"] {
+    null?.toUpperCase()
+    "Pigeon"?.toUpperCase()
+    null?.kb
+    3?.kb
+
+    module.catch(() -> null.foo)
+    module.catch(() -> null.foo())
+  }
+
+  ["amendment"] {
+    local p = Null(new Person {})
+    local p2 = (p) {
+      age = 20
+    }
+    p2
+    p2 is Person
+  }
+}
+
+local class Person {
+  age: Int?
+}
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (equalityExpr
+              (nullLiteralExpr)
+              (nullLiteralExpr)))
+          (objectElement
+            (logicalNotExpr
+              (parenthesizedExpr
+                (equalityExpr
+                  (nullLiteralExpr)
+                  (intLiteralExpr)))))
+          (objectElement
+            (logicalNotExpr
+              (parenthesizedExpr
+                (equalityExpr
+                  (intLiteralExpr)
+                  (nullLiteralExpr)))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (equalityExpr
+              (nullLiteralExpr)
+              (intLiteralExpr)))
+          (objectElement
+            (equalityExpr
+              (intLiteralExpr)
+              (nullLiteralExpr)))
+          (objectElement
+            (logicalNotExpr
+              (parenthesizedExpr
+                (equalityExpr
+                  (nullLiteralExpr)
+                  (nullLiteralExpr)))))))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (nullLiteralExpr))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (nullCoalesceExpr
+              (nullLiteralExpr)
+              (intLiteralExpr)))
+          (objectElement
+            (nullCoalesceExpr
+              (intLiteralExpr)
+              (intLiteralExpr)))
+          (objectElement
+            (nullCoalesceExpr
+              (intLiteralExpr)
+              (nullCoalesceExpr
+                (intLiteralExpr)
+                (intLiteralExpr))))
+          (objectElement
+            (nullCoalesceExpr
+              (nullLiteralExpr)
+              (nullCoalesceExpr
+                (nullLiteralExpr)
+                (intLiteralExpr))))
+          (objectElement
+            (nullCoalesceExpr
+              (qualifiedAccessExpr
+                (newExpr
+                  (declaredType
+                    (qualifiedIdentifier
+                      (identifier)))
+                  (objectBody))
+                (identifier))
+              (intLiteralExpr)))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (qualifiedAccessExpr
+              (nullLiteralExpr)
+              (identifier)
+              (argumentList)))
+          (objectElement
+            (qualifiedAccessExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))
+              (identifier)
+              (argumentList)))
+          (objectElement
+            (qualifiedAccessExpr
+              (nullLiteralExpr)
+              (identifier)))
+          (objectElement
+            (qualifiedAccessExpr
+              (intLiteralExpr)
+              (identifier)))
+          (objectElement
+            (qualifiedAccessExpr
+              (moduleExpr)
+              (identifier)
+              (argumentList
+                (functionLiteralExpr
+                  (parameterList)
+                  (qualifiedAccessExpr
+                    (nullLiteralExpr)
+                    (identifier))))))
+          (objectElement
+            (qualifiedAccessExpr
+              (moduleExpr)
+              (identifier)
+              (argumentList
+                (functionLiteralExpr
+                  (parameterList)
+                  (qualifiedAccessExpr
+                    (nullLiteralExpr)
+                    (identifier)
+                    (argumentList))))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectProperty
+            (modifier)
+            (identifier)
+            (unqualifiedAccessExpr
+              (identifier)
+              (argumentList
+                (newExpr
+                  (declaredType
+                    (qualifiedIdentifier
+                      (identifier)))
+                  (objectBody)))))
+          (objectProperty
+            (modifier)
+            (identifier)
+            (amendExpr
+              (parenthesizedExpr
+                (unqualifiedAccessExpr
+                  (identifier)))
+              (objectBody
+                (objectProperty
+                  (identifier)
+                  (intLiteralExpr)))))
+          (objectElement
+            (unqualifiedAccessExpr
+              (identifier)))
+          (objectElement
+            (typeTestExpr
+              (unqualifiedAccessExpr
+                (identifier))
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))))))))
+  (clazz
+    (modifier)
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (nullableType
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))))))))

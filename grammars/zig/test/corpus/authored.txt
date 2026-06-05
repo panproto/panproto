@@ -1,0 +1,120 @@
+==================
+const and var declarations
+==================
+
+const std = @import("std");
+var counter: u32 = 0;
+
+----
+
+(source_file)
+
+==================
+function declaration
+==================
+
+pub fn add(a: i32, b: i32) i32 {
+    return a + b;
+}
+
+----
+
+(source_file)
+
+==================
+struct definition
+==================
+
+const Point = struct {
+    x: f32,
+    y: f32,
+};
+
+----
+
+(source_file)
+
+==================
+if else expression
+==================
+
+pub fn max(a: i32, b: i32) i32 {
+    if (a > b) {
+        return a;
+    } else {
+        return b;
+    }
+}
+
+----
+
+(source_file)
+
+==================
+while loop
+==================
+
+pub fn count() void {
+    var i: usize = 0;
+    while (i < 10) {
+        i += 1;
+    }
+}
+
+----
+
+(source_file)
+
+==================
+for loop over slice
+==================
+
+pub fn sum(items: []const i32) i32 {
+    var total: i32 = 0;
+    for (items) |item| {
+        total += item;
+    }
+    return total;
+}
+
+----
+
+(source_file)
+
+==================
+enum and switch
+==================
+
+const Color = enum {
+    red,
+    green,
+    blue,
+};
+
+----
+
+(source_file)
+
+==================
+error union and try
+==================
+
+pub fn parse(s: []const u8) !u32 {
+    return try std.fmt.parseInt(u32, s, 10);
+}
+
+----
+
+(source_file)
+
+==================
+test declaration
+==================
+
+test "addition" {
+    try std.testing.expect(add(2, 3) == 5);
+}
+
+----
+
+(source_file)

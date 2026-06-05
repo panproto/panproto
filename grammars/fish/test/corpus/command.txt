@@ -1,0 +1,89 @@
+================================================================================
+Command - single variable_name command
+================================================================================
+
+echo
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (word)))
+
+================================================================================
+Command - single word command
+================================================================================
+
++echo
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (word)))
+
+================================================================================
+Command - with options and arguments
+================================================================================
+
+echo --help
+echo -e -- "THIS IS A STRING $PATH"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (word)
+    argument: (word))
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word)
+    argument: (double_quote_string
+      (variable_expansion
+        (variable_name)))))
+
+================================================================================
+Command - multiline
+================================================================================
+
+echo 'a new\
+line'
+echo "a new
+line"
+echo token\
+multiline
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (word)
+    argument: (single_quote_string
+      (escape_sequence)))
+  (command
+    name: (word)
+    argument: (double_quote_string))
+  (command
+    name: (word)
+    argument: (concatenation
+      (word)
+      (escape_sequence)
+      (word))))
+
+================================================================================
+Command - multi words as arguments
+================================================================================
+
+do_sth -- +test +q -nest start
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (word)
+    argument: (word)
+    argument: (word)
+    argument: (word)
+    argument: (word)
+    argument: (word)))

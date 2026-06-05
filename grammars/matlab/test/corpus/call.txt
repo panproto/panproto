@@ -1,0 +1,524 @@
+================================================================================
+Function Call: No arguments
+================================================================================
+
+rnd()
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_call
+    (identifier)))
+
+================================================================================
+Function Call: With Arguments
+================================================================================
+
+add(1, 2)
+eig (A)
+false(2)
+myfcn({'str'});
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_call
+    (identifier)
+    (arguments
+      (number)
+      (number)))
+  (function_call
+    (identifier)
+    (arguments
+      (identifier)))
+  (function_call
+    (identifier)
+    (arguments
+      (number)))
+  (function_call
+    (identifier)
+    (arguments
+      (cell
+        (row
+          (string
+            (string_content)))))))
+
+================================================================================
+Function Call: Indexing With Spread
+================================================================================
+
+A(:)
+A(1, :)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_call
+    (identifier)
+    (arguments
+      (spread_operator)))
+  (function_call
+    (identifier)
+    (arguments
+      (number)
+      (spread_operator))))
+
+================================================================================
+Function Call: Call after Cell Indexing
+================================================================================
+
+A{:}(1)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_call
+    (function_call
+      (identifier)
+      (arguments
+        (spread_operator)))
+    (arguments
+      (number))))
+
+================================================================================
+Function Call: Indexing of Indirect Field Access
+================================================================================
+
+a.("b"){:}
+a.(b){:}
+a.(b(2)){:}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_call
+    (field_expression
+      (identifier)
+      (indirect_access
+        (string
+          (string_content))))
+    (arguments
+      (spread_operator)))
+  (function_call
+    (field_expression
+      (identifier)
+      (indirect_access
+        (identifier)))
+    (arguments
+      (spread_operator)))
+  (function_call
+    (field_expression
+      (identifier)
+      (indirect_access
+        (function_call
+          (identifier)
+          (arguments
+            (number)))))
+    (arguments
+      (spread_operator))))
+
+================================================================================
+Command Call: No Arguments
+================================================================================
+
+pwd
+pwd,
+pwd;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (command
+    (command_name))
+  (command
+    (command_name))
+  (command
+    (command_name)))
+
+================================================================================
+Command Call: Bang
+================================================================================
+
+disp !
+disp ! ;
+disp !s;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (command
+    (command_name)
+    (command_argument))
+  (command
+    (command_name)
+    (command_argument))
+  (command
+    (command_name)
+    (command_argument)))
+
+================================================================================
+Command Call: With Arguments
+================================================================================
+
+cd ../something
+disp some text
+
+% special cases
+methods foo
+arguments foo
+properties foo
+events foo
+enumeration foo
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (command
+    (command_name)
+    (command_argument))
+  (command
+    (command_name)
+    (command_argument)
+    (command_argument))
+  (comment)
+  (command
+    (command_name)
+    (command_argument))
+  (command
+    (command_name)
+    (command_argument))
+  (command
+    (command_name)
+    (command_argument))
+  (command
+    (command_name)
+    (command_argument))
+  (command
+    (command_name)
+    (command_argument)))
+
+================================================================================
+Command Call: CVX
+================================================================================
+
+cvx_begin sdp % quiet
+    cvx_solver Mosek
+    variable P(n, n) semidefinite
+    variable Y(n, p, 4)
+    variable K(n, p, 4)
+    minimize max(P(1,2), P(2,1))
+    subject to
+cvx_end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (command
+    (command_name)
+    (command_argument))
+  (comment)
+  (command
+    (command_name)
+    (command_argument))
+  (command
+    (command_name)
+    (command_argument)
+    (command_argument))
+  (command
+    (command_name)
+    (command_argument))
+  (command
+    (command_name)
+    (command_argument))
+  (command
+    (command_name)
+    (command_argument))
+  (command
+    (command_name)
+    (command_argument))
+  (command
+    (command_name)))
+
+================================================================================
+Command Call: Comment
+================================================================================
+
+cmd % comment
+cmd arg1 % comment
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (command
+    (command_name))
+  (comment)
+  (command
+    (command_name)
+    (command_argument))
+  (comment))
+
+================================================================================
+Command Call: Line Continuation
+================================================================================
+
+cmd arg1 ... comment
+    arg2
+
+myCmd theFirstArg...
+    theSecondArg
+[a,b]  = deal(2)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (command
+    (command_name)
+    (command_argument)
+    (line_continuation)
+    (command_argument))
+  (command
+    (command_name)
+    (command_argument)
+    (line_continuation)
+    (command_argument))
+  (assignment
+    (multioutput_variable
+      (identifier)
+      (identifier))
+    (function_call
+      (identifier)
+      (arguments
+        (number)))))
+
+================================================================================
+Command Call: Shell Escape Without Arguments
+================================================================================
+
+!ls
+! ls
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (command
+    (command_name))
+  (command
+    (command_name)))
+
+================================================================================
+Command Call: Shell Escape With Arguments
+================================================================================
+
+!cd somewhere new
+! echo (something here
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (command
+    (command_name)
+    (command_argument)
+    (command_argument))
+  (command
+    (command_name)
+    (command_argument)
+    (command_argument)))
+
+================================================================================
+Command Call: Parens Breaking
+================================================================================
+
+var A(b, c)   % one arg
+var A('b; c)' % one arg (wrong in matlab, ok here)
+var A) b c( d % two args
+var A(b; c)   % one arg and an error
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (command
+    (command_name)
+    (command_argument))
+  (comment)
+  (command
+    (command_name)
+    (command_argument))
+  (comment)
+  (command
+    (command_name)
+    (command_argument)
+    (command_argument))
+  (comment)
+  (command
+    (command_name)
+    (command_argument))
+  (ERROR
+    (identifier))
+  (comment))
+
+================================================================================
+Command Call: Space After Command
+================================================================================
+
+function varargout = fcn2(varargin)
+  nargin
+  disp(nargin)
+  varargout = varargin
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    (function_output
+      (identifier))
+    (identifier)
+    (function_arguments
+      (identifier))
+    (block
+      (command
+        (command_name))
+      (function_call
+        (identifier)
+        (arguments
+          (identifier)))
+      (assignment
+        (identifier)
+        (identifier)))))
+
+=================================================================================
+Function Call: Ranges
+=================================================================================
+
+a(1:end)
+a(1:end-1)
+a(end-3:end-2)
+v(2:(end-3))
+v(2:abs((end-3)*2)/2)
+v([1 end]);
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_call
+    (identifier)
+    (arguments
+      (range
+        (number)
+        (end_keyword))))
+  (function_call
+    (identifier)
+    (arguments
+      (range
+        (number)
+        (binary_operator
+          (end_keyword)
+          (number)))))
+  (function_call
+    (identifier)
+    (arguments
+      (range
+        (binary_operator
+          (end_keyword)
+          (number))
+        (binary_operator
+          (end_keyword)
+          (number)))))
+  (function_call
+    (identifier)
+    (arguments
+      (range
+        (number)
+        (parenthesis
+          (binary_operator
+            (end_keyword)
+            (number))))))
+  (function_call
+    (identifier)
+    (arguments
+      (range
+        (number)
+        (binary_operator
+          (function_call
+            (identifier)
+            (arguments
+              (binary_operator
+                (parenthesis
+                  (binary_operator
+                    (end_keyword)
+                    (number)))
+                (number))))
+          (number)))))
+  (function_call
+    (identifier)
+    (arguments
+      (matrix
+        (row
+          (number)
+          (end_keyword))))))
+
+=================================================================================
+Function Call: Line Continuation
+=================================================================================
+
+function result = foo(a, b)
+    result = 1 + myfcn(a, b) + ...
+
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    (function_output
+      (identifier))
+    name: (identifier)
+    (function_arguments
+      arguments: (identifier)
+      arguments: (identifier))
+    (ERROR
+      (identifier)
+      (binary_operator
+        left: (number)
+        right: (function_call
+          name: (identifier)
+          (arguments
+            argument: (identifier)
+            argument: (identifier))))
+      (line_continuation)
+      (end_keyword))))
+
+================================================================================
+Function Call: Super
+================================================================================
+
+func@class
+func@class.super
+func@class(arg)
+func@class.super(arg)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_call
+    (identifier)
+    (superclass
+      (identifier)))
+  (function_call
+    (identifier)
+    (superclass
+      (identifier)
+      (identifier)))
+  (function_call
+    (identifier)
+    (superclass
+      (identifier))
+    (arguments
+      (identifier)))
+  (function_call
+    (identifier)
+    (superclass
+      (identifier)
+      (identifier))
+    (arguments
+      (identifier))))

@@ -1,0 +1,66 @@
+================================================================================
+Var section with preprocessor directives
+================================================================================
+
+codeunit 50100 "Test Codeunit"
+{
+    procedure TestMethod()
+    var
+        ItemCharge: Record "Item Charge";
+        StdAmtDistributionCode: Record "CDC Std. Amt Distribution Code";
+        PurchContractHeader: Record "CDC Purch. Contract Header";
+#if BC24
+        AllocationAccount: Record "Allocation Account";
+#endif
+        TempInteger: Integer;
+    begin
+        // Test code
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier))))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier))))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier))))
+        (preproc_conditional_var
+          (preproc_if
+            (preproc_open)
+            condition: (identifier))
+          (variable_declaration
+            name: (identifier)
+            type: (type_specification
+              (record_type
+                reference: (quoted_identifier))))
+          (preproc_endif
+            (preproc_close)))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (comment)
+        (end_keyword)))))

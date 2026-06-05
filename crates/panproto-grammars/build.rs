@@ -168,9 +168,29 @@ fn compile_grammar(name: &str, spec: &GrammarSpec, src_dir: &Path) -> bool {
         // extern "C" functions inside a named namespace retain external C linkage
         // and unmangled names, so tree_sitter_*_external_scanner_* symbols remain
         // visible to the linker.
+        // Hoist the scanner's angle-bracket system includes (`<vector>`,
+        // `<cstring>`, …) to global scope, BEFORE the namespace. Standard
+        // headers must be included at global scope: their include guards
+        // then no-op the re-include that happens when `scanner.cc` is
+        // pulled inside the namespace, so libc++ internals like
+        // `using ::nullptr_t;` still resolve against the global namespace.
+        // Without this, a scanner that `#include <vector>` at file scope
+        // fails to compile inside the wrapper namespace on every platform.
+        let scanner_src = fs::read_to_string(&abs_scanner).unwrap_or_default();
+        let system_includes: String = scanner_src
+            .lines()
+            .map(str::trim)
+            .filter(|line| line.starts_with("#include") && line.contains('<'))
+            .fold(String::new(), |mut acc, line| {
+                acc.push_str(line);
+                acc.push('\n');
+                acc
+            });
+
         let wrapper_path = out_dir.join(format!("{name}_scanner_wrapper.cc"));
         let wrapper = format!(
             "#include \"tree_sitter/parser.h\"\n\
+             {system_includes}\
              namespace {ns_name} {{\n\
              #include \"{scanner}\"\n\
              }} // namespace {ns_name}\n",
@@ -189,6 +209,18 @@ fn compile_grammar(name: &str, spec: &GrammarSpec, src_dir: &Path) -> bool {
             .warnings(false)
             .cargo_warnings(false);
 
+        // Some macOS toolchains (a CommandLineTools install whose libc++
+        // headers are not on clang's default search path) fail to find
+        // `<vector>` and friends when compiling a C++ scanner, which would
+        // silently drop the grammar. Defensively add the active SDK's
+        // libc++ include directory; this is a no-op when the default path
+        // already resolves the standard library.
+        if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+            if let Some(dir) = macos_libcxx_include_dir() {
+                cpp_build.include(dir);
+            }
+        }
+
         if let Err(e) = cpp_build.try_compile(&scanner_lib_name) {
             println!("cargo:warning=Grammar '{name}' C++ scanner failed: {e}");
             return false;
@@ -196,6 +228,23 @@ fn compile_grammar(name: &str, spec: &GrammarSpec, src_dir: &Path) -> bool {
     }
 
     true
+}
+
+/// The active macOS SDK's libc++ include directory (`<sdk>/usr/include/c++/v1`),
+/// if `xcrun` resolves an SDK path that contains it. Used to repair C++
+/// scanner compilation on toolchains where this directory is absent from
+/// clang's default header search.
+fn macos_libcxx_include_dir() -> Option<PathBuf> {
+    let output = std::process::Command::new("xcrun")
+        .args(["--show-sdk-path"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let sdk_path = String::from_utf8(output.stdout).ok()?;
+    let dir = PathBuf::from(sdk_path.trim()).join("usr/include/c++/v1");
+    dir.is_dir().then_some(dir)
 }
 
 /// After all grammars are compiled, localize non-`tree_sitter_*` symbols in
@@ -217,11 +266,19 @@ fn localize_internal_symbols(enabled: &[(String, GrammarSpec)], compiled_flags: 
         }
         let c_symbol = spec.c_symbol.as_deref().unwrap_or(name.as_str());
 
-        let mut libs = vec![format!("tree_sitter_{c_symbol}")];
+        // A grammar with a separate C++ scanner archive does not need
+        // localization: the scanner is already wrapped in a per-grammar
+        // namespace (so its internal symbols cannot collide across
+        // grammars), and the parser archive references the external
+        // scanner symbols that live in that separate archive — they are
+        // undefined at partial-link time, so `ld -r` over the parser
+        // archive alone would fail. Skip both.
         let scanner_lib = format!("tree_sitter_{c_symbol}_scanner");
         if out_dir.join(format!("lib{scanner_lib}.a")).exists() {
-            libs.push(scanner_lib);
+            continue;
         }
+
+        let libs = vec![format!("tree_sitter_{c_symbol}")];
 
         for lib in &libs {
             let lib_path = out_dir.join(format!("lib{lib}.a"));

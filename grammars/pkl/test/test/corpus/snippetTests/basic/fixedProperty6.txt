@@ -1,0 +1,15 @@
+===
+basic/fixedProperty6.pkl
+===
+
+fixed function foo() = 5
+
+---
+
+(module
+  (classMethod
+    (methodHeader
+      (modifier)
+      (identifier)
+      (parameterList))
+    (intLiteralExpr)))

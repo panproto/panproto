@@ -1,0 +1,40 @@
+===
+basic/minPklVersion.pkl
+===
+
+examples {
+  ["minPklVersion check"] {
+    Class1 {}
+    Class2 {}
+  }
+}
+
+@ModuleInfo { minPklVersion = "0.8.0" }
+class Class1
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectProperty
+            (identifier)
+            (objectBody))
+          (objectProperty
+            (identifier)
+            (objectBody))))))
+  (clazz
+    (annotation
+      (qualifiedIdentifier
+        (identifier))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart)))))
+    (identifier)))

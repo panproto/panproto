@@ -1,0 +1,260 @@
+===================
+throw
+===================
+
+throw "error";
+
+---
+
+(module
+  (throw_statement (string))
+)
+
+===================
+conditional
+===================
+
+if (true) {
+  a = 1;
+}
+
+---
+
+(module
+  (conditional_statement (bool)
+    (block
+      (identifier) (operator) (integer)
+    )
+  )
+)
+
+===================
+conditional with else
+===================
+
+if (true) {
+  a = 1;
+} else {
+  b = 2;
+}
+
+---
+
+(module
+  (conditional_statement
+    (bool)
+    (block
+      (identifier) (operator) (integer)
+    )
+    (block
+      (identifier) (operator) (integer)
+    )
+  )
+)
+
+
+===================
+parenthesis
+===================
+
+(1+1);
+
+---
+
+(module
+  (integer)
+  (operator)
+  (integer)
+)
+
+===================
+subscript_expression
+===================
+
+b[1];
+
+---
+
+(module
+  (subscript_expression
+    (identifier)
+    (integer)
+  )
+)
+
+===================
+subscript_expression
+===================
+
+a[b + 1];
+
+---
+
+(module
+  (subscript_expression
+    (identifier)
+    (identifier)
+    (operator)
+    (integer)
+  )
+)
+
+
+===================
+unsafe cast
+===================
+
+cast x;
+
+---
+
+(module
+  (cast_expression
+    (identifier)
+  )
+)
+
+===================
+safe cast
+===================
+
+cast (x, Int);
+
+---
+
+(module
+  (cast_expression
+    (identifier)
+    (type (identifier))
+  )
+)
+
+===================
+runtime type check
+===================
+
+(x : Type);
+
+---
+
+(module
+  (runtime_type_check_expression
+    (identifier) (type (identifier))
+  )
+)
+
+===================
+preprocessor macro
+===================
+
+#if !condition
+trace(x);
+#elseif (condition > 2)
+trace(y);
+#else
+trace(z);
+#end
+
+---
+
+(module
+  (preprocessor_statement (operator) (identifier))
+  (call_expression (identifier) (identifier))
+  (preprocessor_statement (identifier) (operator) (integer))
+  (call_expression (identifier) (identifier))
+  (preprocessor_statement)
+  (call_expression (identifier) (identifier))
+  (preprocessor_statement)
+)
+
+===================
+switch
+===================
+
+switch (x) {
+  case 4: func();
+}
+
+---
+
+(module
+  (switch_expression (identifier)
+  (block
+    (case_statement
+      (integer)
+      (call_expression (identifier))
+    )
+  ))
+)
+
+===================
+switch multiple cases, default
+===================
+
+switch (x) {
+  case 4: func();
+  case 5: func();
+  default: func();
+}
+
+---
+
+(module
+  (switch_expression (identifier)
+  (block
+    (case_statement
+      (integer)
+      (call_expression (identifier))
+    )
+    (case_statement
+      (integer)
+      (call_expression (identifier))
+    )
+    (case_statement
+      (call_expression (identifier))
+    )
+  ))
+)
+
+===================
+case expr statement in case.
+===================
+
+switch a {
+  case "1": func();
+}
+
+---
+
+(module
+  (switch_expression
+    (identifier)
+    (block
+  (case_statement
+    (string)
+    (call_expression (identifier))
+  )))
+)
+
+===================
+case expr with member_expression in case.
+===================
+
+switch a {
+  case "1".code: func();
+}
+
+---
+
+(module
+  (switch_expression
+    (identifier)
+      (block
+        (case_statement
+          (member_expression
+            (string)
+            (identifier))
+          (call_expression
+            (identifier)))))
+)
+

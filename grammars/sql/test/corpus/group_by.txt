@@ -1,0 +1,212 @@
+================================================================================
+Group by
+================================================================================
+
+SELECT other_id, COUNT(name)
+FROM my_table
+GROUP BY other_id
+HAVING other_id > 10;
+
+--------------------------------------------------------------------------------
+
+(program
+  (statement
+    (select
+      (keyword_select)
+      (select_expression
+        (term
+          value: (field
+            name: (identifier)))
+        (term
+          value: (invocation
+            (object_reference
+              name: (identifier))
+            parameter: (term
+              value: (field
+                name: (identifier)))))))
+    (from
+      (keyword_from)
+      (relation
+        (object_reference
+          name: (identifier)))
+      (group_by
+        (keyword_group)
+        (keyword_by)
+        (field
+          name: (identifier)))
+	(having
+        (keyword_having)
+        (binary_expression
+          left: (field
+            name: (identifier))
+          right: (literal))))))
+
+================================================================================
+Group by numbered alias
+================================================================================
+
+SELECT other_id, COUNT(name)
+FROM my_table
+GROUP BY 1
+HAVING other_id > 10;
+--------------------------------------------------------------------------------
+
+(program
+  (statement
+    (select
+      (keyword_select)
+      (select_expression
+        (term
+          value: (field
+            name: (identifier)))
+        (term
+          value: (invocation
+            (object_reference
+              name: (identifier))
+            parameter: (term
+              value: (field
+                name: (identifier)))))))
+    (from
+      (keyword_from)
+      (relation
+        (object_reference
+          name: (identifier)))
+      (group_by
+        (keyword_group)
+        (keyword_by)
+        (literal))
+	(having
+        (keyword_having)
+        (binary_expression
+          left: (field
+            name: (identifier))
+          right: (literal))))))
+
+================================================================================
+Group by with mixed list
+================================================================================
+
+SELECT other_id, other_col, COUNT(name)
+FROM my_table
+GROUP BY 1, other_col
+HAVING other_id > 10;
+--------------------------------------------------------------------------------
+
+(program
+  (statement
+    (select
+      (keyword_select)
+      (select_expression
+        (term
+          value: (field
+            name: (identifier)))
+        (term
+          value: (field
+            name: (identifier)))
+        (term
+          value: (invocation
+            (object_reference
+              name: (identifier))
+            parameter: (term
+              value: (field
+                name: (identifier)))))))
+    (from
+      (keyword_from)
+      (relation
+        (object_reference
+          name: (identifier)))
+      (group_by
+        (keyword_group)
+        (keyword_by)
+        (literal)
+        (field
+          name: (identifier)))
+	  (having
+        (keyword_having)
+        (binary_expression
+          left: (field
+            name: (identifier))
+          right: (literal))))))
+
+================================================================================
+Having with count function
+================================================================================
+
+SELECT other_id, COUNT(name)
+FROM my_table
+GROUP BY other_id
+HAVING COUNT(*) = 2;
+
+--------------------------------------------------------------------------------
+
+(program
+  (statement
+    (select
+      (keyword_select)
+      (select_expression
+        (term
+          value: (field
+            name: (identifier)))
+        (term
+          value: (invocation
+            (object_reference
+              name: (identifier))
+            parameter: (term
+              value: (field
+                name: (identifier)))))))
+    (from
+      (keyword_from)
+      (relation
+        (object_reference
+          name: (identifier)))
+      (group_by
+        (keyword_group)
+        (keyword_by)
+        (field
+          name: (identifier)))
+	  (having
+        (keyword_having)
+        (binary_expression
+          left: (invocation
+            (object_reference
+              name: (identifier))
+            parameter: (term
+              value: (all_fields)))
+          right: (literal))))))
+
+================================================================================
+Having without group by
+================================================================================
+
+SELECT COUNT(*) as cnt
+FROM db.table
+HAVING cnt = 2
+;
+
+--------------------------------------------------------------------------------
+
+    (program
+      (statement
+        (select
+          (keyword_select)
+          (select_expression
+            (term
+              (invocation
+                (object_reference
+                  (identifier))
+                (term
+                  (all_fields)))
+              (keyword_as)
+              (identifier))))
+        (from
+          (keyword_from)
+          (relation
+            (object_reference
+              (identifier)
+              (identifier)))
+          (having
+            (keyword_having)
+            (binary_expression
+              (field
+                (identifier))
+              (literal))))))

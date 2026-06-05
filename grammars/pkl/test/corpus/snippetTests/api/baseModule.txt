@@ -1,0 +1,170 @@
+===
+api/baseModule.pkl
+===
+
+amends "../snippetTest.pkl"
+
+examples {
+  ["TODO()"] {
+    module.catch(() -> TODO())
+  }
+
+  ["Undefined()"] {
+    module.catch(() -> Undefined())
+    module.catch(() -> obj.foo.bar.baz)
+    local obj = new {
+      foo {
+        bar {
+          baz = 3 + Undefined()
+        }
+      }
+    }
+  }
+
+  ["Regex"] {
+    Regex("")
+    Regex(#"[ab]\s+"#)
+    module.catch(() -> Regex("("))
+  }
+
+  ["Pair()"] {
+    Pair(1, "two")
+  }
+
+  ["NaN"] {
+    NaN
+  }
+
+  ["Infinity"] {
+    Infinity
+    -Infinity
+  }
+}
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (qualifiedAccessExpr
+              (moduleExpr)
+              (identifier)
+              (argumentList
+                (functionLiteralExpr
+                  (parameterList)
+                  (unqualifiedAccessExpr
+                    (identifier)
+                    (argumentList))))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (qualifiedAccessExpr
+              (moduleExpr)
+              (identifier)
+              (argumentList
+                (functionLiteralExpr
+                  (parameterList)
+                  (unqualifiedAccessExpr
+                    (identifier)
+                    (argumentList))))))
+          (objectElement
+            (qualifiedAccessExpr
+              (moduleExpr)
+              (identifier)
+              (argumentList
+                (functionLiteralExpr
+                  (parameterList)
+                  (qualifiedAccessExpr
+                    (qualifiedAccessExpr
+                      (qualifiedAccessExpr
+                        (unqualifiedAccessExpr
+                          (identifier))
+                        (identifier))
+                      (identifier))
+                    (identifier))))))
+          (objectProperty
+            (modifier)
+            (identifier)
+            (newExpr
+              (objectBody
+                (objectProperty
+                  (identifier)
+                  (objectBody
+                    (objectProperty
+                      (identifier)
+                      (objectBody
+                        (objectProperty
+                          (identifier)
+                          (additiveExpr
+                            (intLiteralExpr)
+                            (unqualifiedAccessExpr
+                              (identifier)
+                              (argumentList)))))))))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (unqualifiedAccessExpr
+              (identifier)
+              (argumentList
+                (slStringLiteralExpr))))
+          (objectElement
+            (unqualifiedAccessExpr
+              (identifier)
+              (argumentList
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))))
+          (objectElement
+            (qualifiedAccessExpr
+              (moduleExpr)
+              (identifier)
+              (argumentList
+                (functionLiteralExpr
+                  (parameterList)
+                  (unqualifiedAccessExpr
+                    (identifier)
+                    (argumentList
+                      (slStringLiteralExpr
+                        (slStringLiteralPart))))))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (unqualifiedAccessExpr
+              (identifier)
+              (argumentList
+                (intLiteralExpr)
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (unqualifiedAccessExpr
+              (identifier)))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (unqualifiedAccessExpr
+              (identifier)))
+          (objectElement
+            (unaryMinusExpr
+              (unqualifiedAccessExpr
+                (identifier)))))))))

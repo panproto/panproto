@@ -1,0 +1,187 @@
+================================================================================
+Empty
+================================================================================
+
+local t = {}
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    (var_declarators
+      (var
+        (identifier)))
+    (expressions
+      (table_constructor))))
+
+================================================================================
+Array
+================================================================================
+
+local arr = {1, 2, 3}
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    initializers: (expressions
+      (table_constructor
+        (table_entry
+          value: (number))
+        (table_entry
+          value: (number))
+        (table_entry
+          value: (number))))))
+
+================================================================================
+Identifier-Map
+================================================================================
+
+local map = {
+  x = 5,
+  y = 6,
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    initializers: (expressions
+      (table_constructor
+        (table_entry
+          key: (identifier)
+          value: (number))
+        (table_entry
+          key: (identifier)
+          value: (number))))))
+
+================================================================================
+Value-Map
+================================================================================
+
+local map = {
+  ["x"] = 5,
+  [y] = 6,
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    initializers: (expressions
+      (table_constructor
+        (table_entry
+          expr_key: (string
+            content: (string_content))
+          value: (number))
+        (table_entry
+          expr_key: (identifier)
+          value: (number))))))
+
+================================================================================
+Nested
+================================================================================
+
+local tab = {
+    foo = {
+        bar = "a",
+        baz = "b",
+    },
+    [{}] = {};
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    initializers: (expressions
+      (table_constructor
+        (table_entry
+          key: (identifier)
+          value: (table_constructor
+            (table_entry
+              key: (identifier)
+              value: (string
+                content: (string_content)))
+            (table_entry
+              key: (identifier)
+              value: (string
+                content: (string_content)))))
+        (table_entry
+          expr_key: (table_constructor)
+          value: (table_constructor))))))
+
+================================================================================
+With type annotations
+================================================================================
+
+local tl = {
+   process: function(string, Env, Result, {string}): (Result, string) = nil,
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    initializers: (expressions
+      (table_constructor
+        (table_entry
+          key: (identifier)
+          type: (function_type
+            arguments: (arguments
+              (arg
+                type: (simple_type
+                  name: (identifier)))
+              (arg
+                type: (simple_type
+                  name: (identifier)))
+              (arg
+                type: (simple_type
+                  name: (identifier)))
+              (arg
+                type: (table_type
+                  value_type: (simple_type
+                    name: (identifier)))))
+            return_type: (return_type
+              (simple_type
+                name: (identifier))
+              (simple_type
+                name: (identifier))))
+          value: (nil))))))
+
+================================================================================
+Method call as expression inside table
+================================================================================
+
+local a = { b:c() }
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    initializers: (expressions
+      (table_constructor
+        (table_entry
+          value: (function_call
+            called_object: (method_index
+              (identifier)
+              key: (identifier))
+            arguments: (arguments)))))))

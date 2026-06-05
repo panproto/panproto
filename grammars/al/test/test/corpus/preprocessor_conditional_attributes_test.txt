@@ -1,0 +1,110 @@
+================================================================================
+Preprocessor directives wrapping attributes for procedures
+================================================================================
+
+codeunit 50100 TestUnit
+{
+    trigger OnRun()
+    begin
+    end;
+
+    #if BC24
+    [EventSubscriber(ObjectType::Table, database::"Merge Duplicates Buffer", 'OnBeforeMergeVendors', '', true, false)]
+    #endif
+    local procedure OnBeforeMergeVendors(MergeDuplicatesBuffer: Record "Merge Duplicates Buffer"; var IsHandled: Boolean)
+    var
+        TestVar: Integer;
+    begin
+        // Some code here
+    end;
+
+    #if BC25
+    [IntegrationEvent(false, false)]
+    #endif
+    procedure OnAfterProcessDocument()
+    begin
+        // Integration event code
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (preproc_conditional
+      (preproc_if
+        (preproc_open)
+        condition: (identifier))
+      (attribute_item
+        attribute: (attribute_content
+          name: (identifier)
+          arguments: (attribute_arguments
+            (attribute_argument_list
+              (qualified_enum_value
+                enum_type: (identifier)
+                value: (identifier
+                  (table_keyword)))
+              (database_reference
+                keyword: (object_type_keyword)
+                table_name: (quoted_identifier))
+              (string_literal)
+              (string_literal)
+              (boolean)
+              (boolean)))))
+      (preproc_endif
+        (preproc_close)))
+    (procedure
+      modifier: (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier))))
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (comment)
+        (end_keyword)))
+    (preproc_conditional
+      (preproc_if
+        (preproc_open)
+        condition: (identifier))
+      (attribute_item
+        attribute: (attribute_content
+          name: (identifier)
+          arguments: (attribute_arguments
+            (attribute_argument_list
+              (boolean)
+              (boolean)))))
+      (preproc_endif
+        (preproc_close)))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (comment)
+        (end_keyword)))))

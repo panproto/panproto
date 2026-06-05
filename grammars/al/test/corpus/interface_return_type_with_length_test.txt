@@ -1,0 +1,330 @@
+================================================================================
+Interface procedure with Code return type including length
+================================================================================
+
+interface "Test Interface"
+{
+    procedure GetID(): Code[50];
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (interface_declaration
+    (interface_keyword)
+    object_name: (quoted_identifier)
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (code_type
+            length: (integer)))))))
+
+================================================================================
+Interface procedures with various typed returns including lengths
+================================================================================
+
+interface "Reminder Action"
+{
+    procedure GetSetupRecord(var TableID: Integer; var RecordSystemId: Guid);
+    procedure GetReminderActionSystemId(): Guid;
+    procedure GetID(): Code[50];
+    procedure GetSummary(): Text;
+    procedure CreateNew(ActionCode: Code[50]; ActionGroupCode: Code[50]): Boolean;
+    procedure GetDescription(): Text[100];
+    procedure GetShortCode(): Code[10];
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (interface_declaration
+    (interface_keyword)
+    object_name: (quoted_identifier)
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (basic_type)))
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (interface_procedure_suffix))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (basic_type))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (code_type
+            length: (integer)))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (text_type))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (code_type
+              length: (integer))))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (code_type
+              length: (integer)))))
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (basic_type))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (text_type
+            length: (integer)))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (code_type
+            length: (integer)))))))
+
+================================================================================
+Interface with named return values and typed lengths
+================================================================================
+
+interface "Complex Interface"
+{
+    procedure GetCode() ReturnValue: Code[20];
+    procedure GetText() Description: Text[250];
+    procedure Calculate(Input: Decimal) Result: Decimal;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (interface_declaration
+    (interface_keyword)
+    object_name: (quoted_identifier)
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix
+        return_value: (identifier)
+        return_type: (type_specification
+          (code_type
+            length: (integer)))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix
+        return_value: (identifier)
+        return_type: (type_specification
+          (text_type
+            length: (integer)))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (interface_procedure_suffix
+        return_value: (identifier)
+        return_type: (type_specification
+          (basic_type))))))
+
+================================================================================
+Interface with various AL types including arrays
+================================================================================
+
+interface "Type Examples"
+{
+    procedure GetCodeArray(): Code[50];
+    procedure GetTextArray(): Text[100];
+    procedure GetLabelText(): Label;
+    procedure GetOption(): Option;
+    procedure GetBigText(): BigText;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (interface_declaration
+    (interface_keyword)
+    object_name: (quoted_identifier)
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (code_type
+            length: (integer)))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (text_type
+            length: (integer)))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (basic_type))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (option_type))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (identifier))))))
+
+================================================================================
+Real-world ReminderAction interface
+================================================================================
+
+// ------------------------------------------------------------------------------------------------
+// Copyright (c) Microsoft Corporation. All rights reserved.
+// Licensed under the MIT License. See License.txt in the project root for license information.
+// ------------------------------------------------------------------------------------------------
+namespace Microsoft.Sales.Reminder;
+
+interface "Reminder Action"
+{
+    procedure Initialize(ReminderActionSystemId: Guid);
+    procedure GetSetupRecord(var TableID: Integer; var RecordSystemId: Guid);
+    procedure GetReminderActionSystemId(): Guid;
+    procedure GetID(): Code[50];
+    procedure GetSummary(): Text;
+    procedure CreateNew(ActionCode: Code[50]; ActionGroupCode: Code[50]): Boolean;
+    procedure Setup();
+    procedure Invoke();
+    procedure Delete(var ActionDelete: Boolean);
+    procedure DrillDown();
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (comment)
+  (comment)
+  (comment)
+  (comment)
+  (namespace_declaration
+    (namespace_keyword)
+    name: (namespace_name
+      (identifier)
+      (identifier)
+      (identifier)))
+  (interface_declaration
+    (interface_keyword)
+    object_name: (quoted_identifier)
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (interface_procedure_suffix))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (basic_type)))
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (interface_procedure_suffix))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (basic_type))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (code_type
+            length: (integer)))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (text_type))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (code_type
+              length: (integer))))
+        (parameter
+          name: (identifier)
+          type: (type_specification
+            (code_type
+              length: (integer)))))
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (basic_type))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (interface_procedure_suffix))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix))))

@@ -1,0 +1,76 @@
+=========
+try catch
+=========
+
+try {
+
+} catch (e: Error) {
+
+}
+
+---
+
+(program
+    (try_statement
+        (statement_block)
+    (catch_clause
+        (identifier)
+        (type_hint (identifier))
+        (statement_block))
+    )
+)
+
+================
+try catch finaly
+================
+
+try {
+
+} catch (e: Error) {
+
+} finally {
+
+}
+
+---
+
+(program
+    (try_statement
+        (statement_block)
+    (catch_clause
+        (identifier)
+        (type_hint (identifier))
+        (statement_block))
+    (finally_clause
+        (statement_block))
+    )
+)
+
+==================
+try multiple catch
+==================
+
+try {
+
+} catch (e: Error1) {
+
+} catch (e: Error2) {
+
+}
+
+---
+
+(program
+    (try_statement
+        (statement_block)
+    (catch_clause
+        (identifier)
+        (type_hint (identifier))
+        (statement_block)
+    )
+    (catch_clause
+        (identifier)
+        (type_hint (identifier))
+        (statement_block))
+    )
+)

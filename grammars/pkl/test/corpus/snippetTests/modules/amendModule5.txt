@@ -1,0 +1,68 @@
+===
+modules/amendModule5.pkl
+===
+
+amends "library.pkl"
+
+pigeon {
+  name = pigeon5
+}
+
+name = id(new Foo {}.name)
+
+local pigeon5 = "pigeon5"
+
+local function id(arg) = arg
+
+local class Foo {
+  name = "pigeon5"
+}
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (unqualifiedAccessExpr
+          (identifier)))))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList
+        (qualifiedAccessExpr
+          (newExpr
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (objectBody))
+          (identifier)))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart)))
+  (classMethod
+    (methodHeader
+      (modifier)
+      (identifier)
+      (parameterList
+        (typedIdentifier
+          (identifier))))
+    (unqualifiedAccessExpr
+      (identifier)))
+  (clazz
+    (modifier)
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (slStringLiteralExpr
+          (slStringLiteralPart))))))

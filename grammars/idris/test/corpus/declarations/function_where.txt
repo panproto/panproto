@@ -1,0 +1,755 @@
+================================================================================
+Simple line without indent
+================================================================================
+
+f x = y
+  where y = x
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_name
+        (loname)))
+    (where)
+    (declarations
+      (function
+        (lhs
+          (funvar
+            (loname)))
+        (rhs
+          (exp_name
+            (loname)))))))
+
+================================================================================
+Simple line with indent
+================================================================================
+
+f x = y
+  where
+    y = x
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_name
+        (loname)))
+    (where)
+    (declarations
+      (function
+        (lhs
+          (funvar
+            (loname)))
+        (rhs
+          (exp_name
+            (loname)))))))
+
+================================================================================
+Single line on the same line
+================================================================================
+
+f x = y where y = x
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_name
+        (loname)))
+    (where)
+    (declarations
+      (function
+        (lhs
+          (funvar
+            (loname)))
+        (rhs
+          (exp_name
+            (loname)))))))
+
+================================================================================
+Multiline without indent
+================================================================================
+
+f x = y
+  where y : Int
+        y = x
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_name
+        (loname)))
+    (where)
+    (declarations
+      (signature
+        (loname)
+        (colon)
+        (exp_name
+          (caname)))
+      (function
+        (lhs
+          (funvar
+            (loname)))
+        (rhs
+          (exp_name
+            (loname)))))))
+
+================================================================================
+Multiline with indent
+================================================================================
+
+f x = y
+  where
+    y : Int
+    y = x
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_name
+        (loname)))
+    (where)
+    (declarations
+      (signature
+        (loname)
+        (colon)
+        (exp_name
+          (caname)))
+      (function
+        (lhs
+          (funvar
+            (loname)))
+        (rhs
+          (exp_name
+            (loname)))))))
+
+================================================================================
+Telescope single line 1
+================================================================================
+
+f x = z where z = y where y = z
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_name
+        (loname)))
+    (where)
+    (declarations
+      (function
+        (lhs
+          (funvar
+            (loname)))
+        (rhs
+          (exp_name
+            (loname)))
+        (where)
+        (declarations
+          (function
+            (lhs
+              (funvar
+                (loname)))
+            (rhs
+              (exp_name
+                (loname)))))))))
+
+================================================================================
+Telescope single line 2
+================================================================================
+
+f x = z where z = y
+          where y = x
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_name
+        (loname)))
+    (where)
+    (declarations
+      (function
+        (lhs
+          (funvar
+            (loname)))
+        (rhs
+          (exp_name
+            (loname)))
+        (where)
+        (declarations
+          (function
+            (lhs
+              (funvar
+                (loname)))
+            (rhs
+              (exp_name
+                (loname)))))))))
+
+================================================================================
+Telescope multi line 1
+================================================================================
+
+f x = z
+  where z : Int
+        z = y
+    where y = x
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_name
+        (loname)))
+    (where)
+    (declarations
+      (signature
+        (loname)
+        (colon)
+        (exp_name
+          (caname)))
+      (function
+        (lhs
+          (funvar
+            (loname)))
+        (rhs
+          (exp_name
+            (loname)))
+        (where)
+        (declarations
+          (function
+            (lhs
+              (funvar
+                (loname)))
+            (rhs
+              (exp_name
+                (loname)))))))))
+
+================================================================================
+Same indent in do-notation
+================================================================================
+
+_ = do
+  x
+  where
+    x : a
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (exp_do
+        (statement
+          (exp_name
+            (loname)))))
+    (where)
+    (declarations
+      (signature
+        (loname)
+        (colon)
+        (exp_name
+          (loname))))))
+
+================================================================================
+Including imeplementation
+================================================================================
+
+ForRef ref = MS where
+  %inline
+  [MS] MonadState a m where
+    get = readRef ref
+    put = writeRef ref
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (caname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_name
+        (caname)))
+    (where)
+    (declarations
+      (implementation
+        (implementation_head
+          (pragma_inline)
+          (implementation_name
+            (caname))
+          (interface_name
+            (caname))
+          (exp_name
+            (loname))
+          (exp_name
+            (loname)))
+        (implementation_body
+          (where)
+          (function
+            (lhs
+              (funvar
+                (loname)))
+            (rhs
+              (exp_name
+                (loname))
+              (exp_name
+                (loname))))
+          (function
+            (lhs
+              (funvar
+                (loname)))
+            (rhs
+              (exp_name
+                (loname))
+              (exp_name
+                (loname)))))))))
+
+================================================================================
+Real example 1
+================================================================================
+
+reverse : List a -> List a
+reverse xs = revAcc [] xs where
+  revAcc : List a -> List a -> List a
+  revAcc acc [] = acc
+  revAcc acc (x :: xs) = revAcc (x :: acc) xs
+
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (loname)
+    (colon)
+    (exp_name
+      (caname))
+    (exp_name
+      (loname))
+    (arrow_separator)
+    (exp_name
+      (caname))
+    (exp_name
+      (loname)))
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_name
+        (loname))
+      (exp_list)
+      (exp_name
+        (loname)))
+    (where)
+    (declarations
+      (signature
+        (loname)
+        (colon)
+        (exp_name
+          (caname))
+        (exp_name
+          (loname))
+        (arrow_separator)
+        (exp_name
+          (caname))
+        (exp_name
+          (loname))
+        (arrow_separator)
+        (exp_name
+          (caname))
+        (exp_name
+          (loname)))
+      (function
+        (lhs
+          (funvar
+            (loname)
+            (patterns
+              (pat_name
+                (loname))
+              (pat_list))))
+        (rhs
+          (exp_name
+            (loname))))
+      (function
+        (lhs
+          (funvar
+            (loname)
+            (patterns
+              (pat_name
+                (loname))
+              (pat_parens
+                (pat_name
+                  (loname))
+                (pat_op)
+                (pat_name
+                  (loname))))))
+        (rhs
+          (exp_name
+            (loname))
+          (exp_parens
+            (exp_name
+              (loname))
+            (operator)
+            (exp_name
+              (loname)))
+          (exp_name
+            (loname)))))))
+
+================================================================================
+Real example 2
+================================================================================
+
+foo : Int -> Int
+foo x = case isLT of
+            Yes => x*2
+            No => x*4
+    where
+       isLT : MyLT
+       isLT = if x < 20 then Yes else No
+       data MyLT = Yes | No
+
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (loname)
+    (colon)
+    (exp_name
+      (caname))
+    (arrow_separator)
+    (exp_name
+      (caname)))
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_case
+        (exp_name
+          (loname))
+        (alts
+          (alt
+            (pat_name
+              (caname))
+            (exp_name
+              (loname))
+            (operator)
+            (literal
+              (integer)))
+          (alt
+            (pat_name
+              (caname))
+            (exp_name
+              (loname))
+            (operator)
+            (literal
+              (integer))
+            (where)
+            (declarations
+              (signature
+                (loname)
+                (colon)
+                (exp_name
+                  (caname)))
+              (function
+                (lhs
+                  (funvar
+                    (loname)))
+                (rhs
+                  (exp_if
+                    (exp_name
+                      (loname))
+                    (operator)
+                    (literal
+                      (integer))
+                    (exp_then
+                      (exp_name
+                        (caname)))
+                    (exp_else
+                      (exp_name
+                        (caname))))))
+              (data
+                (data_name)
+                (exp_name
+                  (caname))
+                (exp_name
+                  (caname))))))))))
+
+================================================================================
+Real example 3
+================================================================================
+
+even : Nat -> Bool
+even Z = True
+even (S k) = odd k where
+  odd : Nat -> Bool
+  odd Z = False
+  odd (S k) = even k
+
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (loname)
+    (colon)
+    (exp_name
+      (caname))
+    (arrow_separator)
+    (exp_name
+      (caname)))
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (caname)))))
+    (rhs
+      (exp_name
+        (caname))))
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_parens
+            (pat_name
+              (caname))
+            (pat_name
+              (loname))))))
+    (rhs
+      (exp_name
+        (loname))
+      (exp_name
+        (loname)))
+    (where)
+    (declarations
+      (signature
+        (loname)
+        (colon)
+        (exp_name
+          (caname))
+        (arrow_separator)
+        (exp_name
+          (caname)))
+      (function
+        (lhs
+          (funvar
+            (loname)
+            (patterns
+              (pat_name
+                (caname)))))
+        (rhs
+          (exp_name
+            (caname))))
+      (function
+        (lhs
+          (funvar
+            (loname)
+            (patterns
+              (pat_parens
+                (pat_name
+                  (caname))
+                (pat_name
+                  (loname))))))
+        (rhs
+          (exp_name
+            (loname))
+          (exp_name
+            (loname)))))))
+
+================================================================================
+Real example 4
+================================================================================
+
+test : List Nat
+test = [c (S 1), c Z, d (S Z)]
+  where c : Nat -> Nat
+        c x = 42 + x
+
+        d : Nat -> Nat
+        d y = c (y + 1 + z y)
+              where z : Nat -> Nat
+                    z w = y + w
+
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (loname)
+    (colon)
+    (exp_name
+      (caname))
+    (exp_name
+      (caname)))
+  (function
+    (lhs
+      (funvar
+        (loname)))
+    (rhs
+      (exp_list
+        (exp_name
+          (loname))
+        (exp_parens
+          (exp_name
+            (caname))
+          (literal
+            (integer)))
+        (comma)
+        (exp_name
+          (loname))
+        (exp_name
+          (caname))
+        (comma)
+        (exp_name
+          (loname))
+        (exp_parens
+          (exp_name
+            (caname))
+          (exp_name
+            (caname)))))
+    (where)
+    (declarations
+      (signature
+        (loname)
+        (colon)
+        (exp_name
+          (caname))
+        (arrow_separator)
+        (exp_name
+          (caname)))
+      (function
+        (lhs
+          (funvar
+            (loname)
+            (patterns
+              (pat_name
+                (loname)))))
+        (rhs
+          (literal
+            (integer))
+          (operator)
+          (exp_name
+            (loname))))
+      (signature
+        (loname)
+        (colon)
+        (exp_name
+          (caname))
+        (arrow_separator)
+        (exp_name
+          (caname)))
+      (function
+        (lhs
+          (funvar
+            (loname)
+            (patterns
+              (pat_name
+                (loname)))))
+        (rhs
+          (exp_name
+            (loname))
+          (exp_parens
+            (exp_name
+              (loname))
+            (operator)
+            (literal
+              (integer))
+            (operator)
+            (exp_name
+              (loname))
+            (exp_name
+              (loname))))
+        (where)
+        (declarations
+          (signature
+            (loname)
+            (colon)
+            (exp_name
+              (caname))
+            (arrow_separator)
+            (exp_name
+              (caname)))
+          (function
+            (lhs
+              (funvar
+                (loname)
+                (patterns
+                  (pat_name
+                    (loname)))))
+            (rhs
+              (exp_name
+                (loname))
+              (operator)
+              (exp_name
+                (loname)))))))))

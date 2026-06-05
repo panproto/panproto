@@ -1,0 +1,112 @@
+================================================================================
+MovedFrom property in field declaration
+================================================================================
+
+table 50100 "Test Table"
+{
+    fields
+    {
+        field(1; TestField; Code[10])
+        {
+            Caption = 'Test Field';
+            MovedFrom = 'f3552374-a1f2-4356-848e-196002525837';
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (code_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (string_literal))))))
+
+================================================================================
+MovedTo property in field declaration
+================================================================================
+
+table 50101 "Another Table"
+{
+    fields
+    {
+        field(2; AnotherField; Text[50])
+        {
+            MovedTo = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (string_literal))))))
+
+================================================================================
+Both MovedFrom and MovedTo properties together
+================================================================================
+
+table 50102 "Migration Table"
+{
+    fields
+    {
+        field(10; MigratedField; Integer)
+        {
+            Caption = 'Migrated Field';
+            MovedFrom = 'old-table-guid-12345';
+            MovedTo = 'new-table-guid-67890';
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (string_literal))))))

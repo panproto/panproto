@@ -1,0 +1,20 @@
+===
+stringWithTwoSlashes
+===
+
+foo = "// this is string text"
+
+bar = """
+  // this is string text
+  """
+---
+
+(module
+  (classProperty
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (mlStringLiteralExpr
+      (mlStringLiteralPart))))

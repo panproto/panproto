@@ -1,0 +1,441 @@
+================================================================================
+Records 1
+================================================================================
+
+record Person where
+    constructor MkPerson
+    firstName, middleName, lastName : String
+    age : Int
+
+--------------------------------------------------------------------------------
+
+(idris
+  (record
+    (record_name
+      (caname))
+    (where)
+    (record_body
+      (constructor
+        (caname))
+      (record_field
+        (loname)
+        (comma)
+        (loname)
+        (comma)
+        (loname)
+        (colon)
+        (exp_name
+          (caname)))
+      (record_field
+        (loname)
+        (colon)
+        (exp_name
+          (caname))))))
+
+================================================================================
+Records 2
+================================================================================
+
+fred : Person
+fred = MkPerson "Fred" "Joe" "Bloggs" 30
+
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (loname)
+    (colon)
+    (exp_name
+      (caname)))
+  (function
+    (lhs
+      (funvar
+        (loname)))
+    (rhs
+      (exp_name
+        (caname))
+      (string)
+      (string)
+      (string)
+      (literal
+        (integer)))))
+
+================================================================================
+Records 3
+================================================================================
+
+record Class where
+    constructor ClassInfo
+    students : Vect n Person
+    className : String
+
+--------------------------------------------------------------------------------
+
+(idris
+  (record
+    (record_name
+      (caname))
+    (where)
+    (record_body
+      (constructor
+        (caname))
+      (record_field
+        (loname)
+        (colon)
+        (exp_name
+          (caname))
+        (exp_name
+          (loname))
+        (exp_name
+          (caname)))
+      (record_field
+        (loname)
+        (colon)
+        (exp_name
+          (caname))))))
+
+================================================================================
+Records 4
+================================================================================
+
+addStudent : Person -> Class -> Class
+addStudent p c = { students := p :: students c } c
+
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (loname)
+    (colon)
+    (exp_name
+      (caname))
+    (arrow_separator)
+    (exp_name
+      (caname))
+    (arrow_separator)
+    (exp_name
+      (caname)))
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname))
+          (pat_name
+            (loname)))))
+    (rhs
+      (record_update
+        (field_name)
+        (exp_name
+          (loname))
+        (operator)
+        (exp_name
+          (loname))
+        (exp_name
+          (loname)))
+      (exp_name
+        (loname)))))
+
+================================================================================
+Records 5
+================================================================================
+
+addStudent' : Person -> Class -> Class
+addStudent' p c = { students $= (p ::) } c
+
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (loname)
+    (colon)
+    (exp_name
+      (caname))
+    (arrow_separator)
+    (exp_name
+      (caname))
+    (arrow_separator)
+    (exp_name
+      (caname)))
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname))
+          (pat_name
+            (loname)))))
+    (rhs
+      (record_update
+        (field_name)
+        (exp_parens
+          (exp_name
+            (loname))
+          (operator)))
+      (exp_name
+        (loname)))))
+
+================================================================================
+Records 6
+================================================================================
+
+record DPair a (p : a -> Type) where
+  constructor MkDPair
+  fst : a
+  snd : p fst
+
+--------------------------------------------------------------------------------
+
+(idris
+  (record
+    (record_name
+      (caname))
+    (exp_name
+      (loname))
+    (type_parens
+      (type_var
+        (loname)
+        (colon)
+        (exp_name
+          (loname))
+        (arrow_separator)
+        (exp_name
+          (caname))))
+    (where)
+    (record_body
+      (constructor
+        (caname))
+      (record_field
+        (loname)
+        (colon)
+        (exp_name
+          (loname)))
+      (record_field
+        (loname)
+        (colon)
+        (exp_name
+          (loname))
+        (exp_name
+          (loname))))))
+
+================================================================================
+Records 7
+================================================================================
+
+record (<=>) (a, b : Type) where
+
+--------------------------------------------------------------------------------
+
+(idris
+  (record
+    (operator)
+    (type_parens
+      (type_var
+        (loname)
+        (comma)
+        (loname)
+        (colon)
+        (exp_name
+          (caname))))
+    (where)))
+
+================================================================================
+Record with implicit type arguments
+================================================================================
+
+record Exists {0 type : Type} this where
+  constructor Evidence
+  0 fst : type
+  snd : this fst
+
+--------------------------------------------------------------------------------
+
+(idris
+  (record
+    (record_name
+      (caname))
+    (type_braces
+      (quantity)
+      (exp_name
+        (loname))
+      (colon)
+      (exp_name
+        (caname)))
+    (exp_name
+      (loname))
+    (where)
+    (record_body
+      (constructor
+        (caname))
+      (record_field
+        (quantity)
+        (loname)
+        (colon)
+        (exp_name
+          (loname)))
+      (record_field
+        (loname)
+        (colon)
+        (exp_name
+          (loname))
+        (exp_name
+          (loname))))))
+
+================================================================================
+Record with operator constructor
+================================================================================
+
+record List1 a where
+  constructor (:::)
+  head : a
+  tail : List a
+
+--------------------------------------------------------------------------------
+
+(idris
+  (record
+    (record_name
+      (caname))
+    (exp_name
+      (loname))
+    (where)
+    (record_body
+      (constructor
+        (operator))
+      (record_field
+        (loname)
+        (colon)
+        (exp_name
+          (loname)))
+      (record_field
+        (loname)
+        (colon)
+        (exp_name
+          (caname))
+        (exp_name
+          (loname))))))
+
+================================================================================
+Record with capitalized fields
+================================================================================
+
+record Container where
+  constructor MkContainer
+  Shape : Type
+  Position : Shape -> Type
+
+--------------------------------------------------------------------------------
+
+(idris
+  (record
+    (record_name
+      (caname))
+    (where)
+    (record_body
+      (constructor
+        (caname))
+      (record_field
+        (caname)
+        (colon)
+        (exp_name
+          (caname)))
+      (record_field
+        (caname)
+        (colon)
+        (exp_name
+          (caname))
+        (arrow_separator)
+        (exp_name
+          (caname))))))
+
+================================================================================
+Recrod with implicit fields
+================================================================================
+
+record Split {a : Type} (p : a -> Type) (xys : List a) where
+  {ayes, naws : List a}
+  {auto interleaving : Interleaving ayes naws xys}
+
+--------------------------------------------------------------------------------
+
+(idris
+  (record
+    (record_name
+      (caname))
+    (type_braces
+      (exp_name
+        (loname))
+      (colon)
+      (exp_name
+        (caname)))
+    (type_parens
+      (type_var
+        (loname)
+        (colon)
+        (exp_name
+          (loname))
+        (arrow_separator)
+        (exp_name
+          (caname))))
+    (type_parens
+      (type_var
+        (loname)
+        (colon)
+        (exp_name
+          (caname))
+        (exp_name
+          (loname))))
+    (where)
+    (record_body
+      (implicit_record_field
+        (loname)
+        (comma)
+        (loname)
+        (colon)
+        (exp_name
+          (caname))
+        (exp_name
+          (loname)))
+      (implicit_record_field
+        (auto)
+        (loname)
+        (colon)
+        (exp_name
+          (caname))
+        (exp_name
+          (loname))
+        (exp_name
+          (loname))
+        (exp_name
+          (loname))))))
+
+================================================================================
+Record updates
+================================================================================
+
+_ = { conArgTypes $= ((rig, arg) ::) } <$> constructorView b
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (record_update
+        (field_name)
+        (exp_parens
+          (exp_tuple
+            (exp_name
+              (loname))
+            (tuple_operator)
+            (exp_name
+              (loname)))
+          (operator)))
+      (operator)
+      (exp_name
+        (loname))
+      (exp_name
+        (loname)))))

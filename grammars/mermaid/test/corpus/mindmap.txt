@@ -1,0 +1,145 @@
+==========================
+Simple mindmap diagram with init directive
+==========================
+
+%%{'init': {theme: 'forest'}}%%
+mindmap
+    Root
+        A
+            B
+            %% this is a comment
+            C
+
+---
+
+(source_file
+  (directive
+    (type_directive)
+    (arg_directive))
+  (diagram_mindmap
+    (mmap_node
+      (mmap_node_id))
+    (mmap_node
+      (mmap_node_id))
+    (mmap_node
+      (mmap_node_id))
+    (mmap_node
+      (comment)
+      (mmap_node_id))))
+
+==========================
+Mindmap diagram with custom shapes
+==========================
+mindmap
+    Root(round)
+        A[square]
+            B{{hexagon}}
+            C((circle))
+        D)cloud(
+            E))bang((
+        F
+
+---
+
+(source_file
+  (diagram_mindmap
+    (mmap_node
+      (mmap_node_id)
+      (mmap_node_rounded
+        (mmap_node_content
+          (mmap_text))))
+    (mmap_node
+      (mmap_node_id)
+      (mmap_node_square
+        (mmap_node_content
+          (mmap_text))))
+    (mmap_node
+      (mmap_node_id)
+      (mmap_node_hexagon
+        (mmap_node_content
+          (mmap_text))))
+    (mmap_node
+      (mmap_node_id)
+      (mmap_node_circle
+        (mmap_node_content
+          (mmap_text))))
+    (mmap_node
+      (mmap_node_id)
+      (mmap_node_cloud
+        (mmap_node_content
+          (mmap_text))))
+    (mmap_node
+      (mmap_node_id)
+      (mmap_node_bang
+        (mmap_node_content
+          (mmap_text))))
+    (mmap_node
+      (mmap_node_id))))
+
+==========================
+Mindmap diagram with markdown text
+==========================
+mindmap
+    Root("`mark down **text**`")
+        A["`multiline
+**bold** _italic_ [link](https://example.com)
+text`"]
+        B
+---
+
+(source_file
+  (diagram_mindmap
+    (mmap_node
+      (mmap_node_id)
+      (mmap_node_rounded
+        (mmap_node_content
+          (mmap_markdown
+            (md_text)))))
+    (mmap_node
+      (mmap_node_id)
+      (mmap_node_square
+        (mmap_node_content
+          (mmap_markdown
+            (md_text)))))
+    (mmap_node
+      (mmap_node_id))))
+
+==========================
+Mindmap diagram with icons and class
+==========================
+mindmap
+    root(Root Node)
+    ::icon(fa fa-home)
+        No class node
+        Icon node
+        ::icon(fa fa-leaf)
+        Class node
+        :::info class
+        icoAndClass[Icon and class node]
+        ::icon(fa fa-bolt)
+        :::icon class
+---
+
+(source_file
+  (diagram_mindmap
+    (mmap_node
+      (mmap_node_id)
+      (mmap_node_rounded
+        (mmap_node_content
+          (mmap_text)))
+      (mmap_icon))
+    (mmap_node
+      (mmap_node_id))
+    (mmap_node
+      (mmap_node_id)
+      (mmap_icon))
+    (mmap_node
+      (mmap_node_id)
+      (mmap_class))
+    (mmap_node
+      (mmap_node_id)
+      (mmap_node_square
+        (mmap_node_content
+          (mmap_text)))
+      (mmap_icon)
+      (mmap_class))))

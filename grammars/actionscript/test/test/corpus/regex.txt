@@ -1,0 +1,30 @@
+======
+simple
+======
+
+const re = /[0-9]/;
+
+---
+
+
+(program
+    (constant_declaration
+        (identifier)
+        (regex (regex_pattern))
+    )
+)
+
+=========
+with flag
+=========
+
+const re = /[0-9]/g;
+
+---
+
+(program
+    (constant_declaration
+        (identifier)
+        (regex (regex_pattern) (regex_flags))
+    )
+)

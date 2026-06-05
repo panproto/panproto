@@ -1,0 +1,143 @@
+===
+api/jsonParser3.pkl
+===
+
+import "pkl:json"
+
+local parser = new json.Parser {
+  converters {
+    ["^firstName"] = (_) -> "changed"
+    ["^city"] = (_) -> "no match"
+    ["age"] = (_) -> 42
+    ["address.city"] = (it) -> it.reverse()
+    ["state"] = (_) -> "CA"
+    ["phoneNumber[*].type"] = (_) -> "mobile"
+    ["phoneNumber[*]"] = (it) -> it.type
+    ["gender.*"] = (_) -> "female"
+  }
+}
+
+res1 = parser.parse("""
+  {
+    "firstName": "John",
+    "lastName": "Smith",
+    "age": 25,
+    "address": {
+      "streetAddress": "21 2nd Street",
+      "city": "New York",
+      "state": "NY",
+      "postalCode": "10021"
+    },
+    "phoneNumber": [
+      {
+        "type": "home",
+        "number": "212 555-1234"
+      },
+      {
+        "type": "fax",
+        "number": "646 555-4567"
+      }
+    ],
+    "gender": {
+      "type": "male"
+    }
+  }
+  """)
+
+---
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (classProperty
+    (modifier)
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (objectBody
+            (objectEntry
+              (slStringLiteralExpr
+                (slStringLiteralPart))
+              (functionLiteralExpr
+                (parameterList
+                  (blankIdentifier))
+                (slStringLiteralExpr
+                  (slStringLiteralPart))))
+            (objectEntry
+              (slStringLiteralExpr
+                (slStringLiteralPart))
+              (functionLiteralExpr
+                (parameterList
+                  (blankIdentifier))
+                (slStringLiteralExpr
+                  (slStringLiteralPart))))
+            (objectEntry
+              (slStringLiteralExpr
+                (slStringLiteralPart))
+              (functionLiteralExpr
+                (parameterList
+                  (blankIdentifier))
+                (intLiteralExpr)))
+            (objectEntry
+              (slStringLiteralExpr
+                (slStringLiteralPart))
+              (functionLiteralExpr
+                (parameterList
+                  (typedIdentifier
+                    (identifier)))
+                (qualifiedAccessExpr
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (identifier)
+                  (argumentList))))
+            (objectEntry
+              (slStringLiteralExpr
+                (slStringLiteralPart))
+              (functionLiteralExpr
+                (parameterList
+                  (blankIdentifier))
+                (slStringLiteralExpr
+                  (slStringLiteralPart))))
+            (objectEntry
+              (slStringLiteralExpr
+                (slStringLiteralPart))
+              (functionLiteralExpr
+                (parameterList
+                  (blankIdentifier))
+                (slStringLiteralExpr
+                  (slStringLiteralPart))))
+            (objectEntry
+              (slStringLiteralExpr
+                (slStringLiteralPart))
+              (functionLiteralExpr
+                (parameterList
+                  (typedIdentifier
+                    (identifier)))
+                (qualifiedAccessExpr
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (identifier))))
+            (objectEntry
+              (slStringLiteralExpr
+                (slStringLiteralPart))
+              (functionLiteralExpr
+                (parameterList
+                  (blankIdentifier))
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (mlStringLiteralExpr
+          (mlStringLiteralPart))))))

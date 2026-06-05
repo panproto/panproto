@@ -1,0 +1,284 @@
+===
+annotation/annotation1.pkl
+===
+
+/// doc comment
+/// doc comment
+@Ann
+@Ann2 { x = "foo" }
+@Ann3 {
+  x = "foo"
+  y = 1
+}
+module some.mod
+
+/// doc comment
+/// doc comment
+@Ann
+@Ann2 { x = "foo" }
+@Ann3 {
+  x = "foo"
+  y = 1
+}
+class SomeClass {
+  /// doc comment
+  /// doc comment
+  @Ann
+  @Ann2 { x = "foo" }
+  @Ann3 {
+    x = "foo"
+    y = 1
+  }
+  function someMethod() = "hi"
+
+  /// doc comment
+  /// doc comment
+  @Ann
+  @Ann2 { x = "foo" }
+  @Ann3 {
+    x = "foo"
+    y = 1
+  }
+  someProperty: String = "hi"
+}
+
+/// doc comment
+/// doc comment
+@Ann
+@Ann2 { x = "foo" }
+@Ann3 {
+  x = "foo"
+  y = 1
+}
+function someMethod() = "hi"
+
+/// doc comment
+/// doc comment
+@Ann
+@Ann2 { x = "foo" }
+@Ann3 {
+  x = "foo"
+  y = 1
+}
+someProperty: String = "hi"
+
+class Ann extends Annotation
+
+class Ann2 extends Annotation {
+  x: String
+}
+
+class Ann3 extends Annotation {
+  x: String
+  y: Int
+}
+---
+
+(module
+  (moduleHeader
+    (docComment)
+    (annotation
+      (qualifiedIdentifier
+        (identifier)))
+    (annotation
+      (qualifiedIdentifier
+        (identifier))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart)))))
+    (annotation
+      (qualifiedIdentifier
+        (identifier))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart)))
+        (objectProperty
+          (identifier)
+          (intLiteralExpr))))
+    (moduleClause
+
+      (qualifiedIdentifier
+        (identifier)
+        (identifier))))
+  (clazz
+    (docComment)
+    (annotation
+      (qualifiedIdentifier
+        (identifier)))
+    (annotation
+      (qualifiedIdentifier
+        (identifier))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart)))))
+    (annotation
+      (qualifiedIdentifier
+        (identifier))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart)))
+        (objectProperty
+          (identifier)
+          (intLiteralExpr))))
+    (identifier)
+    (classBody
+      (classMethod
+        (docComment)
+        (annotation
+          (qualifiedIdentifier
+            (identifier)))
+        (annotation
+          (qualifiedIdentifier
+            (identifier))
+          (objectBody
+            (objectProperty
+              (identifier)
+              (slStringLiteralExpr
+                (slStringLiteralPart)))))
+        (annotation
+          (qualifiedIdentifier
+            (identifier))
+          (objectBody
+            (objectProperty
+              (identifier)
+              (slStringLiteralExpr
+                (slStringLiteralPart)))
+            (objectProperty
+              (identifier)
+              (intLiteralExpr))))
+        (methodHeader
+          (identifier)
+          (parameterList))
+        (slStringLiteralExpr
+          (slStringLiteralPart)))
+      (classProperty
+        (docComment)
+        (annotation
+          (qualifiedIdentifier
+            (identifier)))
+        (annotation
+          (qualifiedIdentifier
+            (identifier))
+          (objectBody
+            (objectProperty
+              (identifier)
+              (slStringLiteralExpr
+                (slStringLiteralPart)))))
+        (annotation
+          (qualifiedIdentifier
+            (identifier))
+          (objectBody
+            (objectProperty
+              (identifier)
+              (slStringLiteralExpr
+                (slStringLiteralPart)))
+            (objectProperty
+              (identifier)
+              (intLiteralExpr))))
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classMethod
+    (docComment)
+    (annotation
+      (qualifiedIdentifier
+        (identifier)))
+    (annotation
+      (qualifiedIdentifier
+        (identifier))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart)))))
+    (annotation
+      (qualifiedIdentifier
+        (identifier))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart)))
+        (objectProperty
+          (identifier)
+          (intLiteralExpr))))
+    (methodHeader
+      (identifier)
+      (parameterList))
+    (slStringLiteralExpr
+      (slStringLiteralPart)))
+  (classProperty
+    (docComment)
+    (annotation
+      (qualifiedIdentifier
+        (identifier)))
+    (annotation
+      (qualifiedIdentifier
+        (identifier))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart)))))
+    (annotation
+      (qualifiedIdentifier
+        (identifier))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart)))
+        (objectProperty
+          (identifier)
+          (intLiteralExpr))))
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (slStringLiteralExpr
+      (slStringLiteralPart)))
+  (clazz
+    (identifier)      (classExtendsClause
+      (qualifiedIdentifier
+        (identifier))))
+  (clazz
+    (identifier)      (classExtendsClause
+      (qualifiedIdentifier
+        (identifier)))
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (clazz
+    (identifier)      (classExtendsClause
+      (qualifiedIdentifier
+        (identifier)))
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))))))

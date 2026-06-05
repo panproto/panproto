@@ -1,0 +1,48 @@
+================================================================================
+catch
+================================================================================
+
+_catch :error
+_endcatch
+$
+
+_catch @error
+_endcatch
+$
+
+_catch "error"
+_endcatch
+$
+
+_catch :error
+  >> _true
+_endcatch
+$
+
+_catch :Straße
+  >> _true
+_endcatch
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (catch
+      (symbol)))
+  (fragment
+    (catch
+      (global_reference)))
+  (fragment
+    (catch
+      (string_literal)))
+  (fragment
+    (catch
+      (symbol)
+      (return
+        (true))))
+  (fragment
+    (catch
+      (symbol)
+      (return
+        (true)))))

@@ -1,0 +1,39 @@
+======
+Regex
+======
+
+SELECT * {
+  FILTER regex(?s, '^foo', 'i')
+}
+
+---
+
+(unit
+  (select_query
+    (select_clause)
+    (where_clause
+      (group_graph_pattern
+        (filter
+          (regex_expression
+            text: (var)
+            pattern: (rdf_literal value: (string)) 
+            flag: (rdf_literal value: (string))))))))
+
+====================
+Unary built in call
+====================
+
+SELECT (lang('foo') AS ?a) {
+  FILTER(BOUND(?a))
+  FILTER(BNODE())
+}
+
+---
+
+(unit (select_query
+  (select_clause
+    (build_in_function arguments: (bracketted_expression (rdf_literal value: (string))))
+    bound_variable: (var))
+  (where_clause (group_graph_pattern
+      (filter (bracketted_expression (build_in_function arguments: (var))))
+      (filter (bracketted_expression (build_in_function arguments: (nil))))))))

@@ -1,0 +1,73 @@
+========================================================================
+TextConst variable with single language
+========================================================================
+codeunit 1 T
+{
+    procedure X()
+    var
+        Msg: TextConst ENU = 'Hello World';
+    begin
+    end;
+}
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (basic_type)
+          (ml_value_list
+            (ml_value_pair
+              language: (identifier)
+              value: (string_literal)))))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))
+
+========================================================================
+TextConst variable with multiple languages
+========================================================================
+codeunit 1 T
+{
+    procedure X()
+    var
+        Msg: TextConst ENU = 'Hello', DEU = 'Hallo', FRA = 'Bonjour';
+    begin
+    end;
+}
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (basic_type)
+          (ml_value_list
+            (ml_value_pair
+              language: (identifier)
+              value: (string_literal))
+            (ml_value_pair
+              language: (identifier)
+              value: (string_literal))
+            (ml_value_pair
+              language: (identifier)
+              value: (string_literal)))))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))

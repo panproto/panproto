@@ -1,0 +1,19 @@
+========
+Opcodes
+========
+
+|1000
+
+LIT DEO
+NEQ2 INC2k
+
+---
+
+(program
+  (memory_execution
+    (absolute_pad_operation
+      (number))
+    (opcode)
+    (opcode)
+    (opcode)
+    (opcode)))

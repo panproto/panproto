@@ -1,0 +1,380 @@
+=====
+basic
+=====
+
+abc
+
+---
+
+(document
+  (pattern
+    (pattern_char)
+    (pattern_char)
+    (pattern_char)))
+
+=======
+comment
+=======
+
+# hello
+
+---
+
+(document
+  (comment))
+
+========
+negation
+========
+
+!abc
+
+---
+
+(document
+  (pattern
+    (negation)
+    (pattern_char)
+    (pattern_char)
+    (pattern_char)))
+
+======
+escaping
+======
+
+\#
+\!
+\\
+
+a\ 
+
+---
+
+(document
+  (pattern
+    (pattern_char_escaped))
+  (pattern
+    (pattern_char_escaped))
+  (pattern
+    (pattern_char_escaped))
+  (pattern
+    (pattern_char)
+    (pattern_char_escaped)))
+
+==================================
+directory separator: relative flag
+==================================
+
+/a
+a/b
+/a/b
+
+---
+
+(document
+  (pattern
+    relative_flag: (directory_separator)
+    (pattern_char))
+  (pattern
+    (pattern_char)
+    relative_flag: (directory_separator)
+    (pattern_char))
+  (pattern
+    relative_flag: (directory_separator)
+    (pattern_char)
+    relative_flag: (directory_separator)
+    (pattern_char)))
+
+===================================
+directory separator: directory flag
+===================================
+
+a/
+a/b/
+/a/b/
+
+---
+
+(document
+  (pattern
+    (pattern_char)
+    directory_flag: (directory_separator))
+  (pattern
+    (pattern_char)
+    relative_flag: (directory_separator)
+    (pattern_char)
+    directory_flag: (directory_separator))
+  (pattern
+    relative_flag: (directory_separator)
+    (pattern_char)
+    relative_flag: (directory_separator)
+    (pattern_char)
+    directory_flag: (directory_separator)))
+
+==========================
+wildcard: question mark
+==========================
+
+?a
+a?
+a?b
+
+---
+
+(document
+  (pattern
+    (wildcard_char_single)
+    (pattern_char))
+  (pattern
+    (pattern_char)
+    (wildcard_char_single))
+  (pattern
+    (pattern_char)
+    (wildcard_char_single)
+    (pattern_char)))
+
+==============
+wildcard: star
+==============
+
+*a
+a*
+a*b
+
+---
+
+(document
+  (pattern
+    (wildcard_chars)
+    (pattern_char))
+  (pattern
+    (pattern_char)
+    (wildcard_chars))
+  (pattern
+    (pattern_char)
+    (wildcard_chars)
+    (pattern_char)))
+
+==================
+wildcard: starstar
+==================
+
+**
+**/a
+a/**
+a/**/b
+
+**a
+a**
+a**b
+
+---
+
+(document
+  (pattern
+    (wildcard_chars_allow_slash))
+  (pattern
+    (wildcard_chars_allow_slash)
+    (directory_separator)
+    (pattern_char))
+  (pattern
+    (pattern_char)
+    (directory_separator)
+    (wildcard_chars_allow_slash))
+  (pattern
+    (pattern_char)
+    (directory_separator)
+    (wildcard_chars_allow_slash)
+    (directory_separator)
+    (pattern_char))
+
+  (pattern
+    (wildcard_chars_allow_slash)
+    (pattern_char))
+  (pattern
+    (pattern_char)
+    (wildcard_chars_allow_slash))
+  (pattern
+    (pattern_char)
+    (wildcard_chars_allow_slash)
+    (pattern_char)))
+
+==============================
+bracket expression: characters
+==============================
+
+[a]
+[abc]
+[]]
+
+---
+
+(document
+  (pattern
+    (bracket_expr
+      (bracket_char)))
+  (pattern
+    (bracket_expr
+      (bracket_char)
+      (bracket_char)
+      (bracket_char)))
+  (pattern
+    (bracket_expr
+      (bracket_char))))
+
+======================================
+bracket expression: characters escaped
+======================================
+
+[\a]
+[\]]
+[a\]]
+[a\-z]
+
+---
+
+(document
+  (pattern
+    (bracket_expr
+      (bracket_char_escaped)))
+  (pattern
+    (bracket_expr
+      (bracket_char_escaped)))
+  (pattern
+    (bracket_expr
+      (bracket_char)
+      (bracket_char_escaped)))
+  (pattern
+    (bracket_expr
+      (bracket_char)
+      (bracket_char_escaped)
+      (bracket_char)))
+  )
+
+=========================
+bracket expression: range
+=========================
+
+[a-z]
+[\a-z]
+[]-a]
+[A-Za-z]
+
+---
+
+(document
+  (pattern
+    (bracket_expr
+      (bracket_range
+        (bracket_char)
+        (bracket_char))))
+  (pattern
+    (bracket_expr
+      (bracket_range
+        (bracket_char_escaped)
+        (bracket_char))))
+  (pattern
+    (bracket_expr
+      (bracket_range
+        (bracket_char)
+        (bracket_char))))
+  (pattern
+    (bracket_expr
+      (bracket_range
+        (bracket_char)
+        (bracket_char))
+      (bracket_range
+        (bracket_char)
+        (bracket_char)))))
+
+===================================
+bracket expression: character class
+===================================
+
+[[:alnum:]]
+[[:alpha:]]
+[[:blank:]]
+[[:cntrl:]]
+[[:digit:]]
+[[:graph:]]
+[[:lower:]]
+[[:print:]]
+[[:punct:]]
+[[:space:]]
+[[:upper:]]
+[[:xdigit:]]
+
+---
+
+(document
+  (pattern
+    (bracket_expr
+      (bracket_char_class)))
+  (pattern
+    (bracket_expr
+      (bracket_char_class)))
+  (pattern
+    (bracket_expr
+      (bracket_char_class)))
+  (pattern
+    (bracket_expr
+      (bracket_char_class)))
+  (pattern
+    (bracket_expr
+      (bracket_char_class)))
+  (pattern
+    (bracket_expr
+      (bracket_char_class)))
+  (pattern
+    (bracket_expr
+      (bracket_char_class)))
+  (pattern
+    (bracket_expr
+      (bracket_char_class)))
+  (pattern
+    (bracket_expr
+      (bracket_char_class)))
+  (pattern
+    (bracket_expr
+      (bracket_char_class)))
+  (pattern
+    (bracket_expr
+      (bracket_char_class)))
+  (pattern
+    (bracket_expr
+      (bracket_char_class))))
+
+===========================
+bracket expression: negated
+===========================
+
+[!abc]
+[^abc]
+[!a-z]
+[![:alpha:]]
+
+---
+
+(document
+  (pattern
+    (bracket_expr
+      (bracket_negation)
+      (bracket_char)
+      (bracket_char)
+      (bracket_char)))
+  (pattern
+    (bracket_expr
+      (bracket_negation)
+      (bracket_char)
+      (bracket_char)
+      (bracket_char)))
+  (pattern
+    (bracket_expr
+      (bracket_negation)
+      (bracket_range
+        (bracket_char)
+        (bracket_char))))
+  (pattern
+    (bracket_expr
+      (bracket_negation)
+      (bracket_char_class))))

@@ -1,0 +1,262 @@
+===
+api/releaseModule.pkl
+===
+
+amends "../snippetTest.pkl"
+
+import "pkl:release"
+
+local current = release.current
+
+facts {
+  ["version"] {
+    current.version.major == 0
+    current.version.minor >= 16
+    current.version.patch >= 0
+  }
+
+  ["versionInfo"] {
+    current.versionInfo.contains("macOS") || current.versionInfo.contains("Linux") || current.versionInfo.contains("Windows")
+  }
+
+  ["commitId"] {
+    current.commitId.matches(Regex(#"[0-9a-f]{7,40}"#))
+  }
+
+  ["sourceCode"] {
+    current.sourceCode.homepage.startsWith("https://")
+    current.sourceCode.homepage.endsWith("/")
+  }
+
+  ["documentation"] {
+    current.documentation.homepage.startsWith("https://")
+    current.documentation.homepage.endsWith("/")
+  }
+  
+  ["standardLibrary"] {
+    current.standardLibrary.modules.length > 10
+    current.standardLibrary.modules.every((it) -> it.startsWith("pkl:"))
+    current.standardLibrary.modules.contains("pkl:base")
+    !current.standardLibrary.modules.contains("pkl:package-info")
+  }
+}
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (classProperty
+    (modifier)
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (equalityExpr
+              (qualifiedAccessExpr
+                (qualifiedAccessExpr
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (identifier))
+                (identifier))
+              (intLiteralExpr)))
+          (objectElement
+            (comparisonExpr
+              (qualifiedAccessExpr
+                (qualifiedAccessExpr
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (identifier))
+                (identifier))
+              (intLiteralExpr)))
+          (objectElement
+            (comparisonExpr
+              (qualifiedAccessExpr
+                (qualifiedAccessExpr
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (identifier))
+                (identifier))
+              (intLiteralExpr)))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (logicalOrExpr
+              (logicalOrExpr
+                (qualifiedAccessExpr
+                  (qualifiedAccessExpr
+                    (unqualifiedAccessExpr
+                      (identifier))
+                    (identifier))
+                  (identifier)
+                  (argumentList
+                    (slStringLiteralExpr
+                      (slStringLiteralPart))))
+                (qualifiedAccessExpr
+                  (qualifiedAccessExpr
+                    (unqualifiedAccessExpr
+                      (identifier))
+                    (identifier))
+                  (identifier)
+                  (argumentList
+                    (slStringLiteralExpr
+                      (slStringLiteralPart)))))
+              (qualifiedAccessExpr
+                (qualifiedAccessExpr
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (identifier))
+                (identifier)
+                (argumentList
+                  (slStringLiteralExpr
+                    (slStringLiteralPart))))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (qualifiedAccessExpr
+              (qualifiedAccessExpr
+                (unqualifiedAccessExpr
+                  (identifier))
+                (identifier))
+              (identifier)
+              (argumentList
+                (unqualifiedAccessExpr
+                  (identifier)
+                  (argumentList
+                    (slStringLiteralExpr
+                      (slStringLiteralPart)))))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (qualifiedAccessExpr
+              (qualifiedAccessExpr
+                (qualifiedAccessExpr
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (identifier))
+                (identifier))
+              (identifier)
+              (argumentList
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))))
+          (objectElement
+            (qualifiedAccessExpr
+              (qualifiedAccessExpr
+                (qualifiedAccessExpr
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (identifier))
+                (identifier))
+              (identifier)
+              (argumentList
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (qualifiedAccessExpr
+              (qualifiedAccessExpr
+                (qualifiedAccessExpr
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (identifier))
+                (identifier))
+              (identifier)
+              (argumentList
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))))
+          (objectElement
+            (qualifiedAccessExpr
+              (qualifiedAccessExpr
+                (qualifiedAccessExpr
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (identifier))
+                (identifier))
+              (identifier)
+              (argumentList
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (comparisonExpr
+              (qualifiedAccessExpr
+                (qualifiedAccessExpr
+                  (qualifiedAccessExpr
+                    (unqualifiedAccessExpr
+                      (identifier))
+                    (identifier))
+                  (identifier))
+                (identifier))
+              (intLiteralExpr)))
+          (objectElement
+            (qualifiedAccessExpr
+              (qualifiedAccessExpr
+                (qualifiedAccessExpr
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (identifier))
+                (identifier))
+              (identifier)
+              (argumentList
+                (functionLiteralExpr
+                  (parameterList
+                    (typedIdentifier
+                      (identifier)))
+                  (qualifiedAccessExpr
+                    (unqualifiedAccessExpr
+                      (identifier))
+                    (identifier)
+                    (argumentList
+                      (slStringLiteralExpr
+                        (slStringLiteralPart))))))))
+          (objectElement
+            (qualifiedAccessExpr
+              (qualifiedAccessExpr
+                (qualifiedAccessExpr
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (identifier))
+                (identifier))
+              (identifier)
+              (argumentList
+                (slStringLiteralExpr
+                  (slStringLiteralPart)))))
+          (objectElement
+            (logicalNotExpr
+              (qualifiedAccessExpr
+                (qualifiedAccessExpr
+                  (qualifiedAccessExpr
+                    (unqualifiedAccessExpr
+                      (identifier))
+                    (identifier))
+                  (identifier))
+                (identifier)
+                (argumentList
+                  (slStringLiteralExpr
+                    (slStringLiteralPart)))))))))))

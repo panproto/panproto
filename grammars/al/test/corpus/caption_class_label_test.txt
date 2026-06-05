@@ -1,0 +1,44 @@
+================================================================================
+CaptionClass property in label sections
+================================================================================
+
+page 50000 "Test Page"
+{
+    layout
+    {
+        area(Content)
+        {
+            group(General)
+            {
+                label("MyLabel")
+                {
+                    CaptionClass = '3,';
+                    Caption = 'Test Label';
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (group_section
+          (group_keyword)
+          name: (identifier)
+          (label_section
+            name: (quoted_identifier)
+            (property
+              name: (property_name)
+              value: (string_literal))
+            (property
+              name: (property_name)
+              value: (string_literal))))))))

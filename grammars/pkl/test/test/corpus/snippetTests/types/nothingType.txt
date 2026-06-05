@@ -1,0 +1,29 @@
+===
+types/nothingType.pkl
+===
+
+function throws(): nothing = throw("throwing a message")
+
+myValue: String = throws()
+
+---
+
+(module
+  (classMethod
+    (methodHeader
+      (identifier)
+      (parameterList)
+      (typeAnnotation
+        (nothingType)))
+    (throwExpr
+      (slStringLiteralExpr
+        (slStringLiteralPart))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList))))

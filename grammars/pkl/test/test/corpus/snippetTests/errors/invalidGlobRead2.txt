@@ -1,0 +1,14 @@
+===
+errors/invalidGlobRead2.pkl
+===
+
+res = read*(".../foo/bar.txt")
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (readExpr
+      (slStringLiteralExpr
+        (slStringLiteralPart)))))

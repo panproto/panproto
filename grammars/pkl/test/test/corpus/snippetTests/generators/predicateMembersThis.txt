@@ -1,0 +1,82 @@
+===
+generators/predicateMembersThis.pkl
+===
+
+hidden pigeon = new { name = "Pigeon" }
+hidden barnOwl = new { name = "Barn Owl" }
+hidden people = new {
+  pigeon
+  barnOwl
+}
+
+res1 = (people) {
+  [[this == pigeon && (() -> this).apply() == pigeon && (let (x = this) x) == pigeon]] = 99
+}
+
+---
+
+(module
+  (classProperty
+    (modifier)
+    (identifier)
+    (newExpr
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart))))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (newExpr
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart))))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (newExpr
+      (objectBody
+        (objectElement
+          (unqualifiedAccessExpr
+            (identifier)))
+        (objectElement
+          (unqualifiedAccessExpr
+            (identifier))))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (memberPredicate
+          (logicalAndExpr
+            (logicalAndExpr
+              (equalityExpr
+                (thisExpr)
+                (unqualifiedAccessExpr
+                  (identifier)))
+              (equalityExpr
+                (qualifiedAccessExpr
+                  (parenthesizedExpr
+                    (functionLiteralExpr
+                      (parameterList)
+                      (thisExpr)))
+                  (identifier)
+                  (argumentList))
+                (unqualifiedAccessExpr
+                  (identifier))))
+            (equalityExpr
+              (parenthesizedExpr
+                (letExpr
+                  (typedIdentifier
+                    (identifier))
+                  (thisExpr)
+                  (unqualifiedAccessExpr
+                    (identifier))))
+              (unqualifiedAccessExpr
+                (identifier))))
+          (intLiteralExpr))))))

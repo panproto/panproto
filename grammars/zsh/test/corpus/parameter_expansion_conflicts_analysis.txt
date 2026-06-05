@@ -1,0 +1,351 @@
+================================================================================
+Pattern removal from beginning - simple variable
+================================================================================
+
+echo "${foo#bar}"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (string
+      (expansion
+        (expansion_pattern
+          name: (simple_variable_name)
+          pattern: (regex))))))
+
+================================================================================
+Pattern removal from beginning - array subscript with number
+================================================================================
+
+echo "${foo[0]#bar}"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (string
+      (expansion
+        (expansion_pattern
+          name: (simple_variable_name)
+          index: (number)
+          pattern: (regex))))))
+
+================================================================================
+Pattern removal from beginning - array subscript with variable
+================================================================================
+
+echo "${foo[$b]#bar}"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (string
+      (expansion
+        (expansion_pattern
+          name: (simple_variable_name)
+          index: (variable_ref
+            (simple_variable_name))
+          pattern: (regex))))))
+
+================================================================================
+Pattern removal from end - simple variable
+================================================================================
+
+echo "${foo%bar}"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (string
+      (expansion
+        (expansion_pattern
+          name: (simple_variable_name)
+          pattern: (regex))))))
+
+================================================================================
+Pattern removal from end - array subscript
+================================================================================
+
+echo "${foo[0]%bar}"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (string
+      (expansion
+        (expansion_pattern
+          name: (simple_variable_name)
+          index: (number)
+          pattern: (regex))))))
+
+================================================================================
+Double pattern removal - beginning
+================================================================================
+
+echo "${foo##bar}"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (string
+      (expansion
+        (expansion_pattern
+          name: (simple_variable_name)
+          pattern: (regex))))))
+
+================================================================================
+Double pattern removal - end
+================================================================================
+
+echo "${foo%%bar}"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (string
+      (expansion
+        (expansion_pattern
+          name: (simple_variable_name)
+          pattern: (regex))))))
+
+================================================================================
+Length operation - simple variable
+================================================================================
+
+echo "${#foo}"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (string
+      (expansion
+        style: (expansion_style)
+        name: (simple_variable_name)))))
+
+================================================================================
+Length operation - array subscript
+================================================================================
+
+echo "${#foo[0]}"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (string
+      (expansion
+        style: (expansion_style)
+        name: (simple_variable_name)
+        index: (number)))))
+
+================================================================================
+History modifier - head (CONFLICT WITH SUBSTRING)
+================================================================================
+
+echo "${foo:h}"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (string
+      (expansion
+        (expansion_with_modifier
+          name: (simple_variable_name)
+          modifier: (expansion_modifier))))))
+
+================================================================================
+History modifier - tail (CONFLICT WITH SUBSTRING)
+================================================================================
+
+echo "${foo:t}"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (string
+      (expansion
+        (expansion_with_modifier
+          name: (simple_variable_name)
+          modifier: (expansion_modifier))))))
+
+================================================================================
+History modifier - uppercase (CONFLICT WITH SUBSTRING)
+================================================================================
+
+echo "${foo:u}"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (string
+      (expansion
+        (expansion_with_modifier
+          name: (simple_variable_name)
+          modifier: (expansion_modifier))))))
+
+================================================================================
+History modifier - lowercase (CONFLICT WITH SUBSTRING)
+================================================================================
+
+echo "${foo:l}"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (string
+      (expansion
+        (expansion_with_modifier
+          name: (simple_variable_name)
+          modifier: (expansion_modifier))))))
+
+================================================================================
+Substring operation - offset only
+================================================================================
+
+echo "${foo:0}"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (string
+      (expansion
+        (expansion_substring
+          name: (simple_variable_name)
+          offset: (number))))))
+
+================================================================================
+Substring operation - offset and length
+================================================================================
+
+echo "${foo:1:3}"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (string
+      (expansion
+        (expansion_substring
+          name: (simple_variable_name)
+          offset: (number)
+          length: (number))))))
+
+================================================================================
+Substring operation - variable offset
+================================================================================
+
+echo "${foo:$offset}"
+echo "${foo:$offset:$len}"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (string
+      (expansion
+        (expansion_substring
+          name: (simple_variable_name)
+          offset: (variable_ref
+            (simple_variable_name))))))
+  (command
+    name: (command_name
+      (word))
+    argument: (string
+      (expansion
+        (expansion_substring
+          name: (simple_variable_name)
+          offset: (variable_ref
+            (simple_variable_name))
+          length: (variable_ref
+            (simple_variable_name)))))))
+
+================================================================================
+Substring operation - arithmetic offset
+================================================================================
+
+echo "${foo:$((start + 1))}"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (string
+      (expansion
+        (expansion_substring
+          name: (simple_variable_name)
+          offset: (arithmetic_expansion
+            (binary_expression
+              left: (word)
+              right: (number))))))))
+
+================================================================================
+Complex pattern with subscript and pattern removal
+================================================================================
+
+echo "${array[$(expr $i + 1)]#prefix}"
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (string
+      (expansion
+        (expansion_pattern
+          name: (simple_variable_name)
+          index: (command_substitution
+            (command
+              name: (command_name
+                (word))
+              argument: (variable_ref
+                (simple_variable_name))
+              argument: (word)
+              argument: (number)))
+          pattern: (regex))))))

@@ -1,0 +1,46 @@
+==============
+session_block
+==============
+
+* Apples
+* Oranges
+
+[]
+.title
+. Wash
+. Slice
+
+-----
+
+(document
+  (block_element
+    (section_block
+      (list
+        (unordered_list
+          (unordered_list_item
+            (unordered_list_marker
+              (list_marker_star))
+            (line))
+          (unordered_list_item
+            (unordered_list_marker
+              (list_marker_star))
+            (line))))))
+  (block_element
+    (section_block
+      (element_attr
+        (element_attr_marker)
+        (attr_value)
+        (element_attr_marker))
+      (block_title
+        (block_title_marker)
+        (line))
+      (list
+        (ordered_list
+          (ordered_list_item
+            (ordered_list_marker
+              (list_marker_dot))
+            (line))
+          (ordered_list_item
+            (ordered_list_marker
+              (list_marker_dot))
+            (line)))))))

@@ -1,0 +1,123 @@
+==================
+Doc Tag
+==================
+
+<html>
+  {% doc %}
+    Renders an announcement message block.
+
+    @description
+    This block is designed to display a single announcement message.
+
+    @param {product} product - The product object
+    @param {string} [subtitle] - Optional secondary text
+
+    @example
+    {%- content_for 'block', type: 'announcement', id: 'message-1' -%}
+  {% enddoc %}
+</html>
+
+---
+(program
+ (template_content)
+ (doc
+  (doc_content)
+  (doc_description_annotation)
+  (doc_content)
+  (doc_param_annotation
+   (doc_type)
+   (doc_param_name))
+  (doc_content)
+  (doc_param_annotation
+   (doc_type)
+   (doc_param_name))
+  (doc_content)
+  (doc_example_annotation
+   (doc_example_content)))
+ (template_content))
+
+==================
+Doc Tag Empty
+==================
+
+{% doc %}
+{% enddoc %}
+
+---
+(program
+ (doc)
+ (template_content))
+
+==================
+Doc Tag with Trim
+==================
+
+{%- doc -%}
+  @param {string} title - The title
+{%- enddoc -%}
+
+---
+(program
+ (doc
+  (doc_param_annotation
+   (doc_type)
+   (doc_param_name))
+  (doc_content))
+ (template_content))
+
+==================
+Doc Tag Inside If
+==================
+
+<html>
+  {% if true %}
+    {% doc %}
+      @param {string} title - A title
+    {% enddoc %}
+  {% endif %}
+</html>
+
+---
+(program
+ (template_content)
+ (if_statement
+  condition: (boolean)
+  consequence: (block
+    (doc
+      (doc_param_annotation
+       (doc_type)
+       (doc_param_name))
+      (doc_content))))
+ (template_content))
+
+==================
+Doc Tag Param Without Type
+==================
+
+{% doc %}
+  @param section_id - The section ID
+{% enddoc %}
+
+---
+(program
+ (doc
+  (doc_param_annotation
+   (doc_param_name))
+  (doc_content))
+ (template_content))
+
+==================
+Doc Tag Example With Liquid
+==================
+
+{% doc %}
+  @example
+  {% render 'product-card', product: product, sizes: '200px' %}
+{% enddoc %}
+
+---
+(program
+ (doc
+  (doc_example_annotation
+   (doc_example_content)))
+ (template_content))

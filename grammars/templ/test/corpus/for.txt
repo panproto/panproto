@@ -1,0 +1,130 @@
+====
+for statement as a top level node in a component
+====
+
+package main
+
+templ Foobar() {
+  for i := 0; i < 20; i++ {
+    <p>{ i }</p>
+  }
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (component_declaration
+    name: (component_identifier)
+    (parameter_list)
+    (component_block
+      (component_for_statement
+        (for_clause
+          initializer: (short_var_declaration
+            left: (expression_list
+              (identifier))
+            right: (expression_list
+              (int_literal)))
+          condition: (binary_expression
+            left: (identifier)
+            right: (int_literal))
+            update: (inc_statement
+              (identifier)))
+        body: (component_block
+          (element
+            (tag_start
+              name: (element_identifier))
+            (expression
+              (identifier))
+            (tag_end
+              name: (element_identifier))))))))
+
+====
+for statement inside an element
+====
+
+package main
+
+templ Foobar() {
+  <ul>
+  for i := 0; i < 20; i++ {
+    <li>{ i }</li>
+  }
+  </ul>
+}
+
+---
+
+(source_file
+  (package_clause
+    (package_identifier))
+  (component_declaration
+    name: (component_identifier)
+    (parameter_list)
+    (component_block
+      (element
+        (tag_start
+          name: (element_identifier))
+        (component_for_statement
+          (for_clause
+            initializer: (short_var_declaration
+              left: (expression_list
+                (identifier))
+              right: (expression_list
+                (int_literal)))
+            condition: (binary_expression
+              left: (identifier)
+              right: (int_literal))
+              update: (inc_statement
+                (identifier)))
+          body: (component_block
+            (element
+              (tag_start
+                name: (element_identifier))
+              (expression
+                (identifier))
+              (tag_end
+                name: (element_identifier)))))
+        (tag_end
+          name: (element_identifier))))))
+
+===
+for range as a top level node in a component
+===
+
+templ jsAssets(assets Assets) {
+  for _, asset := range assets.JS {
+    <script src={ "assets/"+asset }></script>
+  }
+}
+
+---
+
+(source_file
+  (component_declaration
+    name: (component_identifier)
+    (parameter_list
+      (parameter_declaration
+        name: (identifier)
+        type: (type_identifier)))
+    (component_block
+      (component_for_statement
+        (range_clause
+          left: (expression_list
+            (identifier)
+            (identifier))
+          right: (selector_expression
+            operand: (identifier)
+            field: (field_identifier)))
+        body: (component_block
+          (script_element
+            (script_tag_start
+              (attribute
+                name: (attribute_name)
+                value: (expression
+                  (binary_expression
+                    left: (interpreted_string_literal
+                      (interpreted_string_literal_content))
+                    right: (identifier)))))
+            (script_tag_end)))))))

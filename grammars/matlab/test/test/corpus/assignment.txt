@@ -1,0 +1,214 @@
+================================================================================
+Assignment: To Variable
+================================================================================
+
+a = 1
+b = -1, c = +1;
+d = 1.5;
+c1 ...
+    = { ...
+        'a'; ...
+      };
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (assignment
+    (identifier)
+    (number))
+  (assignment
+    (identifier)
+    (unary_operator
+      (number)))
+  (assignment
+    (identifier)
+    (unary_operator
+      (number)))
+  (assignment
+    (identifier)
+    (number))
+  (assignment
+    (identifier)
+    (line_continuation)
+    (cell
+      (line_continuation)
+      (row
+        (string
+          (string_content)))
+      (line_continuation))))
+
+================================================================================
+Assignment: Multiple Output
+================================================================================
+
+[~ T X] = lsim()
+[~,T,X] = lsim()
+[
+  T,X] = lsim()
+[person([1:3,1]).names] = deal('no-name');
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (assignment
+    (multioutput_variable
+      (ignored_argument)
+      (identifier)
+      (identifier))
+    (function_call
+      (identifier)))
+  (assignment
+    (multioutput_variable
+      (ignored_argument)
+      (identifier)
+      (identifier))
+    (function_call
+      (identifier)))
+  (assignment
+    (multioutput_variable
+      (identifier)
+      (identifier))
+    (function_call
+      (identifier)))
+  (assignment
+    (multioutput_variable
+      (field_expression
+        (function_call
+          (identifier)
+          (arguments
+            (matrix
+              (row
+                (range
+                  (number)
+                  (number))
+                (number)))))
+        (identifier)))
+    (function_call
+      (identifier)
+      (arguments
+        (string
+          (string_content))))))
+
+================================================================================
+Assignment: Indexing
+================================================================================
+
+A(1) = B
+A{1} = B
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (assignment
+    (function_call
+      (identifier)
+      (arguments
+        (number)))
+    (identifier))
+  (assignment
+    (function_call
+      (identifier)
+      (arguments
+        (number)))
+    (identifier)))
+
+================================================================================
+Assignment: Struct
+================================================================================
+
+a.b = 1
+a{1}.b = 3
+a.b(2) = 4
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (assignment
+    (field_expression
+      (identifier)
+      (identifier))
+    (number))
+  (assignment
+    (field_expression
+      (function_call
+        (identifier)
+        (arguments
+          (number)))
+      (identifier))
+    (number))
+  (assignment
+    (field_expression
+      (identifier)
+      (function_call
+        (identifier)
+        (arguments
+          (number))))
+    (number)))
+
+================================================================================
+Assignment: Multiple Output With Struct
+================================================================================
+
+[a.a a.b] = meshgrid
+[a.a(1) a(2).b] = meshgrid
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (assignment
+    (multioutput_variable
+      (field_expression
+        (identifier)
+        (identifier))
+      (field_expression
+        (identifier)
+        (identifier)))
+    (identifier))
+  (assignment
+    (multioutput_variable
+      (field_expression
+        (identifier)
+        (function_call
+          (identifier)
+          (arguments
+            (number))))
+      (field_expression
+        (function_call
+          (identifier)
+          (arguments
+            (number)))
+        (identifier)))
+    (identifier)))
+
+================================================================================
+Assignment: Multiple Output With Indexing
+================================================================================
+
+[a(1) a(2)] = meshgrid;
+[a{1} a{2}] = meshgrid;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (assignment
+    (multioutput_variable
+      (function_call
+        (identifier)
+        (arguments
+          (number)))
+      (function_call
+        (identifier)
+        (arguments
+          (number))))
+    (identifier))
+  (assignment
+    (multioutput_variable
+      (function_call
+        (identifier)
+        (arguments
+          (number)))
+      (function_call
+        (identifier)
+        (arguments
+          (number))))
+    (identifier)))

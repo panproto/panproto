@@ -1,0 +1,30 @@
+==================
+OnAfterGetCurrRecord Trigger
+==================
+
+page 50000 "Test OnAfterGetCurrRecord"
+{
+    trigger OnAfterGetCurrRecord()
+    begin
+        CurrRecordID := Rec.RecordId;
+    end;
+}
+
+---
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (identifier)
+          right: (member_expression
+            object: (identifier)
+            member: (identifier)))
+        (end_keyword)))))

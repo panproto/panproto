@@ -1,0 +1,43 @@
+================================================================================
+TRIGGER with all events
+================================================================================
+
+trigger myAccountTrigger on Account (
+    before insert,
+    before update,
+    before delete,
+    after insert,
+    after update,
+    after delete,
+    after undelete) {
+    Integer i = 1;
+}
+
+--------------------------------------------------------------------------------
+
+(parser_output
+  (trigger_declaration
+    (identifier)
+    (identifier)
+    (trigger_event
+      (before_insert))
+    (trigger_event
+      (before_update))
+    (trigger_event
+      (before_delete))
+    (trigger_event
+      (after_insert))
+    (trigger_event
+      (after_update))
+    (trigger_event
+      (after_delete))
+    (trigger_event
+      (after_undelete))
+    (trigger_body
+      (block
+        (local_variable_declaration
+          (type_identifier)
+          (variable_declarator
+            (identifier)
+            (assignment_operator)
+            (int)))))))

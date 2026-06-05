@@ -1,0 +1,466 @@
+================================================================================
+Interpolations - Text (https://vuejs.org/v2/guide/syntax.html#Text)
+================================================================================
+
+<template>
+
+<span>Message: {{ msg }}</span>
+<span v-once>This will never change: {{ msg }}</span>
+
+</template>
+
+--------------------------------------------------------------------------------
+
+(document
+  (template_element
+    (start_tag
+      (tag_name))
+    (element
+      (start_tag
+        (tag_name))
+      (text)
+      (interpolation
+        (raw_text))
+      (end_tag
+        (tag_name)))
+    (element
+      (start_tag
+        (tag_name)
+        (directive_attribute
+          (directive_name)))
+      (text)
+      (interpolation
+        (raw_text))
+      (end_tag
+        (tag_name)))
+    (end_tag
+      (tag_name))))
+
+================================================================================
+Interpolations - Raw HTML (https://vuejs.org/v2/guide/syntax.html#Raw-HTML)
+================================================================================
+
+<template>
+
+<p>Using mustaches: {{ rawHtml }}</p>
+<p>Using v-html directive: <span v-html="rawHtml"></span></p>
+
+</template>
+
+--------------------------------------------------------------------------------
+
+(document
+  (template_element
+    (start_tag
+      (tag_name))
+    (element
+      (start_tag
+        (tag_name))
+      (text)
+      (interpolation
+        (raw_text))
+      (end_tag
+        (tag_name)))
+    (element
+      (start_tag
+        (tag_name))
+      (text)
+      (element
+        (start_tag
+          (tag_name)
+          (directive_attribute
+            (directive_name)
+            (quoted_attribute_value
+              (attribute_value))))
+        (end_tag
+          (tag_name)))
+      (end_tag
+        (tag_name)))
+    (end_tag
+      (tag_name))))
+
+================================================================================
+Interpolations - Attributes (https://vuejs.org/v2/guide/syntax.html#Attributes)
+================================================================================
+
+<template>
+
+<div v-bind:id="dynamicId"></div>
+<button v-bind:disabled="isButtonDisabled">Button</button>
+
+</template>
+
+--------------------------------------------------------------------------------
+
+(document
+  (template_element
+    (start_tag
+      (tag_name))
+    (element
+      (start_tag
+        (tag_name)
+        (directive_attribute
+          (directive_name)
+          (directive_value)
+          (quoted_attribute_value
+            (attribute_value))))
+      (end_tag
+        (tag_name)))
+    (element
+      (start_tag
+        (tag_name)
+        (directive_attribute
+          (directive_name)
+          (directive_value)
+          (quoted_attribute_value
+            (attribute_value))))
+      (text)
+      (end_tag
+        (tag_name)))
+    (end_tag
+      (tag_name))))
+
+================================================================================
+Interpolations - Using JavaScript Expressions (https://vuejs.org/v2/guide/syntax.html#Using-JavaScript-Expressions)
+================================================================================
+
+<template>
+
+{{ number + 1 }}
+
+{{ ok ? 'YES' : 'NO' }}
+
+{{ message.split('').reverse().join('') }}
+
+<div v-bind:id="'list-' + id"></div>
+
+<!-- this is a statement, not an expression: -->
+{{ var a = 1 }}
+
+<!-- flow control won't work either, use ternary expressions -->
+{{ if (ok) { return message } }}
+
+</template>
+
+--------------------------------------------------------------------------------
+
+(document
+  (template_element
+    (start_tag
+      (tag_name))
+    (interpolation
+      (raw_text))
+    (interpolation
+      (raw_text))
+    (interpolation
+      (raw_text))
+    (element
+      (start_tag
+        (tag_name)
+        (directive_attribute
+          (directive_name)
+          (directive_value)
+          (quoted_attribute_value
+            (attribute_value))))
+      (end_tag
+        (tag_name)))
+    (comment)
+    (interpolation
+      (raw_text))
+    (comment)
+    (interpolation
+      (raw_text))
+    (end_tag
+      (tag_name))))
+
+================================================================================
+Directives - Directives (https://vuejs.org/v2/guide/syntax.html#Directives)
+================================================================================
+
+<template>
+
+<p v-if="seen">Now you see me</p>
+
+</template>
+
+--------------------------------------------------------------------------------
+
+(document
+  (template_element
+    (start_tag
+      (tag_name))
+    (element
+      (start_tag
+        (tag_name)
+        (directive_attribute
+          (directive_name)
+          (quoted_attribute_value
+            (attribute_value))))
+      (text)
+      (end_tag
+        (tag_name)))
+    (end_tag
+      (tag_name))))
+
+================================================================================
+Directives - Arguments (https://vuejs.org/v2/guide/syntax.html#Arguments)
+================================================================================
+
+<template>
+
+<a v-bind:href="url"> ... </a>
+<a v-on:click="doSomething"> ... </a>
+
+</template>
+
+--------------------------------------------------------------------------------
+
+(document
+  (template_element
+    (start_tag
+      (tag_name))
+    (element
+      (start_tag
+        (tag_name)
+        (directive_attribute
+          (directive_name)
+          (directive_value)
+          (quoted_attribute_value
+            (attribute_value))))
+      (text)
+      (end_tag
+        (tag_name)))
+    (element
+      (start_tag
+        (tag_name)
+        (directive_attribute
+          (directive_name)
+          (directive_value)
+          (quoted_attribute_value
+            (attribute_value))))
+      (text)
+      (end_tag
+        (tag_name)))
+    (end_tag
+      (tag_name))))
+
+================================================================================
+Directives - Dynamic Arguments (https://vuejs.org/v2/guide/syntax.html#Dynamic-Arguments)
+================================================================================
+
+<template>
+
+<!--
+Note that there are some constraints to the argument expression, as explained
+in the "Dynamic Argument Expression Constraints" section below.
+-->
+<a v-bind:[attributeName]="url"> ... </a>
+<a v-on:[eventName]="doSomething"> ... </a>
+
+<!-- This will trigger a compiler warning. -->
+<a v-bind:['foo' + bar]="value"> ... </a>
+
+</template>
+
+--------------------------------------------------------------------------------
+
+(document
+  (template_element
+    (start_tag
+      (tag_name))
+    (comment)
+    (element
+      (start_tag
+        (tag_name)
+        (directive_attribute
+          (directive_name)
+          (dynamic_directive_value
+            (dynamic_directive_inner_value))
+          (quoted_attribute_value
+            (attribute_value))))
+      (text)
+      (end_tag
+        (tag_name)))
+    (element
+      (start_tag
+        (tag_name)
+        (directive_attribute
+          (directive_name)
+          (dynamic_directive_value
+            (dynamic_directive_inner_value))
+          (quoted_attribute_value
+            (attribute_value))))
+      (text)
+      (end_tag
+        (tag_name)))
+    (comment)
+    (element
+      (start_tag
+        (tag_name)
+        (directive_attribute
+          (directive_name)
+          (dynamic_directive_value
+            (ERROR
+              (UNEXPECTED 'f')
+              (UNEXPECTED '+' )))
+            (quoted_attribute_value
+              (attribute_value))))
+        (text)
+        (end_tag
+          (tag_name)))
+      (end_tag
+        (tag_name))))
+
+================================================================================
+Directives - Modifiers (https://vuejs.org/v2/guide/syntax.html#Modifiers)
+================================================================================
+
+<template>
+
+<form v-on:submit.prevent="onSubmit"> ... </form>
+
+</template>
+
+--------------------------------------------------------------------------------
+
+(document
+  (template_element
+    (start_tag
+      (tag_name))
+    (element
+      (start_tag
+        (tag_name)
+        (directive_attribute
+          (directive_name)
+          (directive_value)
+          (directive_modifiers
+            (directive_modifier))
+          (quoted_attribute_value
+            (attribute_value))))
+      (text)
+      (end_tag
+        (tag_name)))
+    (end_tag
+      (tag_name))))
+
+================================================================================
+Shorthands - v-bind Shorthand (https://vuejs.org/v2/guide/syntax.html#v-bind-Shorthand)
+================================================================================
+
+<template>
+
+<!-- full syntax -->
+<a v-bind:href="url"> ... </a>
+
+<!-- shorthand -->
+<a :href="url"> ... </a>
+
+<!-- shorthand with dynamic argument (2.6.0+) -->
+<a :[key]="url"> ... </a>
+
+</template>
+
+--------------------------------------------------------------------------------
+
+(document
+  (template_element
+    (start_tag
+      (tag_name))
+    (comment)
+    (element
+      (start_tag
+        (tag_name)
+        (directive_attribute
+          (directive_name)
+          (directive_value)
+          (quoted_attribute_value
+            (attribute_value))))
+      (text)
+      (end_tag
+        (tag_name)))
+    (comment)
+    (element
+      (start_tag
+        (tag_name)
+        (directive_attribute
+          (directive_value)
+          (quoted_attribute_value
+            (attribute_value))))
+      (text)
+      (end_tag
+        (tag_name)))
+    (comment)
+    (element
+      (start_tag
+        (tag_name)
+        (directive_attribute
+          (dynamic_directive_value
+            (dynamic_directive_inner_value))
+          (quoted_attribute_value
+            (attribute_value))))
+      (text)
+      (end_tag
+        (tag_name)))
+    (end_tag
+      (tag_name))))
+
+================================================================================
+Shorthands - v-on Shorthand (https://vuejs.org/v2/guide/syntax.html#v-on-Shorthand)
+================================================================================
+
+<template>
+
+<!-- full syntax -->
+<a v-on:click="doSomething"> ... </a>
+
+<!-- shorthand -->
+<a @click="doSomething"> ... </a>
+
+<!-- shorthand with dynamic argument (2.6.0+) -->
+<a @[event]="doSomething"> ... </a>
+
+</template>
+
+--------------------------------------------------------------------------------
+
+(document
+  (template_element
+    (start_tag
+      (tag_name))
+    (comment)
+    (element
+      (start_tag
+        (tag_name)
+        (directive_attribute
+          (directive_name)
+          (directive_value)
+          (quoted_attribute_value
+            (attribute_value))))
+      (text)
+      (end_tag
+        (tag_name)))
+    (comment)
+    (element
+      (start_tag
+        (tag_name)
+        (directive_attribute
+          (directive_value)
+          (quoted_attribute_value
+            (attribute_value))))
+      (text)
+      (end_tag
+        (tag_name)))
+    (comment)
+    (element
+      (start_tag
+        (tag_name)
+        (directive_attribute
+          (dynamic_directive_value
+            (dynamic_directive_inner_value))
+          (quoted_attribute_value
+            (attribute_value))))
+      (text)
+      (end_tag
+        (tag_name)))
+    (end_tag
+      (tag_name))))

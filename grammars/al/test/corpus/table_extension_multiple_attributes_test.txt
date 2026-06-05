@@ -1,0 +1,97 @@
+================================================================================
+Table extension with multiple method attributes test
+================================================================================
+
+tableextension 50002 "Multiple Attributes Extension" extends Customer
+{
+    [IntegrationEvent(false, false)]
+    [Obsolete('Use OnAfterUpdate instead', '18.0')]
+    local procedure OnAfterCreate(var Customer: Record Customer)
+    begin
+    end;
+
+    [EventSubscriber(ObjectType::Table, Database::Customer, 'OnAfterInsertEvent', '', false, false)]
+    local procedure OnCustomerInsert(var Rec: Record Customer)
+    begin
+    end;
+
+    procedure NormalProcedure()
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (tableextension_declaration
+    (tableextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (identifier)
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (boolean)
+            (boolean)))))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (string_literal)
+            (string_literal)))))
+    (procedure
+      modifier: (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (identifier)))))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)
+        arguments: (attribute_arguments
+          (attribute_argument_list
+            (qualified_enum_value
+              enum_type: (identifier)
+              value: (identifier
+                (table_keyword)))
+            (database_reference
+              keyword: (object_type_keyword)
+              table_name: (identifier))
+            (string_literal)
+            (string_literal)
+            (boolean)
+            (boolean)))))
+    (procedure
+      modifier: (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (identifier)))))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))

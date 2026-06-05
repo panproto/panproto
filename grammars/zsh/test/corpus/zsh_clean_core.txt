@@ -1,0 +1,334 @@
+================================================================================
+Anonymous function
+================================================================================
+
+() { echo "test"; }
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_definition
+    body: (compound_statement
+      (command
+        name: (command_name
+          (word))
+        argument: (string
+          (string_content))))))
+
+================================================================================
+Type declaration - integer
+================================================================================
+
+integer count=42
+
+--------------------------------------------------------------------------------
+
+(program
+  (declaration_command
+    (variable_assignment
+      name: (variable_name)
+      value: (number))))
+
+================================================================================
+Type declaration - float
+================================================================================
+
+float pi=3.14
+
+--------------------------------------------------------------------------------
+
+(program
+  (declaration_command
+    (variable_assignment
+      name: (variable_name)
+      value: (word))))
+
+================================================================================
+Repeat statement
+================================================================================
+
+repeat 3 echo test
+
+--------------------------------------------------------------------------------
+
+(program
+  (repeat_statement
+    count: (number)
+    (command
+      name: (command_name
+        (word))
+      argument: (word))))
+
+================================================================================
+Zsh Function definition
+================================================================================
+
+function func() {
+    echo ${test}
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_definition
+    name: (word)
+    body: (compound_statement
+      (command
+        name: (command_name
+          (word))
+        argument: (expansion
+          name: (simple_variable_name))))))
+
+================================================================================
+Compound without semicolon
+================================================================================
+
+[[ 1 ]] && { echo true; }
+[[ 1 ]] || {echo false;}
+[[ 1 ]] && { echo true }
+[[ 1 ]] || {echo false}
+
+--------------------------------------------------------------------------------
+
+(program
+  (list
+    (test_command
+      (number))
+    (compound_statement
+      (command
+        name: (command_name
+          (word))
+        argument: (word))))
+  (list
+    (test_command
+      (number))
+    (compound_statement
+      (command
+        name: (command_name
+          (word))
+        argument: (word))))
+  (list
+    (test_command
+      (number))
+    (compound_statement
+      (command
+        name: (command_name
+          (word))
+        argument: (word))))
+  (list
+    (test_command
+      (number))
+    (compound_statement
+      (command
+        name: (command_name
+          (word))
+        argument: (word)))))
+
+================================================================================
+Additional glob checks
+================================================================================
+
+~/foo.txt
+~user/file
+~
+file.txt
+foo
+*.txt
+file*.log
+test??.dat
+**/*.js
+foo/**
+**/bar
+file.*
+a*b*c
+~/Documents/*
+~user/*.txt
+
+# Semicolon termination - should work correctly
+for i in foo*; do echo $i; done
+
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    name: (command_name
+      (word)))
+  (command
+    name: (command_name
+      (word)))
+  (command
+    name: (command_name
+      (word)))
+  (command
+    name: (command_name
+      (word)))
+  (command
+    name: (command_name
+      (word)))
+  (command
+    name: (command_name
+      (glob_pattern)))
+  (command
+    name: (command_name
+      (glob_pattern)))
+  (command
+    name: (command_name
+      (glob_pattern)))
+  (command
+    name: (command_name
+      (glob_pattern)))
+  (command
+    name: (command_name
+      (glob_pattern)))
+  (command
+    name: (command_name
+      (glob_pattern)))
+  (command
+    name: (command_name
+      (glob_pattern)))
+  (command
+    name: (command_name
+      (glob_pattern)))
+  (command
+    name: (command_name
+      (glob_pattern)))
+  (command
+    name: (command_name
+      (glob_pattern)))
+  (comment)
+  (for_statement
+    variable: (simple_variable_name)
+    value: (glob_pattern)
+    body: (do_group
+      (command
+        name: (command_name
+          (word))
+        argument: (variable_ref
+          (simple_variable_name))))))
+
+================================================================================
+Herestring redirects
+================================================================================
+
+cat <<< "hello"
+grep pattern <<< "$variable"
+xargs echo <<< "$(cat ~/foo.txt)"
+command <<< "input" | other
+cat 0<<< "data"
+cat <<< "$(date)"
+
+--------------------------------------------------------------------------------
+
+(program
+  (redirected_statement
+    body: (command
+      name: (command_name
+        (word)))
+    redirect: (herestring_redirect
+      (string
+        (string_content))))
+  (redirected_statement
+    body: (command
+      name: (command_name
+        (word))
+      argument: (word))
+    redirect: (herestring_redirect
+      (string
+        (variable_ref
+          (simple_variable_name)))))
+  (redirected_statement
+    body: (command
+      name: (command_name
+        (word))
+      argument: (word))
+    redirect: (herestring_redirect
+      (string
+        (command_substitution
+          (command
+            name: (command_name
+              (word))
+            argument: (word))))))
+  (pipeline
+    (redirected_statement
+      body: (command
+        name: (command_name
+          (word)))
+      redirect: (herestring_redirect
+        (string
+          (string_content))))
+    (command
+      name: (command_name
+        (word))))
+  (redirected_statement
+    body: (command
+      name: (command_name
+        (word)))
+    redirect: (herestring_redirect
+      (number))
+    redirect: (herestring_redirect
+      (string
+        (string_content))))
+  (redirected_statement
+    body: (command
+      name: (command_name
+        (word)))
+    redirect: (herestring_redirect
+      (string
+        (command_substitution
+          (command
+            name: (command_name
+              (word))))))))
+
+================================================================================
+Assignment to special parameter 0
+================================================================================
+
+0=${(%):-%N}
+
+--------------------------------------------------------------------------------
+
+(program
+  (variable_assignment
+    name: (variable_name)
+    value: (expansion
+      flags: (expansion_flags)
+      (expansion_default
+        default: (expansion_default_list
+          (word))))))
+
+================================================================================
+Multi-name function definition (same line)
+================================================================================
+
+function foo bar {}
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_definition
+    name: (word)
+    name: (word)
+    body: (compound_statement)))
+
+================================================================================
+Multi-name function definition (backslash-newline continuation)
+================================================================================
+
+function foo \
+    bar \
+{
+    echo hi
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (function_definition
+    name: (word)
+    name: (word)
+    body: (compound_statement
+      (command
+        name: (command_name
+          (word))
+        argument: (word)))))

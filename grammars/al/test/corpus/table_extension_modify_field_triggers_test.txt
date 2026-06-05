@@ -1,0 +1,172 @@
+================================================================================
+Table extension with modify field triggers
+================================================================================
+
+tableextension 50000 "Customer Extension" extends Customer
+{
+    modify("No.")
+    {
+        trigger OnValidate()
+        begin
+            if "No." = '' then
+                Error('Customer number cannot be blank');
+        end;
+
+        trigger OnLookup()
+        var
+            CustomerList: Page "Customer List";
+        begin
+            CustomerList.LookupMode(true);
+            if CustomerList.RunModal = ACTION::LookupOK then
+                "No." := CustomerList.GetRecord."No.";
+        end;
+    }
+
+    modify(Name)
+    {
+        Caption = 'Customer Name';
+
+        trigger OnAfterValidate()
+        begin
+            "Search Name" := Name;
+        end;
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (tableextension_declaration
+    (tableextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (identifier)
+    (modify_modification
+      target: (quoted_identifier)
+      (trigger_declaration
+        (trigger_keyword)
+        name: (identifier)
+        (code_block
+          (begin_keyword)
+          (if_statement
+            (if_keyword)
+            condition: (comparison_expression
+              left: (quoted_identifier)
+              operator: (comparison_operator)
+              right: (string_literal))
+            (then_keyword)
+            then_branch: (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (string_literal))))
+          (end_keyword)))
+      (trigger_declaration
+        (trigger_keyword)
+        name: (identifier)
+        (var_section
+          (var_keyword)
+          (variable_declaration
+            name: (identifier)
+            type: (type_specification
+              (object_reference_type
+                object_type: (page_keyword)
+                reference: (quoted_identifier)))))
+        (code_block
+          (begin_keyword)
+          (call_expression
+            function: (member_expression
+              object: (identifier)
+              member: (identifier))
+            arguments: (argument_list
+              (boolean)))
+          (if_statement
+            (if_keyword)
+            condition: (comparison_expression
+              left: (member_expression
+                object: (identifier)
+                member: (identifier))
+              operator: (comparison_operator)
+              right: (qualified_enum_value
+                enum_type: (keyword_identifier)
+                value: (identifier)))
+            (then_keyword)
+            then_branch: (assignment_statement
+              left: (quoted_identifier)
+              right: (member_expression
+                object: (member_expression
+                  object: (identifier)
+                  member: (identifier))
+                member: (quoted_identifier))))
+          (end_keyword))))
+    (modify_modification
+      target: (identifier)
+      (property
+        name: (property_name)
+        value: (string_literal))
+      (trigger_declaration
+        (trigger_keyword)
+        name: (identifier)
+        (code_block
+          (begin_keyword)
+          (assignment_statement
+            left: (quoted_identifier)
+            right: (identifier))
+          (end_keyword))))))
+
+================================================================================
+Table extension with generic triggers in field modify
+================================================================================
+
+tableextension 50001 "Item Extension" extends Item
+{
+    modify("Item Category Code")
+    {
+        trigger OnCustomValidation()
+        var
+            ItemCategory: Record "Item Category";
+        begin
+            if ItemCategory.Get("Item Category Code") then
+                "Item Category Description" := ItemCategory.Description;
+        end;
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (tableextension_declaration
+    (tableextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (identifier)
+    (modify_modification
+      target: (quoted_identifier)
+      (trigger_declaration
+        (trigger_keyword)
+        name: (identifier)
+        (var_section
+          (var_keyword)
+          (variable_declaration
+            name: (identifier)
+            type: (type_specification
+              (record_type
+                reference: (quoted_identifier)))))
+        (code_block
+          (begin_keyword)
+          (if_statement
+            (if_keyword)
+            condition: (call_expression
+              function: (member_expression
+                object: (identifier)
+                member: (identifier))
+              arguments: (argument_list
+                (quoted_identifier)))
+            (then_keyword)
+            then_branch: (assignment_statement
+              left: (quoted_identifier)
+              right: (member_expression
+                object: (identifier)
+                member: (identifier))))
+          (end_keyword))))))

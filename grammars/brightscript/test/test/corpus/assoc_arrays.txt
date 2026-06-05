@@ -1,0 +1,307 @@
+==================
+assocarray test 1
+==================
+
+sub TestEmptyAssocArray()
+    emptyAssocArray = {}
+end sub
+
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (assignment_statement
+        (variable_declarator
+          (identifier))
+        (literal
+          (assoc_array))))
+    (end_statement
+      (end_sub))))
+
+==================
+assocarray test 2
+==================
+
+sub TestAssocArrayWithElements()
+    person = {
+        "name": "John",
+        "age": 30,
+        "city": "New York"
+    }
+end sub
+
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (assignment_statement
+        (variable_declarator
+          (identifier))
+        (literal
+          (assoc_array
+            (assoc_array_element
+              (string
+                (string_contents))
+              (literal
+                (string
+                  (string_contents))))
+            (assoc_array_element
+              (string
+                (string_contents))
+              (literal
+                (number)))
+            (assoc_array_element
+              (string
+                (string_contents))
+              (literal
+                (string
+                  (string_contents))))))))
+    (end_statement
+      (end_sub))))
+
+==================
+assocarray test 3
+==================
+
+sub TestAssocArrayElementAccess()
+    person = {
+        "name": "John",
+        "age": 30,
+        "city": "New York"
+    }
+    print person.name
+end sub
+
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (assignment_statement
+        (variable_declarator
+          (identifier))
+        (literal
+          (assoc_array
+            (assoc_array_element
+              (string
+                (string_contents))
+              (literal
+                (string
+                  (string_contents))))
+            (assoc_array_element
+              (string
+                (string_contents))
+              (literal
+                (number)))
+            (assoc_array_element
+              (string
+                (string_contents))
+              (literal
+                (string
+                  (string_contents)))))))
+      (print_statement
+        (print)
+        (prefix_exp
+          (prefix_exp
+            (identifier))
+          (identifier))))
+    (end_statement
+      (end_sub))))
+
+==================
+assocarray test 4
+==================
+
+sub TestAssocArrayElementModification()
+    person = {
+        "name": "John",
+        "age": 30,
+        "city": "New York"
+    }
+    person.age = 31
+end sub
+
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (assignment_statement
+        (variable_declarator
+          (identifier))
+        (literal
+          (assoc_array
+            (assoc_array_element
+              (string
+                (string_contents))
+              (literal
+                (string
+                  (string_contents))))
+            (assoc_array_element
+              (string
+                (string_contents))
+              (literal
+                (number)))
+            (assoc_array_element
+              (string
+                (string_contents))
+              (literal
+                (string
+                  (string_contents)))))))
+      (assignment_statement
+        (variable_declarator
+          (prefix_exp
+            (identifier))
+          (identifier))
+        (literal
+          (number))))
+    (end_statement
+      (end_sub))))
+
+==================
+assocarray test 5
+==================
+
+sub TestAssocArrayWithExpressions()
+    values = {
+        "sum": 10 + 20,
+        "product": 5 * 6
+    }
+end sub
+
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (assignment_statement
+        (variable_declarator
+          (identifier))
+        (literal
+          (assoc_array
+            (assoc_array_element
+              (string
+                (string_contents))
+              (binary_expression
+                (arithmetic_expression
+                  (additive_expression
+                    (literal
+                      (number))
+                    (literal
+                      (number))))))
+            (assoc_array_element
+              (string
+                (string_contents))
+              (binary_expression
+                (arithmetic_expression
+                  (multiplicative_expression
+                    (literal
+                      (number))
+                    (literal
+                      (number))))))))))
+    (end_statement
+      (end_sub))))
+
+==================
+assocarray no comma
+==================
+
+sub TestAssocArrayWithElements()
+    person = {
+        "name": "John"
+        "age": 30
+        "city": invalid
+    }
+end sub
+
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (assignment_statement
+        (variable_declarator
+          (identifier))
+        (literal
+          (assoc_array
+            (assoc_array_element
+              (string
+                (string_contents))
+              (literal
+                (string
+                  (string_contents))))
+            (assoc_array_element
+              (string
+                (string_contents))
+              (literal
+                (number)))
+            (assoc_array_element
+              (string
+                (string_contents))
+              (literal
+                (invalid)))))))
+    (end_statement
+      (end_sub))))
+
+==================
+assocarray no comma and identifier left side
+==================
+
+sub TestAssocArrayWithElements()
+    person = {
+        name: "John"
+        "age": 30
+        "city": invalid
+    }
+end sub
+
+---
+
+(source_file
+  (sub_statement
+    (sub_start)
+    (identifier)
+    (parameter_list)
+    (block
+      (assignment_statement
+        (variable_declarator
+          (identifier))
+        (literal
+          (assoc_array
+            (assoc_array_element
+              (identifier)
+              (literal
+                (string
+                  (string_contents))))
+            (assoc_array_element
+              (string
+                (string_contents))
+              (literal
+                (number)))
+            (assoc_array_element
+              (string
+                (string_contents))
+              (literal
+                (invalid)))))))
+    (end_statement
+      (end_sub))))

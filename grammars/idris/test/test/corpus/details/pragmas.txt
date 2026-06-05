@@ -1,0 +1,482 @@
+================================================================================
+Pragma default
+================================================================================
+
+%default total
+
+--------------------------------------------------------------------------------
+
+(idris
+  (pragma_default
+    (totality)))
+
+================================================================================
+Pragma inline 1
+================================================================================
+
+%inline -- %unsafe
+f : a -> a
+
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (pragma_inline)
+    (comment)
+    (loname)
+    (colon)
+    (exp_name
+      (loname))
+    (arrow_separator)
+    (exp_name
+      (loname))))
+
+================================================================================
+Pragma inline 2
+================================================================================
+
+public export %inline -- %unsafe
+assert_linear : (1 f : a -> b) -> (1 val : a) -> b
+
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (visibility)
+    (pragma_inline)
+    (comment)
+    (loname)
+    (colon)
+    (type_parens
+      (type_var
+        (quantity)
+        (loname)
+        (colon)
+        (exp_name
+          (loname))
+        (arrow_separator)
+        (exp_name
+          (loname))))
+    (arrow_separator)
+    (type_parens
+      (type_var
+        (quantity)
+        (loname)
+        (colon)
+        (exp_name
+          (loname))))
+    (arrow_separator)
+    (exp_name
+      (loname))))
+
+================================================================================
+Pragma inline 3
+================================================================================
+
+public export %inline %tcinline
+(.) : (b -> c) -> (a -> b) -> a -> c
+
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (visibility)
+    (pragma_inline)
+    (pragma_tcinline)
+    (operator)
+    (colon)
+    (type_parens
+      (exp_name
+        (loname))
+      (arrow_separator)
+      (exp_name
+        (loname)))
+    (arrow_separator)
+    (type_parens
+      (exp_name
+        (loname))
+      (arrow_separator)
+      (exp_name
+        (loname)))
+    (arrow_separator)
+    (exp_name
+      (loname))
+    (arrow_separator)
+    (exp_name
+      (loname))))
+
+================================================================================
+Pragma hint
+================================================================================
+
+export %hint
+SnocBiinjective : Biinjective (:<)
+
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (visibility)
+    (pragma_hint)
+    (caname)
+    (colon)
+    (exp_name
+      (caname))
+    (exp_name
+      (operator))))
+
+================================================================================
+Pragma extern
+================================================================================
+
+%extern prim__getChar : (1 x : %World) -> IORes Char
+
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (pragma_extern)
+    (loname)
+    (colon)
+    (type_parens
+      (type_var
+        (quantity)
+        (loname)
+        (colon)
+        (pragma_World)))
+    (arrow_separator)
+    (exp_name
+      (caname))
+    (exp_name
+      (caname))))
+
+================================================================================
+Pragma transform 1
+================================================================================
+
+%transform "tailRecAppendSnocList" SnocList.(++) = SnocList.tailRecAppend
+
+--------------------------------------------------------------------------------
+
+(idris
+  (pragma_transform
+    (string)
+    (exp_name
+      (qualified_operator
+        (caname)))
+    (equal)
+    (exp_name
+      (qualified_loname
+        (caname)
+        (loname)))))
+
+================================================================================
+Pragma transform 2
+================================================================================
+
+%transform "fastConcat" concat {t = List} {a = String} = fastConcat
+
+--------------------------------------------------------------------------------
+
+(idris
+  (pragma_transform
+    (string)
+    (exp_name
+      (loname))
+    (exp_braces
+      (explicit_arg
+        (loname)
+        (equal)
+        (exp_name
+          (caname))))
+    (exp_braces
+      (explicit_arg
+        (loname)
+        (equal)
+        (exp_name
+          (caname))))
+    (equal)
+    (exp_name
+      (loname))))
+
+================================================================================
+Pragma transform 3
+================================================================================
+
+%transform "tailRecReplicate" List.replicate = List.replicateTR Nil
+
+--------------------------------------------------------------------------------
+
+(idris
+  (pragma_transform
+    (string)
+    (exp_name
+      (qualified_loname
+        (caname)
+        (loname)))
+    (equal)
+    (exp_name
+      (qualified_loname
+        (caname)
+        (loname)))
+    (exp_name
+      (caname))))
+
+================================================================================
+Pragma transform 4
+================================================================================
+
+%transform "fastConcat" concat {t = SnocList} {a = String} = fastConcat . cast
+
+--------------------------------------------------------------------------------
+
+(idris
+  (pragma_transform
+    (string)
+    (exp_name
+      (loname))
+    (exp_braces
+      (explicit_arg
+        (loname)
+        (equal)
+        (exp_name
+          (caname))))
+    (exp_braces
+      (explicit_arg
+        (loname)
+        (equal)
+        (exp_name
+          (caname))))
+    (equal)
+    (exp_name
+      (loname))
+    (operator)
+    (exp_name
+      (loname))))
+
+================================================================================
+Pragma pair
+================================================================================
+
+%pair Pair fst snd
+
+--------------------------------------------------------------------------------
+
+(idris
+  (pragma_pair
+    (caname)
+    (loname)
+    (loname)))
+
+================================================================================
+Pragma name 1
+================================================================================
+
+%name Equal prf
+
+--------------------------------------------------------------------------------
+
+(idris
+  (pragma_name
+    (caname)
+    (loname)))
+
+================================================================================
+Pragma name 2
+================================================================================
+
+%name List xs, ys, zs
+
+--------------------------------------------------------------------------------
+
+(idris
+  (pragma_name
+    (caname)
+    (loname)
+    (comma)
+    (loname)
+    (comma)
+    (loname)))
+
+================================================================================
+Pragma search 1
+================================================================================
+
+defaultString = %search
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)))
+    (rhs
+      (pragma_search))))
+
+================================================================================
+Pragma search 2
+================================================================================
+
+any = foldMap @{%search} @{Any}
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)))
+    (rhs
+      (exp_name
+        (loname))
+      (exp_explicit_impl
+        (pragma_search))
+      (exp_explicit_impl
+        (exp_name
+          (caname))))))
+
+================================================================================
+Pragma foreign
+================================================================================
+
+export
+%foreign "scheme:blodwen-stringbytelen"
+         "C:strlen, libc 6"
+         "javascript:lambda:(string)=>new TextEncoder().encode(string).length"
+stringByteLength : String -> Int
+
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (visibility)
+    (pragma_foreign
+      (string)
+      (string)
+      (string))
+    (loname)
+    (colon)
+    (exp_name
+      (caname))
+    (arrow_separator)
+    (exp_name
+      (caname))))
+
+================================================================================
+Pragma foreign with multiple support labels
+================================================================================
+
+%foreign supportC "idris2_changeDir"
+         supportNode "changeDir"
+prim__changeDir : String -> PrimIO Int
+
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (pragma_foreign
+      (loname)
+      (string)
+      (loname)
+      (string))
+    (loname)
+    (colon)
+    (exp_name
+      (caname))
+    (arrow_separator)
+    (exp_name
+      (caname))
+    (exp_name
+      (caname))))
+
+================================================================================
+Pragma allow_overloads
+================================================================================
+
+%allow_overloads pure
+%allow_overloads (<*)
+%allow_overloads (*>)
+
+--------------------------------------------------------------------------------
+
+(idris
+  (pragma_allow_overloads
+    (loname))
+  (pragma_allow_overloads
+    (operator))
+  (pragma_allow_overloads
+    (operator)))
+
+================================================================================
+Pragma World 1
+================================================================================
+
+MkIORes : (result : a) -> (1 x : %World) -> IORes a
+
+--------------------------------------------------------------------------------
+
+(idris
+  (signature
+    (caname)
+    (colon)
+    (type_parens
+      (type_var
+        (loname)
+        (colon)
+        (exp_name
+          (loname))))
+    (arrow_separator)
+    (type_parens
+      (type_var
+        (quantity)
+        (loname)
+        (colon)
+        (pragma_World)))
+    (arrow_separator)
+    (exp_name
+      (caname))
+    (exp_name
+      (loname))))
+
+================================================================================
+Pragma World 2
+================================================================================
+
+unsafeCreateWorld f = f %MkWorld
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_name
+        (loname))
+      (pragma_MkWorld))))
+
+================================================================================
+Pragma World 3
+================================================================================
+
+unsafeDestroyWorld %MkWorld x = x
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (funvar
+        (loname)
+        (patterns
+          (pragma_MkWorld)
+          (pat_name
+            (loname)))))
+    (rhs
+      (exp_name
+        (loname)))))

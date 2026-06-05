@@ -1,0 +1,163 @@
+===================
+operate to commands
+==================
+
+config = configuration_data()
+# it is a comment 
+isvnc = get_option('vnc').disabled()
+isitvnc = get_option('vnc')
+vncornot = isitvnc.enabled
+vncornot = isitvnc.disabled() 
+---
+(source_file
+  (operatorunit
+    (identifier)
+    (normal_command
+      (identifier)))
+  (comment)
+  (operatorunit
+    (identifier)
+    (expression_statement
+      (normal_command
+        (identifier)
+        (variableunit
+          (string)))
+      (normal_command
+        (identifier))))
+  (operatorunit
+    (identifier)
+    (normal_command
+      (identifier)
+      (variableunit
+        (string))))
+  (operatorunit
+    (identifier)
+    (expression_statement
+      (identifier)
+      (identifier)))
+  (operatorunit
+    (identifier)
+      (variableunit
+        (expression_statement
+          (identifier)
+          (normal_command
+            (identifier))))))
+===========
+conflix one
+==========
+
+custom_target(
+	output,
+	input: input,
+	output: output,
+	command: [
+		sh, '-c', '@0@ <@INPUT@ >@1@'.format(scdoc_prog.path(), output)
+	],
+	install: true,
+	install_dir: '@0@/man1'.format(mandir)
+)
+---
+(source_file
+  (normal_command
+    (identifier)
+    (variableunit
+      (identifier))
+    (pair
+      (identifier)
+      (identifier))
+    (pair
+      (identifier)
+      (identifier))
+    (pair
+      (identifier)
+      (list
+        (identifier)
+        (string)
+        (expression_statement
+          (string
+            (formatunit
+              (number))
+            (formatunit
+              (identifier))
+            (formatunit
+              (number)))
+          (normal_command
+            (identifier)
+            (variableunit
+              (expression_statement
+                (identifier)
+                (normal_command
+                  (identifier))))
+            (variableunit
+              (identifier))))))
+    (pair
+      (identifier)
+      (bool))
+    (pair
+      (identifier)
+      (expression_statement
+        (string
+          (formatunit
+            (number)))
+        (normal_command
+          (identifier)
+          (variableunit
+            (identifier)))))))
+
+===========
+Command project
+===========
+
+project(
+	'wayvnc',
+	'c',
+	version: '0.5.0',
+	license: 'ISC',
+	default_options: [
+		'c_std=gnu11',
+	],
+	name: '''it is 
+	sdfd
+	''',
+)
+---
+
+(source_file
+  (normal_command
+    (identifier)
+    (variableunit
+      (string))
+    (variableunit
+      (string))
+    (pair
+      (identifier)
+      (string))
+    (pair
+      (identifier)
+      (string))
+    (pair
+      (identifier)
+      (list
+        (string)))
+    (pair
+      (identifier)
+      (string))))
+
+================
+Ternary operator
+===============
+
+x = condition ? true_value : false_value
+
+---
+
+(source_file
+  (operatorunit
+    (identifier)
+    (ternaryoperator
+      (var_unit
+        (identifier))
+      (var_unit
+        (identifier))
+      (var_unit
+        (identifier)))))

@@ -1,0 +1,110 @@
+==============
+no_initializer
+==============
+
+var a;
+var hello_world;
+const b;
+const fooBarBaz;
+
+---
+
+(program
+    (variable_declaration (identifier))
+    (variable_declaration (identifier))
+    (constant_declaration (identifier))
+    (constant_declaration (identifier))
+)
+
+================
+with_initializer
+================
+
+var a = 1;
+var b = "hello there";
+const c = 3.1415;
+
+---
+
+(program
+    (variable_declaration (identifier) (number))
+    (variable_declaration (identifier) (string))
+    (constant_declaration (identifier) (number))
+)
+
+==============
+with_type_hint
+==============
+
+var a: Int = 1;
+var b: Uint = 12932;
+const c: String = "hello world!";
+const d: package.Class;
+var e: * = null;
+var f: Vector.<Int> = null;
+
+---
+
+(program
+    (variable_declaration (identifier) (type_hint (identifier)) (number))
+    (variable_declaration (identifier) (type_hint (identifier)) (number))
+    (constant_declaration (identifier) (type_hint (identifier)) (string))
+    (constant_declaration (identifier) (type_hint (scoped_data_type (identifier) (identifier))))
+    (variable_declaration (identifier) (type_hint (any_type)) (null))
+    (variable_declaration (identifier) (type_hint (generic_data_type (identifier) (identifier))) (null))
+)
+
+=======================
+With property attribute
+=======================
+
+static var a = "Hello!";
+
+---
+
+(program
+    (variable_declaration
+        (property_attribut)
+        (identifier)
+        (string)
+    )
+)
+
+==============
+With attribute
+==============
+
+[Api]
+public var name = "Hello!";
+
+---
+
+(program
+    (variable_declaration
+        (annotation (identifier))
+        (property_attribut)
+        (identifier)
+        (string)
+    )
+)
+
+====================
+With attribute value
+====================
+
+[Api(name="UiApi")]
+public var name = "Hello!";
+
+---
+
+(program
+    (variable_declaration
+        (annotation 
+            (identifier)
+            (assignment_expression (identifier) (string))
+        )
+        (property_attribut)
+        (identifier)
+        (string)
+    )
+)

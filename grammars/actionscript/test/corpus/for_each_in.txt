@@ -1,0 +1,36 @@
+===========
+for-in loop
+===========
+
+for each (value in obj) {
+
+}
+
+---
+
+(program
+    (for_each_in_statement
+        (identifier)
+        (identifier)
+        (statement_block)
+    )
+)
+
+===========
+for-in loop
+===========
+
+for each (var s: String in lines) {
+
+}
+
+---
+
+(program
+    (for_each_in_statement
+        (identifier)
+        (type_hint (identifier))
+        (identifier)
+        (statement_block)
+    )
+)

@@ -1,0 +1,42 @@
+================================================================================
+Minimal Query Crash Test
+================================================================================
+
+query 1 "Test Query"
+{
+    QueryType = API;
+    elements
+    {
+        dataitem(MyDataItem; "My Table")
+        {
+            column(MyColumn; MyField)
+            {
+                Caption = 'My Caption';
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          field_name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal)))))))

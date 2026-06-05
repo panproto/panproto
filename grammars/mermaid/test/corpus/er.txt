@@ -1,0 +1,186 @@
+==========================
+Simple ER diagram
+==========================
+erDiagram
+    CUSTOMER ||--o{ ORDER : places
+    ORDER ||--|{ LINE-ITEM : contains
+    CUSTOMER }|..|{ DELIVERY-ADDRESS : uses
+
+---
+
+(source_file
+  (diagram_er
+    (er_stmt_entity_relation
+      (er_entity_name)
+      (er_relation
+        (er_cardinarity_only_one)
+        (er_reltype_identifying)
+        (er_cardinarity_zero_or_more))
+      (er_entity_name)
+      (er_role))
+    (er_stmt_entity_relation
+      (er_entity_name)
+      (er_relation
+        (er_cardinarity_only_one)
+        (er_reltype_identifying)
+        (er_cardinarity_one_or_more))
+      (er_entity_name)
+      (er_role))
+    (er_stmt_entity_relation
+      (er_entity_name)
+      (er_relation
+        (er_cardinarity_one_or_more)
+        (er_reltype_non_identifying)
+        (er_cardinarity_one_or_more))
+      (er_entity_name)
+      (er_role))))
+
+==========================
+Database Table
+==========================
+erDiagram
+    CUSTOMER ||--o{ ORDER : places
+    CUSTOMER {
+        string name
+        string custNumber
+        string sector
+    }
+    ORDER ||--|{ LINE-ITEM : contains
+    ORDER {
+        int orderNumber
+        string deliveryAddress
+    }
+    LINE-ITEM {
+        string productCode
+        int quantity
+        float pricePerUnit
+    }
+
+---
+
+(source_file
+  (diagram_er
+    (er_stmt_entity_relation
+      (er_entity_name)
+      (er_relation
+        (er_cardinarity_only_one)
+        (er_reltype_identifying)
+        (er_cardinarity_zero_or_more))
+      (er_entity_name)
+      (er_role))
+    (er_stmt_entity_block
+      (er_entity_name)
+      (er_stmt_entity_block_inner
+        (er_attribute
+          (er_attribute_type)
+          (er_attribute_name))
+        (er_attribute
+          (er_attribute_type)
+          (er_attribute_name))
+        (er_attribute
+          (er_attribute_type)
+          (er_attribute_name))))
+    (er_stmt_entity_relation
+      (er_entity_name)
+      (er_relation
+        (er_cardinarity_only_one)
+        (er_reltype_identifying)
+        (er_cardinarity_one_or_more))
+      (er_entity_name)
+      (er_role))
+    (er_stmt_entity_block
+      (er_entity_name)
+      (er_stmt_entity_block_inner
+        (er_attribute
+          (er_attribute_type)
+          (er_attribute_name))
+        (er_attribute
+          (er_attribute_type)
+          (er_attribute_name))))
+    (er_stmt_entity_block
+      (er_entity_name)
+      (er_stmt_entity_block_inner
+        (er_attribute
+          (er_attribute_type)
+          (er_attribute_name))
+        (er_attribute
+          (er_attribute_type)
+          (er_attribute_name))
+        (er_attribute
+          (er_attribute_type)
+          (er_attribute_name))))))
+
+==========================
+Database Table
+==========================
+
+erDiagram
+    CAR ||--o{ NAMED-DRIVER : allows
+    CAR {
+        string allowedDriver FK "The license of the allowed driver"
+        string registrationNumber
+        string make
+        string model
+    }
+    PERSON ||--o{ NAMED-DRIVER : is
+    PERSON {
+        string driversLicense PK "The license #"
+        string firstName
+        string lastName
+        int age
+    }
+
+---
+
+(source_file
+  (diagram_er
+    (er_stmt_entity_relation
+      (er_entity_name)
+      (er_relation
+        (er_cardinarity_only_one)
+        (er_reltype_identifying)
+        (er_cardinarity_zero_or_more))
+      (er_entity_name)
+      (er_role))
+    (er_stmt_entity_block
+      (er_entity_name)
+      (er_stmt_entity_block_inner
+        (er_attribute
+          (er_attribute_type)
+          (er_attribute_name)
+          (er_attribute_key_type_fk)
+          (er_attribute_comment))
+        (er_attribute
+          (er_attribute_type)
+          (er_attribute_name))
+        (er_attribute
+          (er_attribute_type)
+          (er_attribute_name))
+        (er_attribute
+          (er_attribute_type)
+          (er_attribute_name))))
+    (er_stmt_entity_relation
+      (er_entity_name)
+      (er_relation
+        (er_cardinarity_only_one)
+        (er_reltype_identifying)
+        (er_cardinarity_zero_or_more))
+      (er_entity_name)
+      (er_role))
+    (er_stmt_entity_block
+      (er_entity_name)
+      (er_stmt_entity_block_inner
+        (er_attribute
+          (er_attribute_type)
+          (er_attribute_name)
+          (er_attribute_key_type_pk)
+          (er_attribute_comment))
+        (er_attribute
+          (er_attribute_type)
+          (er_attribute_name))
+        (er_attribute
+          (er_attribute_type)
+          (er_attribute_name))
+        (er_attribute
+          (er_attribute_type)
+          (er_attribute_name))))))

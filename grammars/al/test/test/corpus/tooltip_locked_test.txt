@@ -1,0 +1,161 @@
+================================================================================
+ToolTip with Locked attribute
+================================================================================
+
+page 50000 "Test Page"
+{
+    layout
+    {
+        area(content)
+        {
+            field(MyField; MyField)
+            {
+                ToolTip = 'This is a tooltip', Locked = true;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (caption_value
+              (string_literal)
+              (property_name)
+              (boolean))))))))
+
+================================================================================
+ToolTip with Comment and Locked attributes
+================================================================================
+
+page 50001 "Test Page 2"
+{
+    layout
+    {
+        area(content)
+        {
+            field(Name; Name)
+            {
+                ToolTip = 'Customer name', Comment = 'Field comment', Locked = false;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (caption_value
+              (string_literal)
+              (property_name)
+              (string_literal)
+              (property_name)
+              (boolean))))))))
+
+================================================================================
+ToolTip with space and Locked (from original file)
+================================================================================
+
+page 50002 "Test Page 3"
+{
+    layout
+    {
+        area(content)
+        {
+            field(Spacer; '')
+            {
+                ShowCaption = false;
+                ToolTip = ' ', Locked = true;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (string_literal)
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (caption_value
+              (string_literal)
+              (property_name)
+              (boolean))))))))
+
+================================================================================
+ToolTip with only Comment attribute
+================================================================================
+
+page 50003 "Test Page 4"
+{
+    layout
+    {
+        area(content)
+        {
+            field(Description; Description)
+            {
+                ToolTip = 'Item description', Comment = 'This is the item description field';
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (caption_value
+              (string_literal)
+              (property_name)
+              (string_literal))))))))

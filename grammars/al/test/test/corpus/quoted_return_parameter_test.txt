@@ -1,0 +1,81 @@
+================================================================================
+Procedure with quoted return parameter name
+================================================================================
+
+codeunit 50000 "Test Codeunit"
+{
+    procedure GetValue() "Return Value": Text[50]
+    begin
+        exit('Test');
+    end;
+
+    procedure CalculateAmount() "Calculated Amount": Decimal
+    begin
+        exit(100.0);
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      return_value: (quoted_identifier)
+      return_type: (type_specification
+        (text_type
+          length: (integer)))
+      (code_block
+        (begin_keyword)
+        (exit_statement
+          (exit_keyword)
+          return_value: (string_literal))
+        (end_keyword)))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      return_value: (quoted_identifier)
+      return_type: (type_specification
+        (basic_type))
+      (code_block
+        (begin_keyword)
+        (exit_statement
+          (exit_keyword)
+          return_value: (decimal))
+        (end_keyword)))))
+
+================================================================================
+Procedure with unquoted return parameter name
+================================================================================
+
+codeunit 50001 "Another Codeunit"
+{
+    procedure GetCount() ReturnCount: Integer
+    begin
+        exit(5);
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      return_value: (identifier)
+      return_type: (type_specification
+        (basic_type))
+      (code_block
+        (begin_keyword)
+        (exit_statement
+          (exit_keyword)
+          return_value: (integer))
+        (end_keyword)))))

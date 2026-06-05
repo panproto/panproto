@@ -1,0 +1,125 @@
+===
+classes/functions4.pkl
+===
+
+function a(x) = 2 * x
+
+open class X {
+  function a(x) = 3 * x
+  function compute() = a(c)
+  c = 3
+}
+
+class Y extends X {
+  function a(x) = 4 * x
+  c = 5
+}
+
+res1 = new X {}.compute()
+res2 = new X { c = 4 }.compute()
+res3 = new Y {}.compute()
+res4 = new Y { c = 6 }.compute()
+
+---
+
+(module
+  (classMethod
+    (methodHeader
+      (identifier)
+      (parameterList
+        (typedIdentifier
+          (identifier))))
+    (multiplicativeExpr
+      (intLiteralExpr)
+      (unqualifiedAccessExpr
+        (identifier))))
+  (clazz
+    (modifier)
+    (identifier)
+    (classBody
+      (classMethod
+        (methodHeader
+          (identifier)
+          (parameterList
+            (typedIdentifier
+              (identifier))))
+        (multiplicativeExpr
+          (intLiteralExpr)
+          (unqualifiedAccessExpr
+            (identifier))))
+      (classMethod
+        (methodHeader
+          (identifier)
+          (parameterList))
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList
+            (unqualifiedAccessExpr
+              (identifier)))))
+      (classProperty
+        (identifier)
+        (intLiteralExpr))))
+  (clazz
+    (identifier)      (classExtendsClause
+      (qualifiedIdentifier
+        (identifier)))
+    (classBody
+      (classMethod
+        (methodHeader
+          (identifier)
+          (parameterList
+            (typedIdentifier
+              (identifier))))
+        (multiplicativeExpr
+          (intLiteralExpr)
+          (unqualifiedAccessExpr
+            (identifier))))
+      (classProperty
+        (identifier)
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody))
+      (identifier)
+      (argumentList)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody
+          (objectProperty
+            (identifier)
+            (intLiteralExpr))))
+      (identifier)
+      (argumentList)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody))
+      (identifier)
+      (argumentList)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody
+          (objectProperty
+            (identifier)
+            (intLiteralExpr))))
+      (identifier)
+      (argumentList))))

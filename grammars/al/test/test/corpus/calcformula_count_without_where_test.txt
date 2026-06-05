@@ -1,0 +1,177 @@
+================================================================================
+CalcFormula count without WHERE clause
+================================================================================
+
+table 50100 "User Status"
+{
+    fields
+    {
+        field(1; "User ID"; Code[50])
+        {
+        }
+        field(2; "Error Count"; Integer)
+        {
+            CalcFormula = count("Integration Synch. Job Errors");
+            Caption = 'Total Errors';
+            FieldClass = FlowField;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (code_type
+            length: (integer))))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (property_expression
+            (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (quoted_identifier)))))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (identifier))))))
+
+================================================================================
+CalcFormula count with WHERE clause
+================================================================================
+
+table 50200 "Statistics"
+{
+    fields
+    {
+        field(1; "Active Users"; Integer)
+        {
+            CalcFormula = count(User where(State = const(Enabled)));
+            FieldClass = FlowField;
+        }
+        field(2; "Total Records"; Integer)
+        {
+            CalcFormula = count("My Table");
+            FieldClass = FlowField;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (aggregate_formula
+            function: (aggregate_function)
+            target: (calc_field_reference
+              (identifier))
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (identifier)
+                  value: (identifier))))))
+        (property
+          name: (property_name)
+          value: (identifier)))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (property_expression
+            (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (quoted_identifier)))))
+        (property
+          name: (property_name)
+          value: (identifier))))))
+
+================================================================================
+CalcFormula count case variations
+================================================================================
+
+table 50300 "Count Test"
+{
+    fields
+    {
+        field(1; "Count1"; Integer)
+        {
+            CalcFormula = COUNT("Table Name");
+        }
+        field(2; "Count2"; Integer)
+        {
+            CalcFormula = Count(TableName where("Field" = filter('>0')));
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (property_expression
+            (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (quoted_identifier))))))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (aggregate_formula
+            function: (aggregate_function)
+            target: (calc_field_reference
+              (identifier))
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (quoted_identifier)
+                  (filter_keyword)
+                  value: (filter_value
+                    (string_literal)))))))))))

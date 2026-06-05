@@ -1,0 +1,115 @@
+================================================================================
+Method
+================================================================================
+
+service TestApi {
+	[http(method: GET, path: "/widgets")]
+	method getWidgets
+	{
+		/// The query.
+		[http(from: query, name: "q")]
+		query: string;
+
+		/// The limit of returned results.
+		limit: int32;
+
+		/// The sort field.
+		sort: WidgetField;
+
+		/// True to sort descending.
+		desc: boolean;
+
+		/// The maximum weight.
+		[obsolete]
+		maxWeight: double;
+	}:
+	{
+		/// The widgets.
+		widgets: Widget[];
+
+		/// The total number of widgets.
+		total: int64;
+
+		/// The total weight.
+		[obsolete]
+		totalWeight: double;
+
+		/// The pending job.
+		[http(from: body, code: 202)]
+		job: WidgetJob;
+	}
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (service
+    (identifier)
+    (service_block
+      (method
+        (attribute
+          (parameter
+            (identifier)
+            (identifier))
+          (parameter
+            (identifier)
+            (string_literal)))
+        (identifier)
+        (field_list
+          (doc_comment)
+          (field
+            (attribute
+              (parameter
+                (identifier)
+                (identifier))
+              (parameter
+                (identifier)
+                (string_literal)))
+            (identifier)
+            (type))
+          (doc_comment)
+          (field
+            (identifier)
+            (type))
+          (doc_comment)
+          (field
+            (identifier)
+            (type
+              (identifier)))
+          (doc_comment)
+          (field
+            (identifier)
+            (type))
+          (doc_comment)
+          (field
+            (attribute)
+            (identifier)
+            (type)))
+        (field_list
+          (doc_comment)
+          (field
+            (identifier)
+            (list_type
+              (type
+                (identifier))))
+          (doc_comment)
+          (field
+            (identifier)
+            (type))
+          (doc_comment)
+          (field
+            (attribute)
+            (identifier)
+            (type))
+          (doc_comment)
+          (field
+            (attribute
+              (parameter
+                (identifier)
+                (identifier))
+              (parameter
+                (identifier)
+                (number_literal)))
+            (identifier)
+            (type
+              (identifier))))))))

@@ -1,0 +1,284 @@
+================================================================================
+No args, no returns
+================================================================================
+
+local foo: function()
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    type_annotation: (type_annotation
+      (function_type
+        arguments: (arguments)))))
+
+================================================================================
+One arg, no returns
+================================================================================
+
+local foo: function(string)
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    type_annotation: (type_annotation
+      (function_type
+        arguments: (arguments
+          (arg
+            type: (simple_type
+              name: (identifier))))))))
+
+================================================================================
+No args, one return
+================================================================================
+
+local foo: function(): string
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    type_annotation: (type_annotation
+      (function_type
+        arguments: (arguments)
+        return_type: (return_type
+          (simple_type
+            name: (identifier)))))))
+
+================================================================================
+One arg, one return
+================================================================================
+
+local foo: function(number): string
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    type_annotation: (type_annotation
+      (function_type
+        arguments: (arguments
+          (arg
+            type: (simple_type
+              name: (identifier))))
+        return_type: (return_type
+          (simple_type
+            name: (identifier)))))))
+
+================================================================================
+Multiple args, no return
+================================================================================
+
+local foo: function(number, {string}, string)
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    type_annotation: (type_annotation
+      (function_type
+        arguments: (arguments
+          (arg
+            type: (simple_type
+              name: (identifier)))
+          (arg
+            type: (table_type
+              value_type: (simple_type
+                name: (identifier))))
+          (arg
+            type: (simple_type
+              name: (identifier))))))))
+
+================================================================================
+No args, multiple returns
+================================================================================
+
+local foo: function(): string, {number}, number, thread
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    type_annotation: (type_annotation
+      (function_type
+        arguments: (arguments)
+        return_type: (return_type
+          (simple_type
+            name: (identifier))
+          (table_type
+            value_type: (simple_type
+              name: (identifier)))
+          (simple_type
+            name: (identifier))
+          (simple_type
+            name: (identifier)))))))
+
+================================================================================
+Multiple args, multiple returns
+================================================================================
+
+local foo: function(number, {string}, string): string, {number}, number, thread
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    type_annotation: (type_annotation
+      (function_type
+        arguments: (arguments
+          (arg
+            type: (simple_type
+              name: (identifier)))
+          (arg
+            type: (table_type
+              value_type: (simple_type
+                name: (identifier))))
+          (arg
+            type: (simple_type
+              name: (identifier))))
+        return_type: (return_type
+          (simple_type
+            name: (identifier))
+          (table_type
+            value_type: (simple_type
+              name: (identifier)))
+          (simple_type
+            name: (identifier))
+          (simple_type
+            name: (identifier)))))))
+
+================================================================================
+Named argument
+================================================================================
+
+local foo: function(bar: number)
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    type_annotation: (type_annotation
+      (function_type
+        arguments: (arguments
+          (arg
+            name: (identifier)
+            type: (simple_type
+              name: (identifier))))))))
+
+================================================================================
+Named arguments
+================================================================================
+
+local foo: function(bar: number, baz: {string})
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    type_annotation: (type_annotation
+      (function_type
+        arguments: (arguments
+          (arg
+            name: (identifier)
+            type: (simple_type
+              name: (identifier)))
+          (arg
+            name: (identifier)
+            type: (table_type
+              value_type: (simple_type
+                name: (identifier)))))))))
+
+================================================================================
+Variadic args
+================================================================================
+
+local foo: function(...: string)
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    type_annotation: (type_annotation
+      (function_type
+        arguments: (arguments
+          (varargs
+            type: (simple_type
+              name: (identifier))))))))
+
+================================================================================
+Args + variadic last arg
+================================================================================
+
+local foo: function(number, string, ...: string)
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    type_annotation: (type_annotation
+      (function_type
+        arguments: (arguments
+          (arg
+            type: (simple_type
+              name: (identifier)))
+          (arg
+            type: (simple_type
+              name: (identifier)))
+          (varargs
+            type: (simple_type
+              name: (identifier))))))))
+
+================================================================================
+Variadic return
+================================================================================
+
+local foo: function(): string...
+
+--------------------------------------------------------------------------------
+
+(program
+  (var_declaration
+    declarators: (var_declarators
+      (var
+        name: (identifier)))
+    type_annotation: (type_annotation
+      (function_type
+        arguments: (arguments)
+        return_type: (return_type
+          (variadic_type
+            (simple_type
+              name: (identifier))))))))

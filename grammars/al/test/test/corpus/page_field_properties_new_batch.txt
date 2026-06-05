@@ -1,0 +1,85 @@
+==================
+Newly Implemented Page Field Properties
+==================
+
+page 50200 "New Properties Test"
+{
+    layout
+    {
+        area(content)
+        {
+            field(Field1; Rec.Description)
+            {
+                MultiLine = true;
+                NavigationPageId = "Customer Card";
+                QuickEntry = false;
+                RowSpan = 3;
+                ShowCaption = true;
+                ShowMandatory = false;
+                Style = StandardAccent;
+                StyleExpr = MyStyleFunction();
+            }
+
+            field(Field2; Rec.Amount)
+            {
+                Style = Strong;
+                StyleExpr = 'IF(Amount > 1000, "Attention", "Standard")';
+            }
+        }
+    }
+}
+
+---
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (identifier))
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (quoted_identifier))
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (integer))
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (property_expression
+              (call_expression
+                function: (identifier)
+                arguments: (argument_list)))))
+        (page_field
+          name: (identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (identifier))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal)))))))

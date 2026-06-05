@@ -1,0 +1,147 @@
+===
+api/platformModule.pkl
+===
+
+amends "../snippetTest.pkl"
+
+import "pkl:platform"
+
+local current = platform.current
+
+facts {
+  ["language"] {
+    current.language.version != ""
+  }
+
+  ["runtime"] {
+    current.runtime.name != ""
+    current.runtime.version != ""
+  }
+
+  ["virtualMachine"] {
+    current.virtualMachine.name != ""
+    current.virtualMachine.version != ""
+  }
+
+  ["operatingSystem"] {
+    current.operatingSystem.name != ""
+    current.operatingSystem.version != ""
+  }
+
+  ["processor"] {
+    current.processor.architecture != ""
+  }
+}
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (classProperty
+    (modifier)
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (equalityExpr
+              (qualifiedAccessExpr
+                (qualifiedAccessExpr
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (identifier))
+                (identifier))
+              (slStringLiteralExpr)))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (equalityExpr
+              (qualifiedAccessExpr
+                (qualifiedAccessExpr
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (identifier))
+                (identifier))
+              (slStringLiteralExpr)))
+          (objectElement
+            (equalityExpr
+              (qualifiedAccessExpr
+                (qualifiedAccessExpr
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (identifier))
+                (identifier))
+              (slStringLiteralExpr)))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (equalityExpr
+              (qualifiedAccessExpr
+                (qualifiedAccessExpr
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (identifier))
+                (identifier))
+              (slStringLiteralExpr)))
+          (objectElement
+            (equalityExpr
+              (qualifiedAccessExpr
+                (qualifiedAccessExpr
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (identifier))
+                (identifier))
+              (slStringLiteralExpr)))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (equalityExpr
+              (qualifiedAccessExpr
+                (qualifiedAccessExpr
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (identifier))
+                (identifier))
+              (slStringLiteralExpr)))
+          (objectElement
+            (equalityExpr
+              (qualifiedAccessExpr
+                (qualifiedAccessExpr
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (identifier))
+                (identifier))
+              (slStringLiteralExpr)))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (equalityExpr
+              (qualifiedAccessExpr
+                (qualifiedAccessExpr
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (identifier))
+                (identifier))
+              (slStringLiteralExpr))))))))

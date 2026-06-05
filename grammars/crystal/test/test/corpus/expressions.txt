@@ -1,0 +1,3281 @@
+================================================================================
+plain identifiers
+================================================================================
+fOo
+f_0___
+🥺
+あいうえお
+--------------------------------------------------------------------------------
+
+(source_file
+  (identifier)
+  (identifier)
+  (identifier)
+  (identifier))
+
+================================================================================
+instance and class variables
+================================================================================
+class Klass
+  @a = 87
+  @@b = "hjkl"
+
+  def initialize(@a)
+    puts @a + 2
+  end
+
+  def set_class_var(@@b)
+  end
+end
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_def
+    name: (constant)
+    (assign
+      lhs: (instance_var)
+      rhs: (integer))
+    (assign
+      lhs: (class_var)
+      rhs: (string))
+    (method_def
+      name: (identifier)
+      params: (param_list
+        (param
+          name: (instance_var)))
+      (call
+        method: (identifier)
+        arguments: (argument_list
+          (op_call
+            receiver: (instance_var)
+            operator: (operator)
+            argument: (integer)))))
+    (method_def
+      name: (identifier)
+      params: (param_list
+        (param
+          name: (class_var))))))
+
+================================================================================
+self
+================================================================================
+self
+self_
+selfself
+--------------------------------------------------------------------------------
+
+(source_file
+  (self)
+  (identifier)
+  (identifier))
+
+================================================================================
+pseudo-constants
+================================================================================
+def pseudo_constants(caller_line = __LINE__, end_of_caller = __END_LINE__)
+  puts "Called from line number: #{caller_line}"
+  puts "Currently at line number: #{__LINE__}"
+  puts "End of caller block is at: #{end_of_caller}"
+  puts "File path is: #{__FILE__}"
+  puts "Directory file is in: #{__DIR__}"
+end
+--------------------------------------------------------------------------------
+
+(source_file
+  (method_def
+    name: (identifier)
+    params: (param_list
+      (param
+        name: (identifier)
+        default: (pseudo_constant))
+      (param
+        name: (identifier)
+        default: (pseudo_constant)))
+    (call
+      method: (identifier)
+      arguments: (argument_list
+        (string
+          (interpolation
+            (identifier)))))
+    (call
+      method: (identifier)
+      arguments: (argument_list
+        (string
+          (interpolation
+            (pseudo_constant)))))
+    (call
+      method: (identifier)
+      arguments: (argument_list
+        (string
+          (interpolation
+            (identifier)))))
+    (call
+      method: (identifier)
+      arguments: (argument_list
+        (string
+          (interpolation
+            (pseudo_constant)))))
+    (call
+      method: (identifier)
+      arguments: (argument_list
+        (string
+          (interpolation
+            (pseudo_constant)))))))
+
+================================================================================
+special variables
+================================================================================
+$?
+$~
+$0
+$5
+$12?
+$099
+--------------------------------------------------------------------------------
+
+(source_file
+  (special_variable)
+  (special_variable)
+  (special_variable)
+  (special_variable)
+  (special_variable)
+  (special_variable))
+
+================================================================================
+method calls
+================================================================================
+A.b
+
+e()
+c?
+d!()
+
+true.false?
+
+m1?.m2
+
+puts(b)
+
+a b 7
+
+a!.b!.c!
+
+a b.c
+
+a(b(c()))
+
+pp a # comment
+     # comment
+  .  # asdf
+     # comment
+  b  # one more comment
+--------------------------------------------------------------------------------
+
+(source_file
+  (call
+    receiver: (constant)
+    method: (identifier))
+  (call
+    method: (identifier)
+    arguments: (argument_list))
+  (call
+    method: (identifier))
+  (call
+    method: (identifier)
+    arguments: (argument_list))
+  (call
+    receiver: (true)
+    method: (identifier))
+  (call
+    receiver: (call
+      method: (identifier))
+    method: (identifier))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (identifier)))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (call
+        method: (identifier)
+        arguments: (argument_list
+          (integer)))))
+  (call
+    receiver: (call
+      receiver: (call
+        method: (identifier))
+      method: (identifier))
+    method: (identifier))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (call
+        receiver: (identifier)
+        method: (identifier))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (call
+        method: (identifier)
+        arguments: (argument_list
+          (call
+            method: (identifier)
+            arguments: (argument_list))))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (call
+        receiver: (identifier)
+        (comment)
+        (comment)
+        (comment)
+        (comment)
+        method: (identifier))))
+  (comment))
+
+================================================================================
+method calls with multiple arguments
+================================================================================
+puts true, -1, nil
+
+puts false,
+  0
+
+puts(true, false, nil)
+puts(true, false, nil,)
+puts(
+  true,
+  false,
+  nil,
+)
+
+puts (), ()
+--------------------------------------------------------------------------------
+
+(source_file
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (true)
+      (integer)
+      (nil)))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (false)
+      (integer)))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (true)
+      (false)
+      (nil)))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (true)
+      (false)
+      (nil)))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (true)
+      (false)
+      (nil)))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (nil)
+      (nil))))
+
+================================================================================
+splat arguments
+================================================================================
+puts * a
+puts *a
+puts*a
+puts(*a)
+
+pp *a, 2, *{3}
+
+pp(*a+b, *c*d, *e = f)
+--------------------------------------------------------------------------------
+
+(source_file
+  (op_call
+    receiver: (identifier)
+    operator: (operator)
+    argument: (identifier))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (splat
+        (identifier))))
+  (op_call
+    receiver: (identifier)
+    operator: (operator)
+    argument: (identifier))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (splat
+        (identifier))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (splat
+        (identifier))
+      (integer)
+      (splat
+        (tuple
+          (integer)))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (splat
+        (op_call
+          receiver: (identifier)
+          operator: (operator)
+          argument: (identifier)))
+      (splat
+        (op_call
+          receiver: (identifier)
+          operator: (operator)
+          argument: (identifier)))
+      (splat
+        (assign
+          lhs: (identifier)
+          rhs: (identifier))))))
+
+================================================================================
+double splat arguments
+================================================================================
+puts ** kwargs
+puts **kwargs
+puts**kwargs
+puts(**kwargs)
+
+pp **{a: 1, "b": 2.0, C: -3, }, **{c: nil}
+--------------------------------------------------------------------------------
+
+(source_file
+  (op_call
+    receiver: (identifier)
+    operator: (operator)
+    argument: (identifier))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (double_splat
+        (identifier))))
+  (op_call
+    receiver: (identifier)
+    operator: (operator)
+    argument: (identifier))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (double_splat
+        (identifier))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (double_splat
+        (named_tuple
+          (named_expr
+            name: (identifier)
+            (integer))
+          (named_expr
+            name: (string)
+            (float))
+          (named_expr
+            name: (identifier)
+            (integer))))
+      (double_splat
+        (named_tuple
+          (named_expr
+            name: (identifier)
+            (nil)))))))
+
+================================================================================
+named arguments
+================================================================================
+foo(named: 1)
+
+bar 1, *splat, a: 2 .. 3, LMNOP: nil, z!: -1, "    \n   ": 'a',  %q(8#{8}): 8
+
+bar 1, c: + 2,
+  b:
+  3 {
+
+  }
+--------------------------------------------------------------------------------
+
+(source_file
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (named_expr
+        name: (identifier)
+        (integer))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (integer)
+      (splat
+        (identifier))
+      (named_expr
+        name: (identifier)
+        (range
+          begin: (integer)
+          operator: (operator)
+          end: (integer)))
+      (named_expr
+        name: (identifier)
+        (nil))
+      (named_expr
+        name: (identifier)
+        (integer))
+      (named_expr
+        name: (string
+          (string_escape_sequence))
+        (char))
+      (named_expr
+        name: (string)
+        (integer))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (integer)
+      (named_expr
+        name: (identifier)
+        (op_call
+          operator: (operator)
+          receiver: (integer)))
+      (named_expr
+        name: (identifier)
+        (integer)))
+    block: (block)))
+
+================================================================================
+plain assignment
+================================================================================
+a = 1.0
+
+b =
+c=
+2
+
+d=-0.zero?
+
+(e=1f32)
+.to_s
+--------------------------------------------------------------------------------
+
+(source_file
+  (assign
+    lhs: (identifier)
+    rhs: (float))
+  (assign
+    lhs: (identifier)
+    rhs: (assign
+      lhs: (identifier)
+      rhs: (integer)))
+  (assign
+    lhs: (identifier)
+    rhs: (call
+      receiver: (integer)
+      method: (identifier)))
+  (call
+    receiver: (assign
+      lhs: (identifier)
+      rhs: (float))
+    method: (identifier)))
+
+================================================================================
+constant assignment
+================================================================================
+A = 1.0
+
+B =
+::C=
+2
+
+D::E=-0.zero?
+--------------------------------------------------------------------------------
+
+(source_file
+  (const_assign
+    lhs: (constant)
+    rhs: (float))
+  (const_assign
+    lhs: (constant)
+    rhs: (const_assign
+      lhs: (constant)
+      rhs: (integer)))
+  (const_assign
+    lhs: (constant)
+    rhs: (call
+      receiver: (integer)
+      method: (identifier))))
+
+================================================================================
+method assignment
+================================================================================
+::A.b = 1
+
+self
+.var =
+true
+
+c.foo.bar = d.baz!.quz = 8
+--------------------------------------------------------------------------------
+
+(source_file
+  (assign
+    lhs: (assign_call
+      receiver: (constant)
+      method: (identifier))
+    rhs: (integer))
+  (assign
+    lhs: (assign_call
+      receiver: (self)
+      method: (identifier))
+    rhs: (true))
+  (assign
+    lhs: (assign_call
+      receiver: (call
+        receiver: (identifier)
+        method: (identifier))
+      method: (identifier))
+    rhs: (assign
+      lhs: (assign_call
+        receiver: (call
+          receiver: (identifier)
+          method: (identifier))
+        method: (identifier))
+      rhs: (integer))))
+
+================================================================================
+assignment with modifiers
+================================================================================
+a = 5 if c
+
+foo.bar = 0.8 if true if false
+
+baz = 7 unless qux?
+--------------------------------------------------------------------------------
+
+(source_file
+  (modifier_if
+    then: (assign
+      lhs: (identifier)
+      rhs: (integer))
+    cond: (identifier))
+  (modifier_if
+    then: (modifier_if
+      then: (assign
+        lhs: (assign_call
+          receiver: (identifier)
+          method: (identifier))
+        rhs: (float))
+      cond: (true))
+    cond: (false))
+  (modifier_unless
+    then: (assign
+      lhs: (identifier)
+      rhs: (integer))
+    cond: (call
+      method: (identifier))))
+
+================================================================================
+multiple assignment
+================================================================================
+foo, bar = bar, foo
+
+*splat = {1}
+* splat = 2, 3, 4
+
+first, _, last = stuff
+
+a, *@b, _ = 1, 2, 3
+
+a, b = c = 1, d = 2
+
+d.val,e.val=:d,:e
+a, b, c = d.val, e.val, f = {1, 2, 3}
+--------------------------------------------------------------------------------
+
+(source_file
+  (multi_assign
+    lhs: (identifier)
+    lhs: (identifier)
+    rhs: (identifier)
+    rhs: (identifier))
+  (multi_assign
+    lhs: (splat
+      (identifier))
+    rhs: (tuple
+      (integer)))
+  (multi_assign
+    lhs: (splat
+      (identifier))
+    rhs: (integer)
+    rhs: (integer)
+    rhs: (integer))
+  (multi_assign
+    lhs: (identifier)
+    lhs: (identifier)
+    lhs: (identifier)
+    rhs: (identifier))
+  (multi_assign
+    lhs: (identifier)
+    lhs: (splat
+      (instance_var))
+    lhs: (identifier)
+    rhs: (integer)
+    rhs: (integer)
+    rhs: (integer))
+  (multi_assign
+    lhs: (identifier)
+    lhs: (identifier)
+    rhs: (assign
+      lhs: (identifier)
+      rhs: (integer))
+    rhs: (assign
+      lhs: (identifier)
+      rhs: (integer)))
+  (multi_assign
+    lhs: (assign_call
+      receiver: (identifier)
+      method: (identifier))
+    lhs: (assign_call
+      receiver: (identifier)
+      method: (identifier))
+    rhs: (symbol)
+    rhs: (symbol))
+  (multi_assign
+    lhs: (identifier)
+    lhs: (identifier)
+    lhs: (identifier)
+    rhs: (call
+      receiver: (identifier)
+      method: (identifier))
+    rhs: (call
+      receiver: (identifier)
+      method: (identifier))
+    rhs: (assign
+      lhs: (identifier)
+      rhs: (tuple
+        (integer)
+        (integer)
+        (integer)))))
+
+================================================================================
+while and until
+================================================================================
+while true; end
+
+while 1
+next; end
+
+until a.nil?
+  a = 2
+  until a
+    break
+  end
+end
+--------------------------------------------------------------------------------
+
+(source_file
+  (while
+    condition: (true))
+  (while
+    condition: (integer)
+    (next))
+  (until
+    condition: (call
+      receiver: (identifier)
+      method: (identifier))
+    (assign
+      lhs: (identifier)
+      rhs: (integer))
+    (until
+      condition: (identifier)
+      (break))))
+
+================================================================================
+basic begin blocks
+================================================================================
+begin 1 end
+begin;2;end
+
+begin
+  begin
+  end
+end
+begin begin end end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (begin_block
+    (integer))
+  (begin_block
+    (integer))
+  (begin_block
+    (begin_block))
+  (begin_block
+    (begin_block)))
+
+================================================================================
+begin blocks with rescue
+================================================================================
+begin
+  1
+rescue
+  2
+end
+
+begin 3; rescue; 4 end
+
+begin
+  5; rescue a;
+  6; end
+
+begin
+  7
+rescue Exception; 8
+9 rescue c : FooError; 10
+end
+
+begin 9
+rescue err : FooError | BarError
+else
+:foo
+end
+--------------------------------------------------------------------------------
+
+(source_file
+  (begin_block
+    (integer)
+    rescue: (rescue_block
+      (integer)))
+  (begin_block
+    (integer)
+    rescue: (rescue_block
+      (integer)))
+  (begin_block
+    (integer)
+    rescue: (rescue_block
+      variable: (identifier)
+      (integer)))
+  (begin_block
+    (integer)
+    rescue: (rescue_block
+      type: (constant)
+      (integer)
+      (modifier_rescue
+        (integer)
+        rescue: (type_declaration
+          var: (identifier)
+          type: (constant)))
+      (integer)))
+  (begin_block
+    (integer)
+    rescue: (rescue_block
+      variable: (identifier)
+      type: (union_type
+        (constant)
+        (constant)))
+    else: (else
+      (symbol))))
+
+================================================================================
+begin blocks with ensure
+================================================================================
+begin
+  1
+ensure
+  2
+end
+
+begin a ensure b;ensure c end
+
+puts begin 1
+2;3; ensure puts 2;end
+--------------------------------------------------------------------------------
+
+(source_file
+  (begin_block
+    (integer)
+    ensure: (ensure
+      (integer)))
+  (begin_block
+    (modifier_ensure
+      (identifier)
+      ensure: (identifier))
+    ensure: (ensure
+      (identifier)))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (begin_block
+        (integer)
+        (integer)
+        (integer)
+        ensure: (ensure
+          (call
+            method: (identifier)
+            arguments: (argument_list
+              (integer))))))))
+
+================================================================================
+begin blocks with rescue, else, and ensure
+================================================================================
+begin
+1 rescue a : ArgumentError
+2
+rescue b
+3
+else
+4
+ensure
+5
+end
+--------------------------------------------------------------------------------
+
+(source_file
+  (begin_block
+    (modifier_rescue
+      (integer)
+      rescue: (type_declaration
+        var: (identifier)
+        type: (constant)))
+    (integer)
+    rescue: (rescue_block
+      variable: (identifier)
+      (integer))
+    else: (else
+      (integer))
+    ensure: (ensure
+      (integer))))
+
+================================================================================
+rescue modifiers
+================================================================================
+puts 7 rescue ArgumentError
+puts (7 rescue ArgumentError)
+
+do_stuff rescue do_stuff rescue 7
+--------------------------------------------------------------------------------
+
+(source_file
+  (modifier_rescue
+    (call
+      method: (identifier)
+      arguments: (argument_list
+        (integer)))
+    rescue: (constant))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (modifier_rescue
+        (integer)
+        rescue: (constant))))
+  (modifier_rescue
+    (modifier_rescue
+      (identifier)
+      rescue: (identifier))
+    rescue: (integer)))
+
+================================================================================
+ensure modifiers
+================================================================================
+puts (4 ensure (puts 3))
+
+def foo
+  a; b
+ensure
+  g; h ensure g; h
+end
+--------------------------------------------------------------------------------
+
+(source_file
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (modifier_ensure
+        (integer)
+        ensure: (call
+          method: (identifier)
+          arguments: (argument_list
+            (integer))))))
+  (method_def
+    name: (identifier)
+    (identifier)
+    (identifier)
+    ensure: (ensure
+      (identifier)
+      (modifier_ensure
+        (identifier)
+        ensure: (identifier))
+      (identifier))))
+
+================================================================================
+binary additive operators
+================================================================================
+1 + 2.0
+
+a &+ b! - C
+
+D &-
+  (E)
+
+puts "a" + "b".upcase
+--------------------------------------------------------------------------------
+
+(source_file
+  (op_call
+    receiver: (integer)
+    operator: (operator)
+    argument: (float))
+  (op_call
+    receiver: (op_call
+      receiver: (identifier)
+      operator: (operator)
+      argument: (call
+        method: (identifier)))
+    operator: (operator)
+    argument: (constant))
+  (op_call
+    receiver: (constant)
+    operator: (operator)
+    argument: (constant))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (op_call
+        receiver: (string)
+        operator: (operator)
+        argument: (call
+          receiver: (string)
+          method: (identifier))))))
+
+================================================================================
+unary additive operators
+================================================================================
+puts + 2
+puts +2
+puts+2
+puts(+ 2)
+
+puts &+3
+puts(&+3)
+
+puts &-3
+puts(&-3)
+
+a! - 1
+b? -1
+c-
+1
+d_ (- 2)
+
++-+0
++- 0.3
+
+1-
++2
+1-+ 2
+
+- 8u8.to_i8
+--------------------------------------------------------------------------------
+
+(source_file
+  (op_call
+    receiver: (identifier)
+    operator: (operator)
+    argument: (integer))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (integer)))
+  (op_call
+    receiver: (identifier)
+    operator: (operator)
+    argument: (integer))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (op_call
+        operator: (operator)
+        receiver: (integer))))
+  (op_call
+    receiver: (identifier)
+    operator: (operator)
+    argument: (integer))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (op_call
+        operator: (operator)
+        receiver: (integer))))
+  (op_call
+    receiver: (identifier)
+    operator: (operator)
+    argument: (integer))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (op_call
+        operator: (operator)
+        receiver: (integer))))
+  (op_call
+    receiver: (call
+      method: (identifier))
+    operator: (operator)
+    argument: (integer))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (integer)))
+  (op_call
+    receiver: (identifier)
+    operator: (operator)
+    argument: (integer))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (op_call
+        operator: (operator)
+        receiver: (integer))))
+  (op_call
+    operator: (operator)
+    receiver: (op_call
+      operator: (operator)
+      receiver: (integer)))
+  (op_call
+    operator: (operator)
+    receiver: (op_call
+      operator: (operator)
+      receiver: (float)))
+  (op_call
+    receiver: (integer)
+    operator: (operator)
+    argument: (integer))
+  (op_call
+    receiver: (integer)
+    operator: (operator)
+    argument: (op_call
+      operator: (operator)
+      receiver: (integer)))
+  (op_call
+    operator: (operator)
+    receiver: (call
+      receiver: (integer)
+      method: (identifier))))
+
+================================================================================
+multiplicative operators
+================================================================================
+1 * 2 &* 3.0 / 4.5 // 6 % asdf
+
+pp 2*7..3/1.5
+
+pp 7 +
+  4.0 //
+    3
+
+pp! // foo
+pp! /foo/
+(a)/b
+d //e
+baz/ 7
+
+begin 1 end / 2
+foo(// // 3)
+--------------------------------------------------------------------------------
+
+(source_file
+  (op_call
+    receiver: (op_call
+      receiver: (op_call
+        receiver: (op_call
+          receiver: (op_call
+            receiver: (integer)
+            operator: (operator)
+            argument: (integer))
+          operator: (operator)
+          argument: (float))
+        operator: (operator)
+        argument: (float))
+      operator: (operator)
+      argument: (integer))
+    operator: (operator)
+    argument: (identifier))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (range
+        begin: (op_call
+          receiver: (integer)
+          operator: (operator)
+          argument: (integer))
+        operator: (operator)
+        end: (op_call
+          receiver: (integer)
+          operator: (operator)
+          argument: (float)))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (op_call
+        receiver: (integer)
+        operator: (operator)
+        argument: (op_call
+          receiver: (float)
+          operator: (operator)
+          argument: (integer)))))
+  (op_call
+    receiver: (call
+      method: (identifier))
+    operator: (operator)
+    argument: (identifier))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (regex)))
+  (op_call
+    receiver: (identifier)
+    operator: (operator)
+    argument: (identifier))
+  (op_call
+    receiver: (identifier)
+    operator: (operator)
+    argument: (identifier))
+  (op_call
+    receiver: (identifier)
+    operator: (operator)
+    argument: (integer))
+  (op_call
+    receiver: (begin_block
+      (integer))
+    operator: (operator)
+    argument: (integer))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (op_call
+        receiver: (regex)
+        operator: (operator)
+        argument: (integer)))))
+
+================================================================================
+exponential operators
+================================================================================
+a ** B &** 7
+
+puts 2 **
+10
+
+42.0 % 2 ** EXP
+--------------------------------------------------------------------------------
+
+(source_file
+  (op_call
+    receiver: (identifier)
+    operator: (operator)
+    argument: (op_call
+      receiver: (constant)
+      operator: (operator)
+      argument: (integer)))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (op_call
+        receiver: (integer)
+        operator: (operator)
+        argument: (integer))))
+  (op_call
+    receiver: (float)
+    operator: (operator)
+    argument: (op_call
+      receiver: (integer)
+      operator: (operator)
+      argument: (constant))))
+
+================================================================================
+shift operators
+================================================================================
+a << "asdf"
+b << c >> D
+
+array << 1 << 2
+array << (13 >> 2)
+--------------------------------------------------------------------------------
+
+(source_file
+  (op_call
+    receiver: (identifier)
+    operator: (operator)
+    argument: (string))
+  (op_call
+    receiver: (op_call
+      receiver: (identifier)
+      operator: (operator)
+      argument: (identifier))
+    operator: (operator)
+    argument: (constant))
+  (op_call
+    receiver: (op_call
+      receiver: (identifier)
+      operator: (operator)
+      argument: (integer))
+    operator: (operator)
+    argument: (integer))
+  (op_call
+    receiver: (identifier)
+    operator: (operator)
+    argument: (op_call
+      receiver: (integer)
+      operator: (operator)
+      argument: (integer))))
+
+================================================================================
+binary/bitwise operators
+================================================================================
+~1 ^ 5
+
+a ^ b | c
+
+6 & a | 1 << AMT
+
+pp [1, 2, 3] | [4, 5, 6] & [1, 4]
+--------------------------------------------------------------------------------
+
+(source_file
+  (op_call
+    receiver: (op_call
+      operator: (operator)
+      receiver: (integer))
+    operator: (operator)
+    argument: (integer))
+  (op_call
+    receiver: (op_call
+      receiver: (identifier)
+      operator: (operator)
+      argument: (identifier))
+    operator: (operator)
+    argument: (identifier))
+  (op_call
+    receiver: (op_call
+      receiver: (integer)
+      operator: (operator)
+      argument: (identifier))
+    operator: (operator)
+    argument: (op_call
+      receiver: (integer)
+      operator: (operator)
+      argument: (constant)))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (op_call
+        receiver: (array
+          (integer)
+          (integer)
+          (integer))
+        operator: (operator)
+        argument: (op_call
+          receiver: (array
+            (integer)
+            (integer)
+            (integer))
+          operator: (operator)
+          argument: (array
+            (integer)
+            (integer)))))))
+
+================================================================================
+logical operators
+================================================================================
+!thingy
+a.nil? || b
+foo && bar
+
+!
+true ||
+false
+
+a || b && c
+
+d && e || f && g
+--------------------------------------------------------------------------------
+
+(source_file
+  (not
+    (identifier))
+  (or
+    (call
+      receiver: (identifier)
+      method: (identifier))
+    (identifier))
+  (and
+    (identifier)
+    (identifier))
+  (or
+    (not
+      (true))
+    (false))
+  (or
+    (identifier)
+    (and
+      (identifier)
+      (identifier)))
+  (or
+    (and
+      (identifier)
+      (identifier))
+    (and
+      (identifier)
+      (identifier))))
+
+================================================================================
+equality operators
+================================================================================
+a == b
+
+name =~
+/Shawn/
+
+c !=\
+d
+
+e !~ /regex/
+
+(Symbol === :asdf)
+--------------------------------------------------------------------------------
+
+(source_file
+  (op_call
+    receiver: (identifier)
+    operator: (operator)
+    argument: (identifier))
+  (op_call
+    receiver: (identifier)
+    operator: (operator)
+    argument: (regex))
+  (op_call
+    receiver: (identifier)
+    operator: (operator)
+    argument: (identifier))
+  (op_call
+    receiver: (identifier)
+    operator: (operator)
+    argument: (regex))
+  (op_call
+    receiver: (constant)
+    operator: (operator)
+    argument: (symbol)))
+
+================================================================================
+comparison operators
+================================================================================
+1 < 2
+
+"b" >
+"a"
+
+5 \
+<=\
+5.1
+
+(9 >= 7)
+
+p! 0 <=> 5
+--------------------------------------------------------------------------------
+
+(source_file
+  (op_call
+    receiver: (integer)
+    operator: (operator)
+    argument: (integer))
+  (op_call
+    receiver: (string)
+    operator: (operator)
+    argument: (string))
+  (op_call
+    receiver: (integer)
+    operator: (operator)
+    argument: (float))
+  (op_call
+    receiver: (integer)
+    operator: (operator)
+    argument: (integer))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (op_call
+        receiver: (integer)
+        operator: (operator)
+        argument: (integer)))))
+
+================================================================================
+chained equality and comparison operators
+================================================================================
+a <= b <= c
+
+a >= b <= c > d
+
+a == b <= c
+a <= b == c
+--------------------------------------------------------------------------------
+
+(source_file
+  (op_call
+    receiver: (op_call
+      receiver: (identifier)
+      operator: (operator)
+      argument: (identifier))
+    operator: (operator)
+    argument: (identifier))
+  (op_call
+    receiver: (op_call
+      receiver: (op_call
+        receiver: (identifier)
+        operator: (operator)
+        argument: (identifier))
+      operator: (operator)
+      argument: (identifier))
+    operator: (operator)
+    argument: (identifier))
+  (op_call
+    receiver: (op_call
+      receiver: (identifier)
+      operator: (operator)
+      argument: (identifier))
+    operator: (operator)
+    argument: (identifier))
+  (op_call
+    receiver: (identifier)
+    operator: (operator)
+    argument: (op_call
+      receiver: (identifier)
+      operator: (operator)
+      argument: (identifier))))
+
+================================================================================
+combined assignment operators
+================================================================================
+a += b
+a &+= b
+a -= b
+a &-= b
+a *= b
+a &*= b
+a /= b
+a //= b
+a %= b
+a |= b
+a &= b
+a ^= b
+a **= b
+a <<= b
+a >>= b
+a ||= b
+a &&= b
+
+@c %= 7
+
+ary[0..2] //= val.bar **= 7
+--------------------------------------------------------------------------------
+
+(source_file
+  (op_assign
+    lhs: (identifier)
+    rhs: (identifier))
+  (op_assign
+    lhs: (identifier)
+    rhs: (identifier))
+  (op_assign
+    lhs: (identifier)
+    rhs: (identifier))
+  (op_assign
+    lhs: (identifier)
+    rhs: (identifier))
+  (op_assign
+    lhs: (identifier)
+    rhs: (identifier))
+  (op_assign
+    lhs: (identifier)
+    rhs: (identifier))
+  (op_assign
+    lhs: (identifier)
+    rhs: (identifier))
+  (op_assign
+    lhs: (identifier)
+    rhs: (identifier))
+  (op_assign
+    lhs: (identifier)
+    rhs: (identifier))
+  (op_assign
+    lhs: (identifier)
+    rhs: (identifier))
+  (op_assign
+    lhs: (identifier)
+    rhs: (identifier))
+  (op_assign
+    lhs: (identifier)
+    rhs: (identifier))
+  (op_assign
+    lhs: (identifier)
+    rhs: (identifier))
+  (op_assign
+    lhs: (identifier)
+    rhs: (identifier))
+  (op_assign
+    lhs: (identifier)
+    rhs: (identifier))
+  (op_assign
+    lhs: (identifier)
+    rhs: (identifier))
+  (op_assign
+    lhs: (identifier)
+    rhs: (identifier))
+  (op_assign
+    lhs: (instance_var)
+    rhs: (integer))
+  (op_assign
+    lhs: (index_call
+      receiver: (identifier)
+      arguments: (argument_list
+        (range
+          begin: (integer)
+          operator: (operator)
+          end: (integer))))
+    rhs: (op_assign
+      lhs: (assign_call
+        receiver: (identifier)
+        method: (identifier))
+      rhs: (integer))))
+
+================================================================================
+if/elsif/else
+================================================================================
+if true;end
+
+if ABC
+  return 5
+end
+
+if cond1
+elsif cond2
+elsif cond3
+else
+end
+
+if a "a"; puts "a" elsif b "b"; puts "b" else puts "c" end
+
+if you
+  puts "shouldn't"
+else if DO
+    puts "this"
+  end
+end
+--------------------------------------------------------------------------------
+
+(source_file
+  (if
+    cond: (true))
+  (if
+    cond: (constant)
+    then: (then
+      (return
+        (integer))))
+  (if
+    cond: (identifier)
+    else: (elsif
+      cond: (identifier)
+      else: (elsif
+        cond: (identifier)
+        else: (else))))
+  (if
+    cond: (call
+      method: (identifier)
+      arguments: (argument_list
+        (string)))
+    then: (then
+      (call
+        method: (identifier)
+        arguments: (argument_list
+          (string))))
+    else: (elsif
+      cond: (call
+        method: (identifier)
+        arguments: (argument_list
+          (string)))
+      then: (then
+        (call
+          method: (identifier)
+          arguments: (argument_list
+            (string))))
+      else: (else
+        (call
+          method: (identifier)
+          arguments: (argument_list
+            (string))))))
+  (if
+    cond: (identifier)
+    then: (then
+      (call
+        method: (identifier)
+        arguments: (argument_list
+          (string))))
+    else: (else
+      (if
+        cond: (constant)
+        then: (then
+          (call
+            method: (identifier)
+            arguments: (argument_list
+              (string))))))))
+
+================================================================================
+unless
+================================================================================
+unless a; end
+
+unless true
+  pp "asdf"
+else
+  pp "hjkl"
+end
+--------------------------------------------------------------------------------
+
+(source_file
+  (unless
+    cond: (identifier))
+  (unless
+    cond: (true)
+    then: (then
+      (call
+        method: (identifier)
+        arguments: (argument_list
+          (string))))
+    else: (else
+      (call
+        method: (identifier)
+        arguments: (argument_list
+          (string))))))
+
+================================================================================
+ternary if
+================================================================================
+thingy? ? 1 : 2.0
+
+puts true ?
+"a"
+:
+# something
+'b'
+
+ans = foo ? "foo" : bar ? "bar" : nil
+--------------------------------------------------------------------------------
+
+(source_file
+  (conditional
+    cond: (call
+      method: (identifier))
+    then: (integer)
+    else: (float))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (conditional
+        cond: (true)
+        then: (string)
+        (comment)
+        else: (char))))
+  (assign
+    lhs: (identifier)
+    rhs: (conditional
+      cond: (identifier)
+      then: (string)
+      else: (conditional
+        cond: (identifier)
+        then: (string)
+        else: (nil)))))
+
+================================================================================
+if modifiers
+================================================================================
+def foo
+  return 7 if foo?
+  puts 'c' if bar
+  8 if
+    if
+      true
+        "yes"
+      else
+        "no"
+      end
+
+  puts i nil
+  puts if? true
+  puts iff false
+
+  foo! if bar
+  "foo" if bar
+
+  foo if bar
+  return if bar
+  7 if bar
+  foo[0] = 1 if 2
+  1 rescue 2 if 3
+end
+--------------------------------------------------------------------------------
+
+(source_file
+  (method_def
+    name: (identifier)
+    (modifier_if
+      then: (return
+        (integer))
+      cond: (call
+        method: (identifier)))
+    (modifier_if
+      then: (call
+        method: (identifier)
+        arguments: (argument_list
+          (char)))
+      cond: (identifier))
+    (modifier_if
+      then: (integer)
+      cond: (if
+        cond: (true)
+        then: (then
+          (string))
+        else: (else
+          (string))))
+    (call
+      method: (identifier)
+      arguments: (argument_list
+        (call
+          method: (identifier)
+          arguments: (argument_list
+            (nil)))))
+    (call
+      method: (identifier)
+      arguments: (argument_list
+        (call
+          method: (identifier)
+          arguments: (argument_list
+            (true)))))
+    (call
+      method: (identifier)
+      arguments: (argument_list
+        (call
+          method: (identifier)
+          arguments: (argument_list
+            (false)))))
+    (modifier_if
+      then: (call
+        method: (identifier))
+      cond: (identifier))
+    (modifier_if
+      then: (string)
+      cond: (identifier))
+    (modifier_if
+      then: (identifier)
+      cond: (identifier))
+    (modifier_if
+      then: (return)
+      cond: (identifier))
+    (modifier_if
+      then: (integer)
+      cond: (identifier))
+    (modifier_if
+      then: (assign
+        lhs: (index_call
+          receiver: (identifier)
+          arguments: (argument_list
+            (integer)))
+        rhs: (integer))
+      cond: (integer))
+    (modifier_if
+      then: (modifier_rescue
+        (integer)
+        rescue: (integer))
+      cond: (integer))))
+
+================================================================================
+unless modifiers
+================================================================================
+def foo
+  return 7 unless foo?
+  puts 'c' unless bar
+  8 unless
+    unless
+      true
+        "yes"
+      else
+        "no"
+      end
+
+  puts unles nil
+  puts unless? true
+  puts unlesss false
+
+  foo! unless bar
+  "foo" unless bar
+
+  foo unless bar
+  return unless bar
+  7 unless bar
+  foo[0] = 1 unless 2
+  1 rescue 2 unless 3
+end
+--------------------------------------------------------------------------------
+
+(source_file
+  (method_def
+    name: (identifier)
+    (modifier_unless
+      then: (return
+        (integer))
+      cond: (call
+        method: (identifier)))
+    (modifier_unless
+      then: (call
+        method: (identifier)
+        arguments: (argument_list
+          (char)))
+      cond: (identifier))
+    (modifier_unless
+      then: (integer)
+      cond: (unless
+        cond: (true)
+        then: (then
+          (string))
+        else: (else
+          (string))))
+    (call
+      method: (identifier)
+      arguments: (argument_list
+        (call
+          method: (identifier)
+          arguments: (argument_list
+            (nil)))))
+    (call
+      method: (identifier)
+      arguments: (argument_list
+        (call
+          method: (identifier)
+          arguments: (argument_list
+            (true)))))
+    (call
+      method: (identifier)
+      arguments: (argument_list
+        (call
+          method: (identifier)
+          arguments: (argument_list
+            (false)))))
+    (modifier_unless
+      then: (call
+        method: (identifier))
+      cond: (identifier))
+    (modifier_unless
+      then: (string)
+      cond: (identifier))
+    (modifier_unless
+      then: (identifier)
+      cond: (identifier))
+    (modifier_unless
+      then: (return)
+      cond: (identifier))
+    (modifier_unless
+      then: (integer)
+      cond: (identifier))
+    (modifier_unless
+      then: (assign
+        lhs: (index_call
+          receiver: (identifier)
+          arguments: (argument_list
+            (integer)))
+        rhs: (integer))
+      cond: (integer))
+    (modifier_unless
+      then: (modifier_rescue
+        (integer)
+        rescue: (integer))
+      cond: (integer))))
+
+================================================================================
+calls with do/end blocks
+================================================================================
+a do end
+
+a b do end
+
+a b() do end
+
+a b c do
+d do end; f g do end
+end
+
+a (b do 1 end) do 2 end
+--------------------------------------------------------------------------------
+
+(source_file
+  (call
+    method: (identifier)
+    block: (block))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (identifier))
+    block: (block))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (call
+        method: (identifier)
+        arguments: (argument_list)))
+    block: (block))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (call
+        method: (identifier)
+        arguments: (argument_list
+          (identifier))))
+    block: (block
+      (call
+        method: (identifier)
+        block: (block))
+      (call
+        method: (identifier)
+        arguments: (argument_list
+          (identifier))
+        block: (block))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (call
+        method: (identifier)
+        block: (block
+          (integer))))
+    block: (block
+      (integer))))
+
+================================================================================
+do/end blocks with rescue, else, and ensure
+================================================================================
+a do rescue e ; end
+b do ensure bar end
+
+(1..10).each do |n|
+:a
+rescue
+else
+ensure
+end
+--------------------------------------------------------------------------------
+
+(source_file
+  (call
+    method: (identifier)
+    block: (block
+      rescue: (rescue_block
+        variable: (identifier))))
+  (call
+    method: (identifier)
+    block: (block
+      ensure: (ensure
+        (identifier))))
+  (call
+    receiver: (range
+      begin: (integer)
+      operator: (operator)
+      end: (integer))
+    method: (identifier)
+    block: (block
+      params: (param_list
+        (param
+          name: (identifier)))
+      (symbol)
+      rescue: (rescue_block)
+      else: (else)
+      ensure: (ensure))))
+
+================================================================================
+calls with {} blocks
+================================================================================
+a {}
+a() {}
+
+a 1 { 2 }
+a(1) { 2 }
+
+a { b { c } }
+
+a b c { 1 }
+a b c do 1 end
+
+a b { 1 } do 2 end
+
+a {
+  b do
+    1
+  end
+}
+
+a do
+  b { 2
+  } end
+
+a b { 1 } do 2 end
+
+a b { 1 } { 2 }
+a(b { 1 }) { 2 }
+
+a 1, {2, b { 4 }} { 3 }
+--------------------------------------------------------------------------------
+
+(source_file
+  (call
+    method: (identifier)
+    block: (block))
+  (call
+    method: (identifier)
+    arguments: (argument_list)
+    block: (block))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (integer))
+    block: (block
+      (integer)))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (integer))
+    block: (block
+      (integer)))
+  (call
+    method: (identifier)
+    block: (block
+      (call
+        method: (identifier)
+        block: (block
+          (identifier)))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (call
+        method: (identifier)
+        arguments: (argument_list
+          (call
+            method: (identifier)
+            block: (block
+              (integer)))))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (call
+        method: (identifier)
+        arguments: (argument_list
+          (identifier))))
+    block: (block
+      (integer)))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (call
+        method: (identifier)
+        block: (block
+          (integer))))
+    block: (block
+      (integer)))
+  (call
+    method: (identifier)
+    block: (block
+      (call
+        method: (identifier)
+        block: (block
+          (integer)))))
+  (call
+    method: (identifier)
+    block: (block
+      (call
+        method: (identifier)
+        block: (block
+          (integer)))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (call
+        method: (identifier)
+        block: (block
+          (integer))))
+    block: (block
+      (integer)))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (call
+        method: (identifier)
+        block: (block
+          (integer))))
+    block: (block
+      (integer)))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (call
+        method: (identifier)
+        block: (block
+          (integer))))
+    block: (block
+      (integer)))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (integer)
+      (tuple
+        (integer)
+        (call
+          method: (identifier)
+          block: (block
+            (integer)))))
+    block: (block
+      (integer))))
+
+================================================================================
+calls with & block forwarding
+================================================================================
+foo(&block)
+foo &block
+a.foo &block
+a.foo(&block)
+foo "boo", &(->{})
+foo "boo", &->{}
+foo "boo", &(captured)
+bar &foo "hi", "bye"
+bar &if true
+       foo "yes"
+     else
+       foo "no"
+     end
+
+bar &prc ? 1 : 2 # => bar(&(prc ? 1 : 2))
+bar &prc .. 7 # => bar(&(prc..7))
+
+foo &b = a
+--------------------------------------------------------------------------------
+
+(source_file
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (block_argument
+        (identifier))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (block_argument
+        (identifier))))
+  (call
+    receiver: (identifier)
+    method: (identifier)
+    arguments: (argument_list
+      (block_argument
+        (identifier))))
+  (call
+    receiver: (identifier)
+    method: (identifier)
+    arguments: (argument_list
+      (block_argument
+        (identifier))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (string)
+      (block_argument
+        (proc
+          block: (block)))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (string)
+      (block_argument
+        (proc
+          block: (block)))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (string)
+      (block_argument
+        (identifier))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (block_argument
+        (call
+          method: (identifier)
+          arguments: (argument_list
+            (string)
+            (string))))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (block_argument
+        (if
+          cond: (true)
+          then: (then
+            (call
+              method: (identifier)
+              arguments: (argument_list
+                (string))))
+          else: (else
+            (call
+              method: (identifier)
+              arguments: (argument_list
+                (string))))))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (block_argument
+        (conditional
+          cond: (identifier)
+          then: (integer)
+          else: (integer)))))
+  (comment)
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (block_argument
+        (range
+          begin: (identifier)
+          operator: (operator)
+          end: (integer)))))
+  (comment)
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (block_argument
+        (assign
+          lhs: (identifier)
+          rhs: (identifier))))))
+
+================================================================================
+calls with &. short block syntax
+================================================================================
+method &.  some_method
+method(&. to_s)
+["i", "o"].join(",", &.upcase(Unicode::CaseOptions::Turkic))
+method(&.	[index])
+method(&.[](index))
+method(&. + 2)
+method(&.+(2))
+method(&.@ivar)
+method(&.take_block(&.foo))
+method(&.take_block(&.@foo))
+method(&.take_block { |f| f.foo })
+--------------------------------------------------------------------------------
+
+(source_file
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (block_argument
+        (implicit_object_call
+          method: (identifier)))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (block_argument
+        (implicit_object_call
+          method: (identifier)))))
+  (call
+    receiver: (array
+      (string)
+      (string))
+    method: (identifier)
+    arguments: (argument_list
+      (string)
+      (block_argument
+        (implicit_object_call
+          method: (identifier)
+          arguments: (argument_list
+            (constant))))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (block_argument
+        (implicit_object_call
+          (index_call
+            arguments: (argument_list
+              (identifier)))))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (block_argument
+        (implicit_object_call
+          method: (operator)
+          arguments: (argument_list
+            (identifier))))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (block_argument
+        (implicit_object_call
+          method: (operator)
+          arguments: (argument_list
+            (integer))))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (block_argument
+        (implicit_object_call
+          method: (operator)
+          arguments: (argument_list
+            (integer))))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (block_argument
+        (implicit_object_call
+          (instance_var)))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (block_argument
+        (implicit_object_call
+          method: (identifier)
+          arguments: (argument_list
+            (block_argument
+              (implicit_object_call
+                method: (identifier))))))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (block_argument
+        (implicit_object_call
+          method: (identifier)
+          arguments: (argument_list
+            (block_argument
+              (implicit_object_call
+                (instance_var))))))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (block_argument
+        (implicit_object_call
+          method: (identifier)
+          block: (block
+            params: (param_list
+              (param
+                name: (identifier)))
+            (call
+              receiver: (identifier)
+              method: (identifier))))))))
+
+================================================================================
+precedence of block attachment with &. short block syntax
+================================================================================
+outer method &.take_block do "inner" end
+outer method &.take_block { "inner" }
+outer(method &.take_block do "inner" end)
+outer method(&.take_block) do "inner" end
+--------------------------------------------------------------------------------
+
+(source_file
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (call
+        method: (identifier)
+        arguments: (argument_list
+          (block_argument
+            (implicit_object_call
+              method: (identifier)
+              block: (block
+                (string))))))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (call
+        method: (identifier)
+        arguments: (argument_list
+          (block_argument
+            (implicit_object_call
+              method: (identifier)
+              block: (block
+                (string))))))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (call
+        method: (identifier)
+        arguments: (argument_list
+          (block_argument
+            (implicit_object_call
+              method: (identifier)
+              block: (block
+                (string))))))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (call
+        method: (identifier)
+        arguments: (argument_list
+          (block_argument
+            (implicit_object_call
+              method: (identifier))))))
+    block: (block
+      (string))))
+
+================================================================================
+ampersand disambiguation
+================================================================================
+## Operators ##
+
+func &+var   # binary
+func(&+var)  # unary
+func(&+ var) # unary
+
+func &-var   # binary
+func(&-var)  # unary
+func(&- var) # unary
+
+func&var     # binary
+func&->{}
+func & var   # binary
+func & ->{}
+
+var.&
+
+## Blocks ##
+
+func(&var)
+func &var
+func(&->{})
+func &->{}
+
+func(&(var.-))
+func &(var.-)
+func &var.-
+
+func(&(-var))
+func &(-var)
+--------------------------------------------------------------------------------
+
+(source_file
+  (comment)
+  (op_call
+    receiver: (identifier)
+    operator: (operator)
+    argument: (identifier))
+  (comment)
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (op_call
+        operator: (operator)
+        receiver: (identifier))))
+  (comment)
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (op_call
+        operator: (operator)
+        receiver: (identifier))))
+  (comment)
+  (op_call
+    receiver: (identifier)
+    operator: (operator)
+    argument: (identifier))
+  (comment)
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (op_call
+        operator: (operator)
+        receiver: (identifier))))
+  (comment)
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (op_call
+        operator: (operator)
+        receiver: (identifier))))
+  (comment)
+  (op_call
+    receiver: (identifier)
+    operator: (operator)
+    argument: (identifier))
+  (comment)
+  (op_call
+    receiver: (identifier)
+    operator: (operator)
+    argument: (proc
+      block: (block)))
+  (op_call
+    receiver: (identifier)
+    operator: (operator)
+    argument: (identifier))
+  (comment)
+  (op_call
+    receiver: (identifier)
+    operator: (operator)
+    argument: (proc
+      block: (block)))
+  (call
+    receiver: (identifier)
+    method: (operator))
+  (comment)
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (block_argument
+        (identifier))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (block_argument
+        (identifier))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (block_argument
+        (proc
+          block: (block)))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (block_argument
+        (proc
+          block: (block)))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (block_argument
+        (call
+          receiver: (identifier)
+          method: (operator)))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (block_argument
+        (call
+          receiver: (identifier)
+          method: (operator)))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (block_argument
+        (call
+          receiver: (identifier)
+          method: (operator)))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (block_argument
+        (op_call
+          operator: (operator)
+          receiver: (identifier)))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (block_argument
+        (op_call
+          operator: (operator)
+          receiver: (identifier))))))
+
+================================================================================
+block parameters
+================================================================================
+foo{|_|}
+
+(
+  foo(
+  ) do |
+ _
+ |
+  end
+)
+
+foo { |a, *b, (c, d,),| }
+--------------------------------------------------------------------------------
+
+(source_file
+  (call
+    method: (identifier)
+    block: (block
+      params: (param_list
+        (param
+          name: (identifier)))))
+  (call
+    method: (identifier)
+    arguments: (argument_list)
+    block: (block
+      params: (param_list
+        (param
+          name: (identifier)))))
+  (call
+    method: (identifier)
+    block: (block
+      params: (param_list
+        (param
+          name: (identifier))
+        (splat_param
+          name: (identifier))
+        (param
+          name: (identifier))
+        (param
+          name: (identifier))))))
+
+================================================================================
+yield
+================================================================================
+def foo; yield; end
+
+def bar
+  with yield yield yield
+  # called in this order:
+  with yield 1 yield :"3", yield("2")
+
+  with a yield! yield *something
+
+  yield &+ yield
+
+  # Technically block arguments are allowed, but will be ignored
+  yield("foo", &->{"bar"})
+  yield 7, &->(a){a+1}
+end
+--------------------------------------------------------------------------------
+
+(source_file
+  (method_def
+    name: (identifier)
+    (yield))
+  (method_def
+    name: (identifier)
+    (yield
+      with: (yield)
+      arguments: (argument_list
+        (yield)))
+    (comment)
+    (yield
+      with: (yield
+        arguments: (argument_list
+          (integer)))
+      arguments: (argument_list
+        (symbol)
+        (yield
+          arguments: (argument_list
+            (string)))))
+    (yield
+      with: (call
+        method: (identifier)
+        arguments: (argument_list
+          (call
+            method: (identifier))))
+      arguments: (argument_list
+        (splat
+          (identifier))))
+    (op_call
+      receiver: (yield)
+      operator: (operator)
+      argument: (yield))
+    (comment)
+    (yield
+      arguments: (argument_list
+        (string)
+        (block_argument
+          (proc
+            block: (block
+              (string))))))
+    (yield
+      arguments: (argument_list
+        (integer)
+        (block_argument
+          (proc
+            params: (param_list
+              (param
+                name: (identifier)))
+            block: (block
+              (op_call
+                receiver: (identifier)
+                operator: (operator)
+                argument: (integer)))))))))
+
+================================================================================
+operator method calls
+================================================================================
+1.+
+1.+ 2
+
+false.|(true)
+nil.
+!()
+
+a.[]=(1, 2)
+--------------------------------------------------------------------------------
+
+(source_file
+  (call
+    receiver: (integer)
+    method: (operator))
+  (call
+    receiver: (integer)
+    method: (operator)
+    arguments: (argument_list
+      (integer)))
+  (call
+    receiver: (false)
+    method: (operator)
+    arguments: (argument_list
+      (true)))
+  (call
+    receiver: (nil)
+    method: (operator)
+    arguments: (argument_list))
+  (call
+    receiver: (identifier)
+    method: (operator)
+    arguments: (argument_list
+      (integer)
+      (integer))))
+
+================================================================================
+index accessors
+================================================================================
+foo[0]
+puts {0} [0]
+puts({0} [0]?)
+
+[0, 1, 2].[](-1)
+
+ary[*{0}, **{count: 1}]
+
+a.[count: 1, values: [5]] =0
+b.["q": 1, q?: 3, %q(stuff): [5]] =0
+--------------------------------------------------------------------------------
+
+(source_file
+  (index_call
+    receiver: (identifier)
+    arguments: (argument_list
+      (integer)))
+  (index_call
+    receiver: (call
+      method: (identifier)
+      block: (block
+        (integer)))
+    arguments: (argument_list
+      (integer)))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (index_call
+        receiver: (tuple
+          (integer))
+        arguments: (argument_list
+          (integer)))))
+  (call
+    receiver: (array
+      (integer)
+      (integer)
+      (integer))
+    method: (operator)
+    arguments: (argument_list
+      (integer)))
+  (index_call
+    receiver: (identifier)
+    arguments: (argument_list
+      (splat
+        (tuple
+          (integer)))
+      (double_splat
+        (named_tuple
+          (named_expr
+            name: (identifier)
+            (integer))))))
+  (call
+    receiver: (identifier)
+    method: (operator)
+    (argument_list
+      (named_expr
+        name: (identifier)
+        (integer))
+      (named_expr
+        name: (identifier)
+        (array
+          (integer))))
+    arguments: (argument_list
+      (integer)))
+  (call
+    receiver: (identifier)
+    method: (operator)
+    (argument_list
+      (named_expr
+        name: (string)
+        (integer))
+      (named_expr
+        name: (identifier)
+        (integer))
+      (named_expr
+        name: (string)
+        (array
+          (integer))))
+    arguments: (argument_list
+      (integer))))
+
+================================================================================
+index assignment
+================================================================================
+a.[]=(1, 2)
+
+a[1] = 2
+
+a[0], a[2, 3] = a[2], a[0]
+
+a[1], *b[0] = a
+--------------------------------------------------------------------------------
+
+(source_file
+  (call
+    receiver: (identifier)
+    method: (operator)
+    arguments: (argument_list
+      (integer)
+      (integer)))
+  (assign
+    lhs: (index_call
+      receiver: (identifier)
+      arguments: (argument_list
+        (integer)))
+    rhs: (integer))
+  (multi_assign
+    lhs: (index_call
+      receiver: (identifier)
+      arguments: (argument_list
+        (integer)))
+    lhs: (index_call
+      receiver: (identifier)
+      arguments: (argument_list
+        (integer)
+        (integer)))
+    rhs: (index_call
+      receiver: (identifier)
+      arguments: (argument_list
+        (integer)))
+    rhs: (index_call
+      receiver: (identifier)
+      arguments: (argument_list
+        (integer))))
+  (multi_assign
+    lhs: (index_call
+      receiver: (identifier)
+      arguments: (argument_list
+        (integer)))
+    lhs: (splat
+      (index_call
+        receiver: (identifier)
+        arguments: (argument_list
+          (integer))))
+    rhs: (identifier)))
+
+================================================================================
+case expressions
+================================================================================
+a = case "foo"
+    when /o/, /z/
+      puts "asdf"
+      1
+    when .empty?
+    when false then ":("
+    else
+      2
+    end
+
+case 1 when 2,
+3; else end
+
+case exp
+when value1, .value2?(foo: :bar, %( baz ): 'q')  then do_something
+when .ljust 5, 'a' do |xyz| 9 end then do_something_else
+else                                   do_another_thing
+end
+
+case {val1, val2, val3}
+when {.even?, .odd?, _}
+  true
+when {.odd?, .even?, 1}, {_, _ab, .zero?(0) {0}}
+  false
+else
+  case val3
+  when .>(0), false
+  when .[] 2, count: 3
+  when .try(&->(v : Int32){v == 0})
+  end
+end
+--------------------------------------------------------------------------------
+
+(source_file
+  (assign
+    lhs: (identifier)
+    rhs: (case
+      cond: (string)
+      (when
+        cond: (regex)
+        cond: (regex)
+        (call
+          method: (identifier)
+          arguments: (argument_list
+            (string)))
+        (integer))
+      (when
+        cond: (implicit_object_call
+          method: (identifier)))
+      (when
+        cond: (false)
+        (string))
+      (else
+        (integer))))
+  (case
+    cond: (integer)
+    (when
+      cond: (integer)
+      cond: (integer))
+    (else))
+  (case
+    cond: (identifier)
+    (when
+      cond: (identifier)
+      cond: (implicit_object_call
+        method: (identifier)
+        arguments: (argument_list
+          (named_expr
+            name: (identifier)
+            (symbol))
+          (named_expr
+            name: (string)
+            (char))))
+      (identifier))
+    (when
+      cond: (implicit_object_call
+        method: (identifier)
+        arguments: (argument_list
+          (integer)
+          (char))
+        block: (block
+          params: (param_list
+            (param
+              name: (identifier)))
+          (integer)))
+      (identifier))
+    (else
+      (identifier)))
+  (case
+    cond: (tuple
+      (identifier)
+      (identifier)
+      (identifier))
+    (when
+      cond: (tuple
+        (implicit_object_call
+          method: (identifier))
+        (implicit_object_call
+          method: (identifier))
+        (identifier))
+      (true))
+    (when
+      cond: (tuple
+        (implicit_object_call
+          method: (identifier))
+        (implicit_object_call
+          method: (identifier))
+        (integer))
+      cond: (tuple
+        (identifier)
+        (identifier)
+        (implicit_object_call
+          method: (identifier)
+          arguments: (argument_list
+            (integer))
+          block: (block
+            (integer))))
+      (false))
+    (else
+      (case
+        cond: (identifier)
+        (when
+          cond: (implicit_object_call
+            method: (operator)
+            arguments: (argument_list
+              (integer)))
+          cond: (false))
+        (when
+          cond: (implicit_object_call
+            method: (operator)
+            arguments: (argument_list
+              (integer)
+              (named_expr
+                name: (identifier)
+                (integer)))))
+        (when
+          cond: (implicit_object_call
+            method: (identifier)
+            arguments: (argument_list
+              (block_argument
+                (proc
+                  params: (param_list
+                    (param
+                      name: (identifier)
+                      type: (constant)))
+                  block: (block
+                    (op_call
+                      receiver: (identifier)
+                      operator: (operator)
+                      argument: (integer))))))))))))
+
+================================================================================
+exhaustive case expressions
+================================================================================
+case nil
+in nil
+end
+
+case foo
+in false
+  case bar
+  in .bar?
+  in Int32
+  end
+in true, Foo
+in .zero? then 0
+in Proc(Int32, -> (Int32))
+end
+--------------------------------------------------------------------------------
+
+(source_file
+  (case
+    cond: (nil)
+    (in
+      cond: (nil)))
+  (case
+    cond: (identifier)
+    (in
+      cond: (false)
+      (case
+        cond: (identifier)
+        (in
+          cond: (implicit_object_call
+            method: (identifier)))
+        (in
+          cond: (constant))))
+    (in
+      cond: (true)
+      cond: (constant))
+    (in
+      cond: (implicit_object_call
+        method: (identifier))
+      (integer))
+    (in
+      cond: (generic_instance_type
+        (constant)
+        params: (param_list
+          (constant)
+          (proc_type
+            return: (constant)))))))
+
+================================================================================
+sizeof, instance_sizeof, offsetof
+================================================================================
+[
+  sizeof(String),
+  instance_sizeof(String ->),
+  offsetof(Foo(Bar), @a),
+  offsetof({Char, String, Int32}, 0x0_2),
+  offsetof({Char, String, Int32}, 0),
+].sum
+--------------------------------------------------------------------------------
+
+(source_file
+  (call
+    receiver: (array
+      (sizeof
+        (constant))
+      (instance_sizeof
+        (proc_type
+          (constant)))
+      (offsetof
+        (generic_instance_type
+          (constant)
+          params: (param_list
+            (constant)))
+        (instance_var))
+      (offsetof
+        (tuple_type
+          (constant)
+          (constant)
+          (constant))
+        (integer))
+      (offsetof
+        (tuple_type
+          (constant)
+          (constant)
+          (constant))
+        (integer)))
+    method: (identifier)))
+
+================================================================================
+type declaration
+================================================================================
+a : Int32
+b : Int32 = 7
+c = 7
+
+foo ? a : Int32
+
+foo a:7
+foo a : Int32
+foo a: Int32
+
+f : Proc(Proc(Nil)) = -> : -> { 1; ->{} }
+f : -> ->  = -> : -> { 1; ->{} }
+
+v1: Int32 = (v2: Int32 = 2 ; 1)
+
+v1 : Int32 = ( @[Foo]
+a = 7)
+
+d : Range(String, String) = "a" .. "b"
+
+f = g : Int32 = 7
+
+class K
+  @var : String
+  @@var2 : String = "var2"
+
+  getter asdf : String, hjkl : String = "hjkl"
+end
+--------------------------------------------------------------------------------
+
+(source_file
+  (type_declaration
+    var: (identifier)
+    type: (constant))
+  (type_declaration
+    var: (identifier)
+    type: (constant)
+    value: (integer))
+  (assign
+    lhs: (identifier)
+    rhs: (integer))
+  (conditional
+    cond: (identifier)
+    then: (identifier)
+    else: (constant))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (named_expr
+        name: (identifier)
+        (integer))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (type_declaration
+        var: (identifier)
+        type: (constant))))
+  (call
+    method: (identifier)
+    arguments: (argument_list
+      (named_expr
+        name: (identifier)
+        (constant))))
+  (type_declaration
+    var: (identifier)
+    type: (generic_instance_type
+      (constant)
+      params: (param_list
+        (generic_instance_type
+          (constant)
+          params: (param_list
+            (constant)))))
+    value: (proc
+      type: (proc_type)
+      block: (block
+        (integer)
+        (proc
+          block: (block)))))
+  (type_declaration
+    var: (identifier)
+    type: (proc_type
+      return: (proc_type))
+    value: (proc
+      type: (proc_type)
+      block: (block
+        (integer)
+        (proc
+          block: (block)))))
+  (type_declaration
+    var: (identifier)
+    type: (constant)
+    value: (expressions
+      (type_declaration
+        var: (identifier)
+        type: (constant)
+        value: (integer))
+      (integer)))
+  (type_declaration
+    var: (identifier)
+    type: (constant)
+    value: (expressions
+      (annotation
+        (constant))
+      (assign
+        lhs: (identifier)
+        rhs: (integer))))
+  (type_declaration
+    var: (identifier)
+    type: (generic_instance_type
+      (constant)
+      params: (param_list
+        (constant)
+        (constant)))
+    value: (range
+      begin: (string)
+      operator: (operator)
+      end: (string)))
+  (assign
+    lhs: (identifier)
+    rhs: (type_declaration
+      var: (identifier)
+      type: (constant)
+      value: (integer)))
+  (class_def
+    name: (constant)
+    (type_declaration
+      var: (instance_var)
+      type: (constant))
+    (type_declaration
+      var: (class_var)
+      type: (constant)
+      value: (string))
+    (call
+      method: (identifier)
+      arguments: (argument_list
+        (type_declaration
+          var: (identifier)
+          type: (constant))
+        (type_declaration
+          var: (identifier)
+          type: (constant)
+          value: (string))))))

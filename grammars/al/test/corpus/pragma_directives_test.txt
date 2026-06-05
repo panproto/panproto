@@ -1,0 +1,49 @@
+================================================================================
+Pragma directives in variable declarations
+================================================================================
+
+codeunit 50100 TestUnit
+{
+    procedure TestPragma()
+    var
+#pragma warning disable AL0432
+        TempRecord: Record "Test Table" temporary;
+#pragma warning restore AL0432
+        MyValue: Integer;
+    begin
+        TempRecord.Init();
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (pragma)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (quoted_identifier)
+              (temporary_keyword))))
+        (pragma)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (member_expression
+            object: (identifier)
+            member: (identifier))
+          arguments: (argument_list))
+        (end_keyword)))))

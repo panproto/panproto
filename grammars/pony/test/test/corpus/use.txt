@@ -1,0 +1,234 @@
+=============
+Use statement
+=============
+
+use "math"
+
+---
+
+(source_file
+  (use_statement
+    (string
+      (string_content))))
+
+=======================
+Use statement with name
+=======================
+
+use
+foo = "foo"
+
+---
+
+(source_file
+  (use_statement
+    (identifier)
+    (string
+      (string_content))))
+
+=======================
+Multiple Use statements
+=======================
+
+use "foo"
+use bla12 
+= "blubb"
+use "foo"
+
+---
+
+(source_file
+  (use_statement
+    (string
+      (string_content)))
+  (use_statement
+    (identifier)
+    (string
+      (string_content)))
+  (use_statement
+    (string
+      (string_content))))
+
+========
+Use FFI
+========
+
+use @println[U64](i: U64, u: U64, ...)?
+
+---
+
+(source_file
+  (use_statement
+    (ffi_method
+      (identifier)
+      (base_type
+        (identifier))
+      (parameters
+        (parameter
+          (identifier)
+          (base_type
+            (identifier)))
+        (parameter
+          (identifier)
+          (base_type
+            (identifier)))
+        (parameter)))))
+
+======
+Use if
+======
+
+use "package" if consume iso foo
+
+---
+
+(source_file
+  (use_statement
+    (string
+      (string_content))
+    (platform_specifier
+      (if_block
+        (block
+          (consume_statement
+            (capability)
+            (identifier)))))))
+
+==================
+Use primitive type
+==================
+
+use @primitve_types[Bool](a: U64, b: I128, c: Main ref, d: U8 iso^, e: I8 tag!)
+
+---
+
+(source_file
+  (use_statement
+    (ffi_method
+      (identifier)
+      (base_type
+        (identifier))
+      (parameters
+        (parameter
+          (identifier)
+          (base_type
+            (identifier)))
+        (parameter
+          (identifier)
+          (base_type
+            (identifier)))
+        (parameter
+          (identifier)
+          (ref_type
+            (base_type
+              (identifier))))
+        (parameter
+          (identifier)
+          (ephemeral_type
+            (iso_type
+              (base_type
+                (identifier)))))
+        (parameter
+          (identifier)
+          (aliased_type
+            (tag_type
+              (base_type
+                (identifier)))))))))
+
+==============
+Use Union type
+==============
+
+use @union_type[(U8 | I8)]()
+
+---
+
+(source_file
+  (use_statement
+    (ffi_method
+      (identifier)
+      (union_type
+        (base_type
+          (identifier))
+        (base_type
+          (identifier)))
+      (parameters))))
+
+=====================
+Use Intersection type
+=====================
+
+use @union_type[(U8 & I8)]()
+
+---
+
+(source_file
+  (use_statement
+    (ffi_method
+      (identifier)
+      (intersection_type
+        (base_type
+          (identifier))
+        (base_type
+          (identifier)))
+      (parameters))))
+
+==============
+Use tuple type
+==============
+
+use @tuple_type[(Foo, (Bar | Baz))]()
+
+---
+
+(source_file
+  (use_statement
+    (ffi_method
+      (identifier)
+      (tuple_type
+        (base_type
+          (identifier))
+        (union_type
+          (base_type
+            (identifier))
+          (base_type
+            (identifier))))
+      (parameters))))
+
+================
+Use grouped type
+================
+
+use @grouped[(Foo)]()
+
+---
+
+(source_file
+  (use_statement
+    (ffi_method
+      (identifier)
+      (tuple_type
+        (base_type
+          (identifier)))
+      (parameters))))
+
+==================
+Use ephemeral type
+==================
+
+use @snot[Iterator[this->A]^]()
+
+---
+
+(source_file
+  (use_statement
+    (ffi_method
+      (identifier)
+      (ephemeral_type
+        (base_type
+          (identifier)
+          (type_args
+            (viewpoint_type
+              (this)
+              (base_type
+                (identifier))))))
+      (parameters))))

@@ -1,0 +1,33 @@
+===
+basic/moduleRefLibrary.pkl
+===
+
+open module moduleRefLibrary
+
+const a = 42
+
+aa = module.a
+
+foo {}
+
+---
+
+(module
+  (moduleHeader
+    (moduleClause
+
+      (modifier)
+      (qualifiedIdentifier
+        (identifier))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (intLiteralExpr))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (moduleExpr)
+      (identifier)))
+  (classProperty
+    (identifier)
+    (objectBody)))

@@ -1,0 +1,28 @@
+===
+annotation/annotation5.pkl
+===
+
+integer: Int = 1
+
+@integer someProperty: String = "hi"
+---
+
+(module
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (intLiteralExpr))
+  (classProperty
+    (annotation
+      (qualifiedIdentifier
+        (identifier)))
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (slStringLiteralExpr
+      (slStringLiteralPart))))

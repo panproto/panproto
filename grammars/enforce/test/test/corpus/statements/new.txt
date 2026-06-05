@@ -1,0 +1,27 @@
+================================================================================
+new instance
+================================================================================
+void foo() {
+	new Foo();
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method (type_void) (identifier) (block
+	(statement_expression (new (type_identifier (identifier)) (actual_parameters))))))
+
+
+================================================================================
+new instance with parameters
+================================================================================
+void foo() {
+	new Foo(69, 420);
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method (type_void) (identifier) (block
+	(statement_expression
+		(new
+			(type_identifier (identifier))
+			(actual_parameters
+				(actual_parameter (literal_int))
+				(actual_parameter (literal_int))))))))
+
+

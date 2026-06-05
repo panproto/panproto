@@ -1,0 +1,14 @@
+===
+errors/undefinedOp2.pkl
+===
+
+res1 = "str" + 42
+---
+
+(module
+  (classProperty
+    (identifier)
+    (additiveExpr
+      (slStringLiteralExpr
+        (slStringLiteralPart))
+      (intLiteralExpr))))

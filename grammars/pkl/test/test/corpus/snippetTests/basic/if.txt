@@ -1,0 +1,83 @@
+===
+basic/if.pkl
+===
+
+amends "../snippetTest.pkl"
+
+examples {
+  ["basic"] {
+    if (true) 1 else 2
+    if (false) 1 else if (false) 2 else 3
+  }
+
+  ["non-boolean condition"] {
+    module.catch(() -> if ("") true else false)
+    module.catch(() -> if (0) true else false)
+    module.catch(() -> if (null) true else false)
+  }
+}
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (ifExpr
+              (trueLiteralExpr)
+              (intLiteralExpr)
+              (intLiteralExpr)))
+          (objectElement
+            (ifExpr
+              (falseLiteralExpr)
+              (intLiteralExpr)
+              (ifExpr
+                (falseLiteralExpr)
+                (intLiteralExpr)
+                (intLiteralExpr))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (qualifiedAccessExpr
+              (moduleExpr)
+              (identifier)
+              (argumentList
+                (functionLiteralExpr
+                  (parameterList)
+                  (ifExpr
+                    (slStringLiteralExpr)
+                    (trueLiteralExpr)
+                    (falseLiteralExpr))))))
+          (objectElement
+            (qualifiedAccessExpr
+              (moduleExpr)
+              (identifier)
+              (argumentList
+                (functionLiteralExpr
+                  (parameterList)
+                  (ifExpr
+                    (intLiteralExpr)
+                    (trueLiteralExpr)
+                    (falseLiteralExpr))))))
+          (objectElement
+            (qualifiedAccessExpr
+              (moduleExpr)
+              (identifier)
+              (argumentList
+                (functionLiteralExpr
+                  (parameterList)
+                  (ifExpr
+                    (nullLiteralExpr)
+                    (trueLiteralExpr)
+                    (falseLiteralExpr)))))))))))

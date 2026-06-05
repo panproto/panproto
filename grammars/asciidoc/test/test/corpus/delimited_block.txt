@@ -1,0 +1,73 @@
+================|||
+delimited_line
+================|||
+
+====
+Here's a sample asciidoc document:
+
+----
+= Document Title
+Author Name
+
+Content goes here.
+----
+====
+
+
+
+====
+block
+====
+
+====
+=====
+=====
+====
+
+=====
+====
+====
+=====
+
+-------------------|||
+
+(document
+  (block_element
+    (section_block
+      (delimited_block
+        (delimited_block_start_marker)
+        (section_block
+          (paragraph
+            (line)))
+        (section_block
+          (listing_block
+            (listing_block_start_marker)
+            (listing_block_body)
+            (listing_block_end_marker)))
+        (delimited_block_end_marker))))
+  (block_element
+    (section_block
+      (delimited_block
+        (delimited_block_start_marker)
+        (section_block
+          (paragraph
+            (line)))
+        (delimited_block_end_marker))))
+  (block_element
+    (section_block
+      (delimited_block
+        (delimited_block_start_marker)
+        (section_block
+          (delimited_block
+            (delimited_block_start_marker)
+            (delimited_block_end_marker)))
+        (delimited_block_end_marker))))
+  (block_element
+    (section_block
+      (delimited_block
+        (delimited_block_start_marker)
+        (section_block
+          (delimited_block
+            (delimited_block_start_marker)
+            (delimited_block_end_marker)))
+        (delimited_block_end_marker)))))

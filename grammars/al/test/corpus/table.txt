@@ -1,0 +1,154 @@
+==================
+ Simple Table Test
+==================
+
+table 50100 "My Test Table"
+{
+    Caption = 'My Test Table';
+    DataClassification = CustomerContent;
+
+    fields
+    {
+        field(1; "Primary Key"; Code[20])
+        {
+            Caption = 'Primary Key';
+            DataClassification = CustomerContent;
+        }
+        field(2; Description; Text[100])
+        {
+            Caption = 'Description';
+        }
+        field(3; Amount; Decimal)
+        {
+            Caption = 'Amount';
+            DecimalPlaces = 2:2;
+        }
+    }
+
+    keys
+    {
+        key(PK; "Primary Key")
+        {
+            Clustered = true;
+        }
+    }
+
+    var
+        myInt: Integer;
+
+    trigger OnInsert()
+    begin
+        Message('Record inserted');
+    end;
+
+    procedure MyProcedure(param: Text): Boolean
+    begin
+        if param <> '' then
+            exit(true)
+        else
+            exit(false);
+    end;
+}
+
+---
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (quoted_identifier)
+    (property
+      (property_name)
+      (string_literal))
+    (property
+      (property_name)
+      (identifier))
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        (integer)
+        (quoted_identifier)
+        (type_specification
+          (code_type
+            (integer)))
+        (property
+          (property_name)
+          (string_literal))
+        (property
+          (property_name)
+          (identifier)))
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (text_type
+            (integer)))
+        (property
+          (property_name)
+          (string_literal)))
+      (field_declaration
+        (integer)
+        (identifier)
+        (type_specification
+          (basic_type))
+        (property
+          (property_name)
+          (string_literal))
+        (property
+          (property_name)
+          (decimal_range_value
+            (integer)
+            (integer)))))
+    (keys_section
+      (keys_keyword)
+      (key_declaration
+        (key_keyword)
+        (identifier)
+        (field_list
+          (quoted_identifier))
+        (property
+          (property_name)
+          (boolean))))
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        (identifier)
+        (type_specification
+          (basic_type))))
+    (trigger_declaration
+      (trigger_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          (identifier)
+          (argument_list
+            (string_literal)))
+        (end_keyword)))
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (parameter_list
+        (parameter
+          (identifier)
+          (type_specification
+            (text_type))))
+      (type_specification
+        (basic_type))
+      (code_block
+        (begin_keyword)
+        (if_statement
+          (if_keyword)
+          (comparison_expression
+            (identifier)
+            (comparison_operator)
+            (string_literal))
+          (then_keyword)
+          (exit_statement
+            (exit_keyword)
+            (boolean))
+          (else_keyword)
+          (exit_statement
+            (exit_keyword)
+            (boolean)))
+        (end_keyword)))))

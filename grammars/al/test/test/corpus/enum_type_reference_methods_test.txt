@@ -1,0 +1,289 @@
+================================================================================
+Enum type reference with Ordinals method call
+================================================================================
+
+codeunit 12345 TestCodeunit
+{
+    trigger OnRun()
+    var
+        NumberOfPermTypes: Integer;
+    begin
+        NumberOfPermTypes := Enum::"CDC App. User Group Perm. Type".Ordinals().Count;
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (identifier)
+          right: (member_expression
+            object: (call_expression
+              function: (member_expression
+                object: (qualified_enum_value
+                  enum_type: (keyword_identifier
+                    (enum_keyword))
+                  value: (quoted_identifier))
+                member: (identifier))
+              arguments: (argument_list))
+            member: (identifier)))
+        (end_keyword)))))
+
+================================================================================
+Enum type reference with Names method call
+================================================================================
+
+codeunit 23456 NamesTestCodeunit
+{
+    trigger OnRun()
+    var
+        EnumNames: List of [Text];
+    begin
+        EnumNames := Enum::"Status Enum".Names();
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (list_type
+              element_type: (type_specification
+                (text_type))))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (identifier)
+          right: (call_expression
+            function: (member_expression
+              object: (qualified_enum_value
+                enum_type: (keyword_identifier
+                  (enum_keyword))
+                value: (quoted_identifier))
+              member: (identifier))
+            arguments: (argument_list)))
+        (end_keyword)))))
+
+================================================================================
+Multiple enum type references with different methods
+================================================================================
+
+codeunit 34567 MultiEnumCodeunit
+{
+    trigger OnRun()
+    var
+        Count1: Integer;
+        Count2: Integer;
+        Names: List of [Text];
+    begin
+        Count1 := Enum::"First Enum".Ordinals().Count;
+        Count2 := Enum::"Second Enum".AsInteger();
+        Names := Enum::"Third Enum".Names();
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type)))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type)))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (list_type
+              element_type: (type_specification
+                (text_type))))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (identifier)
+          right: (member_expression
+            object: (call_expression
+              function: (member_expression
+                object: (qualified_enum_value
+                  enum_type: (keyword_identifier
+                    (enum_keyword))
+                  value: (quoted_identifier))
+                member: (identifier))
+              arguments: (argument_list))
+            member: (identifier)))
+        (assignment_statement
+          left: (identifier)
+          right: (call_expression
+            function: (member_expression
+              object: (qualified_enum_value
+                enum_type: (keyword_identifier
+                  (enum_keyword))
+                value: (quoted_identifier))
+              member: (identifier))
+            arguments: (argument_list)))
+        (assignment_statement
+          left: (identifier)
+          right: (call_expression
+            function: (member_expression
+              object: (qualified_enum_value
+                enum_type: (keyword_identifier
+                  (enum_keyword))
+                value: (quoted_identifier))
+              member: (identifier))
+            arguments: (argument_list)))
+        (end_keyword)))))
+
+================================================================================
+Enum type reference with case variations
+================================================================================
+
+codeunit 45678 CaseVariationCodeunit
+{
+    trigger OnRun()
+    var
+        Count: Integer;
+    begin
+        Count := enum::"Lowercase Enum".Ordinals().Count;
+        Count := ENUM::"Uppercase Enum".Ordinals().Count;
+        Count := Enum::"Mixed Case Enum".Ordinals().Count;
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (identifier)
+          right: (member_expression
+            object: (call_expression
+              function: (member_expression
+                object: (qualified_enum_value
+                  enum_type: (keyword_identifier
+                    (enum_keyword))
+                  value: (quoted_identifier))
+                member: (identifier))
+              arguments: (argument_list))
+            member: (identifier)))
+        (assignment_statement
+          left: (identifier)
+          right: (member_expression
+            object: (call_expression
+              function: (member_expression
+                object: (qualified_enum_value
+                  enum_type: (keyword_identifier
+                    (enum_keyword))
+                  value: (quoted_identifier))
+                member: (identifier))
+              arguments: (argument_list))
+            member: (identifier)))
+        (assignment_statement
+          left: (identifier)
+          right: (member_expression
+            object: (call_expression
+              function: (member_expression
+                object: (qualified_enum_value
+                  enum_type: (keyword_identifier
+                    (enum_keyword))
+                  value: (quoted_identifier))
+                member: (identifier))
+              arguments: (argument_list))
+            member: (identifier)))
+        (end_keyword)))))
+
+================================================================================
+Enum type reference with unquoted identifier
+================================================================================
+
+codeunit 56789 UnquotedEnumCodeunit
+{
+    trigger OnRun()
+    var
+        Count: Integer;
+    begin
+        Count := Enum::PlainEnum.Ordinals().Count;
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (identifier)
+          right: (member_expression
+            object: (call_expression
+              function: (member_expression
+                object: (qualified_enum_value
+                  enum_type: (keyword_identifier
+                    (enum_keyword))
+                  value: (identifier))
+                member: (identifier))
+              arguments: (argument_list))
+            member: (identifier)))
+        (end_keyword)))))

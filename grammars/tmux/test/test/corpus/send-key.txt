@@ -1,0 +1,16 @@
+========================================
+send-key: indent
+========================================
+
+send a
+  send a
+
+---
+
+(file
+  (send_keys_directive
+    (command)
+    (key))
+  (send_keys_directive
+    (command)
+    (key)))

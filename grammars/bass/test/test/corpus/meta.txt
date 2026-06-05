@@ -1,0 +1,24 @@
+===
+Meta
+===
+
+^:foo 123
+^:foo ^{:indent true} "hello"
+
+---
+
+(source
+  (meta
+	(keyword
+	  (symbol))
+	(number))
+  (meta
+	(keyword
+	  (symbol))
+	(meta
+	  (scope
+		(keyword
+		  (symbol))
+		(boolean))
+	  (string
+		(string_fragment)))))

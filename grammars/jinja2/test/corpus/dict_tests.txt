@@ -1,0 +1,116 @@
+==================
+floating dict
+==================
+
+{{ {'k':'v', 'list': ['a', 'b']} }}
+
+---
+
+(source_file
+  (dict
+    (pair 
+      (lit_string)
+      (lit_string)
+    )
+    (pair 
+      (lit_string)
+      (list 
+        (lit_string)
+        (lit_string)
+      )
+    )
+  )
+)
+
+==================
+dict as arg
+==================
+
+{{ config('x', {'k':'v'}) }}
+
+---
+
+(source_file
+  (fn_call
+    (identifier)
+    (argument_list
+      (lit_string)
+      (dict
+        (pair 
+          (lit_string)
+          (lit_string)
+        )
+      )
+    )
+  )
+)
+
+==================
+proper config call
+==================
+
+{{ config(x={'k':'v'}) }}
+
+---
+
+(source_file
+  (fn_call
+    (identifier)
+    (argument_list
+      (kwarg
+        (identifier)
+        (dict
+          (pair
+            (lit_string)
+            (lit_string)
+          )
+        )
+      )
+    )
+  )
+)
+
+==================
+dict spread over lines
+==================
+
+{{ {
+  'k':'v',
+  'x':[]
+  } }}
+
+---
+
+(source_file
+  (dict
+    (pair
+      (lit_string)
+      (lit_string)
+    )
+    (pair
+      (lit_string)
+      (list)
+    )
+  )
+)
+
+==================
+dict with bools
+==================
+
+{{ {'x':True, 'y': False} }}
+
+---
+
+(source_file
+  (dict
+    (pair 
+      (lit_string)
+      (bool)
+    )
+    (pair 
+      (lit_string)
+      (bool)
+    )
+  )
+)

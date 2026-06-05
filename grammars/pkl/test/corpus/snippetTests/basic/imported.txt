@@ -1,0 +1,19 @@
+===
+basic/imported.pkl
+===
+
+foo = bar * 2
+bar = 3
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (multiplicativeExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (intLiteralExpr)))
+  (classProperty
+    (identifier)
+    (intLiteralExpr)))

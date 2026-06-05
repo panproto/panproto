@@ -1,0 +1,44 @@
+===
+Simple let statement number
+===
+
+let a = 3;
+
+---
+
+(program
+  (cairo_0_file
+    (let_binding
+      (typed_identifier
+        (identifier))
+      (number))))
+
+===
+Simple let statement identifier
+===
+
+let a = b;
+
+---
+
+(program
+  (cairo_0_file
+    (let_binding
+      (typed_identifier
+        (identifier))
+      (identifier))))
+
+===
+Simple let local
+===
+
+let local a = b;
+
+---
+
+(program
+  (cairo_0_file
+    (let_binding
+      (typed_identifier
+        (identifier))
+      (identifier))))

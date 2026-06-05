@@ -1,0 +1,165 @@
+===================
+import statement
+===================
+
+import Type;
+
+---
+
+(module (import_statement (type_name)))
+
+===================
+import statement with path
+===================
+
+import my.other.package.Type;
+
+---
+
+(module
+  (import_statement
+    (package_name)
+    (package_name)
+    (package_name)
+    (type_name)
+  )
+)
+
+===================
+import statement
+===================
+
+import my.other.package.Type.OtherType;
+
+---
+
+(module
+  (import_statement
+    (package_name)
+    (package_name)
+    (package_name)
+    (type_name)
+    (type_name)
+  )
+)
+
+===================
+multiple import statements
+===================
+
+import my.other.package.Type;
+import Banana;
+import test.other.SomeClass;
+
+---
+
+(module
+  (import_statement
+    (package_name)
+    (package_name)
+    (package_name)
+    (type_name)
+  )
+  (import_statement
+    (type_name)
+  )
+  (import_statement
+    (package_name)
+    (package_name)
+    (type_name)
+  )
+)
+
+===================
+import class field
+===================
+
+import my.other.package.Class.field;
+
+---
+
+(module
+  (import_statement
+    (package_name)
+    (package_name)
+    (package_name)
+    (type_name)
+    (identifier)
+  )
+)
+
+===================
+wilcard import statements
+===================
+
+import my.other.package.*;
+
+---
+
+(module
+  (import_statement
+    (package_name)
+    (package_name)
+    (package_name)
+  )
+)
+
+===================
+wildcard import fields
+===================
+
+import my.other.package.Class.*;
+
+---
+
+(module
+  (import_statement
+    (package_name)
+    (package_name)
+    (package_name)
+    (type_name)
+  )
+)
+
+===================
+using statement
+===================
+
+using Type;
+
+---
+
+(module (using_statement (type_name)))
+
+
+
+===================
+import type as
+===================
+
+import Type as Alias;
+
+---
+
+(module
+  (import_statement
+    (type_name)
+    (type_name)
+  )
+)
+
+===================
+import field as
+===================
+
+import Type.field as alias;
+
+---
+
+(module
+  (import_statement
+    (type_name)
+    (identifier)
+    (identifier)
+  )
+)

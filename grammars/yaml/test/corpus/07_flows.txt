@@ -1,0 +1,729 @@
+================================================================================
+Alias Nodes
+================================================================================
+First occurrence: &anchor Foo
+Second occurrence: *anchor
+Override anchor: &anchor Bar
+Reuse anchor: *anchor
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (block_node
+   (block_mapping
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (anchor
+       (anchor_name))
+      (plain_scalar
+       (string_scalar))))
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (alias
+       (alias_name))))
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (anchor
+       (anchor_name))
+      (plain_scalar
+       (string_scalar))))
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (alias
+       (alias_name))))))))
+
+================================================================================
+Empty Content
+================================================================================
+{
+  foo : !!str,
+  !!str : bar,
+}
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (flow_node
+   (flow_mapping
+    (flow_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (tag)))
+    (flow_pair
+     (flow_node
+      (tag))
+     (flow_node
+      (plain_scalar
+       (string_scalar))))))))
+
+================================================================================
+Completely Empty Flow Nodes
+================================================================================
+{
+  ? foo :,
+  : bar,
+}
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (flow_node
+   (flow_mapping
+    (flow_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar))))
+    (flow_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar))))))))
+
+================================================================================
+Double Quoted Implicit Keys
+================================================================================
+"implicit block key" : [
+  "implicit flow key" : value,
+ ]
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (block_node
+   (block_mapping
+    (block_mapping_pair
+     (flow_node
+      (double_quote_scalar))
+     (flow_node
+      (flow_sequence
+       (flow_pair
+        (flow_node
+         (double_quote_scalar))
+        (flow_node
+         (plain_scalar
+          (string_scalar)))))))))))
+
+================================================================================
+Double Quoted Line Breaks
+================================================================================
+"folded
+
+to a space,
+
+
+
+to a line feed, or 	\
+
+ \ 	non-content"
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (flow_node
+   (double_quote_scalar
+    (escape_sequence)
+    (escape_sequence)))))
+
+================================================================================
+Double Quoted Lines
+================================================================================
+" 1st non-empty
+
+
+
+ 2nd non-empty
+	3rd non-empty "
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (flow_node
+   (double_quote_scalar))))
+
+================================================================================
+Single Quoted Characters
+================================================================================
+ 'here''s to "quotes"'
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (flow_node
+   (single_quote_scalar
+    (escape_sequence)))))
+
+================================================================================
+Single Quoted Implicit Keys
+================================================================================
+'implicit block key' : [
+  'implicit flow key' : value,
+ ]
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (block_node
+   (block_mapping
+    (block_mapping_pair
+     (flow_node
+      (single_quote_scalar))
+     (flow_node
+      (flow_sequence
+       (flow_pair
+        (flow_node
+         (single_quote_scalar))
+        (flow_node
+         (plain_scalar
+          (string_scalar)))))))))))
+
+================================================================================
+Single Quoted Lines
+================================================================================
+' 1st non-empty
+
+
+
+ 2nd non-empty
+	3rd non-empty '
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (flow_node
+   (single_quote_scalar))))
+
+================================================================================
+Plain Characters
+================================================================================
+# Outside flow collection:
+- ::vector
+- ": - ()"
+- Up, up, and away!
+- -123
+- http://example.com/foo#bar
+# Inside flow collection:
+- [ ::vector,
+  ": - ()",
+  "Up, up and away!",
+  -123,
+  http://example.com/foo#bar ]
+
+--------------------------------------------------------------------------------
+
+(stream
+ (comment)
+ (document
+  (block_node
+   (block_sequence
+    (block_sequence_item
+     (flow_node
+      (plain_scalar
+       (string_scalar))))
+    (block_sequence_item
+     (flow_node
+      (double_quote_scalar)))
+    (block_sequence_item
+     (flow_node
+      (plain_scalar
+       (string_scalar))))
+    (block_sequence_item
+     (flow_node
+      (plain_scalar
+       (integer_scalar))))
+    (block_sequence_item
+     (flow_node
+      (plain_scalar
+       (string_scalar))))
+    (comment)
+(block_sequence_item
+ (flow_node
+  (flow_sequence
+   (flow_node
+    (plain_scalar
+     (string_scalar)))
+   (flow_node
+    (double_quote_scalar))
+   (flow_node
+    (double_quote_scalar))
+   (flow_node
+    (plain_scalar
+     (integer_scalar)))
+   (flow_node
+    (plain_scalar
+     (string_scalar))))))))))
+
+================================================================================
+Plain Implicit Keys
+================================================================================
+implicit block key : [
+  implicit flow key : value,
+ ]
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (block_node
+   (block_mapping
+    (block_mapping_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (flow_sequence
+       (flow_pair
+        (flow_node
+         (plain_scalar
+          (string_scalar)))
+        (flow_node
+         (plain_scalar
+          (string_scalar)))))))))))
+
+================================================================================
+Plain Lines
+================================================================================
+1st non-empty
+
+
+
+ 2nd non-empty
+	3rd non-empty
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (flow_node
+   (plain_scalar
+    (string_scalar)))))
+
+================================================================================
+Flow Sequence
+================================================================================
+- [ one, two, ]
+- [three ,four]
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (block_node
+   (block_sequence
+    (block_sequence_item
+     (flow_node
+      (flow_sequence
+       (flow_node
+        (plain_scalar
+         (string_scalar)))
+       (flow_node
+        (plain_scalar
+         (string_scalar))))))
+    (block_sequence_item
+     (flow_node
+      (flow_sequence
+       (flow_node
+        (plain_scalar
+         (string_scalar)))
+       (flow_node
+        (plain_scalar
+         (string_scalar))))))))))
+
+================================================================================
+Flow Sequence Entries
+================================================================================
+[
+"double
+ quoted", 'single
+           quoted',
+plain
+ text, [ nested ],
+single: pair,
+]
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (flow_node
+   (flow_sequence
+    (flow_node
+     (double_quote_scalar))
+    (flow_node
+     (single_quote_scalar))
+    (flow_node
+     (plain_scalar
+      (string_scalar)))
+    (flow_node
+     (flow_sequence
+      (flow_node
+       (plain_scalar
+        (string_scalar)))))
+    (flow_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (plain_scalar
+       (string_scalar))))))))
+
+================================================================================
+Flow Mappings
+================================================================================
+- { one : two , three: four , }
+- {five: six,seven : eight}
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (block_node
+   (block_sequence
+    (block_sequence_item
+     (flow_node
+      (flow_mapping
+       (flow_pair
+        (flow_node
+         (plain_scalar
+          (string_scalar)))
+        (flow_node
+         (plain_scalar
+          (string_scalar))))
+       (flow_pair
+        (flow_node
+         (plain_scalar
+          (string_scalar)))
+        (flow_node
+         (plain_scalar
+          (string_scalar)))))))
+    (block_sequence_item
+     (flow_node
+      (flow_mapping
+       (flow_pair
+        (flow_node
+         (plain_scalar
+          (string_scalar)))
+        (flow_node
+         (plain_scalar
+          (string_scalar))))
+       (flow_pair
+        (flow_node
+         (plain_scalar
+          (string_scalar)))
+        (flow_node
+         (plain_scalar
+          (string_scalar)))))))))))
+
+================================================================================
+Flow Mapping Entries
+================================================================================
+{
+? explicit: entry,
+implicit: entry,
+?
+}
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (flow_node
+   (flow_mapping
+    (flow_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (plain_scalar
+       (string_scalar))))
+    (flow_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (plain_scalar
+       (string_scalar))))
+    (flow_pair)))))
+
+================================================================================
+Flow Mapping Separate Values
+================================================================================
+{
+unquoted : "separate",
+http://foo.com,
+omitted value:,
+: omitted key,
+}
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (flow_node
+   (flow_mapping
+    (flow_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (double_quote_scalar)))
+    (flow_node
+     (plain_scalar
+      (string_scalar)))
+    (flow_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar))))
+    (flow_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar))))))))
+
+================================================================================
+Flow Mapping Adjacent Values
+================================================================================
+{
+"adjacent":value,
+"readable": value,
+"empty":
+}
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (flow_node
+   (flow_mapping
+    (flow_pair
+     (flow_node
+      (double_quote_scalar))
+     (flow_node
+      (plain_scalar
+       (string_scalar))))
+    (flow_pair
+     (flow_node
+      (double_quote_scalar))
+     (flow_node
+      (plain_scalar
+       (string_scalar))))
+    (flow_pair
+     (flow_node
+      (double_quote_scalar)))))))
+
+================================================================================
+Single Pair Flow Mappings
+================================================================================
+[
+foo: bar
+]
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (flow_node
+   (flow_sequence
+    (flow_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (plain_scalar
+       (string_scalar))))))))
+
+================================================================================
+Single Pair Explicit Entry
+================================================================================
+[
+? foo
+ bar : baz
+]
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (flow_node
+   (flow_sequence
+    (flow_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (plain_scalar
+       (string_scalar))))))))
+
+================================================================================
+Single Pair Implicit Entries
+================================================================================
+- [ YAML : separate ]
+- [ : empty key entry ]
+- [ {JSON: like}:adjacent ]
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (block_node
+   (block_sequence
+    (block_sequence_item
+     (flow_node
+      (flow_sequence
+       (flow_pair
+        (flow_node
+         (plain_scalar
+          (string_scalar)))
+        (flow_node
+         (plain_scalar
+          (string_scalar)))))))
+    (block_sequence_item
+     (flow_node
+      (flow_sequence
+       (flow_pair
+        (flow_node
+         (plain_scalar
+          (string_scalar)))))))
+    (block_sequence_item
+     (flow_node
+      (flow_sequence
+       (flow_pair
+        (flow_node
+         (flow_mapping
+          (flow_pair
+           (flow_node
+            (plain_scalar
+             (string_scalar)))
+           (flow_node
+            (plain_scalar
+             (string_scalar))))))
+        (flow_node
+         (plain_scalar
+          (string_scalar)))))))))))
+
+================================================================================
+Invalid Implicit Keys
+================================================================================
+[ foo
+ bar: invalid,
+ "foo...>1K characters...bar": invalid ]
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (flow_node
+   (flow_sequence
+    (flow_pair
+     (flow_node
+      (plain_scalar
+       (string_scalar)))
+     (flow_node
+      (plain_scalar
+       (string_scalar))))
+    (flow_pair
+     (flow_node
+      (double_quote_scalar))
+     (flow_node
+      (plain_scalar
+       (string_scalar))))))))
+
+================================================================================
+Flow Content
+================================================================================
+- [ a, b ]
+- { a: b }
+- "a"
+- 'b'
+- c
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (block_node
+   (block_sequence
+    (block_sequence_item
+     (flow_node
+      (flow_sequence
+       (flow_node
+        (plain_scalar
+         (string_scalar)))
+       (flow_node
+        (plain_scalar
+         (string_scalar))))))
+    (block_sequence_item
+     (flow_node
+      (flow_mapping
+       (flow_pair
+        (flow_node
+         (plain_scalar
+          (string_scalar)))
+        (flow_node
+         (plain_scalar
+          (string_scalar)))))))
+    (block_sequence_item
+     (flow_node
+      (double_quote_scalar)))
+    (block_sequence_item
+     (flow_node
+      (single_quote_scalar)))
+    (block_sequence_item
+     (flow_node
+      (plain_scalar
+       (string_scalar))))))))
+
+================================================================================
+Flow Nodes
+================================================================================
+- !!str "a"
+- 'b'
+- &anchor "c"
+- *anchor
+- !!str
+
+--------------------------------------------------------------------------------
+
+(stream
+ (document
+  (block_node
+   (block_sequence
+    (block_sequence_item
+     (flow_node
+      (tag)
+      (double_quote_scalar)))
+    (block_sequence_item
+     (flow_node
+      (single_quote_scalar)))
+    (block_sequence_item
+     (flow_node
+      (anchor
+       (anchor_name))
+      (double_quote_scalar)))
+    (block_sequence_item
+     (flow_node
+      (alias
+       (alias_name))))
+    (block_sequence_item
+     (flow_node
+      (tag)))))))

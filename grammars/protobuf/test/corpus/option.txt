@@ -1,0 +1,57 @@
+================================================================================
+Option
+================================================================================
+
+syntax = "proto3";
+
+option go_package = "foo";
+option java_multiple_files = true;
+option int_dec_lit = 42;
+option int_oct_lit = 070;
+option int_hex_lit = 0xDEADBEEF;
+option int_neg_hex_lit = -0xDEADBEEF;
+option int_pos_hex_lit = +0xDEADBEEF;
+option int_float_lit = 1.2345;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (syntax)
+  (option
+    (identifier)
+    (constant
+      (string)))
+  (option
+    (identifier)
+    (constant
+      (bool
+        (true))))
+  (option
+    (identifier)
+    (constant
+      (int_lit
+        (decimal_lit))))
+  (option
+    (identifier)
+    (constant
+      (int_lit
+        (octal_lit))))
+  (option
+    (identifier)
+    (constant
+      (int_lit
+        (hex_lit))))
+  (option
+    (identifier)
+    (constant
+      (int_lit
+        (hex_lit))))
+  (option
+    (identifier)
+    (constant
+      (int_lit
+        (hex_lit))))
+  (option
+    (identifier)
+    (constant
+      (float_lit))))

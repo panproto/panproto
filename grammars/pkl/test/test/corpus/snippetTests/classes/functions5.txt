@@ -1,0 +1,216 @@
+===
+classes/functions5.pkl
+===
+
+function a(x, y,) = 2 * x * y
+function b(x: Int, y: Int,) = 2 * x * y
+function c(
+  x: Int,
+  y: Int,
+) = 2 * x * y
+local d: (Int, Int,) -> Int = (x, y,) -> 2 * x * y
+function e(x,) = 2 * x * x
+function f(x: Int) = 2 * x * x
+function g(
+  x: Int,
+) = 2 * x * x
+local h: (Int,) -> Int = (x,) -> 2 * x * x
+
+res1 = a(3, 4,)
+res2 = b(3, 4,)
+res3 = c(
+  3,
+  4,
+)
+res4 = d.apply(3, 4,)
+
+---
+
+(module
+  (classMethod
+    (methodHeader
+      (identifier)
+      (parameterList
+        (typedIdentifier
+          (identifier))
+        (typedIdentifier
+          (identifier))))
+    (multiplicativeExpr
+      (multiplicativeExpr
+        (intLiteralExpr)
+        (unqualifiedAccessExpr
+          (identifier)))
+      (unqualifiedAccessExpr
+        (identifier))))
+  (classMethod
+    (methodHeader
+      (identifier)
+      (parameterList
+        (typedIdentifier
+          (identifier)
+          (typeAnnotation
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))))
+        (typedIdentifier
+          (identifier)
+          (typeAnnotation
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))))))
+    (multiplicativeExpr
+      (multiplicativeExpr
+        (intLiteralExpr)
+        (unqualifiedAccessExpr
+          (identifier)))
+      (unqualifiedAccessExpr
+        (identifier))))
+  (classMethod
+    (methodHeader
+      (identifier)
+      (parameterList
+        (typedIdentifier
+          (identifier)
+          (typeAnnotation
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))))
+        (typedIdentifier
+          (identifier)
+          (typeAnnotation
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))))))
+    (multiplicativeExpr
+      (multiplicativeExpr
+        (intLiteralExpr)
+        (unqualifiedAccessExpr
+          (identifier)))
+      (unqualifiedAccessExpr
+        (identifier))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (typeAnnotation
+      (functionLiteralType
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))))
+    (functionLiteralExpr
+      (parameterList
+        (typedIdentifier
+          (identifier))
+        (typedIdentifier
+          (identifier)))
+      (multiplicativeExpr
+        (multiplicativeExpr
+          (intLiteralExpr)
+          (unqualifiedAccessExpr
+            (identifier)))
+        (unqualifiedAccessExpr
+          (identifier)))))
+  (classMethod
+    (methodHeader
+      (identifier)
+      (parameterList
+        (typedIdentifier
+          (identifier))))
+    (multiplicativeExpr
+      (multiplicativeExpr
+        (intLiteralExpr)
+        (unqualifiedAccessExpr
+          (identifier)))
+      (unqualifiedAccessExpr
+        (identifier))))
+  (classMethod
+    (methodHeader
+      (identifier)
+      (parameterList
+        (typedIdentifier
+          (identifier)
+          (typeAnnotation
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))))))
+    (multiplicativeExpr
+      (multiplicativeExpr
+        (intLiteralExpr)
+        (unqualifiedAccessExpr
+          (identifier)))
+      (unqualifiedAccessExpr
+        (identifier))))
+  (classMethod
+    (methodHeader
+      (identifier)
+      (parameterList
+        (typedIdentifier
+          (identifier)
+          (typeAnnotation
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))))))
+    (multiplicativeExpr
+      (multiplicativeExpr
+        (intLiteralExpr)
+        (unqualifiedAccessExpr
+          (identifier)))
+      (unqualifiedAccessExpr
+        (identifier))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (typeAnnotation
+      (functionLiteralType
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))))
+    (functionLiteralExpr
+      (parameterList
+        (typedIdentifier
+          (identifier)))
+      (multiplicativeExpr
+        (multiplicativeExpr
+          (intLiteralExpr)
+          (unqualifiedAccessExpr
+            (identifier)))
+        (unqualifiedAccessExpr
+          (identifier)))))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList
+        (intLiteralExpr)
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList
+        (intLiteralExpr)
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList
+        (intLiteralExpr)
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (intLiteralExpr)
+        (intLiteralExpr)))))

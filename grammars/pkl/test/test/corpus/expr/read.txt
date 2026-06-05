@@ -1,0 +1,26 @@
+================================================================================
+read
+================================================================================
+
+res1 = read("foo.txt")
+res2 = read*("*.txt")
+res3 = read?("foo.txt")
+
+--------------------------------------------------------------------------------
+
+(module
+  (classProperty
+    (identifier)
+    (readExpr
+      (slStringLiteralExpr
+        (slStringLiteralPart))))
+  (classProperty
+    (identifier)
+    (readExpr
+      (slStringLiteralExpr
+        (slStringLiteralPart))))
+  (classProperty
+    (identifier)
+    (readExpr
+      (slStringLiteralExpr
+        (slStringLiteralPart)))))

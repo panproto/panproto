@@ -1,0 +1,49 @@
+==================
+Ignore directive single path
+==================
+
+ignore ./node_modules
+
+---
+
+(source_file
+	(ignore_directive
+		(ignore_spec
+			(file_path))))
+
+==================
+Ignore directive parens single
+==================
+
+ignore (
+	./third_party/javascript
+)
+
+---
+
+(source_file
+	(ignore_directive
+		(ignore_spec
+			(file_path))))
+
+==================
+Ignore directive parens multiple
+==================
+
+ignore (
+	static
+	content/html
+	./third_party/javascript
+)
+
+---
+
+(source_file
+	(ignore_directive
+		(ignore_spec
+			(file_path))
+		(ignore_spec
+			(file_path))
+		(ignore_spec
+			(file_path))))
+

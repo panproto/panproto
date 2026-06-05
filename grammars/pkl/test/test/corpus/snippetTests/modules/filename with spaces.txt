@@ -1,0 +1,13 @@
+===
+modules/filename with spaces.pkl
+===
+
+foo = "bar"
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart))))

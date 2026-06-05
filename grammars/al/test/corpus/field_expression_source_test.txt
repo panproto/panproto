@@ -1,0 +1,136 @@
+================================================================================
+Field with complex expression as source
+================================================================================
+
+page 50000 "Test Page"
+{
+    layout
+    {
+        area(content)
+        {
+            field("EndTime"; Format(Rec."End Time", 0, '<Year4>-<Month,2>-<Day,2> <Hours24>:<Minutes,2>:<Seconds,2><Second dec.>'))
+            {
+                Caption = 'End Time';
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (quoted_identifier)
+          source: (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (member_expression
+                object: (identifier)
+                member: (quoted_identifier))
+              (integer)
+              (string_literal)))
+          (property
+            name: (property_name)
+            value: (string_literal)))))))
+
+================================================================================
+Field with nested function calls as source
+================================================================================
+
+page 50001 "Test Page 2"
+{
+    layout
+    {
+        area(content)
+        {
+            field("CalculatedValue"; Round(Abs(Rec.Amount * Rec.Quantity), 0.01))
+            {
+                Caption = 'Total';
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (quoted_identifier)
+          source: (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (call_expression
+                function: (identifier)
+                arguments: (argument_list
+                  (multiplicative_expression
+                    left: (member_expression
+                      object: (identifier)
+                      member: (identifier))
+                    right: (member_expression
+                      object: (identifier)
+                      member: (identifier)))))
+              (decimal)))
+          (property
+            name: (property_name)
+            value: (string_literal)))))))
+
+================================================================================
+Field with binary expression as source
+================================================================================
+
+page 50002 "Test Page 3"
+{
+    layout
+    {
+        area(content)
+        {
+            field("IsActive"; Rec.Status = Rec.Status::Active)
+            {
+                Caption = 'Is Active';
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (quoted_identifier)
+          source: (comparison_expression
+            left: (member_expression
+              object: (identifier)
+              member: (identifier))
+            operator: (comparison_operator)
+            right: (qualified_enum_value
+              enum_type: (member_expression
+                object: (identifier)
+                member: (identifier))
+              value: (identifier)))
+          (property
+            name: (property_name)
+            value: (string_literal)))))))

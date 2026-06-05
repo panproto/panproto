@@ -1,0 +1,118 @@
+================================================================================
+include patterns
+================================================================================
+
+# include patterns
+
+include pat1 pat2
+
+recursive-include dir-pattern pat1 pat2
+
+global-include pat1 pat2
+
+graft dir-pattern
+
+--------------------------------------------------------------------------------
+
+(manifest
+  (comment)
+  (command
+    (keyword)
+    (pattern)
+    (pattern))
+  (command
+    (keyword)
+    dir_pattern: (pattern)
+    (pattern)
+    (pattern))
+  (command
+    (keyword)
+    (pattern)
+    (pattern))
+  (command
+    (keyword)
+    dir_pattern: (pattern)))
+
+================================================================================
+exclude patterns
+================================================================================
+
+# exclude patterns
+
+exclude pat1 pat2
+
+recursive-exclude dir-pattern pat1 pat2
+
+global-exclude pat1 pat2
+
+prune dir-pattern
+
+--------------------------------------------------------------------------------
+
+(manifest
+  (comment)
+  (command
+    (keyword)
+    (pattern)
+    (pattern))
+  (command
+    (keyword)
+    dir_pattern: (pattern)
+    (pattern)
+    (pattern))
+  (command
+    (keyword)
+    (pattern)
+    (pattern))
+  (command
+    (keyword)
+    dir_pattern: (pattern)))
+
+================================================================================
+globs & sequences
+================================================================================
+
+prune **/__pycache__
+
+global-exclude [._]sw[a-p]
+
+--------------------------------------------------------------------------------
+
+(manifest
+  (command
+    (keyword)
+    (pattern
+      (glob)
+      (dir_sep)))
+  (command
+    (keyword)
+    (pattern
+      (char_sequence)
+      (char_sequence
+        (char_range)))))
+
+================================================================================
+line breaks
+================================================================================
+
+include \
+  Makefile \
+  Pipfile \ # Include Pipfile.lock?
+  py.typed \
+
+# EOF
+
+--------------------------------------------------------------------------------
+
+(manifest
+  (command
+    (keyword)
+    (linebreak)
+    (pattern)
+    (linebreak)
+    (pattern)
+    (linebreak
+      (comment))
+    (pattern)
+    (linebreak))
+  (comment))

@@ -1,0 +1,83 @@
+================================================================================
+Preprocessor directives in case statements
+================================================================================
+
+codeunit 50100 TestUnit
+{
+    procedure TestPreprocessorCase()
+    var
+        MyType: Option Type1,Type2,Type3;
+    begin
+        case MyType of
+            MyType::Type1:
+                begin
+                    // do something
+                end;
+#if BC24
+            MyType::Type2:
+                begin
+                    // conditional branch
+                end;
+#endif
+            else
+                error("Unsupported type");
+        end;
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (option_type
+              (option_member_list
+                (option_member
+                  (identifier))
+                (option_member
+                  (identifier))
+                (option_member
+                  (identifier)))))))
+      (code_block
+        (begin_keyword)
+        (case_statement
+          (case_keyword)
+          expression: (identifier)
+          (of_keyword)
+          (case_branch
+            pattern: (qualified_enum_value
+              enum_type: (identifier)
+              value: (identifier))
+            body: (code_block
+              (begin_keyword)
+              (comment)
+              (end_keyword)))
+          (preproc_conditional_case
+            (preproc_if
+              (preproc_open)
+              condition: (identifier))
+            (case_branch
+              pattern: (qualified_enum_value
+                enum_type: (identifier)
+                value: (identifier))
+              body: (code_block
+                (comment)))
+            (preproc_endif
+              (preproc_close)))
+          (case_else_branch
+            (else_keyword)
+            (call_expression
+              function: (identifier)
+              arguments: (argument_list
+                (quoted_identifier)))))
+        (end_keyword)))))

@@ -1,0 +1,22 @@
+===
+basic/objectMemberInvalid3.pkl
+===
+
+res1 {
+  new{
+  }new{
+  }
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectElement
+        (newExpr
+          (objectBody)))
+      (objectElement
+        (newExpr
+          (objectBody))))))

@@ -22,7 +22,13 @@
 //! granularity, since the parser invents fresh vertex IDs and we do
 //! not preserve them through the round-trip.
 
-#![cfg(feature = "grammars")]
+// Both tests gate on a grammar absent from the workspace-default
+// `group-core`. Gate the whole file on their union so it compiles to
+// nothing (no orphaned helpers) when neither is enabled.
+#![cfg(all(
+    feature = "grammars",
+    any(feature = "lang-json", feature = "lang-lilypond")
+))]
 #![allow(clippy::expect_used, clippy::unwrap_used, dead_code)]
 
 use panproto_parse::{LayoutPolicy, ParserRegistry};

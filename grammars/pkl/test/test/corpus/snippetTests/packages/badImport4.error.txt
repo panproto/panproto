@@ -1,0 +1,14 @@
+===
+packages/badImport4.error.pkl
+===
+
+res = import("package://localhost:0/birds@0.5.0#catalog/Swallow.pkl")
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (importExpr
+      (stringConstant
+        (slStringLiteralPart)))))

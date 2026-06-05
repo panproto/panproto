@@ -1,0 +1,38 @@
+===
+errors/forGeneratorDuplicateParams1.pkl
+===
+
+a = List(1, 2, 3, 4)
+
+foo {
+  for (i, i in a) {
+    i
+  }
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList
+        (intLiteralExpr)
+        (intLiteralExpr)
+        (intLiteralExpr)
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (forGenerator
+        (typedIdentifier
+          (identifier))
+        (typedIdentifier
+          (identifier))
+        (unqualifiedAccessExpr
+          (identifier))
+        (objectBody
+          (objectElement
+            (unqualifiedAccessExpr
+              (identifier))))))))

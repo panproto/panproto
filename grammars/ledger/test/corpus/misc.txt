@@ -1,0 +1,565 @@
+================================================================================
+empty
+================================================================================
+
+--------------------------------------------------------------------------------
+
+(source_file)
+
+================================================================================
+without payee
+================================================================================
+2020-12-02
+    Expenses:Food:Groceries
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (posting
+          (account))))))
+
+================================================================================
+with payee
+================================================================================
+2020-12-02 Market
+    Expenses:Food:Groceries
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (payee)
+        (posting
+          (account))))))
+
+================================================================================
+with full payee
+================================================================================
+2020-12-02 Local Market
+    Expenses:Food:Groceries
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (payee)
+        (posting
+          (account))))))
+
+================================================================================
+payee with tricky characters
+================================================================================
+2020-12-02 ! (code) Local * ! () Market
+    Expenses:Food:Groceries
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (status)
+        (code)
+        (payee)
+        (posting
+          (account))))))
+
+================================================================================
+With code
+================================================================================
+
+2020-12-02 (#3001) Market
+    Expenses:Food:Groceries
+
+2020-12-02   (#3001)   Market
+    Expenses:Food:Groceries
+
+2020-12-02 * (XFER) Market
+    Expenses:Food:Groceries
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (code)
+        (payee)
+        (posting
+          (account)))))
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (code)
+        (payee)
+        (posting
+          (account)))))
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (status)
+        (code)
+        (payee)
+        (posting
+          (account))))))
+
+================================================================================
+date formats
+================================================================================
+
+2020-12-02
+    Expenses:Food:Groceries
+
+2020/12/02
+    Expenses:Food:Groceries
+
+2020.12.02
+    Expenses:Food:Groceries
+
+2020/12-02
+    Expenses:Food:Groceries
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (posting
+          (account)))))
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (posting
+          (account)))))
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (posting
+          (account)))))
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (posting
+          (account))))))
+
+================================================================================
+effective date
+================================================================================
+
+2020-12-02=2020-12-03
+    Expenses:Food:Groceries
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (effective_date)
+        (posting
+          (account))))))
+
+================================================================================
+virtual postings
+================================================================================
+
+2012-03-10
+    Expenses:Food                20.00 u
+    Assets:Cash
+    [Budget:Food]               -20.00 u
+    [Equity:Budgets]             20.00 u
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (posting
+          (account)
+          (amount
+            (quantity)
+            (commodity)))
+        (posting
+          (account))
+        (posting
+          (account)
+          (amount
+            (negative_quantity)
+            (commodity)))
+        (posting
+          (account)
+          (amount
+            (quantity)
+            (commodity)))))))
+
+================================================================================
+with price
+================================================================================
+
+2020-12-04=2020-12-05 Selling INTC
+    Assets:Broker                           -15 INTC @ 60 USD
+    Assets:Broker                            899 USD
+    Expenses:Broker:Fees                       1 USD
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (effective_date)
+        (payee)
+        (posting
+          (account)
+          (amount
+            (negative_quantity)
+            (commodity))
+          (price
+            (amount
+              (quantity)
+              (commodity))))
+        (posting
+          (account)
+          (amount
+            (quantity)
+            (commodity)))
+        (posting
+          (account)
+          (amount
+            (quantity)
+            (commodity)))))))
+
+
+================================================================================
+with price and lot price
+================================================================================
+
+2023/11/21
+    Produce:Sweet Potatoes       -80lb { $2.40} @@ $192
+    Assets:Accounts Recievable
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (posting
+          (account)
+          (amount
+            (negative_quantity)
+            (commodity))
+          (lot_price
+            (amount
+              (commodity)
+              (quantity)))
+          (price
+            (amount
+              (commodity)
+              (quantity))))
+        (posting
+          (account))))))
+
+================================================================================
+with price and balance assertion
+================================================================================
+
+2020-12-04
+    Assets:Broker                           -15 INTC @ 60 USD = 0 INTC
+    Assets:Broker                            900 USD
+    Assets:Empty Account                                      = 0 USD
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (posting
+          (account)
+          (amount
+            (negative_quantity)
+            (commodity))
+          (price
+            (amount
+              (quantity)
+              (commodity)))
+          (balance_assertion
+            (amount
+              (quantity)
+              (commodity))))
+        (posting
+          (account)
+          (amount
+            (quantity)
+            (commodity)))
+        (posting
+          (account)
+          (balance_assertion
+            (amount
+              (quantity)
+              (commodity))))))))
+
+================================================================================
+multiple xacts
+================================================================================
+
+2020-12-02 * Some market
+    Expenses:Food:Groceries                1 EUR
+    Assets:Bank:Checking
+
+2012-03-10 ! Something
+    Expenses:Food                        20.00 u
+    Assets:Cash
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (status)
+        (payee)
+        (posting
+          (account)
+          (amount
+            (quantity)
+            (commodity)))
+        (posting
+          (account)))))
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (status)
+        (payee)
+        (posting
+          (account)
+          (amount
+            (quantity)
+            (commodity)))
+        (posting
+          (account))))))
+
+================================================================================
+whitespace-only line between 2 transactions
+================================================================================
+
+; THERE MUST BE SPACES ON THE LINES BETWEEN THESE TRANSACTIONS
+; The note node with "MISSING ;" is intentional
+2020-12-02 Name
+    Account
+    
+2012-03-10 Name
+    Account
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (comment))
+  (journal_item
+    (comment))
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (payee)
+        (posting
+          (account))
+        (note
+          (MISSING ";")))))
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (payee)
+        (posting
+          (account))))))
+
+================================================================================
+various quantity formats
+================================================================================
+
+2020-12-02
+    Assets:Bank  1 000,00 PLN
+    Assets:Bank  1,000.00 CHF
+    Assets:Bank  $1
+    Assets:Bank  -$1
+    Assets:Bank  $-1
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (posting
+          (account)
+          (amount
+            (quantity)
+            (commodity)))
+        (posting
+          (account)
+          (amount
+            (quantity)
+            (commodity)))
+        (posting
+          (account)
+          (amount
+            (commodity)
+            (quantity)))
+        (posting
+          (account)
+          (amount
+            (commodity)
+            (negative_quantity)))
+        (posting
+          (account)
+          (amount
+            (commodity)
+            (negative_quantity)))))))
+
+================================================================================
+in-file short option
+================================================================================
+
+-M
+
+2020-12-02
+    Assets:Bank
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (directive
+      (option)))
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (posting
+          (account))))))
+
+================================================================================
+multiple in-file short option
+================================================================================
+
+-Ms
+
+2020-12-02
+    Assets:Bank
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (directive
+      (option)))
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (posting
+          (account))))))
+
+================================================================================
+in-file long option
+================================================================================
+
+--monthly
+
+2020-12-02
+    Assets:Bank
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (directive
+      (option)))
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (posting
+          (account))))))
+
+================================================================================
+in-file short option with value
+================================================================================
+
+-S date
+
+2020-12-02
+    Assets:Bank
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (directive
+      (option
+        (option_value))))
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (posting
+          (account))))))
+
+================================================================================
+in-file long option with value
+================================================================================
+
+--format %(code) %(payee) %(amount)\n
+--date-format=%Y-%m-%d
+
+2020-12-02
+    Assets:Bank
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (directive
+      (option
+        (option_value))))
+  (journal_item
+    (directive
+      (option
+        (option_value))))
+  (journal_item
+    (xact
+      (plain_xact
+        (date)
+        (posting
+          (account))))))

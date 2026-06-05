@@ -33,7 +33,7 @@ A protocol registration is a sequence of theory colimits applied in a determined
 |---|---|
 | Built-in protocol list | [`crates/panproto-protocols/src/lib.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-protocols/src/lib.rs) |
 | Building-block theories | [`crates/panproto-protocols/src/theories.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-protocols/src/theories.rs) |
-| Tree-sitter grammar list (259 languages) | [`crates/panproto-grammars/`](https://github.com/panproto/panproto/tree/main/crates/panproto-grammars) |
+| Tree-sitter grammar list (261 languages) | [`crates/panproto-grammars/`](https://github.com/panproto/panproto/tree/main/crates/panproto-grammars) |
 
 ## Defining a new protocol
 
@@ -47,11 +47,11 @@ The emitter's correctness varies by grammar; [`ParserRegistry::emit_verification
 
 | Tier | Meaning | Currently |
 |---|---|---|
-| `Verified` | Has an explicit `<lang>_emit_is_fixed_point` test in panproto's suite asserting `emit(parse(emit(s))) == emit(s)` | bash, bugs, c, cpp, csharp, go, jags, java, javascript, julia, php, python, rust, scheme, stan, typescript |
-| `Generic` | Registered grammar; emit uses the generic dispatch + universal cassette path; no per-language test asserts correctness | the remaining ~230 grammars with vendored `grammar.json` |
+| `Verified` | Every entry of the grammar author's own `test/corpus/` round-trips under the strict `emit_corpus_audit` oracle (byte fixed point plus vertex-kind and edge-shape multiset preservation), or the protocol is pinned by a quivers backend test | the 255 names in `VERIFIED_EMIT_PROTOCOLS` |
+| `Generic` | Registered grammar; emit uses the generic dispatch + universal cassette path; no test asserts correctness | the remaining vendored grammars not yet in the verified set |
 | `Unsupported` | No `grammar.json` vendored, or protocol not registered | grammars whose upstream did not ship `grammar.json` |
 
-Downstream tooling — [quivers](https://github.com/aaronstevenwhite/quivers)'s transpile backends most prominently — should call this API upfront and refuse emit on protocols that return `Generic` or `Unsupported`. The full list of verified protocols is maintained as `VERIFIED_EMIT_PROTOCOLS` in [`crates/panproto-parse/src/registry.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-parse/src/registry.rs).
+Downstream tooling (notably [quivers](https://github.com/aaronstevenwhite/quivers)'s transpile backends) should call this API upfront and refuse emit on protocols that return `Generic` or `Unsupported`. The full list of verified protocols is maintained as `VERIFIED_EMIT_PROTOCOLS` in [`crates/panproto-parse/src/registry.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-parse/src/registry.rs).
 
 ## See also
 

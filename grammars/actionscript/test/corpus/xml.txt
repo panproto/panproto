@@ -1,0 +1,86 @@
+==========
+simple xml
+==========
+
+const xml = <tag></tag>;
+
+---
+
+(program
+    (constant_declaration
+        (identifier)
+        (xml
+            (identifier)
+            (identifier)
+        )
+    )
+)
+
+============
+self closing
+============
+
+const xml = <tag/>;
+
+---
+
+(program
+    (constant_declaration
+    (identifier)
+    (xml (identifier)))
+)
+
+======
+nested
+======
+
+const xml = <tag1><tag2></tag2></tag1>;
+
+---
+
+(program
+    (constant_declaration
+        (identifier)
+        (xml 
+            (identifier)
+            (xml (identifier) (identifier))
+            (identifier)
+        )
+    )
+)
+
+===============
+with attributes
+===============
+
+const xml = <tag a="1" b="2"></tag>;
+
+---
+
+(program
+    (constant_declaration
+        (identifier)
+        (xml
+            (identifier)
+            (xml_attribute (identifier) (string))
+            (xml_attribute (identifier) (string))
+            (identifier)
+        )
+    )
+)
+
+==========
+with value
+==========
+
+const xml = <tag>hello world</tag>;
+
+---
+
+
+(program
+    (constant_declaration
+    (identifier)
+    (xml
+        (identifier)
+        (identifier))))

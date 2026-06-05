@@ -1,0 +1,210 @@
+================================================================================
+Integer literals
+================================================================================
+
+42;
+0xFF;
+0c77;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (expression
+      (chuck_expression
+        (arrow_expression
+          (decl_expression
+            (conditional_expression
+              (logical_or_expression
+                (logical_and_expression
+                  (bitwise_or_expression
+                    (bitwise_xor_expression
+                      (bitwise_and_expression
+                        (equality_expression
+                          (relational_expression
+                            (shift_expression
+                              (additive_expression
+                                (multiplicative_expression
+                                  (tilda_expression
+                                    (cast_expression
+                                      (unary_expression
+                                        (dur_expression
+                                          (postfix_expression
+                                            (int_literal))))))))))))))))))))))
+  (expression_statement
+    (expression
+      (chuck_expression
+        (arrow_expression
+          (decl_expression
+            (conditional_expression
+              (logical_or_expression
+                (logical_and_expression
+                  (bitwise_or_expression
+                    (bitwise_xor_expression
+                      (bitwise_and_expression
+                        (equality_expression
+                          (relational_expression
+                            (shift_expression
+                              (additive_expression
+                                (multiplicative_expression
+                                  (tilda_expression
+                                    (cast_expression
+                                      (unary_expression
+                                        (dur_expression
+                                          (postfix_expression
+                                            (int_literal))))))))))))))))))))))
+  (expression_statement
+    (expression
+      (chuck_expression
+        (arrow_expression
+          (decl_expression
+            (conditional_expression
+              (logical_or_expression
+                (logical_and_expression
+                  (bitwise_or_expression
+                    (bitwise_xor_expression
+                      (bitwise_and_expression
+                        (equality_expression
+                          (relational_expression
+                            (shift_expression
+                              (additive_expression
+                                (multiplicative_expression
+                                  (tilda_expression
+                                    (cast_expression
+                                      (unary_expression
+                                        (dur_expression
+                                          (postfix_expression
+                                            (int_literal)))))))))))))))))))))))
+
+================================================================================
+Float literals
+================================================================================
+
+3.14;
+.5;
+1e10;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (expression
+      (chuck_expression
+        (arrow_expression
+          (decl_expression
+            (conditional_expression
+              (logical_or_expression
+                (logical_and_expression
+                  (bitwise_or_expression
+                    (bitwise_xor_expression
+                      (bitwise_and_expression
+                        (equality_expression
+                          (relational_expression
+                            (shift_expression
+                              (additive_expression
+                                (multiplicative_expression
+                                  (tilda_expression
+                                    (cast_expression
+                                      (unary_expression
+                                        (dur_expression
+                                          (postfix_expression
+                                            (float_literal))))))))))))))))))))))
+  (expression_statement
+    (expression
+      (chuck_expression
+        (arrow_expression
+          (decl_expression
+            (conditional_expression
+              (logical_or_expression
+                (logical_and_expression
+                  (bitwise_or_expression
+                    (bitwise_xor_expression
+                      (bitwise_and_expression
+                        (equality_expression
+                          (relational_expression
+                            (shift_expression
+                              (additive_expression
+                                (multiplicative_expression
+                                  (tilda_expression
+                                    (cast_expression
+                                      (unary_expression
+                                        (dur_expression
+                                          (postfix_expression
+                                            (float_literal))))))))))))))))))))))
+  (expression_statement
+    (expression
+      (chuck_expression
+        (arrow_expression
+          (decl_expression
+            (conditional_expression
+              (logical_or_expression
+                (logical_and_expression
+                  (bitwise_or_expression
+                    (bitwise_xor_expression
+                      (bitwise_and_expression
+                        (equality_expression
+                          (relational_expression
+                            (shift_expression
+                              (additive_expression
+                                (multiplicative_expression
+                                  (tilda_expression
+                                    (cast_expression
+                                      (unary_expression
+                                        (dur_expression
+                                          (postfix_expression
+                                            (float_literal)))))))))))))))))))))))
+
+================================================================================
+String literals
+================================================================================
+
+"hello";
+`world`;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (expression_statement
+    (expression
+      (chuck_expression
+        (arrow_expression
+          (decl_expression
+            (conditional_expression
+              (logical_or_expression
+                (logical_and_expression
+                  (bitwise_or_expression
+                    (bitwise_xor_expression
+                      (bitwise_and_expression
+                        (equality_expression
+                          (relational_expression
+                            (shift_expression
+                              (additive_expression
+                                (multiplicative_expression
+                                  (tilda_expression
+                                    (cast_expression
+                                      (unary_expression
+                                        (dur_expression
+                                          (postfix_expression
+                                            (string_literal))))))))))))))))))))))
+  (expression_statement
+    (expression
+      (chuck_expression
+        (arrow_expression
+          (decl_expression
+            (conditional_expression
+              (logical_or_expression
+                (logical_and_expression
+                  (bitwise_or_expression
+                    (bitwise_xor_expression
+                      (bitwise_and_expression
+                        (equality_expression
+                          (relational_expression
+                            (shift_expression
+                              (additive_expression
+                                (multiplicative_expression
+                                  (tilda_expression
+                                    (cast_expression
+                                      (unary_expression
+                                        (dur_expression
+                                          (postfix_expression
+                                            (string_literal)))))))))))))))))))))))

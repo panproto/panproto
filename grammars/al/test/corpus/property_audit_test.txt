@@ -1,0 +1,89 @@
+================================================================================
+Flow properties test - new properties added in property audit
+================================================================================
+
+page 50100 TestFlowProperties
+{
+    actions
+    {
+        area(Processing)
+        {
+            customaction(TestFlowAction)
+            {
+                FlowCaption = 'Test Flow Action';
+                FlowId = 'abc123-def456-ghi789';
+                FlowTemplateId = 'template-xyz789';
+                FlowEnvironmentId = 'prod-environment';
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (customaction_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (string_literal)))))))
+
+================================================================================
+Report layout MimeType property test
+================================================================================
+
+report 50200 TestReportLayout
+{
+    rendering
+    {
+        layout(TestLayout)
+        {
+            Type = RDLC;
+            LayoutFile = './layouts/TestReport.rdl';
+            MimeType = 'application/xml';
+            Caption = 'Test Layout';
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (rendering_section
+      (rendering_keyword)
+      (rendering_layout
+        (layout_keyword)
+        name: (identifier)
+        (property
+          name: (property_name)
+          value: (identifier))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (string_literal))))))

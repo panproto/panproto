@@ -1,0 +1,23 @@
+================================================================================
+LLVM intrinsics
+================================================================================
+
+transpose = @llvm.matrix.transpose.v8f32.i32.i32(matrix, row, column);
+
+---
+
+(translation_unit
+    (expression_statement
+        (assignment_expression
+            left: (identifier)
+            right: (llvm_expression
+                function: (llvm_identifier)
+                arguments: (argument_list
+                    (identifier)
+                    (identifier)
+                    (identifier)
+                )
+            )
+        )
+    )
+)

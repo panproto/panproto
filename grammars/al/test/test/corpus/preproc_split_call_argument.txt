@@ -1,0 +1,126 @@
+========================================================================
+Split call statement: function call with first argument in #if/#else
+========================================================================
+codeunit 1 T
+{
+    procedure X()
+    begin
+#if FEATURE
+        ImportTable(Database::"Old Table",
+#else
+        ImportTable(Database::"New Table",
+#endif
+            Rec.FieldNo("ID"), Format(Rec."ID"),
+            Rec.FieldNo("Type"), Format(Rec.Type));
+    end;
+}
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (preproc_split_call_statement
+          (preproc_if
+            (preproc_open)
+            condition: (identifier))
+          (identifier)
+          (database_reference
+            keyword: (object_type_keyword)
+            table_name: (quoted_identifier))
+          (preproc_else)
+          (identifier)
+          (database_reference
+            keyword: (object_type_keyword)
+            table_name: (quoted_identifier))
+          (preproc_endif
+            (preproc_close))
+          (call_expression
+            function: (member_expression
+              object: (identifier)
+              member: (identifier))
+            arguments: (argument_list
+              (quoted_identifier)))
+          (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (member_expression
+                object: (identifier)
+                member: (quoted_identifier))))
+          (call_expression
+            function: (member_expression
+              object: (identifier)
+              member: (identifier))
+            arguments: (argument_list
+              (quoted_identifier)))
+          (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (member_expression
+                object: (identifier)
+                member: (identifier)))))
+        (end_keyword)))))
+
+========================================================================
+Split call statement: multiple arguments before split point
+========================================================================
+codeunit 1 T
+{
+    procedure X()
+    begin
+#if FEATURE
+        ExportTable(XmlNode, Database::"Old Table",
+#else
+        ExportTable(XmlNode, Database::"New Table",
+#endif
+            Rec.FieldNo("ID"), Format(Rec."ID"));
+    end;
+}
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (preproc_split_call_statement
+          (preproc_if
+            (preproc_open)
+            condition: (identifier))
+          (identifier)
+          (identifier)
+          (database_reference
+            keyword: (object_type_keyword)
+            table_name: (quoted_identifier))
+          (preproc_else)
+          (identifier)
+          (identifier)
+          (database_reference
+            keyword: (object_type_keyword)
+            table_name: (quoted_identifier))
+          (preproc_endif
+            (preproc_close))
+          (call_expression
+            function: (member_expression
+              object: (identifier)
+              member: (identifier))
+            arguments: (argument_list
+              (quoted_identifier)))
+          (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (member_expression
+                object: (identifier)
+                member: (quoted_identifier)))))
+        (end_keyword)))))

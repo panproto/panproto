@@ -1,0 +1,14 @@
+===
+errors/invalidGlobImport6.pkl
+===
+
+res = import*("../*/../*/../*/../*/../*/../*/../*.")
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (importExpr
+      (stringConstant
+        (slStringLiteralPart)))))

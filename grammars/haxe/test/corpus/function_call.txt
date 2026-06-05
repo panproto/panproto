@@ -1,0 +1,243 @@
+===================
+call
+===================
+
+fn();
+
+---
+
+(module
+  (call_expression (identifier))
+)
+
+===================
+call with literal arg
+===================
+
+fn(1);
+
+---
+
+(module
+  (call_expression (identifier) (integer))
+)
+
+===================
+call with 3 literal args
+===================
+
+fn(1,2,3);
+
+---
+
+(module
+  (call_expression (identifier) 
+    (integer)
+    (integer)
+    (integer)
+  )
+)
+
+
+===================
+call with variable arg
+===================
+
+fn(x);
+
+---
+
+(module
+  (call_expression (identifier) (identifier))
+)
+
+===================
+call with expression arg
+===================
+
+fn("Some" + "Combined" + "String");
+
+---
+
+(module
+  (call_expression
+    (identifier)
+    (string)
+    (operator)
+    (string)
+    (operator)
+    (string)
+  )
+)
+
+===================
+call with type params 
+===================
+
+fn<Int>(123);
+
+---
+
+(module
+  (call_expression
+    (identifier)
+    (type_params
+      (type (identifier))
+    )
+    (integer)
+  )
+)
+
+
+===================
+recursive call
+===================
+
+fn(fn(x));
+
+---
+
+(module
+  (call_expression (identifier) (call_expression (identifier) (identifier)))
+)
+
+===================
+package method call
+===================
+
+some.package.fn();
+
+---
+
+(module
+  (call_expression 
+    (member_expression 
+      (identifier)
+      (member_expression 
+        (identifier)
+        (identifier)
+      )
+    )
+  )
+)
+
+===================
+package method call with safe navigation operator
+===================
+
+some.package?.fn();
+
+---
+
+(module
+  (call_expression 
+    (member_expression 
+      (identifier)
+      (member_expression 
+        (identifier)
+        (operator)
+        (identifier)
+      )
+    )
+  )
+)
+
+
+
+===================
+compile time construct $type
+===================
+
+$type(0);
+
+---
+
+(module
+  (type_trace_expression (integer))
+)
+
+
+===================
+constructor call
+===================
+
+new Object();
+
+---
+
+(module (call_expression (type_name)))
+
+
+===================
+constructor call
+===================
+
+new Object<T>();
+
+---
+
+(module
+  (call_expression
+    (type_name)
+    (type_params
+      (type (identifier))
+    )
+  )
+)
+
+
+===================
+constructor from package call
+===================
+
+new pack.Object();
+
+---
+
+(module (call_expression (package_name) (type_name)))
+
+
+===================
+constructor from package call with type parameter
+===================
+
+new pack.Object<T>();
+
+---
+
+(module
+  (call_expression (package_name) (type_name)
+    (type_params
+      (type (identifier))
+    )
+  )
+)
+
+
+
+===================
+constructor from module call
+===================
+
+new pack.Module.Object();
+
+---
+
+(module (call_expression (package_name) (type_name) (type_name)))
+
+
+===================
+constructor from module call with type parameter
+===================
+
+new pack.Module.Object<T>();
+
+---
+
+(module
+  (call_expression (package_name) (type_name) (type_name)
+    (type_params
+      (type (identifier))
+    )
+  )
+)

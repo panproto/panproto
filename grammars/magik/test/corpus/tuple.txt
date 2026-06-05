@@ -1,0 +1,83 @@
+================================================================================
+tuple
+================================================================================
+
+(first, _gather rest) << roots(1, -6, -7, 60)
+(i, j, k) << (_scatter rest)
+(i, j, _gather k) << (_scatter rest)
+(i, j, k, _gather rest) << (first, _scatter rootsvec)
+rootsvec << _allresults roots(1, -6, -7, 60)
+_scatter _allresults roots(1, -6, -7, 60)
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (assignment
+      (parenthesized_expression
+        (variable)
+        (gather
+          (variable)))
+      (invoke
+        (variable)
+        (number)
+        (unary_operator
+          (number))
+        (unary_operator
+          (number))
+        (number))))
+  (fragment
+    (assignment
+      (parenthesized_expression
+        (variable)
+        (variable)
+        (variable))
+      (parenthesized_expression
+        (scatter
+          (variable)))))
+  (fragment
+    (assignment
+      (parenthesized_expression
+        (variable)
+        (variable)
+        (gather
+          (variable)))
+      (parenthesized_expression
+        (scatter
+          (variable)))))
+  (fragment
+    (assignment
+      (parenthesized_expression
+        (variable)
+        (variable)
+        (variable)
+        (gather
+          (variable)))
+      (parenthesized_expression
+        (variable)
+        (scatter
+          (variable)))))
+  (fragment
+    (assignment
+      (variable)
+      (allresults
+        (invoke
+          (variable)
+          (number)
+          (unary_operator
+            (number))
+          (unary_operator
+            (number))
+          (number)))))
+  (fragment
+    (scatter
+      (allresults
+        (invoke
+          (variable)
+          (number)
+          (unary_operator
+            (number))
+          (unary_operator
+            (number))
+          (number))))))

@@ -1,0 +1,58 @@
+================================================================================
+ExternalAccess property in table field
+================================================================================
+
+table 50100 "Test Table"
+{
+    fields
+    {
+        field(1; "Code"; Code[20])
+        {
+            ExternalAccess = Insert;
+        }
+        field(2; "Description"; Text[100])
+        {
+            ExternalAccess = Full;
+        }
+        field(3; "Amount"; Decimal)
+        {
+            ExternalAccess = Read;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    (integer)
+    (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        (integer)
+        (quoted_identifier)
+        (type_specification
+          (code_type
+            (integer)))
+        (property
+          (property_name)
+          (identifier)))
+      (field_declaration
+        (integer)
+        (quoted_identifier)
+        (type_specification
+          (text_type
+            (integer)))
+        (property
+          (property_name)
+          (identifier)))
+      (field_declaration
+        (integer)
+        (quoted_identifier)
+        (type_specification
+          (basic_type))
+        (property
+          (property_name)
+          (identifier))))))

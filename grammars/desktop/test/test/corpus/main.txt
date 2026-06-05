@@ -1,0 +1,217 @@
+===========================================================
+Comments
+===========================================================
+# Hello
+
+# world
+
+-----------------------------------------------------------
+
+(desktop_entry
+  (comment)
+  (comment))
+
+===========================================================
+Group name
+===========================================================
+[Desktop Entry]
+[Desktop Action]
+[;&/(%)]
+[ -_ ?\$]
+
+-----------------------------------------------------------
+
+(desktop_entry
+  (group
+    (header
+      (group_name)))
+  (group
+    (header
+      (group_name)))
+  (group
+    (header
+      (group_name)))
+  (group
+    (header
+      (group_name))))
+
+===========================================================
+Entries (key/value pairs)
+===========================================================
+[Desktop Entry]
+Name=Neovim
+Terminal=true
+StartupNotify=false
+MimeType=text/plain;text/x-makefile;text/x-c++hdr;
+
+-----------------------------------------------------------
+
+(desktop_entry
+  (group
+    (header
+      (group_name))
+    (entry
+      key: (identifier)
+      value: (string))
+    (entry
+      key: (identifier)
+      value: (true))
+    (entry
+      key: (identifier)
+      value: (false))
+    (entry
+      key: (identifier)
+      value: (list
+        (string)
+        (string)
+        (string)))))
+
+===========================================================
+Optional semicolon
+===========================================================
+[Desktop Entry]
+string=hello world
+list1=hello;
+list2=hello;world
+list3=hello;world;
+
+-----------------------------------------------------------
+
+(desktop_entry
+  (group
+    (header
+      (group_name))
+    (entry
+      key: (identifier)
+      value: (string))
+    (entry
+      key: (identifier)
+      value: (list
+        (string)))
+    (entry
+      key: (identifier)
+      value: (list
+        (string)
+        (string)))
+    (entry
+      key: (identifier)
+      value: (list
+        (string)
+        (string)))))
+
+===========================================================
+Escape sequences
+===========================================================
+[Desktop Entry]
+string=A\n\r\t\s\;\\Z
+
+-----------------------------------------------------------
+
+(desktop_entry
+  (group
+    (header
+      (group_name))
+    (entry
+      key: (identifier)
+      value: (string
+        (escape_sequence)
+        (escape_sequence)
+        (escape_sequence)
+        (escape_sequence)
+        (escape_sequence)
+        (escape_sequence)))))
+
+===========================================================
+Field Codes
+===========================================================
+[Desktop Entry]
+Exec=echo %% %f %F %u %U %d %D %n %N %i %c %k %v %m
+
+-----------------------------------------------------------
+
+(desktop_entry
+  (group
+    (header
+      (group_name))
+    (entry
+      key: (identifier)
+      value: (string
+        (field_code)
+        (field_code)
+        (field_code)
+        (field_code)
+        (field_code)
+        (field_code)
+        (field_code)
+        (field_code)
+        (field_code)
+        (field_code)
+        (field_code)
+        (field_code)
+        (field_code)
+        (field_code)))))
+
+===========================================================
+Localized keys
+===========================================================
+[Desktop Entry]
+Name=Foo
+Name[sr_YU]=...
+Name[sr@Latn]=...
+Name[sr]=...
+Name[sr.UTF-8]=...
+Name[sr_YU.UTF-8@Latn]=...
+Name[x-test]=...
+Name[es_valencia]=...
+
+-----------------------------------------------------------
+
+(desktop_entry
+  (group
+    (header
+      (group_name))
+    (entry
+      key: (identifier)
+      value: (string))
+    (entry
+      key: (identifier)
+      locale: (locale
+        (language)
+        (country))
+      value: (string))
+    (entry
+      key: (identifier)
+      locale: (locale
+        (language)
+        (modifier))
+      value: (string))
+    (entry
+      key: (identifier)
+      locale: (locale
+        (language))
+      value: (string))
+    (entry
+      key: (identifier)
+      locale: (locale
+        (language)
+        (encoding))
+      value: (string))
+    (entry
+      key: (identifier)
+      locale: (locale
+        (language)
+        (country)
+        (encoding)
+        (modifier))
+      value: (string))
+    (entry
+      key: (identifier)
+      locale: (locale
+        (language))
+      value: (string))
+    (entry
+      key: (identifier)
+      locale: (locale
+        (language)
+        (country))
+      value: (string))))

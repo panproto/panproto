@@ -1,0 +1,159 @@
+=====================================
+Simple Signals Declaration
+=====================================
+template test(){
+  signal inter;
+  signal input in1;
+  signal output out;
+}
+---
+(source_file
+      (template_definition
+        (identifier)
+        (parameter_list)
+        (template_body
+          (signal_declaration_statement
+            (identifier))
+          (signal_declaration_statement
+            (signal_visibility)
+            (identifier))
+          (signal_declaration_statement
+            (signal_visibility)
+            (identifier)))))
+=====================================
+Variable Declaration
+=====================================
+template qwe(){
+  var tmp;
+}
+---
+(source_file
+      (template_definition
+        (identifier)
+        (parameter_list)
+        (template_body
+          (variable_declaration_statement
+            (identifier)))))
+=====================================
+Component Declaration
+=====================================
+template qwe(){
+  component tmp;
+}
+---
+(source_file
+      (template_definition
+        (identifier)
+        (parameter_list)
+        (template_body
+          (component_declaration_statement
+            (identifier)))))
+=====================================
+Input Signal Array Declaration
+=====================================
+template test(N, M){
+  signal input inArray[1];
+  signal input inArray[N];
+  signal input inArray[N][N];
+  signal input inArray[1][1];
+}
+---
+    (source_file
+      (template_definition
+        (identifier)
+        (parameter_list
+          (parameter
+            (identifier))
+          (parameter
+            (identifier)))
+        (template_body
+          (signal_declaration_statement
+            (signal_visibility)
+            (identifier)
+            (array_type
+              (int_literal)))
+          (signal_declaration_statement
+            (signal_visibility)
+            (identifier)
+            (array_type
+              (identifier)))
+          (signal_declaration_statement
+            (signal_visibility)
+            (identifier)
+            (array_type
+              (identifier)
+              (identifier)))
+          (signal_declaration_statement
+            (signal_visibility)
+            (identifier)
+            (array_type
+              (int_literal)
+              (int_literal))))))
+=====================================
+Input Signal with tags Declaration
+=====================================
+template plate(){
+  signal input {tag1, tag2} in1;
+}
+---
+(source_file
+      (template_definition
+        (identifier)
+        (parameter_list)
+        (template_body
+          (signal_declaration_statement
+            (signal_visibility)
+            (signal_tags
+              (identifier)
+              (identifier))
+            (identifier)))))
+=====================================
+Output Signal Declaration with initialization
+=====================================
+template plate(){
+  signal output out <== in1 * in2;
+}
+---
+(source_file
+      (template_definition
+        (identifier)
+        (parameter_list)
+        (template_body
+          (signal_declaration_statement
+            (signal_visibility)
+            (identifier)
+            (binary_expression
+              (identifier)
+              (identifier))))))
+=====================================
+Double initialization
+=====================================
+template test(){
+  var tmp = 1, ans = 1;
+}
+---
+(source_file
+      (template_definition
+        (identifier)
+        (parameter_list)
+        (template_body
+          (variable_declaration_statement
+            (identifier)
+            (int_literal)
+            (identifier)
+            (int_literal)))))
+=====================================
+Multiple components declaration
+=====================================
+template test(){
+  component f1, f2;
+}
+---
+(source_file
+      (template_definition
+        (identifier)
+        (parameter_list)
+        (template_body
+          (component_declaration_statement
+            (identifier)
+            (identifier)))))

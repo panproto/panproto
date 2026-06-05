@@ -1,0 +1,93 @@
+===
+classes/unionTypesErrorAlias.pkl
+===
+
+typealias A =
+    "aaaaaaaaaaaaaaa"
+    | "bbbbbbbbbbbbb"
+    | "ccccccccccccc"
+    | "ddddddddddddd"
+    | "eeeeeeeeeeeee"
+    | "fffffffffffff"
+    | "ggggggggggggg"
+    | "hhhhhhhhhhhhh"
+    | "iiiiiiiiiiiii"
+    | "jjjjjjjjjjjjj"
+    | "kkkkkkkkkkkkk"
+
+class X {
+  a: A
+}
+
+res1 = new X {
+  a = "other"
+}
+
+---
+
+(module
+  (typeAlias
+    (identifier)
+    (unionType
+      (unionType
+        (unionType
+          (unionType
+            (unionType
+              (unionType
+                (unionType
+                  (unionType
+                    (unionType
+                      (unionType
+                        (stringLiteralType
+                          (stringConstant
+                            (slStringLiteralPart)))
+                        (stringLiteralType
+                          (stringConstant
+                            (slStringLiteralPart))))
+                      (stringLiteralType
+                        (stringConstant
+                          (slStringLiteralPart))))
+                    (stringLiteralType
+                      (stringConstant
+                        (slStringLiteralPart))))
+                  (stringLiteralType
+                    (stringConstant
+                      (slStringLiteralPart))))
+                (stringLiteralType
+                  (stringConstant
+                    (slStringLiteralPart))))
+              (stringLiteralType
+                (stringConstant
+                  (slStringLiteralPart))))
+            (stringLiteralType
+              (stringConstant
+                (slStringLiteralPart))))
+          (stringLiteralType
+            (stringConstant
+              (slStringLiteralPart))))
+        (stringLiteralType
+          (stringConstant
+            (slStringLiteralPart))))
+      (stringLiteralType
+        (stringConstant
+          (slStringLiteralPart)))))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart)))))))

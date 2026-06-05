@@ -1,0 +1,16 @@
+===
+errors/intrinsifiedTypeAlias2.pkl
+===
+
+res1: UInt16 = -1
+---
+
+(module
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (unaryMinusExpr
+      (intLiteralExpr))))

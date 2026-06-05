@@ -1,0 +1,167 @@
+=====
+Iris
+=====
+
+SELECT * {}
+
+VALUES ?var {
+  <http://example.org/foo>
+  <foo>
+  example:foo
+}
+
+---
+
+(unit
+  (select_query
+    (select_clause) 
+    (where_clause
+      (group_graph_pattern)))
+  (values_clause 
+    (data_block
+      (var)
+      (iri_reference)
+      (iri_reference)
+      (prefixed_name 
+        (namespace (pn_prefix))
+        (pn_local)))))
+
+=========
+Literals
+=========
+
+SELECT * {}
+
+VALUES ?var {
+  '#foo'
+  'foo'
+  "foo"
+  'foo'@de
+  'foo'^^<http://example.org/foo>
+  '''foo"bar'foo'"'''
+  false
+  'false'^^xsd:boolean
+  1.1
+  -1.1
+  1.0e6
+  '1.3'^^xsd:decimal
+}
+
+---
+
+(unit
+  (select_query
+    (select_clause) 
+    (where_clause
+      (group_graph_pattern)))
+  (values_clause 
+    (data_block
+      (var)
+      (rdf_literal (string)) 
+      (rdf_literal (string)) 
+      (rdf_literal (string)) 
+      (rdf_literal (string) (lang_tag)) 
+      (rdf_literal (string) (iri_reference)) 
+      (rdf_literal (string)) 
+      (boolean_literal) 
+      (rdf_literal (string)
+      (prefixed_name (namespace (pn_prefix)) (pn_local))) 
+      (decimal)
+      (decimal)
+      (double)
+      (rdf_literal 
+        (string) 
+        (prefixed_name (namespace (pn_prefix)) (pn_local))))))
+
+=======================
+String escape sequence
+=======================
+
+SELECT * {}
+
+VALUES ?var {
+  "fo\t\\foo\bbo"
+}
+
+---
+
+(unit (select_query
+  (select_clause) 
+  (where_clause (group_graph_pattern)))
+  (values_clause (data_block
+    (var)
+    (rdf_literal (string
+      (echar)
+      (echar)
+      (echar))))))
+
+================
+Query variables
+================
+
+SELECT $foo ?bar {}
+
+---
+
+(unit 
+  (select_query 
+    (select_clause (var) (var)) 
+    (where_clause (group_graph_pattern))))
+
+============
+Blank nodes
+============
+
+SELECT * {
+  [ :p "v" ] .
+  [] :p "v" .
+  :s :q [ :p "v" ]
+}
+
+---
+
+(unit 
+  (select_query 
+    (select_clause)
+    (where_clause 
+      (group_graph_pattern
+        (triples_block
+          (triples_same_subject
+            (blank_node_property_list
+              (property_list (property
+                (path_element (prefixed_name (namespace) (pn_local)))
+                (object_list (rdf_literal (string)))))))
+          (triples_same_subject
+            (anon)
+            (property_list (property
+              (path_element (prefixed_name (namespace) (pn_local)))
+              (object_list (rdf_literal (string))))))
+          (triples_same_subject
+            (prefixed_name (namespace) (pn_local))
+            (property_list (property
+              (path_element (prefixed_name (namespace) (pn_local)))
+              (object_list
+                (blank_node_property_list (property_list (property
+                  (path_element (prefixed_name (namespace) (pn_local)))
+                  (object_list (rdf_literal (string)))))))))))))))
+
+====
+Nil
+====
+
+SELECT * {}
+
+VALUES () {
+  ()
+}
+
+---
+
+(unit
+  (select_query
+    (select_clause)
+    (where_clause (group_graph_pattern)))
+    (values_clause
+      (data_block
+        (nil)
+        (nil))))

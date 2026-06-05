@@ -1,0 +1,122 @@
+==================
+Report with rendering section
+==================
+
+report 50100 "Customer List Excel"
+{
+    Caption = 'Customer List Excel Report';
+    
+    dataset
+    {
+        dataitem(Customer; Customer)
+        {
+            RequestFilterFields = "No.";
+            PrintOnlyIfDetail = true;
+            
+            column(No; Customer."No.")
+            {
+                IncludeCaption = true;
+            }
+        }
+    }
+    
+    rendering
+    {
+        layout(CustomerListExcel)
+        {
+            Type = Excel;
+            LayoutFile = './Layouts/CustomerList.xlsx';
+            Caption = 'Customer List Excel Layout';
+            Summary = 'Excel layout for customer list with formatting';
+        }
+        
+        layout(CustomerListPDF)
+        {
+            Type = PDF;
+            LayoutFile = './Layouts/CustomerList.rdlc';
+            Caption = 'Customer List PDF Layout';
+        }
+    }
+}
+
+---
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (property
+          name: (property_name)
+          value: (quoted_identifier))
+        (property
+          name: (property_name)
+          value: (boolean))
+        (report_column
+          (column_keyword)
+          name: (identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (quoted_identifier))
+          (property
+            name: (property_name)
+            value: (boolean)))))
+    (rendering_section
+      (rendering_keyword)
+      (rendering_layout
+        (layout_keyword)
+        name: (identifier)
+        (property
+          name: (property_name)
+          value: (identifier))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (string_literal)))
+      (rendering_layout
+        (layout_keyword)
+        name: (identifier)
+        (property
+          name: (property_name)
+          value: (identifier))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (string_literal))))))
+
+==================
+Empty rendering section
+==================
+
+report 50101 "Simple Report"
+{
+    rendering
+    {
+    }
+}
+
+---
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (rendering_section
+      (rendering_keyword))))

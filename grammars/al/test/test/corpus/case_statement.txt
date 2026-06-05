@@ -1,0 +1,179 @@
+========================================================================
+Empty case else branch
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Test()
+    begin
+        case x of
+            Database::Customer:
+                begin
+                    y := 1;
+                end;
+            Database::Vendor:
+                begin
+                    y := 2;
+                end;
+            else
+        end;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (case_statement
+          (case_keyword)
+          (identifier)
+          (of_keyword)
+          (case_branch
+            (database_reference
+              (object_type_keyword)
+              (identifier))
+            (code_block
+              (begin_keyword)
+              (assignment_statement
+                (identifier)
+                (integer))
+              (end_keyword)))
+          (case_branch
+            (database_reference
+              (object_type_keyword)
+              (identifier))
+            (code_block
+              (begin_keyword)
+              (assignment_statement
+                (identifier)
+                (integer))
+              (end_keyword)))
+          (case_else_branch
+            (else_keyword)))
+        (end_keyword)))))
+
+========================================================================
+Case statement with subscript expressions as patterns
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Test()
+    var
+        DocumentNo: array[3] of Code[20];
+    begin
+        case x of
+            DocumentNo[1]:
+                y := 1;
+            DocumentNo[2]:
+                y := 2;
+        end;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (array_type
+              (integer)
+              (type_specification
+                (code_type
+                  (integer)))))))
+      (code_block
+        (begin_keyword)
+        (case_statement
+          (case_keyword)
+          (identifier)
+          (of_keyword)
+          (case_branch
+            (subscript_expression
+              (identifier)
+              (integer))
+            (assignment_statement
+              (identifier)
+              (integer)))
+          (case_branch
+            (subscript_expression
+              (identifier)
+              (integer))
+            (assignment_statement
+              (identifier)
+              (integer))))
+        (end_keyword)))))
+
+========================================================================
+Case statement with preprocessor conditional in pattern list
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Test()
+    begin
+        case x of
+            DATABASE::"A",
+#if not CLEAN25
+            DATABASE::"B",
+#endif
+            DATABASE::"C":
+                y := 1;
+        end;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (case_statement
+          (case_keyword)
+          (identifier)
+          (of_keyword)
+          (case_branch
+            (database_reference
+              (object_type_keyword)
+              (quoted_identifier))
+            (preproc_conditional_case_patterns
+              (preproc_if
+                (preproc_open)
+                (preproc_not_expression
+                  (identifier)))
+              (database_reference
+                (object_type_keyword)
+                (quoted_identifier))
+              (preproc_endif
+                (preproc_close)))
+            (database_reference
+              (object_type_keyword)
+              (quoted_identifier))
+            (assignment_statement
+              (identifier)
+              (integer))))
+        (end_keyword)))))

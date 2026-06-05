@@ -1,0 +1,208 @@
+================================================================================
+Key with preprocessor conditional properties
+================================================================================
+
+table 50100 TestTable
+{
+    fields
+    {
+        field(1; ID; Integer) { }
+        field(2; Status; Text[20]) { }
+        field(3; "Service Code"; Code[20]) { }
+        field(4; "Document Format"; Code[10]) { }
+        field(5; "Service Integration"; Integer) { }
+    }
+
+    keys
+    {
+        key(Key1; ID)
+        {
+            Clustered = true;
+        }
+        key(Key2; Status, "Service Code", "Document Format", "Service Integration")
+        {
+            Clustered = false;
+            ObsoleteReason = 'Replaced by Key3.';
+#if CLEAN26
+            ObsoleteState = Removed;
+            ObsoleteTag = '29.0';
+#else
+            ObsoleteState = Pending;
+            ObsoleteTag = '26.0';
+#endif
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (basic_type)))
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (text_type
+            length: (integer))))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (code_type
+            length: (integer))))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (code_type
+            length: (integer))))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))))
+    (keys_section
+      (keys_keyword)
+      (key_declaration
+        (key_keyword)
+        name: (identifier)
+        fields: (field_list
+          (identifier))
+        (property
+          name: (property_name)
+          value: (boolean)))
+      (key_declaration
+        (key_keyword)
+        name: (identifier)
+        fields: (field_list
+          (identifier)
+          (quoted_identifier)
+          (quoted_identifier)
+          (quoted_identifier))
+        (property
+          name: (property_name)
+          value: (boolean))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (preproc_conditional
+          (preproc_if
+            (preproc_open)
+            condition: (identifier))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (preproc_else)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (preproc_endif
+            (preproc_close)))))))
+
+================================================================================
+Key with nested preprocessor conditionals
+================================================================================
+
+table 50101 AnotherTable
+{
+    fields
+    {
+        field(1; "Entry No."; Integer) { }
+    }
+
+    keys
+    {
+#if not CLEANSCHEMA29
+        key(Key1; "Entry No.")
+        {
+            Clustered = false;
+            ObsoleteReason = 'This key is obsolete';
+#if CLEAN26
+            ObsoleteState = Removed;
+#else
+            ObsoleteState = Pending;
+#endif
+            ObsoleteTag = '26.0';
+        }
+#endif
+        key(Key2; "Entry No.")
+        {
+            Clustered = true;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))))
+    (keys_section
+      (keys_keyword)
+      (preproc_conditional_keys
+        (preproc_if
+          (preproc_open)
+          condition: (preproc_not_expression
+            (identifier)))
+        (key_declaration
+          (key_keyword)
+          name: (identifier)
+          fields: (field_list
+            (quoted_identifier))
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (preproc_conditional
+            (preproc_if
+              (preproc_open)
+              condition: (identifier))
+            (property
+              name: (property_name)
+              value: (identifier))
+            (preproc_else)
+            (property
+              name: (property_name)
+              value: (identifier))
+            (preproc_endif
+              (preproc_close)))
+          (property
+            name: (property_name)
+            value: (string_literal)))
+        (preproc_endif
+          (preproc_close)))
+      (key_declaration
+        (key_keyword)
+        name: (identifier)
+        fields: (field_list
+          (quoted_identifier))
+        (property
+          name: (property_name)
+          value: (boolean))))))

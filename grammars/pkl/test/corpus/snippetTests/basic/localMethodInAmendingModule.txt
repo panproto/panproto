@@ -1,0 +1,216 @@
+===
+basic/localMethodInAmendingModule.pkl
+===
+
+amends "baseModule.pkl"
+
+import "pkl:test"
+
+local function f1(x: Int): Int = x + 1
+
+local x = f1(42)
+local y = test.catch(() -> f1("wrong type"))
+
+foo {
+  res1 = x
+  res2 = y
+  res3 = f1(42)
+  res4 = test.catch(() -> f1("wrong type"))
+  bar {
+    local function f1(x: Int): Int = x + 2
+    res5 = f1(42)
+    res6 = test.catch(() -> f1("wrong type"))
+  }
+  c = new C {}
+}
+
+local class C {
+  foo {
+    bar {
+      local function f1(x: Int): Int = x + 2
+      res7 = f1(42)
+      res8   = test.catch(() -> f1("wrong type"))
+    }
+  }
+}
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (classMethod
+    (methodHeader
+      (modifier)
+      (identifier)
+      (parameterList
+        (typedIdentifier
+          (identifier)
+          (typeAnnotation
+            (declaredType
+              (qualifiedIdentifier
+                (identifier))))))
+      (typeAnnotation
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))))
+    (additiveExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (intLiteralExpr)))
+  (classProperty
+    (modifier)
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList
+        (intLiteralExpr))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (unqualifiedAccessExpr
+            (identifier)
+            (argumentList
+              (slStringLiteralExpr
+                (slStringLiteralPart))))))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectProperty
+        (identifier)
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectProperty
+        (identifier)
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList
+            (intLiteralExpr))))
+      (objectProperty
+        (identifier)
+        (qualifiedAccessExpr
+          (unqualifiedAccessExpr
+            (identifier))
+          (identifier)
+          (argumentList
+            (functionLiteralExpr
+              (parameterList)
+              (unqualifiedAccessExpr
+                (identifier)
+                (argumentList
+                  (slStringLiteralExpr
+                    (slStringLiteralPart))))))))
+      (objectProperty
+        (identifier)
+        (objectBody
+          (objectMethod
+            (methodHeader
+              (modifier)
+              (identifier)
+              (parameterList
+                (typedIdentifier
+                  (identifier)
+                  (typeAnnotation
+                    (declaredType
+                      (qualifiedIdentifier
+                        (identifier))))))
+              (typeAnnotation
+                (declaredType
+                  (qualifiedIdentifier
+                    (identifier)))))
+            (additiveExpr
+              (unqualifiedAccessExpr
+                (identifier))
+              (intLiteralExpr)))
+          (objectProperty
+            (identifier)
+            (unqualifiedAccessExpr
+              (identifier)
+              (argumentList
+                (intLiteralExpr))))
+          (objectProperty
+            (identifier)
+            (qualifiedAccessExpr
+              (unqualifiedAccessExpr
+                (identifier))
+              (identifier)
+              (argumentList
+                (functionLiteralExpr
+                  (parameterList)
+                  (unqualifiedAccessExpr
+                    (identifier)
+                    (argumentList
+                      (slStringLiteralExpr
+                        (slStringLiteralPart))))))))))
+      (objectProperty
+        (identifier)
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (objectBody)))))
+  (clazz
+    (modifier)
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (objectBody
+          (objectProperty
+            (identifier)
+            (objectBody
+              (objectMethod
+                (methodHeader
+                  (modifier)
+                  (identifier)
+                  (parameterList
+                    (typedIdentifier
+                      (identifier)
+                      (typeAnnotation
+                        (declaredType
+                          (qualifiedIdentifier
+                            (identifier))))))
+                  (typeAnnotation
+                    (declaredType
+                      (qualifiedIdentifier
+                        (identifier)))))
+                (additiveExpr
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (intLiteralExpr)))
+              (objectProperty
+                (identifier)
+                (unqualifiedAccessExpr
+                  (identifier)
+                  (argumentList
+                    (intLiteralExpr))))
+              (objectProperty
+                (identifier)
+                (qualifiedAccessExpr
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (identifier)
+                  (argumentList
+                    (functionLiteralExpr
+                      (parameterList)
+                      (unqualifiedAccessExpr
+                        (identifier)
+                        (argumentList
+                          (slStringLiteralExpr
+                            (slStringLiteralPart)))))))))))))))

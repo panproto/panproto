@@ -1,0 +1,94 @@
+================================================================================
+Parameter expansion - pattern removal from beginning
+================================================================================
+
+echo "${arr[@]:#pattern}"
+
+---
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (string
+      (expansion
+        (expansion_pattern
+          name: (simple_variable_name)
+          index: (array_at)
+          pattern: (regex))))))
+
+================================================================================
+Parameter expansion - pattern removal from end
+================================================================================
+
+echo "${arr[@]:%pattern}"
+
+---
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (string
+      (expansion
+        (expansion_pattern
+          name: (simple_variable_name)
+          index: (array_at)
+          pattern: (regex))))))
+
+================================================================================
+Parameter expansion - pattern removal with flags
+================================================================================
+
+filtered=("${(@)ingest:#--ingest=*}")
+
+---
+
+(program
+  (variable_assignment
+    name: (variable_name)
+    value: (array
+      (string
+        (expansion
+          flags: (expansion_flags)
+          (expansion_pattern
+            name: (simple_variable_name)
+            pattern: (regex)))))))
+
+================================================================================
+Parameter expansion - complex pattern removal
+================================================================================
+
+basenames=("${(@)paths:##*/}")
+
+---
+
+(program
+  (variable_assignment
+    name: (variable_name)
+    value: (array
+      (string
+        (expansion
+          flags: (expansion_flags)
+          (expansion_pattern
+            name: (simple_variable_name)
+            pattern: (regex)))))))
+
+================================================================================
+Parameter expansion - pattern removal space
+================================================================================
+
+echo "${arr[@]:# }"
+
+---
+
+(program
+  (command
+    name: (command_name
+      (word))
+    argument: (string
+      (expansion
+        (expansion_pattern
+          name: (simple_variable_name)
+          index: (array_at)
+          pattern: (word))))))

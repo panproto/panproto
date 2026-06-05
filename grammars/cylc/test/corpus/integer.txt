@@ -1,0 +1,94 @@
+================================================================================
+integer
+================================================================================
+
+[section]
+    end = 100
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (integer))))
+
+================================================================================
+long integer
+================================================================================
+
+[section]
+    end = 123456789123456789123456789
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (integer))))
+
+================================================================================
+integer followed by whitespaces
+================================================================================
+
+[section]
+    end = 100     
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (integer))))
+
+================================================================================
+integer followed by comment
+================================================================================
+
+[section]
+    end = 100   # comment
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (integer)
+      (comment))))
+
+================================================================================
+integer with line return (makes it a unq.-string)
+================================================================================
+
+[section]
+    end = 123456789123456789123456789\
+123456789
+
+--------------------------------------------------------------------------------
+
+(workflow_configuration
+  (top_section
+    name: (section_name
+      (nametag))
+    (setting
+      key: (key)
+      operator: (assignment_operator)
+      value: (unquoted_string
+        (string_content
+          (line_continuation))))))
+

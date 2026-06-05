@@ -1,0 +1,19 @@
+===
+errors/invalidGlobImport1.pkl
+===
+
+import* "{foo{bar}}.pkl" as invalidGlob
+
+res = invalidGlob
+
+---
+
+(module
+  (importGlobClause
+    (stringConstant
+      (slStringLiteralPart))
+    (identifier))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier))))

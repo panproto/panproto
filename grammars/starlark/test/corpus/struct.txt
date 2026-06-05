@@ -1,0 +1,27 @@
+============================
+Test a struct initialization
+============================
+
+a = struct(x=123, y=false, z="hello")
+
+---
+
+(module
+  (expression_statement
+    (assignment
+      (identifier)
+      (call
+        (identifier)
+        (argument_list
+          (keyword_argument
+            (identifier)
+            (integer))
+          (keyword_argument
+            (identifier)
+            (identifier))
+          (keyword_argument
+            (identifier)
+            (string
+              (string_start)
+              (string_content)
+              (string_end))))))))

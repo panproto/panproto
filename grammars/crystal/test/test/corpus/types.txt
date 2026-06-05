@@ -1,0 +1,1068 @@
+================================================================================
+constants
+================================================================================
+A
+A1
+(A_A____)
+
+::B
+::B💎::C
+::B_::C4
+--------------------------------------------------------------------------------
+
+(source_file
+  (constant)
+  (constant)
+  (constant)
+  (constant)
+  (constant)
+  (constant))
+
+================================================================================
+unions
+================================================================================
+alias AOrB = A | B
+
+alias AOrBCOrD = A|B::C|D
+
+alias NestedUnion = (A)|( B::C|D )
+
+alias NestedUnion2 = A | ( B | (C | D ) | E) | ((F) | G | H)
+--------------------------------------------------------------------------------
+
+(source_file
+  (alias
+    name: (constant)
+    type: (union_type
+      (constant)
+      (constant)))
+  (alias
+    name: (constant)
+    type: (union_type
+      (constant)
+      (constant)
+      (constant)))
+  (alias
+    name: (constant)
+    type: (union_type
+      (constant)
+      (union_type
+        (constant)
+        (constant))))
+  (alias
+    name: (constant)
+    type: (union_type
+      (constant)
+      (union_type
+        (constant)
+        (union_type
+          (constant)
+          (constant))
+        (constant))
+      (union_type
+        (constant)
+        (constant)
+        (constant)))))
+
+================================================================================
+proc types
+================================================================================
+[] of ->
+{} of -> => ->
+
+[] of -> Int32 | String
+[] of Proc(Int32 | String)
+
+[ [] of Int32, Int32 -> String ]
+[ [] of Proc(Int32, Int32, String) ]
+
+
+[ {} of Int32 => Int32, Int32 -> String]
+[ {} of Int32 => Proc(Int32, Int32, String)]
+
+{ {} of Int32 => Int32, Int32 }
+
+{ {} of Int32 => Int32, Int32 ->}
+{ {} of Int32 => Proc(Int32, Int32, Nil)}
+
+[] of Proc(Int32, Int32 -> Int32)
+
+[] of (A -> B) -> C
+
+def x(y : A, b); end
+
+def x(y : A, B ->); end
+
+alias Foo = A | B -> C | D
+
+alias DoubleProc = -> ->
+--------------------------------------------------------------------------------
+
+(source_file
+  (array
+    of: (proc_type))
+  (hash
+    of_key: (proc_type)
+    of_value: (proc_type))
+  (array
+    of: (proc_type
+      return: (union_type
+        (constant)
+        (constant))))
+  (array
+    of: (generic_instance_type
+      (constant)
+      params: (param_list
+        (union_type
+          (constant)
+          (constant)))))
+  (array
+    (array
+      of: (proc_type
+        (constant)
+        (constant)
+        return: (constant))))
+  (array
+    (array
+      of: (generic_instance_type
+        (constant)
+        params: (param_list
+          (constant)
+          (constant)
+          (constant)))))
+  (array
+    (hash
+      of_key: (constant)
+      of_value: (proc_type
+        (constant)
+        (constant)
+        return: (constant))))
+  (array
+    (hash
+      of_key: (constant)
+      of_value: (generic_instance_type
+        (constant)
+        params: (param_list
+          (constant)
+          (constant)
+          (constant)))))
+  (tuple
+    (hash
+      of_key: (constant)
+      of_value: (constant))
+    (constant))
+  (tuple
+    (hash
+      of_key: (constant)
+      of_value: (proc_type
+        (constant)
+        (constant))))
+  (tuple
+    (hash
+      of_key: (constant)
+      of_value: (generic_instance_type
+        (constant)
+        params: (param_list
+          (constant)
+          (constant)
+          (constant)))))
+  (array
+    of: (generic_instance_type
+      (constant)
+      params: (param_list
+        (proc_type
+          (constant)
+          (constant)
+          return: (constant)))))
+  (array
+    of: (proc_type
+      (proc_type
+        (constant)
+        return: (constant))
+      return: (constant)))
+  (method_def
+    name: (identifier)
+    params: (param_list
+      (param
+        name: (identifier)
+        type: (constant))
+      (param
+        name: (identifier))))
+  (method_def
+    name: (identifier)
+    params: (param_list
+      (param
+        name: (identifier)
+        type: (proc_type
+          (constant)
+          (constant)))))
+  (alias
+    name: (constant)
+    type: (proc_type
+      (union_type
+        (constant)
+        (constant))
+      return: (union_type
+        (constant)
+        (constant))))
+  (alias
+    name: (constant)
+    type: (proc_type
+      return: (proc_type))))
+
+================================================================================
+proc types, continued
+================================================================================
+alias P2 = -> Tuple(Int8) ->
+--------------------------------------------------------------------------------
+
+(source_file
+  (alias
+    name: (constant)
+    type: (proc_type
+      (proc_type
+        return: (generic_instance_type
+          (constant)
+          params: (param_list
+            (constant)))))))
+
+================================================================================
+proc ambiguity resolution
+================================================================================
+def p1 : ->{1=>1}; end
+def p2 : ->{Int32}; end
+def p2 : ->{Int32,}; end
+
+def p3 : ->(Int32.to_s); end
+def p4 : ->(Int32.class); end
+
+def p3 : ->{Int32 . class_thinyg}; end
+def p4 : ->{Int32 . class}; end
+
+def p1 : ->{_}; end
+def p2 : ->{_a};end
+
+def p1 : ->(_); end
+def p2 : ->(_a);end
+
+def p1 : ->{(A🦝->B🐼)}; end
+def p2 : ->{(A🦝-B🐼)}; end
+
+def p1 : ->(Int8 -> Char); end
+def p2 : ->(Int8 - Char); end
+
+def p1 : ->{A**,B*}; end
+def p2 : ->{A*B}; end
+
+def p1 : ->(A**); end
+def p2 : ->(A*B); end
+
+def p1 : ->{A?,}; end
+def p2 : ->{A?1:2}; end
+
+def p1 : ->(A?); end
+def p2 : ->(A?1:2); end
+--------------------------------------------------------------------------------
+
+(source_file
+  (method_def
+    name: (identifier)
+    type: (proc_type)
+    (hash
+      (hash_entry
+        (integer)
+        (integer))))
+  (method_def
+    name: (identifier)
+    type: (proc_type)
+    (tuple
+      (constant)))
+  (method_def
+    name: (identifier)
+    type: (proc_type
+      return: (tuple_type
+        (constant))))
+  (method_def
+    name: (identifier)
+    type: (proc_type)
+    (call
+      receiver: (constant)
+      method: (identifier)))
+  (method_def
+    name: (identifier)
+    type: (proc_type
+      return: (class_type
+        (constant))))
+  (method_def
+    name: (identifier)
+    type: (proc_type)
+    (tuple
+      (call
+        receiver: (constant)
+        method: (identifier))))
+  (method_def
+    name: (identifier)
+    type: (proc_type
+      return: (tuple_type
+        (class_type
+          (constant)))))
+  (method_def
+    name: (identifier)
+    type: (proc_type
+      return: (tuple_type
+        (underscore_type))))
+  (method_def
+    name: (identifier)
+    type: (proc_type)
+    (tuple
+      (identifier)))
+  (method_def
+    name: (identifier)
+    type: (proc_type
+      return: (underscore_type)))
+  (method_def
+    name: (identifier)
+    type: (proc_type)
+    (identifier))
+  (method_def
+    name: (identifier)
+    type: (proc_type
+      return: (tuple_type
+        (proc_type
+          (constant)
+          return: (constant)))))
+  (method_def
+    name: (identifier)
+    type: (proc_type)
+    (tuple
+      (op_call
+        receiver: (constant)
+        operator: (operator)
+        argument: (constant))))
+  (method_def
+    name: (identifier)
+    type: (proc_type
+      return: (proc_type
+        (constant)
+        return: (constant))))
+  (method_def
+    name: (identifier)
+    type: (proc_type)
+    (op_call
+      receiver: (constant)
+      operator: (operator)
+      argument: (constant)))
+  (method_def
+    name: (identifier)
+    type: (proc_type
+      return: (tuple_type
+        (pointer_type
+          (pointer_type
+            (constant)))
+        (pointer_type
+          (constant)))))
+  (method_def
+    name: (identifier)
+    type: (proc_type)
+    (tuple
+      (op_call
+        receiver: (constant)
+        operator: (operator)
+        argument: (constant))))
+  (method_def
+    name: (identifier)
+    type: (proc_type
+      return: (pointer_type
+        (pointer_type
+          (constant)))))
+  (method_def
+    name: (identifier)
+    type: (proc_type)
+    (op_call
+      receiver: (constant)
+      operator: (operator)
+      argument: (constant)))
+  (method_def
+    name: (identifier)
+    type: (proc_type
+      return: (tuple_type
+        (nilable_type
+          (constant)))))
+  (method_def
+    name: (identifier)
+    type: (proc_type)
+    (tuple
+      (conditional
+        cond: (constant)
+        then: (integer)
+        else: (integer))))
+  (method_def
+    name: (identifier)
+    type: (proc_type
+      return: (nilable_type
+        (constant))))
+  (method_def
+    name: (identifier)
+    type: (proc_type)
+    (conditional
+      cond: (constant)
+      then: (integer)
+      else: (integer))))
+
+================================================================================
+proc ambiguity resolution, continued
+================================================================================
+def p1 : ->{self,}; end
+def p1 : ->{self?,}; end
+def p2 : ->{self2,}; end
+def p2 : ->{selfa,}; end
+def p2 : ->{self!,}; end
+def p2 : ->{self: self}; end
+
+def p1 : ->(self); end
+def p1 : ->(self?); end
+def p2 : ->(self2); end
+def p2 : ->(selfa); end
+def p2 : ->(self!); end
+
+def p1 : ->{typeof(7)}; end
+def p1 : ->{typeof ( "A" )}; end
+def p2 : ->{typeof!}; end
+def p2 : ->{typeof🆎}; end
+def p2 : ->{typeof: "t"}; end
+
+def p1 : ->(typeof(7)); end
+def p1 : ->(typeof ( "A" )); end
+def p2 : ->(typeof!); end
+def p2 : ->(typeof🆎); end
+
+def p1 : -> { A::B, }; end
+def p2 : -> { A: :B, }; end
+
+def p1 : ->{"a": "b"}; end
+def p1 : ->{%(a()): "b"}; end
+def p1 : ->{%q|a|: "b"}; end
+def p1 : ->{%Q<<>a>: "b"}; end
+def p1 : ->{%[[a]]: "b"}; end
+def p1 : ->{%{a{}a}: "b"}; end
+
+f = -> : -> { a: String; ->{} }
+--------------------------------------------------------------------------------
+
+(source_file
+  (method_def
+    name: (identifier)
+    type: (proc_type
+      return: (tuple_type
+        (self))))
+  (method_def
+    name: (identifier)
+    type: (proc_type
+      return: (tuple_type
+        (nilable_type
+          (self)))))
+  (method_def
+    name: (identifier)
+    type: (proc_type)
+    (tuple
+      (identifier)))
+  (method_def
+    name: (identifier)
+    type: (proc_type)
+    (tuple
+      (identifier)))
+  (method_def
+    name: (identifier)
+    type: (proc_type)
+    (tuple
+      (call
+        method: (identifier))))
+  (method_def
+    name: (identifier)
+    type: (proc_type)
+    (named_tuple
+      (named_expr
+        name: (identifier)
+        (self))))
+  (method_def
+    name: (identifier)
+    type: (proc_type
+      return: (self)))
+  (method_def
+    name: (identifier)
+    type: (proc_type
+      return: (nilable_type
+        (self))))
+  (method_def
+    name: (identifier)
+    type: (proc_type)
+    (identifier))
+  (method_def
+    name: (identifier)
+    type: (proc_type)
+    (identifier))
+  (method_def
+    name: (identifier)
+    type: (proc_type)
+    (call
+      method: (identifier)))
+  (method_def
+    name: (identifier)
+    type: (proc_type
+      return: (tuple_type
+        (typeof
+          (integer)))))
+  (method_def
+    name: (identifier)
+    type: (proc_type
+      return: (tuple_type
+        (typeof
+          (string)))))
+  (method_def
+    name: (identifier)
+    type: (proc_type)
+    (tuple
+      (call
+        method: (identifier))))
+  (method_def
+    name: (identifier)
+    type: (proc_type)
+    (tuple
+      (identifier)))
+  (method_def
+    name: (identifier)
+    type: (proc_type)
+    (named_tuple
+      (named_expr
+        name: (identifier)
+        (string))))
+  (method_def
+    name: (identifier)
+    type: (proc_type
+      return: (typeof
+        (integer))))
+  (method_def
+    name: (identifier)
+    type: (proc_type
+      return: (typeof
+        (string))))
+  (method_def
+    name: (identifier)
+    type: (proc_type)
+    (call
+      method: (identifier)))
+  (method_def
+    name: (identifier)
+    type: (proc_type)
+    (identifier))
+  (method_def
+    name: (identifier)
+    type: (proc_type
+      return: (tuple_type
+        (constant))))
+  (method_def
+    name: (identifier)
+    type: (proc_type)
+    (named_tuple
+      (named_expr
+        name: (identifier)
+        (symbol))))
+  (method_def
+    name: (identifier)
+    type: (proc_type)
+    (named_tuple
+      (named_expr
+        name: (string)
+        (string))))
+  (method_def
+    name: (identifier)
+    type: (proc_type)
+    (named_tuple
+      (named_expr
+        name: (string)
+        (string))))
+  (method_def
+    name: (identifier)
+    type: (proc_type)
+    (named_tuple
+      (named_expr
+        name: (string)
+        (string))))
+  (method_def
+    name: (identifier)
+    type: (proc_type)
+    (named_tuple
+      (named_expr
+        name: (string)
+        (string))))
+  (method_def
+    name: (identifier)
+    type: (proc_type)
+    (named_tuple
+      (named_expr
+        name: (string)
+        (string))))
+  (method_def
+    name: (identifier)
+    type: (proc_type)
+    (named_tuple
+      (named_expr
+        name: (string)
+        (string))))
+  (assign
+    lhs: (identifier)
+    rhs: (proc
+      type: (proc_type)
+      block: (block
+        (type_declaration
+          var: (identifier)
+          type: (constant))
+        (proc
+          block: (block))))))
+
+================================================================================
+tuple types
+================================================================================
+alias Foo1 = {Int32}
+alias Foo2 = {Int32, Int32}
+
+-> : {Int32, Proc(Int32)} { {1, -> {1}} }
+
+-> : Int32, Int32 -> { ->, ->} do  end
+--------------------------------------------------------------------------------
+
+(source_file
+  (alias
+    name: (constant)
+    type: (tuple_type
+      (constant)))
+  (alias
+    name: (constant)
+    type: (tuple_type
+      (constant)
+      (constant)))
+  (proc
+    type: (tuple_type
+      (constant)
+      (generic_instance_type
+        (constant)
+        params: (param_list
+          (constant))))
+    block: (block
+      (tuple
+        (integer)
+        (proc
+          block: (block
+            (integer))))))
+  (proc
+    type: (proc_type
+      (constant)
+      (constant)
+      return: (tuple_type
+        (proc_type)
+        (proc_type)))
+    block: (block)))
+
+================================================================================
+named tuple types
+================================================================================
+alias NamedTuple1 = {x: Int32, y: String}
+alias NamedTuple2 = {"x": Int32, y?: String, Z: Char, %<.>: String, %q(hi): Int8}
+
+alias NamedTuple1 = NamedTuple(x: Int32, y: String)
+alias NamedTuple2 = NamedTuple("x": Int32, y?: String, Z: Char, %q(hi again): Int8)
+--------------------------------------------------------------------------------
+
+(source_file
+  (alias
+    name: (constant)
+    type: (named_tuple_type
+      (named_type
+        name: (identifier)
+        (constant))
+      (named_type
+        name: (identifier)
+        (constant))))
+  (alias
+    name: (constant)
+    type: (named_tuple_type
+      (named_type
+        name: (string)
+        (constant))
+      (named_type
+        name: (identifier)
+        (constant))
+      (named_type
+        name: (identifier)
+        (constant))
+      (named_type
+        name: (string)
+        (constant))
+      (named_type
+        name: (string)
+        (constant))))
+  (alias
+    name: (constant)
+    type: (generic_instance_type
+      (constant)
+      params: (param_list
+        (named_type
+          name: (identifier)
+          (constant))
+        (named_type
+          name: (identifier)
+          (constant)))))
+  (alias
+    name: (constant)
+    type: (generic_instance_type
+      (constant)
+      params: (param_list
+        (named_type
+          name: (string)
+          (constant))
+        (named_type
+          name: (identifier)
+          (constant))
+        (named_type
+          name: (identifier)
+          (constant))
+        (named_type
+          name: (string)
+          (constant))))))
+
+================================================================================
+generic types
+================================================================================
+class Gen(*U)
+end
+
+alias Foo = Gen()
+alias Foo2 = Gen(Int32)
+alias Foo3 = Gen(Int32,)
+alias Foo4 = Gen(Int32,String)
+alias Foo5 = Gen(Int32,String|Char)
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_def
+    name: (generic_type
+      (constant)
+      params: (param_list
+        (splat
+          (constant)))))
+  (alias
+    name: (constant)
+    type: (generic_instance_type
+      (constant)))
+  (alias
+    name: (constant)
+    type: (generic_instance_type
+      (constant)
+      params: (param_list
+        (constant))))
+  (alias
+    name: (constant)
+    type: (generic_instance_type
+      (constant)
+      params: (param_list
+        (constant))))
+  (alias
+    name: (constant)
+    type: (generic_instance_type
+      (constant)
+      params: (param_list
+        (constant)
+        (constant))))
+  (alias
+    name: (constant)
+    type: (generic_instance_type
+      (constant)
+      params: (param_list
+        (constant)
+        (union_type
+          (constant)
+          (constant))))))
+
+================================================================================
+generic classes, etc.
+================================================================================
+class Foo(*T)
+  getter content
+
+  def initialize(*@content : *T)
+  end
+end
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_def
+    name: (generic_type
+      (constant)
+      params: (param_list
+        (splat
+          (constant))))
+    (call
+      method: (identifier)
+      arguments: (argument_list
+        (identifier)))
+    (method_def
+      name: (identifier)
+      params: (param_list
+        (splat_param
+          name: (instance_var)
+          type: (splat_type
+            (constant)))))))
+
+================================================================================
+splat types
+================================================================================
+def foo : {*{Int32 | Int8}}
+end
+
+alias Foo = {*{Int32 | Int8, Int8}}
+
+alias Bar = {Char, *Foo, String}
+
+c : *Char -> = ->(c : Char){}
+--------------------------------------------------------------------------------
+
+(source_file
+  (method_def
+    name: (identifier)
+    type: (tuple_type
+      (splat_type
+        (tuple_type
+          (union_type
+            (constant)
+            (constant))))))
+  (alias
+    name: (constant)
+    type: (tuple_type
+      (splat_type
+        (tuple_type
+          (union_type
+            (constant)
+            (constant))
+          (constant)))))
+  (alias
+    name: (constant)
+    type: (tuple_type
+      (constant)
+      (splat_type
+        (constant))
+      (constant)))
+  (type_declaration
+    var: (identifier)
+    type: (proc_type
+      (splat_type
+        (constant)))
+    value: (proc
+      params: (param_list
+        (param
+          name: (identifier)
+          type: (constant)))
+      block: (block))))
+
+================================================================================
+underscore type
+================================================================================
+def foo(x : _, y : _, _ -> String)
+  _ = 7
+  a, _, b = expand_foo
+end
+--------------------------------------------------------------------------------
+
+(source_file
+  (method_def
+    name: (identifier)
+    params: (param_list
+      (param
+        name: (identifier)
+        type: (underscore_type))
+      (param
+        name: (identifier)
+        type: (proc_type
+          (underscore_type)
+          (underscore_type)
+          return: (constant))))
+    (assign
+      lhs: (identifier)
+      rhs: (integer))
+    (multi_assign
+      lhs: (identifier)
+      lhs: (identifier)
+      lhs: (identifier)
+      rhs: (identifier))))
+
+================================================================================
+pointer type
+================================================================================
+alias ProcP = -> C *
+alias SP = String*
+alias SPP = String**
+alias SPNP = String*?*
+
+alias Foo = {*{Char, String}*} # compiler blocks this type of splat
+--------------------------------------------------------------------------------
+
+(source_file
+  (alias
+    name: (constant)
+    type: (proc_type
+      return: (pointer_type
+        (constant))))
+  (alias
+    name: (constant)
+    type: (pointer_type
+      (constant)))
+  (alias
+    name: (constant)
+    type: (pointer_type
+      (pointer_type
+        (constant))))
+  (alias
+    name: (constant)
+    type: (pointer_type
+      (nilable_type
+        (pointer_type
+          (constant)))))
+  (alias
+    name: (constant)
+    type: (tuple_type
+      (splat_type
+        (pointer_type
+          (tuple_type
+            (constant)
+            (constant))))))
+  (comment))
+
+================================================================================
+nilable type
+================================================================================
+alias S = String*?
+alias I = Foo(Bar?)?????
+
+a = [] of (String ?) ?
+b = ([] of (String?)?) ? 1 : 2
+--------------------------------------------------------------------------------
+
+(source_file
+  (alias
+    name: (constant)
+    type: (nilable_type
+      (pointer_type
+        (constant))))
+  (alias
+    name: (constant)
+    type: (nilable_type
+      (nilable_type
+        (nilable_type
+          (nilable_type
+            (nilable_type
+              (generic_instance_type
+                (constant)
+                params: (param_list
+                  (nilable_type
+                    (constant))))))))))
+  (assign
+    lhs: (identifier)
+    rhs: (array
+      of: (nilable_type
+        (nilable_type
+          (constant)))))
+  (assign
+    lhs: (identifier)
+    rhs: (conditional
+      cond: (array
+        of: (nilable_type
+          (nilable_type
+            (constant))))
+      then: (integer)
+      else: (integer))))
+
+================================================================================
+typeof
+================================================================================
+alias Foo = {Char, typeof(1 + w)}
+
+def p2 : ->{asdf: typeof(FOO)}; end
+--------------------------------------------------------------------------------
+
+(source_file
+  (alias
+    name: (constant)
+    type: (tuple_type
+      (constant)
+      (typeof
+        (op_call
+          receiver: (integer)
+          operator: (operator)
+          argument: (identifier)))))
+  (method_def
+    name: (identifier)
+    type: (proc_type)
+    (named_tuple
+      (named_expr
+        name: (identifier)
+        (typeof
+          (constant))))))
+
+================================================================================
+static array types
+================================================================================
+alias A = Int8[+1_0i32]
+alias B = ->Int8[0xa]
+alias C = (->Int8)[42]
+alias D = UInt8[CONST]
+alias E = UInt8[sizeof(Int64)]
+alias F = UInt8[instance_sizeof(Foo(Bar))]
+alias G = LibC::Char[offsetof(String -> Int32, @a)]
+--------------------------------------------------------------------------------
+
+(source_file
+  (alias
+    name: (constant)
+    type: (static_array_type
+      (constant)
+      (integer)))
+  (alias
+    name: (constant)
+    type: (proc_type
+      return: (static_array_type
+        (constant)
+        (integer))))
+  (alias
+    name: (constant)
+    type: (static_array_type
+      (proc_type
+        return: (constant))
+      (integer)))
+  (alias
+    name: (constant)
+    type: (static_array_type
+      (constant)
+      (constant)))
+  (alias
+    name: (constant)
+    type: (static_array_type
+      (constant)
+      (sizeof
+        (constant))))
+  (alias
+    name: (constant)
+    type: (static_array_type
+      (constant)
+      (instance_sizeof
+        (generic_instance_type
+          (constant)
+          params: (param_list
+            (constant))))))
+  (alias
+    name: (constant)
+    type: (static_array_type
+      (constant)
+      (offsetof
+        (proc_type
+          (constant)
+          return: (constant))
+        (instance_var)))))

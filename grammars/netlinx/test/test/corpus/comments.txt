@@ -1,0 +1,103 @@
+===============================
+Single Line
+===============================
+
+// This is a comment
+// This is another comment
+
+---
+
+(source_file
+      (comment)
+      (comment))
+
+================================
+Multi-line
+================================
+
+/* This is a comment */
+
+/*
+    This is
+    a comment
+    that can span
+    multiple lines.
+*/
+
+---
+
+(source_file
+      (comment)
+      (comment))
+
+===============================
+Pascal
+===============================
+
+(* This is a pascal style comment *)
+(* This is another pascal comment */
+
+(*
+    It should also
+    span
+    multiple lines.
+*)
+
+(*
+    It should also
+    span
+    multiple lines.
+*/
+
+---
+
+(source_file
+      (comment)
+      (comment)
+      (comment)
+      (comment))
+
+================================================================================
+Comments with asterisks
+================================================================================
+
+/*************************
+ * odd number of asterisks
+ *************************/
+integer a;
+
+/**************************
+ * even number of asterisks
+ **************************/
+integer b;
+
+(***********************************************************)
+(*{{PS_SOURCE_INFO(PROGRAM STATS)                          *)
+(***********************************************************)
+(*  ORPHAN_FILE_PLATFORM: 1                                *)
+(***********************************************************)
+(*}}PS_SOURCE_INFO                                         *)
+(***********************************************************)
+
+--------------------------------------------------------------------------------
+
+(source_file
+      (comment)
+      (declaration
+        (intrinsic_type
+          (primitive_type
+            (integer_keyword)))
+        (identifier))
+      (comment)
+      (declaration
+        (intrinsic_type
+          (primitive_type
+            (integer_keyword)))
+        (identifier))
+      (comment)
+      (comment)
+      (comment)
+      (comment)
+      (comment)
+      (comment)
+      (comment))

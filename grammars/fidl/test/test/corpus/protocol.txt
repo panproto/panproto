@@ -1,0 +1,220 @@
+================================================================================
+protocol-method
+================================================================================
+
+library this_is_library;
+
+protocol Protocol {
+  MethodNoArgNoReturnNoErr();
+  MethodWithArg(struct{});
+  MethodWithReturn() -> (struct{
+    num uint64;
+  });
+  MethodWithErr() -> () error Status;
+  MethodWithReturnAndErr() -> (struct{
+    num uint64;
+  }) error Status;
+  MethodWithArgReturnAndErr(struct{}) -> (struct{
+    num uint64;
+  }) error Status;
+};
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (library
+    (compound_identifier
+      (identifier)))
+  (declaration
+    (protocol_declaration
+      (identifier)
+      (protocol_member
+        (protocol_method
+          (identifier)
+          (parameter_list)))
+      (protocol_member
+        (protocol_method
+          (identifier)
+          (parameter_list
+            (type_constructor
+              (layout
+                (inline_layout
+                  (layout_kind)
+                  (layout_body
+                    (struct_layout))))))))
+      (protocol_member
+        (protocol_method
+          (identifier)
+          (parameter_list)
+          (parameter_list
+            (type_constructor
+              (layout
+                (inline_layout
+                  (layout_kind)
+                  (layout_body
+                    (struct_layout
+                      (struct_layout_member
+                        (member_field
+                          (identifier)
+                          (type_constructor
+                            (primitives_type))))))))))))
+      (protocol_member
+        (protocol_method
+          (identifier)
+          (parameter_list)
+          (parameter_list)
+          (type_constructor
+            (layout
+              (compound_identifier
+                (identifier))))))
+      (protocol_member
+        (protocol_method
+          (identifier)
+          (parameter_list)
+          (parameter_list
+            (type_constructor
+              (layout
+                (inline_layout
+                  (layout_kind)
+                  (layout_body
+                    (struct_layout
+                      (struct_layout_member
+                        (member_field
+                          (identifier)
+                          (type_constructor
+                            (primitives_type))))))))))
+          (type_constructor
+            (layout
+              (compound_identifier
+                (identifier))))))
+      (protocol_member
+        (protocol_method
+          (identifier)
+          (parameter_list
+            (type_constructor
+              (layout
+                (inline_layout
+                  (layout_kind)
+                  (layout_body
+                    (struct_layout))))))
+          (parameter_list
+            (type_constructor
+              (layout
+                (inline_layout
+                  (layout_kind)
+                  (layout_body
+                    (struct_layout
+                      (struct_layout_member
+                        (member_field
+                          (identifier)
+                          (type_constructor
+                            (primitives_type))))))))))
+          (type_constructor
+            (layout
+              (compound_identifier
+                (identifier)))))))))
+
+================================================================================
+protocol-event and compose
+================================================================================
+
+library this_is_library;
+
+protocol Protocol {
+  -> OnEvent(Message);
+  -> OnEvent(Message) error StatusCode;
+  compose Event;
+};
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (library
+    (compound_identifier
+      (identifier)))
+  (declaration
+    (protocol_declaration
+      (identifier)
+      (protocol_member
+        (protocol_event
+          (identifier)
+          (parameter_list
+            (type_constructor
+              (layout
+                (compound_identifier
+                  (identifier)))))))
+      (protocol_member
+        (protocol_event
+          (identifier)
+          (parameter_list
+            (type_constructor
+              (layout
+                (compound_identifier
+                  (identifier)))))
+          (type_constructor
+            (layout
+              (compound_identifier
+                (identifier))))))
+      (protocol_member
+        (protocol_compose
+          (compound_identifier
+            (identifier)))))))
+
+================================================================================
+with attributes
+================================================================================
+
+library this_is_library;
+
+@a
+open protocol Protocol {
+  @b
+  strict EnableSecureMode();
+
+  @c
+  flexible -> OnEvent(Message);
+
+  @d
+  compose Event;
+};
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (library
+    (compound_identifier
+      (identifier)))
+  (declaration
+    (protocol_declaration
+      (attribute_list
+        (attribute
+          (identifier)))
+      (protocol_attribute)
+      (identifier)
+      (protocol_member
+        (protocol_method
+          (attribute_list
+            (attribute
+              (identifier)))
+          (declaration_modifiers)
+          (identifier)
+          (parameter_list)))
+      (protocol_member
+        (protocol_event
+          (attribute_list
+            (attribute
+              (identifier)))
+          (declaration_modifiers)
+          (identifier)
+          (parameter_list
+            (type_constructor
+              (layout
+                (compound_identifier
+                  (identifier)))))))
+      (protocol_member
+        (protocol_compose
+          (attribute_list
+            (attribute
+              (identifier)))
+          (compound_identifier
+            (identifier)))))))

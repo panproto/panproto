@@ -1,0 +1,171 @@
+==================
+from command image
+==================
+
+FROM alpine
+
+---
+
+    (source_file
+      base_target: (block
+        (from_command
+          (image_spec
+            name: (image_name)))))
+
+
+==================
+from command image with tag
+==================
+
+FROM alpine:3.16
+
+---
+
+    (source_file
+      base_target: (block
+        (from_command
+          (image_spec
+            name: (image_name)
+            tag: (image_tag)))))
+
+
+
+==================
+from command image with sha256
+==================
+
+FROM alpine@sha256:1b8ca66c591b771984d1e562aac281cd2b2e950c124e35b5b0fe7e2147c6f0e2
+
+---
+
+    (source_file
+      base_target: (block
+        (from_command
+          (image_spec
+            name: (image_name)
+            digest: (image_digest)))))
+
+
+==================
+from command target
+==================
+
+FROM +build
+
+---
+
+    (source_file
+      base_target: (block
+        (from_command
+          (target_ref
+            name: (identifier)))))
+
+
+==================
+from command target with build arg
+==================
+
+FROM +build --foo=bar
+
+---
+
+    (source_file
+      base_target: (block
+        (from_command
+          (target_ref
+            name: (identifier))
+          (build_args
+            (build_arg
+              name: (variable)
+              value: (string
+                (unquoted_string)))))))
+
+
+==================
+from command target with space build arg
+==================
+
+FROM +build --foo bar
+
+---
+
+    (source_file
+      base_target: (block
+        (from_command
+          (target_ref
+            name: (identifier))
+          (build_args
+            (build_arg
+              name: (variable)
+              value: (string
+                (unquoted_string)))))))
+
+
+==================
+from command target with platform
+==================
+
+FROM --platform=linux/arm64 +build
+
+---
+
+    (source_file
+      base_target: (block
+        (from_command
+          options: (options
+            (platform
+              value: (string
+                (unquoted_string))))
+          (target_ref
+            name: (identifier)))))
+
+
+==================
+from command target with space platform
+==================
+
+FROM --platform linux/arm64 +build
+
+---
+
+    (source_file
+      base_target: (block
+        (from_command
+          options: (options
+            (platform
+              value: (string
+                (unquoted_string))))
+          (target_ref
+            name: (identifier)))))
+
+
+==================
+from command target with allow privileged
+==================
+
+FROM --allow-privileged +build
+
+---
+
+    (source_file
+      base_target: (block
+        (from_command
+          options: (options
+            (allow_privileged))
+          (target_ref
+            name: (identifier)))))
+
+==================
+from command target with earthfile reference
+==================
+
+FROM github.com/earthly/earthly+base
+
+---
+
+    (source_file
+      base_target: (block
+        (from_command
+          (target_ref
+            earthfile: (earthfile_ref)
+            name: (identifier)))))

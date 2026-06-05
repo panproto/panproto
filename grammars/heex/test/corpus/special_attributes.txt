@@ -1,0 +1,381 @@
+================================================================================
+Component special attribute :let
+================================================================================
+
+<.form :let={f}>
+    <%= text_input f, :text %>
+    <%= submit "Submit" %>
+</.form>
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (component
+    (start_component
+      (component_name
+        (function))
+      (special_attribute
+        (special_attribute_name)
+        (expression
+          (expression_value))))
+    (directive
+      (expression_value))
+    (directive
+      (expression_value))
+    (end_component
+      (component_name
+        (function)))))
+
+================================================================================
+Slot special attribute :let
+================================================================================
+
+<.func>
+  <:slot :let={foo}>
+    <%= foo %>
+  </:slot>
+</.func>
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (component
+    (start_component
+      (component_name
+        (function)))
+    (slot
+      (start_slot
+        (slot_name)
+        (special_attribute
+          (special_attribute_name)
+          (expression
+            (expression_value))))
+      (directive
+        (expression_value))
+      (end_slot
+        (slot_name)))
+    (end_component
+      (component_name
+        (function)))))
+
+================================================================================
+Tag special attribute :for
+================================================================================
+
+<div :for={item <- @items}>
+  <%= item %>
+</div>
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (tag
+    (start_tag
+      (tag_name)
+      (special_attribute
+        (special_attribute_name)
+        (expression
+          (expression_value))))
+    (directive
+      (expression_value))
+    (end_tag
+      (tag_name))))
+
+================================================================================
+Self-closing tag special attribute :for
+================================================================================
+
+<div :for={item <- @items} />
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (tag
+    (self_closing_tag
+      (tag_name)
+      (special_attribute
+        (special_attribute_name)
+        (expression
+          (expression_value))))))
+
+================================================================================
+Self-closing tag special attribute :for
+================================================================================
+
+<div :for={item <- @items}/>
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (tag
+    (self_closing_tag
+      (tag_name)
+      (special_attribute
+        (special_attribute_name)
+        (expression
+          (expression_value))))))
+
+================================================================================
+Component special attribute :for
+================================================================================
+
+<.component :for={item <- @items}>
+  <%= item %>
+</.component>
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (component
+    (start_component
+      (component_name
+        (function))
+      (special_attribute
+        (special_attribute_name)
+        (expression
+          (expression_value))))
+    (directive
+      (expression_value))
+    (end_component
+      (component_name
+        (function)))))
+
+================================================================================
+Self-closing component special attribute :for
+================================================================================
+
+<.component :for={item <- @items}/>
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (component
+    (self_closing_component
+      (component_name
+        (function))
+      (special_attribute
+        (special_attribute_name)
+        (expression
+          (expression_value))))))
+
+================================================================================
+Slot special attribute :for
+================================================================================
+
+<.component>
+  <:slot :for={item <- @items}>
+    <%= item %>
+  </:slot>
+</.component>
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (component
+    (start_component
+      (component_name
+        (function)))
+    (slot
+      (start_slot
+        (slot_name)
+        (special_attribute
+          (special_attribute_name)
+          (expression
+            (expression_value))))
+      (directive
+        (expression_value))
+      (end_slot
+        (slot_name)))
+    (end_component
+      (component_name
+        (function)))))
+
+================================================================================
+Self-closing slot special attribute :for
+================================================================================
+
+<.component>
+  <:slot :for={item <- @items} />
+</.component>
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (component
+    (start_component
+      (component_name
+        (function)))
+    (slot
+      (self_closing_slot
+        (slot_name)
+        (special_attribute
+          (special_attribute_name)
+          (expression
+            (expression_value)))))
+    (end_component
+      (component_name
+        (function)))))
+
+================================================================================
+Tag special attribute :stream
+================================================================================
+
+<div :stream={item <- @items}>
+  <%= item %>
+</div>
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (tag
+    (start_tag
+      (tag_name)
+      (special_attribute
+        (special_attribute_name)
+        (expression
+          (expression_value))))
+    (directive
+      (expression_value))
+    (end_tag
+      (tag_name))))
+
+================================================================================
+Tag special attribute :if
+================================================================================
+
+<div :if={@item}>
+  <%= @item %>
+</div>
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (tag
+    (start_tag
+      (tag_name)
+      (special_attribute
+        (special_attribute_name)
+        (expression
+          (expression_value))))
+    (directive
+      (expression_value))
+    (end_tag
+      (tag_name))))
+
+================================================================================
+Self-closing tag special attribute :if
+================================================================================
+
+<div :if={@item} />
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (tag
+    (self_closing_tag
+      (tag_name)
+      (special_attribute
+        (special_attribute_name)
+        (expression
+          (expression_value))))))
+
+================================================================================
+Component special attribute :if
+================================================================================
+
+<.component :if={@expression}>
+  <%= @expression %>
+</.component>
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (component
+    (start_component
+      (component_name
+        (function))
+      (special_attribute
+        (special_attribute_name)
+        (expression
+          (expression_value))))
+    (directive
+      (expression_value))
+    (end_component
+      (component_name
+        (function)))))
+
+================================================================================
+Self-closing component special attribute :if
+================================================================================
+
+<.component :if={@expression} />
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (component
+    (self_closing_component
+      (component_name
+        (function))
+      (special_attribute
+        (special_attribute_name)
+        (expression
+          (expression_value))))))
+
+================================================================================
+Slot special attribute :if
+================================================================================
+
+<.component>
+  <:slot :if={@expression}>
+    <%= @expression %>
+  </:slot>
+</.component>
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (component
+    (start_component
+      (component_name
+        (function)))
+    (slot
+      (start_slot
+        (slot_name)
+        (special_attribute
+          (special_attribute_name)
+          (expression
+            (expression_value))))
+      (directive
+        (expression_value))
+      (end_slot
+        (slot_name)))
+    (end_component
+      (component_name
+        (function)))))
+
+================================================================================
+Self-closing slot special attribute :if
+================================================================================
+
+<.component>
+  <:slot :if={@expression} />
+</.component>
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (component
+    (start_component
+      (component_name
+        (function)))
+    (slot
+      (self_closing_slot
+        (slot_name)
+        (special_attribute
+          (special_attribute_name)
+          (expression
+            (expression_value)))))
+    (end_component
+      (component_name
+        (function)))))

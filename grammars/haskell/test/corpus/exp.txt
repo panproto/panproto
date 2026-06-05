@@ -1,0 +1,3009 @@
+================================================================================
+exp: application
+================================================================================
+
+a = a a
+a = a a a
+a = a A.a a a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (apply
+          (variable)
+          (variable))))
+    (bind
+      (variable)
+      (match
+        (apply
+          (apply
+            (variable)
+            (variable))
+          (variable))))
+    (bind
+      (variable)
+      (match
+        (apply
+          (apply
+            (apply
+              (variable)
+              (qualified
+                (module
+                  (module_id))
+                (variable)))
+            (variable))
+          (variable))))))
+
+================================================================================
+exp: con application
+================================================================================
+
+a = A a a
+a = A a A
+
+--------------------------------------------------------------------------------
+
+(haskell
+  declarations: (declarations
+    (bind
+      name: (variable)
+      match: (match
+        expression: (apply
+          function: (apply
+            function: (constructor)
+            argument: (variable))
+          argument: (variable))))
+    (bind
+      name: (variable)
+      match: (match
+        expression: (apply
+          function: (apply
+            function: (constructor)
+            argument: (variable))
+          argument: (constructor))))))
+
+================================================================================
+exp: unit
+================================================================================
+
+a = ()
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (unit)))))
+
+================================================================================
+exp: comprehension
+================================================================================
+
+a = [(a, a) | a <- a, a <- [a..a]]
+a = [a | a, let a = a]
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (list_comprehension
+          (tuple
+            (variable)
+            (variable))
+          (qualifiers
+            (generator
+              (variable)
+              (variable))
+            (generator
+              (variable)
+              (arithmetic_sequence
+                (variable)
+                (variable)))))))
+    (bind
+      (variable)
+      (match
+        (list_comprehension
+          (variable)
+          (qualifiers
+            (boolean
+              (variable))
+            (let
+              (local_binds
+                (bind
+                  (variable)
+                  (match
+                    (variable)))))))))))
+
+================================================================================
+exp: operator section right
+================================================================================
+
+a = (: a)
+a = (:< a)
+a = (A.:+ a)
+a = (`a` a)
+a = (`A.a` a)
+a = (+ a + a)
+a = (+ a + a + a)
+a = (A.+ a A.+ a)
+a = (A.+ a + a)
+a = (+ a A.+ a)
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (right_section
+          (constructor_operator)
+          (variable))))
+    (bind
+      (variable)
+      (match
+        (right_section
+          (constructor_operator)
+          (variable))))
+    (bind
+      (variable)
+      (match
+        (right_section
+          (qualified
+            (module
+              (module_id))
+            (constructor_operator))
+          (variable))))
+    (bind
+      (variable)
+      (match
+        (right_section
+          (infix_id
+            (variable))
+          (variable))))
+    (bind
+      (variable)
+      (match
+        (right_section
+          (infix_id
+            (qualified
+              (module
+                (module_id))
+              (variable)))
+          (variable))))
+    (bind
+      (variable)
+      (match
+        (right_section
+          (operator)
+          (infix
+            (variable)
+            (operator)
+            (variable)))))
+    (bind
+      (variable)
+      (match
+        (right_section
+          (operator)
+          (infix
+            (variable)
+            (operator)
+            (infix
+              (variable)
+              (operator)
+              (variable))))))
+    (bind
+      (variable)
+      (match
+        (right_section
+          (qualified
+            (module
+              (module_id))
+            (operator))
+          (infix
+            (variable)
+            (qualified
+              (module
+                (module_id))
+              (operator))
+            (variable)))))
+    (bind
+      (variable)
+      (match
+        (right_section
+          (qualified
+            (module
+              (module_id))
+            (operator))
+          (infix
+            (variable)
+            (operator)
+            (variable)))))
+    (bind
+      (variable)
+      (match
+        (right_section
+          (operator)
+          (infix
+            (variable)
+            (qualified
+              (module
+                (module_id))
+              (operator))
+            (variable)))))))
+
+================================================================================
+exp: operator section left
+================================================================================
+
+a = (a :)
+a = (a :|)
+a = (a A.:|)
+a = (a $)
+a = (a a $)
+a = (a a A.$)
+a = (a `a`)
+a = (a `A.a`)
+a = (a + a +)
+a = (a + a + a + a +)
+a = (a A.+ a +)
+a = (a + a A.+)
+a = (a A.A.+ a A.A.+)
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (left_section
+          (variable)
+          (constructor_operator))))
+    (bind
+      (variable)
+      (match
+        (left_section
+          (variable)
+          (constructor_operator))))
+    (bind
+      (variable)
+      (match
+        (left_section
+          (variable)
+          (qualified
+            (module
+              (module_id))
+            (constructor_operator)))))
+    (bind
+      (variable)
+      (match
+        (left_section
+          (variable)
+          (operator))))
+    (bind
+      (variable)
+      (match
+        (left_section
+          (apply
+            (variable)
+            (variable))
+          (operator))))
+    (bind
+      (variable)
+      (match
+        (left_section
+          (apply
+            (variable)
+            (variable))
+          (qualified
+            (module
+              (module_id))
+            (operator)))))
+    (bind
+      (variable)
+      (match
+        (left_section
+          (variable)
+          (infix_id
+            (variable)))))
+    (bind
+      (variable)
+      (match
+        (left_section
+          (variable)
+          (infix_id
+            (qualified
+              (module
+                (module_id))
+              (variable))))))
+    (bind
+      (variable)
+      (match
+        (left_section
+          (infix
+            (variable)
+            (operator)
+            (variable))
+          (operator))))
+    (bind
+      (variable)
+      (match
+        (left_section
+          (infix
+            (variable)
+            (operator)
+            (infix
+              (variable)
+              (operator)
+              (infix
+                (variable)
+                (operator)
+                (variable))))
+          (operator))))
+    (bind
+      (variable)
+      (match
+        (left_section
+          (infix
+            (variable)
+            (qualified
+              (module
+                (module_id))
+              (operator))
+            (variable))
+          (operator))))
+    (bind
+      (variable)
+      (match
+        (left_section
+          (infix
+            (variable)
+            (operator)
+            (variable))
+          (qualified
+            (module
+              (module_id))
+            (operator)))))
+    (bind
+      (variable)
+      (match
+        (left_section
+          (infix
+            (variable)
+            (qualified
+              (module
+                (module_id)
+                (module_id))
+              (operator))
+            (variable))
+          (qualified
+            (module
+              (module_id)
+              (module_id))
+            (operator)))))))
+
+================================================================================
+exp: left section with infix id
+================================================================================
+
+a = (a ` a ` )
+
+a = (a `A ` )
+
+a = (a ` A.A`)
+
+a = (a `  
+    a  
+    `   )
+
+a = (a `  
+    Aaaa.Aaaa.A.a  
+    `   )
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (left_section
+          (variable)
+          (infix_id
+            (variable)))))
+    (bind
+      (variable)
+      (match
+        (left_section
+          (variable)
+          (infix_id
+            (constructor)))))
+    (bind
+      (variable)
+      (match
+        (left_section
+          (variable)
+          (infix_id
+            (qualified
+              (module
+                (module_id))
+              (constructor))))))
+    (bind
+      (variable)
+      (match
+        (left_section
+          (variable)
+          (infix_id
+            (variable)))))
+    (bind
+      (variable)
+      (match
+        (left_section
+          (variable)
+          (infix_id
+            (qualified
+              (module
+                (module_id)
+                (module_id)
+                (module_id))
+              (variable))))))))
+
+================================================================================
+exp: left section operator after newline
+================================================================================
+
+a = (a
+  #)
+
+a = (a
+  -)
+
+a = (a
+  A.A.++)
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (left_section
+          (variable)
+          (operator))))
+    (bind
+      (variable)
+      (match
+        (left_section
+          (variable)
+          (operator))))
+    (bind
+      (variable)
+      (match
+        (left_section
+          (variable)
+          (qualified
+            (module
+              (module_id)
+              (module_id))
+            (operator)))))))
+
+================================================================================
+exp: infix operator
+================================================================================
+
+a = A <$>
+  a .: "a" <*>
+  a
+a = do
+  a <- a =<< a
+  a <- a >>= a
+a = (a + a)
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (infix
+          (constructor)
+          (operator)
+          (infix
+            (variable)
+            (operator)
+            (infix
+              (literal
+                (string))
+              (operator)
+              (variable))))))
+    (bind
+      (variable)
+      (match
+        (do
+          (bind
+            (variable)
+            (infix
+              (variable)
+              (operator)
+              (variable)))
+          (bind
+            (variable)
+            (infix
+              (variable)
+              (operator)
+              (variable))))))
+    (bind
+      (variable)
+      (match
+        (parens
+          (infix
+            (variable)
+            (operator)
+            (variable)))))))
+
+================================================================================
+exp: infix assoc
+================================================================================
+
+a = a + a + a
+a = a . a $ a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (infix
+          (variable)
+          (operator)
+          (infix
+            (variable)
+            (operator)
+            (variable)))))
+    (bind
+      (variable)
+      (match
+        (infix
+          (variable)
+          (operator)
+          (infix
+            (variable)
+            (operator)
+            (variable)))))))
+
+================================================================================
+exp: infix con/var
+================================================================================
+
+a = a `a` a
+a = a `A.a` a
+a = a `A` a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (infix
+          (variable)
+          (infix_id
+            (variable))
+          (variable))))
+    (bind
+      (variable)
+      (match
+        (infix
+          (variable)
+          (infix_id
+            (qualified
+              (module
+                (module_id))
+              (variable)))
+          (variable))))
+    (bind
+      (variable)
+      (match
+        (infix
+          (variable)
+          (infix_id
+            (constructor))
+          (variable))))))
+
+================================================================================
+exp: error: infix TH-quoted consym
+================================================================================
+
+a = a ':++ a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (apply
+          (variable)
+          (th_quoted_name
+            (ERROR
+              (UNEXPECTED '+'))
+            (variable)))))))
+
+================================================================================
+exp: lambda simple
+================================================================================
+
+a = \ a -> a
+a = \ (A a) -> a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (lambda
+          (patterns
+            (variable))
+          (variable))))
+    (bind
+      (variable)
+      (match
+        (lambda
+          (patterns
+            (parens
+              (apply
+                (constructor)
+                (variable))))
+          (variable))))))
+
+================================================================================
+exp: double lambda
+================================================================================
+
+a = \ a -> a >>= \ a -> a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (lambda
+          (patterns
+            (variable))
+          (infix
+            (variable)
+            (operator)
+            (lambda
+              (patterns
+                (variable))
+              (variable))))))))
+
+================================================================================
+exp: lambda and infix
+================================================================================
+
+a = \ a -> a : a : a
+a = \ a a a -> a <$> a <*> a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (lambda
+          (patterns
+            (variable))
+          (infix
+            (variable)
+            (constructor_operator)
+            (infix
+              (variable)
+              (constructor_operator)
+              (variable))))))
+    (bind
+      (variable)
+      (match
+        (lambda
+          (patterns
+            (variable)
+            (variable)
+            (variable))
+          (infix
+            (variable)
+            (operator)
+            (infix
+              (variable)
+              (operator)
+              (variable))))))))
+
+================================================================================
+exp: parenthesized infix
+================================================================================
+
+a = (a <$> a)
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (parens
+          (infix
+            (variable)
+            (operator)
+            (variable)))))))
+
+================================================================================
+exp: apply in operand of qualified varop
+================================================================================
+
+a = a a A.+++ a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (infix
+          (apply
+            (variable)
+            (variable))
+          (qualified
+            (module
+              (module_id))
+            (operator))
+          (variable))))))
+
+================================================================================
+exp: tuple section
+================================================================================
+
+a = (a,)
+a = (a,,)
+a = (,a,)
+a = (,,a)
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (tuple
+          (variable))))
+    (bind
+      (variable)
+      (match
+        (tuple
+          (variable))))
+    (bind
+      (variable)
+      (match
+        (tuple
+          (variable))))
+    (bind
+      (variable)
+      (match
+        (tuple
+          (variable))))))
+
+================================================================================
+exp: conditional
+================================================================================
+
+a = if a then a else a
+a = if (if a then a else a) then a else a
+a = if if a then a else a then a else a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  declarations: (declarations
+    (bind
+      name: (variable)
+      match: (match
+        expression: (conditional
+          if: (variable)
+          then: (variable)
+          else: (variable))))
+    (bind
+      name: (variable)
+      match: (match
+        expression: (conditional
+          if: (parens
+            expression: (conditional
+              if: (variable)
+              then: (variable)
+              else: (variable)))
+          then: (variable)
+          else: (variable))))
+    (bind
+      name: (variable)
+      match: (match
+        expression: (conditional
+          if: (conditional
+            if: (variable)
+            then: (variable)
+            else: (variable))
+          then: (variable)
+          else: (variable))))))
+
+================================================================================
+exp: implicit
+================================================================================
+
+a = aa (a ?cmp)
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (apply
+          (variable)
+          (parens
+            (apply
+              (variable)
+              (implicit_variable))))))))
+
+================================================================================
+exp: let basic
+================================================================================
+
+a = let a = a
+        a = a
+      in a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (let_in
+          (local_binds
+            (bind
+              (variable)
+              (match
+                (variable)))
+            (bind
+              (variable)
+              (match
+                (variable))))
+          (variable))))))
+
+================================================================================
+exp: lambda case simple
+================================================================================
+
+a = \case
+  A a -> a
+
+a = a >>= \case
+  A (A _ a) -> do
+    a <- a
+    a
+  _ -> a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (lambda_case
+          (alternatives
+            (alternative
+              (apply
+                (constructor)
+                (variable))
+              (match
+                (variable)))))))
+    (bind
+      (variable)
+      (match
+        (infix
+          (variable)
+          (operator)
+          (lambda_case
+            (alternatives
+              (alternative
+                (apply
+                  (constructor)
+                  (parens
+                    (apply
+                      (apply
+                        (constructor)
+                        (wildcard))
+                      (variable))))
+                (match
+                  (do
+                    (bind
+                      (variable)
+                      (variable))
+                    (exp
+                      (variable)))))
+              (alternative
+                (wildcard)
+                (match
+                  (variable))))))))))
+
+================================================================================
+exp: lambda case and infix
+================================================================================
+
+a = \case a -> a : a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (lambda_case
+          (alternatives
+            (alternative
+              (variable)
+              (match
+                (infix
+                  (variable)
+                  (constructor_operator)
+                  (variable))))))))))
+
+================================================================================
+exp: n-ary cases
+================================================================================
+
+a = \cases
+  A a a -> a
+  a@(A a) a -> a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  declarations: (declarations
+    (bind
+      name: (variable)
+      match: (match
+        expression: (lambda_cases
+          alternatives: (alternatives
+            alternative: (alternative
+              patterns: (patterns
+                (constructor)
+                (variable)
+                (variable))
+              match: (match
+                expression: (variable)))
+            alternative: (alternative
+              patterns: (patterns
+                (as
+                  bind: (variable)
+                  pattern: (parens
+                    pattern: (apply
+                      function: (constructor)
+                      argument: (variable))))
+                (variable))
+              match: (match
+                expression: (variable)))))))))
+
+================================================================================
+exp: do and let
+================================================================================
+
+a a = do
+  let z = a
+  a <- a
+  let z = a
+  a <- a
+  pure a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  declarations: (declarations
+    (function
+      name: (variable)
+      patterns: (patterns
+        (variable))
+      match: (match
+        expression: (do
+          statement: (let
+            binds: (local_binds
+              decl: (bind
+                name: (variable)
+                match: (match
+                  expression: (variable)))))
+          statement: (bind
+            pattern: (variable)
+            expression: (variable))
+          statement: (let
+            binds: (local_binds
+              decl: (bind
+                name: (variable)
+                match: (match
+                  expression: (variable)))))
+          statement: (bind
+            pattern: (variable)
+            expression: (variable))
+          statement: (exp
+            (apply
+              function: (variable)
+              argument: (variable))))))))
+
+================================================================================
+exp: do statement with pattern lhs
+================================================================================
+
+a = do
+  ((), a) <- a
+  a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (do
+          (bind
+            (tuple
+              (unit)
+              (variable))
+            (variable))
+          (exp
+            (variable)))))))
+
+================================================================================
+exp: qualified do
+================================================================================
+
+a = A.A.do
+  a
+
+a = A.A.mdo
+  a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (do
+          (do_module
+            (module
+              (module_id)
+              (module_id)))
+          (exp
+            (variable)))))
+    (bind
+      (variable)
+      (match
+        (do
+          (do_module
+            (module
+              (module_id)
+              (module_id)))
+          (exp
+            (variable)))))))
+
+================================================================================
+exp: i at eol (scanner tests for `in`)
+================================================================================
+
+a = a i
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (apply
+          (variable)
+          (variable))))))
+
+================================================================================
+exp: record construction with wildcard
+================================================================================
+
+a = A {.. }
+a = A { ..}
+a = A {..}
+a = A { .. }
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (record
+          (constructor)
+          (field_update
+            (wildcard)))))
+    (bind
+      (variable)
+      (match
+        (record
+          (constructor)
+          (field_update
+            (wildcard)))))
+    (bind
+      (variable)
+      (match
+        (record
+          (constructor)
+          (field_update
+            (wildcard)))))
+    (bind
+      (variable)
+      (match
+        (record
+          (constructor)
+          (field_update
+            (wildcard)))))))
+
+================================================================================
+exp: record update
+================================================================================
+
+a = a { a = a, a = a ++ a }
+a = A { a = a } {a = a}
+a = a a {a = a}
+a = a a a {a = a}
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (record
+          (variable)
+          (field_update
+            (field_name
+              (variable))
+            (variable))
+          (field_update
+            (field_name
+              (variable))
+            (infix
+              (variable)
+              (operator)
+              (variable))))))
+    (bind
+      (variable)
+      (match
+        (record
+          (record
+            (constructor)
+            (field_update
+              (field_name
+                (variable))
+              (variable)))
+          (field_update
+            (field_name
+              (variable))
+            (variable)))))
+    (bind
+      (variable)
+      (match
+        (apply
+          (variable)
+          (record
+            (variable)
+            (field_update
+              (field_name
+                (variable))
+              (variable))))))
+    (bind
+      (variable)
+      (match
+        (apply
+          (apply
+            (variable)
+            (variable))
+          (record
+            (variable)
+            (field_update
+              (field_name
+                (variable))
+              (variable))))))))
+
+================================================================================
+exp: record field pun
+================================================================================
+
+a = A { A.a }
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (record
+          (constructor)
+          (field_update
+            (qualified
+              (module
+                (module_id))
+              (field_name
+                (variable)))))))))
+
+================================================================================
+exp: record zero indent update
+================================================================================
+
+a = do
+      a {
+a = a
+, a = a
+} a
+
+a = a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (do
+          (exp
+            (apply
+              (record
+                (variable)
+                (field_update
+                  (field_name
+                    (variable))
+                  (variable))
+                (field_update
+                  (field_name
+                    (variable))
+                  (variable)))
+              (variable))))))
+    (bind
+      (variable)
+      (match
+        (variable)))))
+
+================================================================================
+exp: record and minus
+================================================================================
+
+a = a {a} - a a
+a = a a {a} - a a
+a = a a a {a} - a a
+a = - a {a}
+a = - a a {a}
+a = - a a a {a}
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (infix
+          (record
+            (variable)
+            (field_update
+              (field_name
+                (variable))))
+          (operator)
+          (apply
+            (variable)
+            (variable)))))
+    (bind
+      (variable)
+      (match
+        (infix
+          (apply
+            (variable)
+            (record
+              (variable)
+              (field_update
+                (field_name
+                  (variable)))))
+          (operator)
+          (apply
+            (variable)
+            (variable)))))
+    (bind
+      (variable)
+      (match
+        (infix
+          (apply
+            (apply
+              (variable)
+              (variable))
+            (record
+              (variable)
+              (field_update
+                (field_name
+                  (variable)))))
+          (operator)
+          (apply
+            (variable)
+            (variable)))))
+    (bind
+      (variable)
+      (match
+        (negation
+          (record
+            (variable)
+            (field_update
+              (field_name
+                (variable)))))))
+    (bind
+      (variable)
+      (match
+        (negation
+          (apply
+            (variable)
+            (record
+              (variable)
+              (field_update
+                (field_name
+                  (variable))))))))
+    (bind
+      (variable)
+      (match
+        (negation
+          (apply
+            (apply
+              (variable)
+              (variable))
+            (record
+              (variable)
+              (field_update
+                (field_name
+                  (variable))))))))))
+
+================================================================================
+exp: type application
+================================================================================
+
+a = a @A
+a = a @a a
+a = a @A.A a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (apply
+          (variable)
+          (type_application
+            (name)))))
+    (bind
+      (variable)
+      (match
+        (apply
+          (apply
+            (variable)
+            (type_application
+              (variable)))
+          (variable))))
+    (bind
+      (variable)
+      (match
+        (apply
+          (apply
+            (variable)
+            (type_application
+              (qualified
+                (module
+                  (module_id))
+                (name))))
+          (variable))))))
+
+================================================================================
+exp: repeated type application
+================================================================================
+
+a = a @A @A @A @A
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (apply
+          (apply
+            (apply
+              (apply
+                (variable)
+                (type_application
+                  (name)))
+              (type_application
+                (name)))
+            (type_application
+              (name)))
+          (type_application
+            (name)))))))
+
+================================================================================
+exp: type application with promoted literal
+================================================================================
+
+a = a @'[]
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (apply
+          (variable)
+          (type_application
+            (promoted
+              (empty_list))))))))
+
+================================================================================
+exp: block argument: lambda basic
+================================================================================
+
+a = a \ a -> a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (apply
+          (variable)
+          (lambda
+            (patterns
+              (variable))
+            (variable)))))))
+
+================================================================================
+exp: block argument: lambda case
+================================================================================
+
+a = a \case a -> a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (apply
+          (variable)
+          (lambda_case
+            (alternatives
+              (alternative
+                (variable)
+                (match
+                  (variable))))))))))
+
+================================================================================
+exp: block argument: do
+================================================================================
+
+a = a do a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (apply
+          (variable)
+          (do
+            (exp
+              (variable))))))))
+
+================================================================================
+exp: block argument: let
+================================================================================
+
+a = a let a = a in a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (apply
+          (variable)
+          (let_in
+            (local_binds
+              (bind
+                (variable)
+                (match
+                  (variable))))
+            (variable)))))))
+
+================================================================================
+exp: block argument: case
+================================================================================
+
+a = a case a of a -> a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (apply
+          (variable)
+          (case
+            (variable)
+            (alternatives
+              (alternative
+                (variable)
+                (match
+                  (variable))))))))))
+
+================================================================================
+exp: greedy block argument: let
+================================================================================
+
+a =
+  let a a = a in a
+  do a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (let_in
+          (local_binds
+            (function
+              (variable)
+              (patterns
+                (variable))
+              (match
+                (variable))))
+          (apply
+            (variable)
+            (do
+              (exp
+                (variable)))))))))
+
+================================================================================
+exp: greedy block argument: lambda
+================================================================================
+
+a =
+  a
+  \ a -> a
+  do a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (apply
+          (variable)
+          (lambda
+            (patterns
+              (variable))
+            (apply
+              (variable)
+              (do
+                (exp
+                  (variable))))))))))
+
+================================================================================
+exp: greedy block argument: cond
+================================================================================
+
+a =
+  a
+  if a then a else a
+  do a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (apply
+          (variable)
+          (conditional
+            (variable)
+            (variable)
+            (apply
+              (variable)
+              (do
+                (exp
+                  (variable))))))))))
+
+================================================================================
+exp: empty lambda case
+================================================================================
+
+a = \case
+
+a = a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (lambda_case)))
+    (bind
+      (variable)
+      (match
+        (variable)))))
+
+================================================================================
+exp: empty case
+================================================================================
+
+a =
+  case a of
+
+a = (case a of)
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (case
+          (variable))))
+    (bind
+      (variable)
+      (match
+        (parens
+          (case
+            (variable)
+            (alternatives)))))))
+
+================================================================================
+exp: multi-way if
+================================================================================
+
+a = if | a -> a
+       | a -> a
+a = if
+ | a -> a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (multi_way_if
+          (match
+            (guards
+              (boolean
+                (variable)))
+            (variable))
+          (match
+            (guards
+              (boolean
+                (variable)))
+            (variable)))))
+    (bind
+      (variable)
+      (match
+        (multi_way_if
+          (match
+            (guards
+              (boolean
+                (variable)))
+            (variable)))))))
+
+================================================================================
+exp: multi-way if with two matches in a guard rhs
+================================================================================
+
+a | a = if | a -> a
+           | a -> a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (guards
+          (boolean
+            (variable)))
+        (multi_way_if
+          (match
+            (guards
+              (boolean
+                (variable)))
+            (variable))
+          (match
+            (guards
+              (boolean
+                (variable)))
+            (variable)))))))
+
+================================================================================
+exp: list with multi-way if
+================================================================================
+
+a = [if | a, a <- a -> a | a -> a]
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (list
+          (multi_way_if
+            (match
+              (guards
+                (boolean
+                  (variable))
+                (pattern_guard
+                  (variable)
+                  (variable)))
+              (variable))
+            (match
+              (guards
+                (boolean
+                  (variable)))
+              (variable))))))))
+
+================================================================================
+exp: let with sig on rhs
+================================================================================
+
+a = let a = a in a :: A
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (let_in
+          (local_binds
+            (bind
+              (variable)
+              (match
+                (variable))))
+          (signature
+            (variable)
+            (name)))))))
+
+================================================================================
+exp: list con
+================================================================================
+
+a = []
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (list)))))
+
+================================================================================
+exp: tuple con
+================================================================================
+
+a = (,,,)
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (prefix_tuple)))))
+
+================================================================================
+exp: qualified symop
+================================================================================
+
+a = a A.!? a
+a = (A..!?)
+a = a A.. a
+a = a a a A.!? a
+a = a A.!? a a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (infix
+          (variable)
+          (qualified
+            (module
+              (module_id))
+            (operator))
+          (variable))))
+    (bind
+      (variable)
+      (match
+        (prefix_id
+          (qualified
+            (module
+              (module_id))
+            (operator)))))
+    (bind
+      (variable)
+      (match
+        (infix
+          (variable)
+          (qualified
+            (module
+              (module_id))
+            (operator))
+          (variable))))
+    (bind
+      (variable)
+      (match
+        (infix
+          (apply
+            (apply
+              (variable)
+              (variable))
+            (variable))
+          (qualified
+            (module
+              (module_id))
+            (operator))
+          (variable))))
+    (bind
+      (variable)
+      (match
+        (infix
+          (variable)
+          (qualified
+            (module
+              (module_id))
+            (operator))
+          (apply
+            (variable)
+            (variable)))))))
+
+================================================================================
+exp: th-promoted qualified symop
+================================================================================
+
+a = '(A..&)
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (th_quoted_name
+          (prefix_id
+            (qualified
+              (module
+                (module_id))
+              (operator))))))))
+
+================================================================================
+exp: negation in tuple
+================================================================================
+
+a = (-a, a)
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (tuple
+          (negation
+            (variable))
+          (variable))))))
+
+================================================================================
+exp: negation in section
+================================================================================
+
+a = (-a :)
+a = (- a a :)
+a = (+ -a)
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (left_section
+          (negation
+            (variable))
+          (constructor_operator))))
+    (bind
+      (variable)
+      (match
+        (left_section
+          (negation
+            (apply
+              (variable)
+              (variable)))
+          (constructor_operator))))
+    (bind
+      (variable)
+      (match
+        (right_section
+          (operator)
+          (negation
+            (variable)))))))
+
+================================================================================
+exp: unboxed tuple
+================================================================================
+
+a :: (Int#, Int#)
+a :: (# Int, Int #)
+a = (# a, a #)
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (signature
+      (variable)
+      (tuple
+        (name)
+        (name)))
+    (signature
+      (variable)
+      (unboxed_tuple
+        (name)
+        (name)))
+    (bind
+      (variable)
+      (match
+        (unboxed_tuple
+          (variable)
+          (variable))))))
+
+================================================================================
+exp: unboxed unit
+================================================================================
+
+a = (# #)
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (unboxed_unit)))))
+
+================================================================================
+exp: unboxed solo
+================================================================================
+
+a = (# A a + a #)
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (unboxed_tuple
+          (infix
+            (apply
+              (constructor)
+              (variable))
+            (operator)
+            (variable)))))))
+
+================================================================================
+exp: section of unboxed tuple
+================================================================================
+
+a = (# ,,a, #)
+a = (# a,, #)
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (unboxed_tuple
+          (variable))))
+    (bind
+      (variable)
+      (match
+        (unboxed_tuple
+          (variable))))))
+
+================================================================================
+exp: unboxed sum
+================================================================================
+
+a :: (# A | (# A, A #) | A #)
+a = (# a | | #)
+a = (#| a #)
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (signature
+      (variable)
+      (unboxed_sum
+        (name)
+        (unboxed_tuple
+          (name)
+          (name))
+        (name)))
+    (bind
+      (variable)
+      (match
+        (unboxed_sum
+          (variable))))
+    (bind
+      (variable)
+      (match
+        (unboxed_sum
+          (variable))))))
+
+================================================================================
+exp: error: unboxed sum with missing space between bar and closing bracket
+================================================================================
+
+a = (# a |#)
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (ERROR
+    (variable)
+    (variable)
+    (operator)))
+
+================================================================================
+exp: label
+================================================================================
+
+a = a #a a
+a = (a)#a
+a = #øøø
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (apply
+          (apply
+            (variable)
+            (label))
+          (variable))))
+    (bind
+      (variable)
+      (match
+        (apply
+          (parens
+            (variable))
+          (label))))
+    (bind
+      (variable)
+      (match
+        (label)))))
+
+================================================================================
+exp: TransformListComp
+================================================================================
+
+a = [
+  a |
+  then group by a :: A using a,
+  then group by a using a,
+  then group using a a,
+  then a a by a a,
+  then a :: A by a,
+  then a a
+  ]
+
+a = [a | using <- a]
+
+a = [group using a, group by a using a, by, a by, a by a, by a, using, a using, a using a, using a]
+
+--------------------------------------------------------------------------------
+
+(haskell
+  declarations: (declarations
+    (bind
+      name: (variable)
+      match: (match
+        expression: (list_comprehension
+          expression: (variable)
+          qualifiers: (qualifiers
+            qualifier: (group
+              key: (signature
+                expression: (variable)
+                type: (name))
+              classifier: (variable))
+            qualifier: (group
+              key: (variable)
+              classifier: (variable))
+            qualifier: (group
+              classifier: (apply
+                function: (variable)
+                argument: (variable)))
+            qualifier: (transform
+              transformation: (apply
+                function: (variable)
+                argument: (variable))
+              key: (apply
+                function: (variable)
+                argument: (variable)))
+            qualifier: (transform
+              transformation: (signature
+                expression: (variable)
+                type: (name))
+              key: (variable))
+            qualifier: (transform
+              transformation: (apply
+                function: (variable)
+                argument: (variable)))))))
+    (bind
+      name: (variable)
+      match: (match
+        expression: (list_comprehension
+          expression: (variable)
+          qualifiers: (qualifiers
+            qualifier: (generator
+              pattern: (variable)
+              expression: (variable))))))
+    (bind
+      name: (variable)
+      match: (match
+        expression: (list
+          element: (apply
+            function: (apply
+              function: (variable)
+              argument: (variable))
+            argument: (variable))
+          element: (apply
+            function: (apply
+              function: (apply
+                function: (apply
+                  function: (variable)
+                  argument: (variable))
+                argument: (variable))
+              argument: (variable))
+            argument: (variable))
+          element: (variable)
+          element: (apply
+            function: (variable)
+            argument: (variable))
+          element: (apply
+            function: (apply
+              function: (variable)
+              argument: (variable))
+            argument: (variable))
+          element: (apply
+            function: (variable)
+            argument: (variable))
+          element: (variable)
+          element: (apply
+            function: (variable)
+            argument: (variable))
+          element: (apply
+            function: (apply
+              function: (variable)
+              argument: (variable))
+            argument: (variable))
+          element: (apply
+            function: (variable)
+            argument: (variable)))))))
+
+================================================================================
+exp: brace layout after lambda case
+================================================================================
+
+a = \case { a -> a }
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (lambda_case
+          (alternatives
+            (alternative
+              (variable)
+              (match
+                (variable)))))))))
+
+================================================================================
+exp: unicode do bind arrow
+================================================================================
+
+a = do
+  a ← a
+  a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (do
+          (bind
+            (variable)
+            (variable))
+          (exp
+            (variable)))))))
+
+================================================================================
+exp: field projection with OverloadedRecordDot
+================================================================================
+
+a = a.a
+a = (a + a).a
+a = a.a.a.a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (projection
+          (variable)
+          (field_name
+            (variable)))))
+    (bind
+      (variable)
+      (match
+        (projection
+          (parens
+            (infix
+              (variable)
+              (operator)
+              (variable)))
+          (field_name
+            (variable)))))
+    (bind
+      (variable)
+      (match
+        (projection
+          (projection
+            (projection
+              (variable)
+              (field_name
+                (variable)))
+            (field_name
+              (variable)))
+          (field_name
+            (variable)))))))
+
+================================================================================
+exp: projection in infix
+================================================================================
+
+a = a ++ a.a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (infix
+          (variable)
+          (operator)
+          (projection
+            (variable)
+            (field_name
+              (variable))))))))
+
+================================================================================
+exp: projection with special name
+================================================================================
+
+a = a.group a.using
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (apply
+          (projection
+            (variable)
+            (field_name
+              (variable)))
+          (projection
+            (variable)
+            (field_name
+              (variable))))))))
+
+================================================================================
+exp: field selector from projection
+================================================================================
+
+a = (.a) a
+a = (.a).a.a
+a = ( .a)
+a = (
+  .a)
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (apply
+          (projection_selector
+            (variable))
+          (variable))))
+    (bind
+      (variable)
+      (match
+        (projection
+          (projection
+            (projection_selector
+              (variable))
+            (field_name
+              (variable)))
+          (field_name
+            (variable)))))
+    (bind
+      (variable)
+      (match
+        (projection_selector
+          (variable))))
+    (bind
+      (variable)
+      (match
+        (projection_selector
+          (variable))))))
+
+================================================================================
+exp: OverloadedRecordUpdate
+================================================================================
+
+a = a {a.a.a = a}
+
+--------------------------------------------------------------------------------
+
+(haskell
+  declarations: (declarations
+    (bind
+      name: (variable)
+      match: (match
+        expression: (record
+          expression: (variable)
+          field: (field_update
+            field: (field_path
+              field: (field_name
+                (variable))
+              subfield: (field_name
+                (variable))
+              subfield: (field_name
+                (variable)))
+            expression: (variable)))))))
+
+================================================================================
+exp: lambda with $ in list
+================================================================================
+
+a = [a $ \a -> a]
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (list
+          (infix
+            (variable)
+            (operator)
+            (lambda
+              (patterns
+                (variable))
+              (variable))))))))
+
+================================================================================
+exp: annotation on list element
+================================================================================
+
+a = [a :: A, a :: A]
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (list
+          (signature
+            (variable)
+            (name))
+          (signature
+            (variable)
+            (name)))))))
+
+================================================================================
+exp: greedy block arg in arithmetic sequence
+================================================================================
+
+a = [a \ a -> a .. a :: A]
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (arithmetic_sequence
+          (apply
+            (variable)
+            (lambda
+              (patterns
+                (variable))
+              (variable)))
+          (signature
+            (variable)
+            (name)))))))
+
+================================================================================
+exp: annotation on tuple element
+================================================================================
+
+a = (a :: A, a :: A)
+a = (# a :: A, a :: A #)
+a = (# | | a :: A | #)
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (tuple
+          (signature
+            (variable)
+            (name))
+          (signature
+            (variable)
+            (name)))))
+    (bind
+      (variable)
+      (match
+        (unboxed_tuple
+          (signature
+            (variable)
+            (name))
+          (signature
+            (variable)
+            (name)))))
+    (bind
+      (variable)
+      (match
+        (unboxed_sum
+          (signature
+            (variable)
+            (name)))))))
+
+================================================================================
+exp: lenient trailing comma in list
+================================================================================
+
+a =
+  [
+    a,
+    A,
+  ]
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (list
+          (variable)
+          (constructor))))))
+
+================================================================================
+exp: dollar infix with applications in operands
+================================================================================
+
+a = a a $ a a a
+a = a a $$ a a a
+a = a a $$$ a
+a = a a a $$$$ a a a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (infix
+          (apply
+            (variable)
+            (variable))
+          (operator)
+          (apply
+            (apply
+              (variable)
+              (variable))
+            (variable)))))
+    (bind
+      (variable)
+      (match
+        (infix
+          (apply
+            (variable)
+            (variable))
+          (operator)
+          (apply
+            (apply
+              (variable)
+              (variable))
+            (variable)))))
+    (bind
+      (variable)
+      (match
+        (infix
+          (apply
+            (variable)
+            (variable))
+          (operator)
+          (variable))))
+    (bind
+      (variable)
+      (match
+        (infix
+          (apply
+            (apply
+              (variable)
+              (variable))
+            (variable))
+          (operator)
+          (apply
+            (apply
+              (variable)
+              (variable))
+            (variable)))))))
+
+================================================================================
+exp: pattern guard annotation
+================================================================================
+
+a | a <- a :: a = a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (guards
+          (pattern_guard
+            (variable)
+            (signature
+              (variable)
+              (variable))))
+        (variable)))))
+
+================================================================================
+exp: ParallelListComp
+================================================================================
+
+a = [a | a <- a | a <- a, let a = a | a <- a]
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (list_comprehension
+          (variable)
+          (qualifiers
+            (generator
+              (variable)
+              (variable)))
+          (qualifiers
+            (generator
+              (variable)
+              (variable))
+            (let
+              (local_binds
+                (bind
+                  (variable)
+                  (match
+                    (variable))))))
+          (qualifiers
+            (generator
+              (variable)
+              (variable))))))))
+
+================================================================================
+exp: case with multiple alternatives and matches
+================================================================================
+
+a = case a of
+  a | a, a <- a, let a = a -> a
+    | a -> a
+  a | let a = a, a <- a, a -> a
+    | a -> a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (case
+          (variable)
+          (alternatives
+            (alternative
+              (variable)
+              (match
+                (guards
+                  (boolean
+                    (variable))
+                  (pattern_guard
+                    (variable)
+                    (variable))
+                  (let
+                    (local_binds
+                      (bind
+                        (variable)
+                        (match
+                          (variable))))))
+                (variable))
+              (match
+                (guards
+                  (boolean
+                    (variable)))
+                (variable)))
+            (alternative
+              (variable)
+              (match
+                (guards
+                  (let
+                    (local_binds
+                      (bind
+                        (variable)
+                        (match
+                          (variable)))))
+                  (pattern_guard
+                    (variable)
+                    (variable))
+                  (boolean
+                    (variable)))
+                (variable))
+              (match
+                (guards
+                  (boolean
+                    (variable)))
+                (variable)))))))))
+
+================================================================================
+exp: identifier named then#
+================================================================================
+
+-- If the hash is not included in the predicate for non-id characters, the
+-- scanner would close the do layout before the `then#`, mistaking it for a
+-- `then`.
+a = if do a then# then a else a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (comment)
+  (declarations
+    (bind
+      (variable)
+      (match
+        (conditional
+          (do
+            (exp
+              (apply
+                (variable)
+                (variable))))
+          (variable)
+          (variable))))))
+
+================================================================================
+exp: explicit namespace for required type arguments
+================================================================================
+
+a = a (type a) (type A) (type (A a)) (A a) (type [∀ a . A a => A])
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (apply
+          (apply
+            (apply
+              (apply
+                (apply
+                  (variable)
+                  (explicit_type
+                    (variable)))
+                (explicit_type
+                  (name)))
+              (explicit_type
+                (parens
+                  (apply
+                    (name)
+                    (variable)))))
+            (parens
+              (apply
+                (constructor)
+                (variable))))
+          (explicit_type
+            (list
+              (forall
+                (quantified_variables
+                  (variable))
+                (context
+                  (apply
+                    (name)
+                    (variable))
+                  (name))))))))))
+
+================================================================================
+exp: inline case with constructor after of
+================================================================================
+
+a = case a of A a -> a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (case
+          (variable)
+          (alternatives
+            (alternative
+              (apply
+                (constructor)
+                (variable))
+              (match
+                (variable)))))))))
+
+================================================================================
+exp: qualified constructor in apply argument
+================================================================================
+
+a = a A.A
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (apply
+          (variable)
+          (qualified
+            (module
+              (module_id))
+            (constructor)))))))
+
+================================================================================
+exp: type application before infix operator
+================================================================================
+
+a = a @a + a
+a = a @a a + a
+a = a @a `a` a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (infix
+          (apply
+            (variable)
+            (type_application
+              (variable)))
+          (operator)
+          (variable))))
+    (bind
+      (variable)
+      (match
+        (infix
+          (apply
+            (apply
+              (variable)
+              (type_application
+                (variable)))
+            (variable))
+          (operator)
+          (variable))))
+    (bind
+      (variable)
+      (match
+        (infix
+          (apply
+            (variable)
+            (type_application
+              (variable)))
+          (infix_id
+            (variable))
+          (variable))))))
+
+================================================================================
+exp: th-quoted type before infix operator
+================================================================================
+
+a = a ''A + a
+a = a ''A `a` a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (infix
+          (apply
+            (variable)
+            (th_quoted_name
+              (name)))
+          (operator)
+          (variable))))
+    (bind
+      (variable)
+      (match
+        (infix
+          (apply
+            (variable)
+            (th_quoted_name
+              (name)))
+          (infix_id
+            (variable))
+          (variable))))))
+
+================================================================================
+exp: lambda after varid with prime followed by n with prime
+================================================================================
+
+a = a'\n' -> a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (apply
+          (variable)
+          (lambda
+            (patterns
+              (variable))
+            (variable)))))))

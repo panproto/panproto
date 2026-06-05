@@ -134,6 +134,28 @@ fn literal_text_deep(cst: &Schema, vertex_id: &str) -> String {
     buf
 }
 
+/// Resolve a cell/field vertex to the descendant that actually carries the
+/// `literal-value` constraint.
+///
+/// Tabular cells are wrapper nodes (`field → text`/`field → number`) whose
+/// text lives on a single `child_of` leaf, so a write aimed at the wrapper
+/// itself is a no-op. This descends through single-child wrappers to the leaf
+/// holding the value, mirroring [`literal_text_deep`]'s read path so that
+/// extraction and injection agree on which node owns the text. Falls back to
+/// the original vertex when no descendant carries a `literal-value` or when the
+/// branch forks (an ambiguous multi-leaf cell, which the simple value-replace
+/// cannot target unambiguously anyway).
+fn deepest_literal_vertex(cst: &Schema, vertex_id: &str) -> Name {
+    if literal_value(cst, vertex_id).is_some() {
+        return Name::from(vertex_id);
+    }
+    let children = cst_children_by_edge_kind(cst, vertex_id, "child_of");
+    if children.len() == 1 {
+        return deepest_literal_vertex(cst, children[0]);
+    }
+    Name::from(vertex_id)
+}
+
 /// Find a child of `parent` with the given edge kind in the CST.
 fn cst_child_by_edge_kind<'a>(cst: &'a Schema, parent: &str, edge_kind: &str) -> Option<&'a Name> {
     cst.outgoing_edges(parent)
@@ -154,6 +176,42 @@ fn cst_children_by_edge_kind<'a>(cst: &'a Schema, parent: &str, edge_kind: &str)
 /// Get the vertex kind from the CST.
 fn cst_vertex_kind(cst: &Schema, vertex_id: &str) -> Option<String> {
     cst.vertex(vertex_id).map(|v| v.kind.to_string())
+}
+
+/// Classify a CST `content`-child node kind for mixed-content handling.
+///
+/// The tree-sitter XML grammar splits an element's `content` into three
+/// observable classes:
+///
+/// - **Text**: `CharData` plus character-/entity-reference nodes
+///   (`EntityRef`, `CharRef`, `PEReference`, `_Reference`). These all belong
+///   to the same logical character stream: `the state&apos;s` parses as
+///   `CharData("the state") EntityRef("&apos;") CharData("s")`, which is one
+///   run of text, not three siblings. Treating references as text is what
+///   makes the canonical (non-complement) `emit` idempotent: re-emitting a
+///   value containing `'`/`"`/`&` re-escapes it to an entity, so the re-parse
+///   re-splits the run, and only a text-merging extractor maps both shapes to
+///   the same node count.
+/// - **Opaque**: `CDSect` (CDATA), `Comment`, and the processing-instruction
+///   kinds (`PI`, `StyleSheetPI`, `XmlModelPI`). These are genuinely separate
+///   constructs whose position and verbatim bytes live only in the layout
+///   complement; they round-trip via CST replay, not the collapsed value.
+/// - **Element**: nested `element`s.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ContentClass {
+    Text,
+    Element,
+    Opaque,
+}
+
+fn classify_content_kind(kind: &str) -> ContentClass {
+    match kind {
+        "element" => ContentClass::Element,
+        "CharData" | "EntityRef" | "CharRef" | "PEReference" | "_Reference" => ContentClass::Text,
+        // CDSect/Comment/PI/StyleSheetPI/XmlModelPI and any other
+        // non-text, non-element node is opaque structural content.
+        _ => ContentClass::Opaque,
+    }
 }
 
 /// Get the `string_content` literal from a CST `string` vertex.
@@ -771,6 +829,16 @@ pub fn inject_json_cst(
                         }
                     }
                 }
+                // Non-string scalars (numbers, bools, null) likewise carry a
+                // canonical lexical form in the CST leaf that does NOT survive
+                // a round-trip through the parsed `Value`: `1e10`, `-0`, and
+                // big integers beyond f64 precision all re-serialize to a
+                // different (yet value-equal) token. When the leaf's original
+                // text still decodes to the instance value, the value is
+                // unchanged, so leave the original bytes untouched.
+                if json_scalar_unchanged(&cst, cst_vertex, presence) {
+                    continue;
+                }
                 let new_text = field_presence_to_json_text(presence);
                 update_literal_value(&mut cst, cst_vertex, &new_text);
             }
@@ -778,6 +846,28 @@ pub fn inject_json_cst(
     }
 
     Ok(cst)
+}
+
+/// Whether the JSON scalar leaf at `cst_vertex` still decodes to the same
+/// instance `presence`, in which case its original bytes should be preserved
+/// verbatim rather than re-serialized from the (lossy) parsed `Value`.
+///
+/// This guards numeric tokens whose lexical form is not recoverable from the
+/// `Value` (`1e10`, `-0`, `3.14159E-5`, integers past f64 precision) and the
+/// boolean / `null` keywords. Strings are handled separately (above) because
+/// their text spans multiple CST segments.
+fn json_scalar_unchanged(cst: &Schema, cst_vertex: &str, presence: &FieldPresence) -> bool {
+    let Some(original) = literal_value(cst, cst_vertex) else {
+        return false;
+    };
+    match presence {
+        FieldPresence::Present(v @ (Value::Int(_) | Value::Float(_))) => {
+            &parse_number_value(&original) == v
+        }
+        FieldPresence::Present(Value::Bool(b)) => original == if *b { "true" } else { "false" },
+        FieldPresence::Null | FieldPresence::Present(Value::Null) => original == "null",
+        _ => false,
+    }
 }
 
 /// Convert a `FieldPresence` to the JSON text representation.
@@ -987,9 +1077,23 @@ fn extract_xml_element(
 
     if let Some(ref content) = content_vertex {
         let content_children = ordered_content_children(cst, content);
-        let has_elements = content_children.iter().any(|(kind, _)| kind == "element");
+        let has_elements = content_children
+            .iter()
+            .any(|(kind, _)| classify_content_kind(kind) == ContentClass::Element);
+        // Opaque siblings (CDATA / comments / processing-instructions) cannot
+        // be folded into a single `node.value`: that collapse would overwrite
+        // the first `CharData` leaf with the concatenated CharData text and
+        // drop the opaque nodes, breaking the byte-faithful round-trip of such
+        // content. When any opaque sibling is present, take the structural
+        // path (and let the preserving emit replay the CST verbatim).
+        // Character/entity references (`EntityRef`, `CharRef`, ...) are *not*
+        // opaque: they are part of the text run, so they never force the
+        // structural path on their own.
+        let has_opaque = content_children
+            .iter()
+            .any(|(kind, _)| classify_content_kind(kind) == ContentClass::Opaque);
         let has_nonempty_text = content_children.iter().any(|(kind, name)| {
-            kind == "CharData"
+            classify_content_kind(kind) == ContentClass::Text
                 && !literal_value(cst, name)
                     .unwrap_or_default()
                     .trim()
@@ -997,69 +1101,55 @@ fn extract_xml_element(
         });
         let domain_edges: Vec<Edge> = domain_schema.outgoing_edges(domain_vertex).to_vec();
 
-        if !has_elements {
-            // Pure text content: collapse to node.value (existing
-            // semantics; preserves the leaf-element fast path where a
-            // round-trip just stores the captured text).
+        if !has_elements && !has_opaque {
+            // Pure text content (possibly with entity references, which are
+            // part of the same text run): collapse to node.value. This is the
+            // leaf-element fast path: a round-trip just stores the captured
+            // text. Crucially, collapsing here keeps the canonical emit
+            // idempotent: re-emitting a value with `'`/`"`/`&` re-escapes it
+            // to an entity, the re-parse re-splits the run into
+            // `CharData EntityRef CharData`, and this branch folds it back to
+            // exactly one node.
             if let Some(text) = extract_xml_text_content(cst, content) {
                 if !text.trim().is_empty() {
                     node.value = Some(FieldPresence::Present(Value::Str(text)));
-                    for edge in cst.outgoing_edges(content) {
-                        if cst_vertex_kind(cst, &edge.tgt).as_deref() == Some("CharData") {
-                            state.node_to_cst_value.insert(node_id, edge.tgt.clone());
-                            break;
-                        }
+                    // Only splice an edited value back into the CST when the
+                    // run is a single `CharData` leaf. With entity references
+                    // (`Aaron &amp; Blaine` -> `CharData EntityRef CharData`)
+                    // the collapsed value drops the entity text, so writing it
+                    // into the first `CharData` would corrupt the verbatim
+                    // replay; leave such elements unmapped so the preserving
+                    // emit reproduces them byte-for-byte.
+                    let text_children: Vec<&Name> = content_children
+                        .iter()
+                        .filter(|(kind, _)| classify_content_kind(kind) == ContentClass::Text)
+                        .map(|(_, name)| name)
+                        .collect();
+                    if text_children.len() == 1
+                        && cst_vertex_kind(cst, text_children[0]).as_deref() == Some("CharData")
+                    {
+                        state
+                            .node_to_cst_value
+                            .insert(node_id, text_children[0].clone());
                     }
                 }
             }
-        } else if has_nonempty_text {
-            // Mixed content: walk content in source order, emitting a
-            // text-segment leaf for each non-blank CharData and a
-            // regular element child for each `element`. Preserves the
-            // original interleaving so `<p>x<em>y</em>z</p>` round-trips
-            // through emit without losing the trailing text run.
-            for (kind, child_vertex) in &content_children {
-                if kind == "CharData" {
-                    let text = literal_value(cst, child_vertex).unwrap_or_default();
-                    if text.trim().is_empty() {
-                        continue;
-                    }
-                    let seg_anchor = format!("{domain_vertex}:text");
-                    let seg_id = state.alloc_id();
-                    let mut seg_node = Node::new(seg_id, seg_anchor.as_str());
-                    seg_node.value = Some(FieldPresence::Present(Value::Str(text)));
-                    seg_node.shape = NodeShape::XmlTextSegment;
-                    state.nodes.insert(seg_id, seg_node);
-                    state.node_to_cst_value.insert(seg_id, child_vertex.clone());
-                    let edge = Edge {
-                        src: Name::from(domain_vertex),
-                        tgt: Name::from(seg_anchor.as_str()),
-                        kind: "prop".into(),
-                        name: Some(Name::from("$xml_text")),
-                    };
-                    state.arcs.push((node_id, seg_id, edge));
-                } else if kind == "element" {
-                    let tag =
-                        extract_xml_tag_name(cst, child_vertex).unwrap_or_else(|| "child".into());
-                    let child_anchor = format!("{domain_vertex}:{tag}");
-                    let child_id = state.alloc_id();
-                    extract_xml_element(
-                        cst,
-                        domain_schema,
-                        child_vertex,
-                        &child_anchor,
-                        child_id,
-                        state,
-                    )?;
-                    let synth_edge = Edge {
-                        src: Name::from(domain_vertex),
-                        tgt: Name::from(child_anchor.as_str()),
-                        kind: "prop".into(),
-                        name: Some(Name::from(tag.as_str())),
-                    };
-                    state.arcs.push((node_id, child_id, synth_edge));
-                }
-            }
+        } else if has_nonempty_text || has_opaque {
+            // Mixed content: walk content in source order. Consecutive
+            // text-class nodes (CharData + entity references) are coalesced
+            // into a single text-segment leaf so an entity-split run
+            // (`x&amp;y` -> `CharData EntityRef CharData`) does not multiply
+            // the node count; each `element` becomes a regular child; opaque
+            // siblings (CDATA/comments/PIs) are preserved as structural-only
+            // segments so the preserving emit replays them from the CST.
+            emit_mixed_content(
+                cst,
+                domain_schema,
+                domain_vertex,
+                node_id,
+                &content_children,
+                state,
+            )?;
             state.nodes.insert(node_id, node);
             return Ok(());
         }
@@ -1133,6 +1223,111 @@ fn extract_xml_element(
     }
 
     state.nodes.insert(node_id, node);
+    Ok(())
+}
+
+/// Walk an element's mixed `content` children in source order, emitting:
+///
+/// - one coalesced `XmlTextSegment` leaf per maximal run of text-class nodes
+///   (`CharData` + entity references), so an entity-split text run does not
+///   inflate the node count and the canonical emit stays idempotent;
+/// - one regular child element per `element`;
+/// - one structural-only segment per opaque sibling (CDATA / comment /
+///   processing-instruction). The opaque segment carries no value and is
+///   mapped to its CST vertex so the preserving emit replays it verbatim.
+fn emit_mixed_content(
+    cst: &Schema,
+    domain_schema: &Schema,
+    domain_vertex: &str,
+    node_id: u32,
+    content_children: &[(String, Name)],
+    state: &mut ExtractState,
+) -> Result<(), CstExtractError> {
+    let mut text_run: Vec<&Name> = Vec::new();
+
+    let flush_text = |state: &mut ExtractState, run: &mut Vec<&Name>| {
+        if run.is_empty() {
+            return;
+        }
+        let text: String = run
+            .iter()
+            .map(|v| literal_value(cst, v).unwrap_or_default())
+            .collect();
+        let single_chardata = (run.len() == 1
+            && cst_vertex_kind(cst, run[0]).as_deref() == Some("CharData"))
+        .then(|| run[0].clone());
+        run.clear();
+        if text.trim().is_empty() {
+            return;
+        }
+        let seg_anchor = format!("{domain_vertex}:text");
+        let seg_id = state.alloc_id();
+        let mut seg_node = Node::new(seg_id, seg_anchor.as_str());
+        seg_node.value = Some(FieldPresence::Present(Value::Str(text)));
+        seg_node.shape = NodeShape::XmlTextSegment;
+        state.nodes.insert(seg_id, seg_node);
+        // Only map the segment to a CST value vertex when the run is a
+        // single `CharData` leaf: an edited value can then splice cleanly.
+        // An entity-split run drops the entity text in the collapsed value,
+        // so leave it unmapped and let the preserving emit replay it
+        // verbatim (byte-faithful) rather than overwriting the first leaf.
+        if let Some(first) = single_chardata {
+            state.node_to_cst_value.insert(seg_id, first);
+        }
+        let edge = Edge {
+            src: Name::from(domain_vertex),
+            tgt: Name::from(seg_anchor.as_str()),
+            kind: "prop".into(),
+            name: Some(Name::from("$xml_text")),
+        };
+        state.arcs.push((node_id, seg_id, edge));
+    };
+
+    for (kind, child_vertex) in content_children {
+        match classify_content_kind(kind) {
+            ContentClass::Text => text_run.push(child_vertex),
+            ContentClass::Element => {
+                flush_text(state, &mut text_run);
+                let tag = extract_xml_tag_name(cst, child_vertex).unwrap_or_else(|| "child".into());
+                let child_anchor = format!("{domain_vertex}:{tag}");
+                let child_id = state.alloc_id();
+                extract_xml_element(
+                    cst,
+                    domain_schema,
+                    child_vertex,
+                    &child_anchor,
+                    child_id,
+                    state,
+                )?;
+                let synth_edge = Edge {
+                    src: Name::from(domain_vertex),
+                    tgt: Name::from(child_anchor.as_str()),
+                    kind: "prop".into(),
+                    name: Some(Name::from(tag.as_str())),
+                };
+                state.arcs.push((node_id, child_id, synth_edge));
+            }
+            ContentClass::Opaque => {
+                flush_text(state, &mut text_run);
+                let seg_anchor = format!("{domain_vertex}:opaque");
+                let seg_id = state.alloc_id();
+                let mut seg_node = Node::new(seg_id, seg_anchor.as_str());
+                seg_node.shape = NodeShape::XmlTextSegment;
+                state.nodes.insert(seg_id, seg_node);
+                state
+                    .node_to_cst_struct
+                    .insert(seg_id, child_vertex.clone());
+                let edge = Edge {
+                    src: Name::from(domain_vertex),
+                    tgt: Name::from(seg_anchor.as_str()),
+                    kind: "prop".into(),
+                    name: Some(Name::from("$xml_opaque")),
+                };
+                state.arcs.push((node_id, seg_id, edge));
+            }
+        }
+    }
+    flush_text(state, &mut text_run);
     Ok(())
 }
 
@@ -1303,6 +1498,13 @@ fn inject_xml_attributes(
                     Value::Str(s) => s.clone(),
                     other => format!("{other:?}"),
                 };
+                // When the attribute value is unchanged, leave the original
+                // AttValue token untouched: it carries lexical details the
+                // re-serialization discards (single- vs double-quote style,
+                // and entity-encoded characters such as `&lt;`/`&amp;`).
+                if extract_xml_attr_value(cst, attr_vertex).as_deref() == Some(text.as_str()) {
+                    continue;
+                }
                 // Find and update the AttValue child
                 let attvalue_vertex = cst
                     .outgoing_edges(attr_vertex)
@@ -1737,7 +1939,9 @@ pub fn extract_tabular_cst(
             // Encode (row_idx, col_idx) as a u32 key for the complement mapping.
             #[allow(clippy::cast_possible_truncation)]
             let cell_key = (row_idx as u32) * 10_000 + (col_idx as u32);
-            cell_to_cst.insert(cell_key, (*field_name).clone());
+            // Map to the leaf that owns the text, not the wrapper field, so
+            // injection can actually rewrite the value.
+            cell_to_cst.insert(cell_key, deepest_literal_vertex(cst, field_name));
         }
         rows.push(row);
     }
@@ -1779,9 +1983,14 @@ pub fn inject_tabular_cst(
             continue;
         }
         let header_fields = cst_children_by_edge_kind(&cst, row_vertices[0], "child_of");
+        // Match `extract_tabular_cst`: a header cell is usually a wrapper node
+        // whose text lives in a `child_of` leaf, so read it the same deep way
+        // the row keys were built from. Using the shallow `literal_value` here
+        // yielded empty header names, so every cell lookup missed and edits
+        // were silently dropped.
         let headers: Vec<String> = header_fields
             .iter()
-            .map(|f| literal_value(&cst, f).unwrap_or_default())
+            .map(|f| literal_text_deep(&cst, f))
             .collect();
 
         for (row_idx, row) in rows.iter().enumerate() {

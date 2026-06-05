@@ -1,0 +1,14 @@
+===
+errors/cannotInferParent2.pkl
+===
+
+foo = () -> new {}
+---
+
+(module
+  (classProperty
+    (identifier)
+    (functionLiteralExpr
+      (parameterList)
+      (newExpr
+        (objectBody)))))

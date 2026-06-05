@@ -1,0 +1,88 @@
+==================
+Page Properties Phase 1
+==================
+
+page 50002 "Test Page Phase 1"
+{
+    PageType = Card;
+    SourceTable = Customer;
+    AboutText = 'This page shows customer information';
+    AboutTextML = ENU = 'Customer info', DAN = 'Kunde info';
+    AboutTitle = 'Customer Card';
+    AboutTitleML = ENU = 'Customer Card', DAN = 'Kundekort';
+    CardPageId = "Customer Card";
+    DeleteAllowed = true;
+    InsertAllowed = false; 
+    ModifyAllowed = true;
+    SourceTableTemporary = false;
+
+    layout
+    {
+        area(content)
+        {
+            field(Name; Rec.Name) { }
+        }
+    }
+}
+
+---
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (ml_value_list
+        (ml_value_pair
+          language: (identifier)
+          value: (string_literal))
+        (ml_value_pair
+          language: (identifier)
+          value: (string_literal))))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (ml_value_list
+        (ml_value_pair
+          language: (identifier)
+          value: (string_literal))
+        (ml_value_pair
+          language: (identifier)
+          value: (string_literal))))
+    (property
+      name: (property_name)
+      value: (quoted_identifier))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (identifier)))))))

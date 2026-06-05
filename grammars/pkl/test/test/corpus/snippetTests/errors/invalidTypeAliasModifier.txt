@@ -1,0 +1,14 @@
+===
+errors/invalidTypeAliasModifier.pkl
+===
+
+abstract typealias Foo = Int
+---
+
+(module
+  (typeAlias
+    (modifier)
+    (identifier)
+    (declaredType
+      (qualifiedIdentifier
+        (identifier)))))

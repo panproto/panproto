@@ -1,0 +1,471 @@
+================================================================================
+Matrix: Simple
+================================================================================
+
+[1 2 3 .4]
+[1,2,3,4]
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (matrix
+    (row
+      (number)
+      (number)
+      (number)
+      (number)))
+  (matrix
+    (row
+      (number)
+      (number)
+      (number)
+      (number))))
+
+================================================================================
+Matrix: Multidimensional
+================================================================================
+
+[1, 2; 3, 4]
+[1, 2; 3 4]
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (matrix
+    (row
+      (number)
+      (number))
+    (row
+      (number)
+      (number)))
+  (matrix
+    (row
+      (number)
+      (number))
+    (row
+      (number)
+      (number))))
+
+================================================================================
+Matrix: Concatenation
+================================================================================
+
+[A-L*C [L B]; I 0]
+
+[A- L*C [L B]
+ I      0    ]
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (matrix
+    (row
+      (binary_operator
+        (identifier)
+        (binary_operator
+          (identifier)
+          (identifier)))
+      (matrix
+        (row
+          (identifier)
+          (identifier))))
+    (row
+      (identifier)
+      (number)))
+  (matrix
+    (row
+      (binary_operator
+        (identifier)
+        (binary_operator
+          (identifier)
+          (identifier)))
+      (matrix
+        (row
+          (identifier)
+          (identifier))))
+    (row
+      (identifier)
+      (number))))
+
+================================================================================
+Matrix: Multiline
+================================================================================
+
+[1 2
+ 3 4]
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (matrix
+    (row
+      (number)
+      (number))
+    (row
+      (number)
+      (number))))
+
+================================================================================
+Matrix: Expression With Transpose
+================================================================================
+
+[2*A' + 5+B' D'-3'
+ 3 4]
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (matrix
+    (row
+      (binary_operator
+        (binary_operator
+          (binary_operator
+            (number)
+            (postfix_operator
+              (identifier)))
+          (number))
+        (postfix_operator
+          (identifier)))
+      (binary_operator
+        (postfix_operator
+          (identifier))
+        (postfix_operator
+          (number))))
+    (row
+      (number)
+      (number))))
+
+================================================================================
+Matrix: Meaning of Spaces
+================================================================================
+
+[1+1 +1 - 2 -2 3+ 4]
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (matrix
+    (row
+      (binary_operator
+        (number)
+        (number))
+      (binary_operator
+        (unary_operator
+          (number))
+        (number))
+      (unary_operator
+        (number))
+      (binary_operator
+        (number)
+        (number)))))
+
+================================================================================
+Matrix: Parenthesised Expression
+================================================================================
+
+[(1 + 2) (3 + 4)]
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (matrix
+    (row
+      (parenthesis
+        (binary_operator
+          (number)
+          (number)))
+      (parenthesis
+        (binary_operator
+          (number)
+          (number))))))
+
+================================================================================
+Matrix: Newlines
+================================================================================
+
+[
+
+  foo(1), ...
+
+  2
+
+]
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (matrix
+    (row
+      (function_call
+        (identifier)
+        (arguments
+          (number))))
+    (line_continuation)
+    (row
+      (number))))
+
+================================================================================
+Matrix: Line continuations
+================================================================================
+
+[1 + ...
+ 2]
+
+[1 ...
+ + 2]
+
+[1 ...
+ + ...
+ 2]
+
+[.1 ...
+ .2]
+
+[a + ...
+ b]
+
+[a ...
+ + b]
+
+[a ...
+ + ...
+ b]
+
+[a ...
+ b]
+
+[[1,2] + ...
+ [1,2]]
+
+[[1,2] ...
+ + [1,2]]
+
+[[1,2] ...
+ + ...
+ [1,2]]
+
+[[1,2] ...
+ [1,2]]
+
+[{1,2} + ...
+ {1,2}]
+
+[{1,2} ...
+ + {1,2}]
+
+[{1,2} ...
+ + ...
+ {1,2}]
+
+[{1,2} ...
+ {1,2}]
+
+['foo'...
+      ...            % comment1
+      'bar'...       % comment2
+]
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (matrix
+    (row
+      (binary_operator
+        (number)
+        (line_continuation)
+        (number))))
+  (matrix
+    (row
+      (binary_operator
+        (number)
+        (line_continuation)
+        (number))))
+  (matrix
+    (row
+      (binary_operator
+        (number)
+        (line_continuation)
+        (line_continuation)
+        (number))))
+  (matrix
+    (row
+      (number)
+      (line_continuation)
+      (number)))
+  (matrix
+    (row
+      (binary_operator
+        (identifier)
+        (line_continuation)
+        (identifier))))
+  (matrix
+    (row
+      (binary_operator
+        (identifier)
+        (line_continuation)
+        (identifier))))
+  (matrix
+    (row
+      (binary_operator
+        (identifier)
+        (line_continuation)
+        (line_continuation)
+        (identifier))))
+  (matrix
+    (row
+      (identifier)
+      (line_continuation)
+      (identifier)))
+  (matrix
+    (row
+      (binary_operator
+        (matrix
+          (row
+            (number)
+            (number)))
+        (line_continuation)
+        (matrix
+          (row
+            (number)
+            (number))))))
+  (matrix
+    (row
+      (binary_operator
+        (matrix
+          (row
+            (number)
+            (number)))
+        (line_continuation)
+        (matrix
+          (row
+            (number)
+            (number))))))
+  (matrix
+    (row
+      (binary_operator
+        (matrix
+          (row
+            (number)
+            (number)))
+        (line_continuation)
+        (line_continuation)
+        (matrix
+          (row
+            (number)
+            (number))))))
+  (matrix
+    (row
+      (matrix
+        (row
+          (number)
+          (number)))
+      (line_continuation)
+      (matrix
+        (row
+          (number)
+          (number)))))
+  (matrix
+    (row
+      (binary_operator
+        (cell
+          (row
+            (number)
+            (number)))
+        (line_continuation)
+        (cell
+          (row
+            (number)
+            (number))))))
+  (matrix
+    (row
+      (binary_operator
+        (cell
+          (row
+            (number)
+            (number)))
+        (line_continuation)
+        (cell
+          (row
+            (number)
+            (number))))))
+  (matrix
+    (row
+      (binary_operator
+        (cell
+          (row
+            (number)
+            (number)))
+        (line_continuation)
+        (line_continuation)
+        (cell
+          (row
+            (number)
+            (number))))))
+  (matrix
+    (row
+      (cell
+        (row
+          (number)
+          (number)))
+      (line_continuation)
+      (cell
+        (row
+          (number)
+          (number)))))
+  (matrix
+    (row
+      (string
+        (string_content))
+      (line_continuation)
+      (line_continuation)
+      (string
+        (string_content)))
+    (line_continuation)))
+
+================================================================================
+Matrix: Transpose in cell
+================================================================================
+
+[a.' b.'; c.' d.']
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (matrix
+    (row
+      (postfix_operator
+        (identifier))
+      (postfix_operator
+        (identifier)))
+    (row
+      (postfix_operator
+        (identifier))
+      (postfix_operator
+        (identifier)))))
+
+================================================================================
+Matrix: Spurious delimiters
+================================================================================
+
+[; , ; 1 , 2]
+{1,;,;;,2}
+[;cos(5)]
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (matrix
+    (row
+      (number)
+      (number)))
+  (cell
+    (row
+      (number))
+    (row
+      (number)))
+  (matrix
+    (row
+      (function_call
+        (identifier)
+        (arguments
+          (number))))))

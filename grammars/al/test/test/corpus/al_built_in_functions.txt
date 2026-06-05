@@ -1,0 +1,271 @@
+==================
+AL Built-in Functions
+==================
+
+codeunit 50000 "AL Built-in Functions Test"
+{
+    procedure TestRecordMethods()
+    var
+        Customer: Record Customer;
+    begin
+        // Test SETCURRENTKEY
+        Customer.SETCURRENTKEY("No.", Name);
+        Customer.SETCURRENTKEY(Name);
+        
+        // Test SETRANGE
+        Customer.SETRANGE("No.", '10000', '20000');
+        Customer.SETRANGE(Name, 'A*');
+        
+        // Test FINDFIRST and FINDSET
+        if Customer.FINDFIRST then
+            Message('Found first customer');
+            
+        if Customer.FINDSET then
+            repeat
+                // Do something with each record
+            until Customer.NEXT = 0;
+            
+        // Test ISEMPTY
+        if not Customer.ISEMPTY then
+            Message('Customer table is not empty');
+            
+        // Test SETFILTER
+        Customer.SETFILTER("No.", '%1|%2', '10000', '20000');
+        Customer.SETFILTER(Name, '@*A*');
+        
+        // Test SETRECFILTER
+        Customer.SETRECFILTER;
+        
+        // Test GETVIEW
+        ReportParameters := Customer.GETVIEW;
+        
+        // Test method chaining
+        Customer.SETCURRENTKEY(Name).SETRANGE("No.", '10000', '20000').FINDSET;
+    end;
+    
+    procedure TestSystemFunctions()
+    var
+        Customer: Record Customer;
+    begin
+        // Test CONFIRM
+        if CONFIRM('Do you want to continue?') then
+            Message('User confirmed');
+            
+        // Test RUNMODAL
+        if PAGE.RUNMODAL(PAGE::"Customer Card", Customer) = ACTION::LookupOK then
+            Message('User selected a customer');
+            
+        // Test SETTABLEVIEW
+        Customer.SETRANGE("No.", '10000', '20000');
+        REPORT.SETTABLEVIEW(REPORT::"Customer List", Customer);
+    end;
+    
+    var
+        ReportParameters: Text;
+}
+
+---
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (identifier)))))
+      (code_block
+        (begin_keyword)
+        (comment)
+        (call_expression
+          function: (member_expression
+            object: (identifier)
+            member: (identifier))
+          arguments: (argument_list
+            (quoted_identifier)
+            (identifier)))
+        (call_expression
+          function: (member_expression
+            object: (identifier)
+            member: (identifier))
+          arguments: (argument_list
+            (identifier)))
+        (comment)
+        (call_expression
+          function: (member_expression
+            object: (identifier)
+            member: (identifier))
+          arguments: (argument_list
+            (quoted_identifier)
+            (string_literal)
+            (string_literal)))
+        (call_expression
+          function: (member_expression
+            object: (identifier)
+            member: (identifier))
+          arguments: (argument_list
+            (identifier)
+            (string_literal)))
+        (comment)
+        (if_statement
+          (if_keyword)
+          condition: (member_expression
+            object: (identifier)
+            member: (identifier))
+          (then_keyword)
+          then_branch: (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (string_literal))))
+        (if_statement
+          (if_keyword)
+          condition: (member_expression
+            object: (identifier)
+            member: (identifier))
+          (then_keyword)
+          then_branch: (repeat_statement
+            (repeat_keyword)
+            (comment)
+            (until_keyword)
+            condition: (comparison_expression
+              left: (member_expression
+                object: (identifier)
+                member: (identifier))
+              operator: (comparison_operator)
+              right: (integer))))
+        (comment)
+        (if_statement
+          (if_keyword)
+          condition: (unary_expression
+            operand: (member_expression
+              object: (identifier)
+              member: (identifier)))
+          (then_keyword)
+          then_branch: (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (string_literal))))
+        (comment)
+        (call_expression
+          function: (member_expression
+            object: (identifier)
+            member: (identifier))
+          arguments: (argument_list
+            (quoted_identifier)
+            (string_literal)
+            (string_literal)
+            (string_literal)))
+        (call_expression
+          function: (member_expression
+            object: (identifier)
+            member: (identifier))
+          arguments: (argument_list
+            (identifier)
+            (string_literal)))
+        (comment)
+        (member_expression
+          object: (identifier)
+          member: (identifier))
+        (comment)
+        (assignment_statement
+          left: (identifier)
+          right: (member_expression
+            object: (identifier)
+            member: (identifier)))
+        (comment)
+        (member_expression
+          object: (call_expression
+            function: (member_expression
+              object: (call_expression
+                function: (member_expression
+                  object: (identifier)
+                  member: (identifier))
+                arguments: (argument_list
+                  (identifier)))
+              member: (identifier))
+            arguments: (argument_list
+              (quoted_identifier)
+              (string_literal)
+              (string_literal)))
+          member: (identifier))
+        (end_keyword)))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (identifier)))))
+      (code_block
+        (begin_keyword)
+        (comment)
+        (if_statement
+          (if_keyword)
+          condition: (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (string_literal)))
+          (then_keyword)
+          then_branch: (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (string_literal))))
+        (comment)
+        (if_statement
+          (if_keyword)
+          condition: (comparison_expression
+            left: (call_expression
+              function: (member_expression
+                object: (keyword_identifier
+                  (page_keyword))
+                member: (identifier))
+              arguments: (argument_list
+                (database_reference
+                  keyword: (object_type_keyword)
+                  table_name: (quoted_identifier))
+                (identifier)))
+            operator: (comparison_operator)
+            right: (qualified_enum_value
+              enum_type: (keyword_identifier)
+              value: (identifier)))
+          (then_keyword)
+          then_branch: (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (string_literal))))
+        (comment)
+        (call_expression
+          function: (member_expression
+            object: (identifier)
+            member: (identifier))
+          arguments: (argument_list
+            (quoted_identifier)
+            (string_literal)
+            (string_literal)))
+        (call_expression
+          function: (member_expression
+            object: (keyword_identifier
+              (report_keyword))
+            member: (identifier))
+          arguments: (argument_list
+            (database_reference
+              keyword: (object_type_keyword)
+              table_name: (quoted_identifier))
+            (identifier)))
+        (end_keyword)))
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (text_type))))))

@@ -1,0 +1,89 @@
+==================
+Identity definition
+==================
+
+let id = \x -> x
+
+---
+
+(source_file)
+
+==================
+Boolean definitions
+==================
+
+let T = \x y -> x
+let F = \x y -> y
+
+---
+
+(source_file)
+
+==================
+Church numerals
+==================
+
+let zero = \f x -> x
+let one = \f x -> f x
+let two = \f x -> f (f x)
+
+---
+
+(source_file)
+
+==================
+Simple reduction
+==================
+
+let id = \x -> x
+
+eval id_app :
+  id a
+  =b> a
+
+---
+
+(source_file)
+
+==================
+Application reduction
+==================
+
+eval ex :
+  (\x -> x) y
+  =b> y
+
+---
+
+==================
+Multi-step reduction
+==================
+
+eval beta :
+  (\x y -> x) a b
+  =b> (\y -> a) b
+  =b> a
+
+---
+
+(source_file)
+
+==================
+Composition definition
+==================
+
+let compose = \f g x -> f (g x)
+
+---
+
+(source_file)
+
+==================
+Successor definition
+==================
+
+let succ = \n f x -> f (n f x)
+
+---
+
+(source_file)

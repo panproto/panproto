@@ -1,0 +1,90 @@
+================================
+Functions test
+:language(stanfunctions)
+================================
+
+void foo(data array[,,] int x) {
+  print(x);
+  // test
+  real boom = 1.0;
+  return;
+}
+array[,] matrix bar(complex_vector z) {
+  for (i in 1:10){
+    return z; // would fail to typecheck
+  }
+}
+real foo(real x, real y) {
+  return x + y;
+}
+
+
+---
+
+(program
+  (function_definition
+    (return_type)
+    (function_declarator
+      (identifier)
+      (parameter_list
+        (parameter_declaration
+          (unsized_type
+            (unsized_dims)
+            (basic_type))
+          (identifier))))
+    (block_statement
+      (print_statement
+        (variable_expression
+          (identifier)))
+      (comment)
+      (var_decl
+        (sized_basic_type)
+        (identifier)
+        (real_literal
+          (integer_literal)
+          (integer_literal)))
+      (return_statement)))
+  (function_definition
+    (return_type
+      (unsized_type
+        (unsized_dims)
+        (basic_type)))
+    (function_declarator
+      (identifier)
+      (parameter_list
+        (parameter_declaration
+          (unsized_type
+            (basic_type))
+          (identifier))))
+    (block_statement
+      (for_statement
+        (identifier)
+        (integer_literal)
+        (integer_literal)
+        (block_statement
+          (return_statement
+            (variable_expression
+              (identifier)))
+          (comment)))))
+  (function_definition
+    (return_type
+      (unsized_type
+        (basic_type)))
+    (function_declarator
+      (identifier)
+      (parameter_list
+        (parameter_declaration
+          (unsized_type
+            (basic_type))
+          (identifier))
+        (parameter_declaration
+          (unsized_type
+            (basic_type))
+          (identifier))))
+    (block_statement
+      (return_statement
+        (infix_op_expression
+          (variable_expression
+            (identifier))
+          (variable_expression
+            (identifier)))))))

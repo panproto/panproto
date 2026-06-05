@@ -1,0 +1,82 @@
+================================================================================
+Key with Enabled property
+================================================================================
+
+table 50000 TestTable
+{
+    fields
+    {
+        field(1; ID; Integer) { }
+        field(2; Name; Text[50]) { }
+    }
+    
+    keys
+    {
+        key(PK; ID)
+        {
+            Clustered = true;
+        }
+        
+        key(Name; Name)
+        {
+            Enabled = false;
+        }
+        
+        key(Combined; ID, Name)
+        {
+            Enabled = true;
+            MaintainSqlIndex = false;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (basic_type)))
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))))
+    (keys_section
+      (keys_keyword)
+      (key_declaration
+        (key_keyword)
+        name: (identifier)
+        fields: (field_list
+          (identifier))
+        (property
+          name: (property_name)
+          value: (boolean)))
+      (key_declaration
+        (key_keyword)
+        name: (identifier)
+        fields: (field_list
+          (identifier))
+        (property
+          name: (property_name)
+          value: (boolean)))
+      (key_declaration
+        (key_keyword)
+        name: (identifier)
+        fields: (field_list
+          (identifier)
+          (identifier))
+        (property
+          name: (property_name)
+          value: (boolean))
+        (property
+          name: (property_name)
+          value: (boolean))))))

@@ -1,0 +1,81 @@
+==================
+Built-in Functions Date and Time
+==================
+
+codeunit 50100 "Built-in Functions Test"
+{
+    local procedure TestDateTimeFunctions()
+    var
+        DT: DateTime;
+        D: Date;
+        T: Time;
+    begin
+        DT := CURRENTDATETIME;
+        D := CurrentDate;
+        T := CURRENTTIME;
+        D := Today;
+        D := WorkDate;
+        DT := CreateDateTime(D, T);
+        T := Time(12, 0, 0);
+    end;
+}
+
+---
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (quoted_identifier)
+    (procedure
+      (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (basic_type)))
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (basic_type)))
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          (identifier)
+          (identifier))
+        (assignment_statement
+          (identifier)
+          (identifier))
+        (assignment_statement
+          (identifier)
+          (identifier))
+        (assignment_statement
+          (identifier)
+          (identifier))
+        (assignment_statement
+          (identifier)
+          (identifier))
+        (assignment_statement
+          (identifier)
+          (call_expression
+            (identifier)
+            (argument_list
+              (identifier)
+              (identifier))))
+        (assignment_statement
+          (identifier)
+          (call_expression
+            (identifier)
+            (argument_list
+              (integer)
+              (integer)
+              (integer))))
+        (end_keyword)))))

@@ -1,0 +1,182 @@
+================================================================================
+Preprocessor conditional properties in group section
+================================================================================
+
+page 17 "G/L Account Card" {
+    layout
+    {
+        area(content)
+        {
+            group(Revaluation)
+            {
+                Caption = 'Revaluation';
+#if not CLEAN24
+                Visible = SourceCurrencyVisible;
+#endif
+                field("Source Currency Posting"; Rec."Source Currency Posting")
+                {
+                    ApplicationArea = Basic, Suite;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (group_section
+          (group_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (preproc_conditional
+            (preproc_if
+              (preproc_open)
+              condition: (preproc_not_expression
+                (identifier)))
+            (property
+              name: (property_name)
+              value: (identifier))
+            (preproc_endif
+              (preproc_close)))
+          (page_field
+            name: (quoted_identifier)
+            source: (member_expression
+              object: (identifier)
+              member: (quoted_identifier))
+            (property
+              name: (property_name)
+              value: (option_member_list
+                (option_member
+                  (identifier))
+                (option_member
+                  (identifier))))))))))
+
+================================================================================
+Preprocessor conditional properties in repeater section
+================================================================================
+
+page 18 "Test List" {
+    layout
+    {
+        area(content)
+        {
+            repeater(Group)
+            {
+#if CLEAN25
+                FreezeColumn = Name;
+#endif
+                field(Name; Rec.Name)
+                {
+                    ApplicationArea = All;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (repeater_section
+          (repeater_keyword)
+          name: (identifier)
+          (preproc_conditional
+            (preproc_if
+              (preproc_open)
+              condition: (identifier))
+            (property
+              name: (property_name)
+              value: (identifier))
+            (preproc_endif
+              (preproc_close)))
+          (page_field
+            name: (identifier)
+            source: (member_expression
+              object: (identifier)
+              member: (identifier))
+            (property
+              name: (property_name)
+              value: (identifier))))))))
+
+================================================================================
+Mixed preprocessor conditional content in grid section
+================================================================================
+
+page 19 "Test Grid" {
+    layout
+    {
+        area(content)
+        {
+            grid(MainGrid)
+            {
+                GridLayout = Rows;
+#if not CLEAN24
+                ShowCaption = false;
+                group(OldGroup)
+                {
+                    Caption = 'Legacy';
+                }
+#else
+                ShowCaption = true;
+#endif
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (grid_section
+          (grid_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (preproc_conditional_layout_mixed
+            (preproc_if
+              (preproc_open)
+              condition: (preproc_not_expression
+                (identifier)))
+            (property
+              name: (property_name)
+              value: (boolean))
+            (group_section
+              (group_keyword)
+              name: (identifier)
+              (property
+                name: (property_name)
+                value: (string_literal)))
+            (preproc_else)
+            (property
+              name: (property_name)
+              value: (boolean))
+            (preproc_endif
+              (preproc_close))))))))

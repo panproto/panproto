@@ -1,0 +1,17 @@
+===========
+for-in loop
+===========
+
+for (item in arr) {
+
+}
+
+---
+
+(program
+    (for_in_statement
+        (identifier)
+        (identifier)
+        (statement_block)
+    )
+)

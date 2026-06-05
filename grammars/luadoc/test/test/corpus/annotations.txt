@@ -1,0 +1,441 @@
+========================
+Test a Class Annotation
+========================
+
+@class (exact) Transport @parent class
+
+---
+
+(documentation
+  (class_annotation
+    (identifier)
+    (class_at_comment
+      (identifier)
+      (comment))))
+
+========================================
+Test a Class That Extends Another Class
+========================================
+
+@class Ship : Transport @Ship extends Transport
+
+---
+
+(documentation
+  (class_annotation
+    (identifier)
+    (identifier)
+    (class_at_comment
+      (identifier)
+      (identifier))))
+
+============================================================
+Test a class That Extends Another Class (multi-inheritance)
+============================================================
+
+@class Eagle : Animal, Flyable, Bird  this is a plain comment
+
+---
+
+(documentation
+  (class_annotation
+    (identifier)
+    (identifier)
+    (identifier)
+    (identifier)
+    (comment)))
+
+========================
+Test a Field Annotation
+========================
+
+@field name string
+
+---
+
+(documentation
+  (field_annotation
+    (identifier)
+    (builtin_type)))
+
+============================
+Test a Parameter Annotation
+============================
+
+@param type number @parameter type
+
+---
+
+(documentation
+  (param_annotation
+    (identifier)
+    (builtin_type)
+    (at_comment
+      (identifier)
+      (comment))))
+
+=========================
+Test a Return Annotation
+=========================
+
+@return Car|Ship @may return Car or Ship
+
+---
+
+(documentation
+  (return_annotation
+    (union_type
+      (identifier)
+      (identifier))
+    (at_comment
+      (identifier)
+      (comment))))
+
+=======================
+Test a Type Annotation
+=======================
+
+@type Car
+
+---
+
+(documentation
+  (type_annotation
+    (identifier)))
+
+==================================
+Test Another Parameter Annotation
+==================================
+
+@param v Transport
+
+---
+
+(documentation
+  (param_annotation
+    (identifier)
+    (identifier)))
+
+=========================
+Test an Alias Annotation
+=========================
+
+@alias Handler fun(type: string, data: any):void
+
+---
+
+(documentation
+  (alias_annotation
+    (identifier)
+    (function_type
+      (parameter
+        (identifier)
+        (builtin_type))
+      (parameter
+        (identifier)
+        (builtin_type))
+      (builtin_type))))
+
+==============================
+Test a Field with a Qualifier
+==============================
+
+@field protected name string
+
+---
+
+(documentation
+  (field_annotation
+    (qualifier)
+    (identifier)
+    (builtin_type)))
+
+==========================
+Test a Generic Annotation
+==========================
+
+@generic T : Transport
+
+---
+
+(documentation
+  (generic_annotation
+    (identifier)
+    (identifier)))
+
+=================================
+Test a Double Generic Annotation
+=================================
+
+@generic T : Transport, K : Car
+
+---
+
+(documentation
+  (generic_annotation
+    (identifier)
+    (identifier)
+    (identifier)
+    (identifier)))
+
+=========================
+Test a Vararg Annotation
+=========================
+
+@vararg string
+
+---
+
+(documentation
+  (vararg_annotation
+    (builtin_type)))
+
+==========================
+Test a Language Injection
+==========================
+
+@language Hare
+
+---
+
+(documentation
+  (language_injection
+    (identifier)))
+
+=====================
+Test a See Reference
+=====================
+
+@see Car
+
+---
+
+(documentation
+  (see_reference
+    (identifier)))
+
+========================
+Test a Complicated Type
+========================
+
+@type Car|Ship|fun(type: string, data: any):void|table<string, string[]>|"one"|'two'|0|-1.5
+
+---
+
+(documentation
+  (type_annotation
+    (union_type
+      (identifier)
+      (union_type
+        (identifier)
+        (function_type
+          (parameter
+            (identifier)
+            (builtin_type))
+          (parameter
+            (identifier)
+            (builtin_type))
+          (union_type
+            (builtin_type)
+            (union_type
+              (table_type
+                (builtin_type)
+                (array_type
+                  (builtin_type)))
+              (union_type
+                (literal_type)
+                (union_type
+                  (literal_type)
+                  (union_type
+                    (numeric_literal_type)
+                    (numeric_literal_type)))))))))))
+
+==========================
+Test Multiple Diagnostics
+==========================
+
+@diagnostic disable: undefined-field, param-type-mismatch
+
+---
+
+(documentation
+  (diagnostic_annotation
+    (diagnostic_identifier)
+    (diagnostic_identifier)
+    (diagnostic_identifier)))
+
+=========================
+Test a Module Annotation
+=========================
+
+@module 'string.utils'
+
+---
+
+(documentation
+  (module_annotation
+    (string)))
+
+=========================
+Test Class Types
+=========================
+
+@class sos.TableVisit.State<T>: { root: T }
+
+---
+
+(documentation
+  (class_annotation
+    (member_type
+      (member_type
+        (identifier)
+        (identifier))
+      (identifier))
+    (comment)))
+
+=========================
+Test a Link Reference
+=========================
+
+is of type {@link CodeAction} or a Thenable that resolves to such.
+
+---
+
+(documentation
+  (link_reference
+    (comment)
+    (identifier)
+    (comment)))
+
+=========================
+Test a Since Annotation
+=========================
+
+@since 3.17.0
+
+---
+
+(documentation
+  (since_annotation
+    major: (number)
+    minor: (number)
+    patch: (number)))
+
+=========================
+Test an As Annotation
+=========================
+
+[[@as Foo.Bar]]
+
+---
+
+(documentation
+  (as_annotation
+    (member_type
+      (identifier)
+      (identifier))))
+
+=========================
+Test a Named Return Type
+=========================
+
+@field hlgroup_at fun(i: integer): hlgroup: string
+
+---
+
+(documentation
+	(field_annotation
+	(identifier)
+	(function_type
+		(parameter
+		(identifier)
+		(identifier))
+		(identifier)
+		(builtin_type))))
+
+=========================
+Test an Indexed Field
+=========================
+
+@field ['local'] string
+
+---
+
+(documentation
+  (field_annotation
+  (indexed_field
+    (string))
+  (builtin_type)))
+
+=========================
+Test a Tuple Type
+=========================
+
+@field public iter fun(self: Stack): ((fun(i: integer, item: any): integer, any), Stack, integer)
+
+---
+
+(documentation
+  (field_annotation
+    (qualifier)
+    (identifier)
+    (function_type
+      (parameter
+        (identifier))
+      (tuple_type
+        (parenthesized_type
+          (function_type
+            (parameter
+              (identifier)
+              (identifier))
+            (parameter
+              (identifier)
+              (builtin_type))
+            (identifier)
+            (builtin_type)))
+        (identifier)
+        (identifier)))))
+
+=========================
+Test a Continuation
+=========================
+
+| '"left"' # The left side of the device
+
+---
+
+(documentation
+  (continuation
+    (literal_type)
+    (comment)))
+
+=========================
+Test a Custom Type
+=========================
+
+@alias myLiteralAlias `A` | `B`
+
+---
+
+(documentation
+  (alias_annotation
+    (identifier)
+    (union_type
+      (custom_type
+        (identifier))
+      (custom_type
+        (identifier)))))
+
+=========================
+Test a Cast Annotation
+=========================
+
+@cast x +boolean, -number, +?
+
+---
+
+(documentation
+  (cast_annotation
+    (identifier)
+    (builtin_type)
+    (builtin_type)))

@@ -1,0 +1,78 @@
+==================
+with docker command
+==================
+
+foo:
+    WITH DOCKER
+        RUN echo "Hello, world!"
+    END
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (with_docker_command
+            (run_command
+              command: (shell_fragment))))))
+
+
+==================
+with docker command with options
+==================
+
+foo:
+    WITH DOCKER \
+        --pull alpine \
+        --load my-image=+docker \
+        --load my-other-image=(+docker --foo=bar) \
+        --compose docker-compose.yaml \
+        --allow-privileged \
+        --service hop
+        RUN echo "Hello, world!"
+    END
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (with_docker_command
+            (line_continuation)
+            options: (options
+              (pull
+                value: (image_spec
+                  name: (image_name)))
+              (line_continuation)
+              (load
+                image: (image_spec
+                  name: (image_name))
+                target: (target_ref
+                  name: (identifier)))
+              (line_continuation)
+              (load
+                image: (image_spec
+                  name: (image_name))
+                target: (target_ref_with_build_args
+                  (target_ref
+                    name: (identifier))
+                  (build_args
+                    (build_arg
+                      name: (variable)
+                      value: (string
+                        (unquoted_string))))))
+              (line_continuation)
+              (compose
+                value: (string
+                  (unquoted_string)))
+              (line_continuation)
+              (allow_privileged)
+              (line_continuation)
+              (service
+                value: (string
+                  (unquoted_string))))
+            (run_command
+              command: (shell_fragment))))))
+

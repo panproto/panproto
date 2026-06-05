@@ -1,0 +1,17 @@
+===
+errors/localHiddenMember.pkl
+===
+
+local hidden name: String
+
+---
+
+(module
+  (classProperty
+    (modifier)
+    (modifier)
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))))

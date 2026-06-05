@@ -1,0 +1,61 @@
+================================================================================
+FIXED: Multiple properties in cuegroup now work correctly
+================================================================================
+
+page 50000 "Test Multiple Cuegroup Properties"
+{
+    layout
+    {
+        area(Content)
+        {
+            cuegroup(Test)
+            {
+                // First property parses correctly
+                ShowCaption = false;
+                
+                // Second property now works
+                CuegroupLayout = Wide;
+                
+                // Field sections with their own properties
+                field(TestField; 123)
+                {
+                    ApplicationArea = All;
+                    ShowCaption = true;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    (integer)
+    (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (cuegroup_section
+          (cuegroup_keyword)
+          (identifier)
+          (comment)
+          (property
+            (property_name)
+            (boolean))
+          (comment)
+          (property
+            (property_name)
+            (identifier))
+          (comment)
+          (page_field
+            (identifier)
+            (integer)
+            (property
+              (property_name)
+              (identifier))
+            (property
+              (property_name)
+              (boolean))))))))

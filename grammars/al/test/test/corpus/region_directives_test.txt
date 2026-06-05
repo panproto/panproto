@@ -1,0 +1,293 @@
+================================================================================
+Basic region directive in codeunit
+================================================================================
+
+codeunit 50100 "Test Codeunit"
+{
+    #region Tests
+    
+    procedure TestMethod()
+    begin
+        Message('Inside region');
+    end;
+    
+    #endregion Tests
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (preproc_region)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list
+            (string_literal)))
+        (end_keyword)))
+    (preproc_endregion)))
+
+================================================================================
+Region with description text
+================================================================================
+
+codeunit 50101 "Another Codeunit"
+{
+    #region Helper Methods
+    
+    procedure HelperMethod()
+    begin
+        // Helper code
+    end;
+    
+    #endregion Helper Methods
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (preproc_region)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (comment)
+        (end_keyword)))
+    (preproc_endregion)))
+
+================================================================================
+Nested regions
+================================================================================
+
+codeunit 50102 "Nested Regions"
+{
+    #region Outer Region
+    
+    procedure OuterMethod()
+    begin
+        Message('Outer');
+    end;
+    
+    #region Inner Region
+    
+    procedure InnerMethod()
+    begin
+        Message('Inner');
+    end;
+    
+    #endregion Inner Region
+    
+    #endregion Outer Region
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (preproc_region)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list
+            (string_literal)))
+        (end_keyword)))
+    (preproc_region)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list
+            (string_literal)))
+        (end_keyword)))
+    (preproc_endregion)
+    (preproc_endregion)))
+
+================================================================================
+Region in table with fields
+================================================================================
+
+table 50100 "Test Table"
+{
+    #region Fields
+    
+    fields
+    {
+        field(1; Code; Code[20])
+        {
+        }
+        
+        field(2; Description; Text[100])
+        {
+        }
+    }
+    
+    #endregion Fields
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (preproc_region)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (code_type
+            length: (integer))))
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))))
+    (preproc_endregion)))
+
+================================================================================
+Region with var section and procedures
+================================================================================
+
+codeunit 50103 "Complex Region"
+{
+    var
+        GlobalVar: Integer;
+    
+    #region Public Methods
+    
+    procedure PublicMethod()
+    var
+        LocalVar: Text;
+    begin
+        LocalVar := 'Test';
+    end;
+    
+    #endregion Public Methods
+    
+    #region Private Methods
+    
+    local procedure PrivateMethod()
+    begin
+        GlobalVar := 10;
+    end;
+    
+    #endregion Private Methods
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type))))
+    (preproc_region)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (text_type))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (identifier)
+          right: (string_literal))
+        (end_keyword)))
+    (preproc_endregion)
+    (preproc_region)
+    (procedure
+      modifier: (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (identifier)
+          right: (integer))
+        (end_keyword)))
+    (preproc_endregion)))
+
+================================================================================
+Region after var section with attributed procedure
+================================================================================
+
+codeunit 50104 "Test Region After Var"
+{
+    var
+        IsInitialized: Boolean;
+
+    #region Tests
+
+    [Test]
+    procedure TestMethod()
+    begin
+        Initialize();
+    end;
+
+    #endregion Tests
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type))))
+    (preproc_region)
+    (attribute_item
+      attribute: (attribute_content
+        name: (identifier)))
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list))
+        (end_keyword)))
+    (preproc_endregion)))

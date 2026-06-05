@@ -1,0 +1,85 @@
+==================
+Page Type Variable Test
+==================
+
+page 50000 "Test Page"
+{
+    actions
+    {
+        area(Processing)
+        {
+            action(DownloadTemplateAction)
+            {
+                ApplicationArea = All;
+                Caption = 'Download Template';
+                Image = "ElectronicDoc";
+                trigger OnAction()
+                var
+                    DownloadCountryTemplatePage: Page "CDO Download Country Template";
+                begin
+                    DownloadCountryTemplatePage.LookupMode := true;
+                    if DownloadCountryTemplatePage.RunModal = Action::LookupOK then
+                        DownloadCountryTemplatePage.DownloadAndImport();
+                end;
+            }
+        }
+    }
+}
+
+---
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (quoted_identifier))
+          (trigger_declaration
+            (trigger_keyword)
+            name: (identifier)
+            (var_section
+              (var_keyword)
+              (variable_declaration
+                name: (identifier)
+                type: (type_specification
+                  (object_reference_type
+                    object_type: (page_keyword)
+                    reference: (quoted_identifier)))))
+            (code_block
+              (begin_keyword)
+              (assignment_statement
+                left: (member_expression
+                  object: (identifier)
+                  member: (identifier))
+                right: (boolean))
+              (if_statement
+                (if_keyword)
+                condition: (comparison_expression
+                  left: (member_expression
+                    object: (identifier)
+                    member: (identifier))
+                  operator: (comparison_operator)
+                  right: (qualified_enum_value
+                    enum_type: (keyword_identifier)
+                    value: (identifier)))
+                (then_keyword)
+                then_branch: (call_expression
+                  function: (member_expression
+                    object: (identifier)
+                    member: (identifier))
+                  arguments: (argument_list)))
+              (end_keyword))))))))

@@ -1,0 +1,105 @@
+==================
+Repeater with TreeInitialState property
+==================
+
+page 50000 "Test Page"
+{
+    layout
+    {
+        area(content)
+        {
+            repeater(TestRepeater)
+            {
+                ShowAsTree = true;
+                TreeInitialState = CollapseAll;
+                
+                field("No."; Rec."No.")
+                {
+                    ToolTip = 'Specifies the number.';
+                }
+            }
+        }
+    }
+}
+
+---
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (repeater_section
+          (repeater_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (page_field
+            name: (quoted_identifier)
+            source: (member_expression
+              object: (identifier)
+              member: (quoted_identifier))
+            (property
+              name: (property_name)
+              value: (string_literal))))))))
+
+==================
+Repeater with ExpandAll TreeInitialState
+==================
+
+page 50001 "Hierarchy Page"
+{
+    layout
+    {
+        area(content)
+        {
+            repeater(HierarchyList)
+            {
+                ShowAsTree = true;
+                TreeInitialState = ExpandAll;
+                
+                field(Name; Rec.Name)
+                {
+                    ToolTip = 'Specifies the name.';
+                }
+            }
+        }
+    }
+}
+
+---
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (repeater_section
+          (repeater_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (boolean))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (page_field
+            name: (identifier)
+            source: (member_expression
+              object: (identifier)
+              member: (identifier))
+            (property
+              name: (property_name)
+              value: (string_literal))))))))

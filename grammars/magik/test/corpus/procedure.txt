@@ -1,0 +1,49 @@
+================================================================================
+procedure
+================================================================================
+
+_proc(first, second, _optional third, fourth _gather rest)
+_endproc
+$
+
+_iter _proc()
+  _loopbody(i)
+_endproc
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (procedure
+      (argument)
+      (argument)
+      (argument)
+      (argument)
+      (argument)))
+  (fragment
+    (procedure
+      (loopbody
+        (variable)))))
+
+================================================================================
+procedure documentation
+================================================================================
+
+_proc()
+	## multi
+	## line
+	## documentation
+
+	# comment
+	## comment
+_endproc
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (procedure
+      (documentation
+        (comment)))))

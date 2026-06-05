@@ -1,0 +1,279 @@
+===
+api/jsonParser1.pkl
+===
+
+import "pkl:json"
+import "pkl:test"
+
+local parser = new json.Parser {}
+
+res1 = parser.parse("null")
+res2 = parser.parse("true")
+res3 = parser.parse("false")
+
+res4 = parser.parse("123")
+
+res5 = test.catch(() -> parser.parse("0123"))
+
+res6 = test.catch(() -> parser.parse("b1001"))
+
+res7 = test.catch(() -> parser.parse("0x1A3"))
+
+res8 = parser.parse("123.456")
+res9 = parser.parse("123.456e2")
+
+res10 = test.catch(() -> parser.parse(""))
+res11 = test.catch(() -> parser.parse("   "))
+
+res12 = parser.parse(#""hello""#)
+res13 = parser.parse(#""hello\nworld""#)
+
+res14 = parser.parse("""
+  ["one", "two", "three"]
+  """)
+
+res15 = parser.parse("""
+  { "name": "Pigeon", "age": 42 }
+  """)
+
+res16 = parser.parse("""
+  {
+    "firstName": "John",
+    "lastName": "Smith",
+    "age": 25,
+    "address": {
+      "streetAddress": "21 2nd Street",
+      "city": "New York",
+      "state": "NY",
+      "postalCode": "10021"
+    },
+    "phoneNumber": [
+      {
+        "type": "home",
+        "number": "212 555-1234"
+      },
+      {
+        "type": "fax",
+        "number": "646 555-4567"
+      }
+    ],
+    "gender": {
+      "type": "male"
+    }
+  }
+  """)
+
+res17 = test.catch(() -> parser.parse("!@#$%"))
+
+---
+
+(module
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (classProperty
+    (modifier)
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)
+          (identifier)))
+      (objectBody)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (qualifiedAccessExpr
+            (unqualifiedAccessExpr
+              (identifier))
+            (identifier)
+            (argumentList
+              (slStringLiteralExpr
+                (slStringLiteralPart))))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (qualifiedAccessExpr
+            (unqualifiedAccessExpr
+              (identifier))
+            (identifier)
+            (argumentList
+              (slStringLiteralExpr
+                (slStringLiteralPart))))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (qualifiedAccessExpr
+            (unqualifiedAccessExpr
+              (identifier))
+            (identifier)
+            (argumentList
+              (slStringLiteralExpr
+                (slStringLiteralPart))))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (qualifiedAccessExpr
+            (unqualifiedAccessExpr
+              (identifier))
+            (identifier)
+            (argumentList
+              (slStringLiteralExpr)))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (qualifiedAccessExpr
+            (unqualifiedAccessExpr
+              (identifier))
+            (identifier)
+            (argumentList
+              (slStringLiteralExpr
+                (slStringLiteralPart))))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (mlStringLiteralExpr
+          (mlStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (mlStringLiteralExpr
+          (mlStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (mlStringLiteralExpr
+          (mlStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (qualifiedAccessExpr
+            (unqualifiedAccessExpr
+              (identifier))
+            (identifier)
+            (argumentList
+              (slStringLiteralExpr
+                (slStringLiteralPart)))))))))

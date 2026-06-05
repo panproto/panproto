@@ -1,0 +1,32 @@
+================================================================================
+Pragmas before namespace declaration
+================================================================================
+
+#pragma warning disable AS0035
+#pragma warning disable AS0026
+namespace Microsoft.EServices.EDocumentConnector.Avalara;
+
+page 6373 "Company List"
+{
+    PageType = List;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pragma)
+  (pragma)
+  (namespace_declaration
+    (namespace_keyword)
+    name: (namespace_name
+      (identifier)
+      (identifier)
+      (identifier)
+      (identifier)))
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))))

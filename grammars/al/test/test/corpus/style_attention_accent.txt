@@ -1,0 +1,122 @@
+================================================================================
+Style property with AttentionAccent value
+================================================================================
+
+page 123 TestPage {
+    layout {
+        area(Content) {
+            field(TestField; TestField) {
+                Style = AttentionAccent;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))))))
+
+================================================================================
+Style property with AttentionAccent in repeater
+================================================================================
+
+page 123 TestPage {
+    layout {
+        area(Content) {
+            repeater(TestRepeater) {
+                field(TestField; TestField) {
+                    Style = AttentionAccent;
+                    Editable = false;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (repeater_section
+          (repeater_keyword)
+          name: (identifier)
+          (page_field
+            name: (identifier)
+            source: (identifier)
+            (property
+              name: (property_name)
+              value: (identifier))
+            (property
+              name: (property_name)
+              value: (boolean))))))))
+
+================================================================================
+Style property with case variations of AttentionAccent
+================================================================================
+
+page 123 TestPage {
+    layout {
+        area(Content) {
+            field(Field1; Field1) {
+                Style = AttentionAccent;
+            }
+            field(Field2; Field2) {
+                Style = attentionaccent;
+            }
+            field(Field3; Field3) {
+                Style = ATTENTIONACCENT;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))
+        (page_field
+          name: (identifier)
+          source: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))))))

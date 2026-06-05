@@ -1,0 +1,75 @@
+==========================================
+Multiple using statements in preprocessor conditionals
+==========================================
+
+using Microsoft.Base;
+#if not CLEAN23
+using Microsoft.Legacy.Module1;
+using Microsoft.Legacy.Module2;
+using Microsoft.Legacy.Module3;
+#else
+using Microsoft.New.Module1;
+using Microsoft.New.Module2;
+#endif
+using Microsoft.Common.Final;
+
+page 50000 "Test Page"
+{
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (using_statement
+    (using_keyword)
+    namespace: (namespace_name
+      (identifier)
+      (identifier)))
+  (preproc_conditional_object
+    (preproc_if
+      (preproc_open)
+      condition: (preproc_not_expression
+        (identifier)))
+    (using_statement
+      (using_keyword)
+      namespace: (namespace_name
+        (identifier)
+        (identifier)
+        (identifier)))
+    (using_statement
+      (using_keyword)
+      namespace: (namespace_name
+        (identifier)
+        (identifier)
+        (identifier)))
+    (using_statement
+      (using_keyword)
+      namespace: (namespace_name
+        (identifier)
+        (identifier)
+        (identifier)))
+    (preproc_else)
+    (using_statement
+      (using_keyword)
+      namespace: (namespace_name
+        (identifier)
+        (identifier)
+        (identifier)))
+    (using_statement
+      (using_keyword)
+      namespace: (namespace_name
+        (identifier)
+        (identifier)
+        (identifier)))
+    (preproc_endif
+      (preproc_close)))
+  (using_statement
+    (using_keyword)
+    namespace: (namespace_name
+      (identifier)
+      (identifier)
+      (identifier)))
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)))

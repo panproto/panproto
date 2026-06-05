@@ -1,0 +1,17 @@
+===
+errors/invalidOutput1.pkl
+===
+
+output: String = "abc"
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (slStringLiteralExpr
+      (slStringLiteralPart))))

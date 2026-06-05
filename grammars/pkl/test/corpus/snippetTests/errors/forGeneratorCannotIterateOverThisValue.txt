@@ -1,0 +1,21 @@
+===
+errors/forGeneratorCannotIterateOverThisValue.pkl
+===
+
+foo {
+  for (n in 5) { n }
+}
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (forGenerator
+        (typedIdentifier
+          (identifier))
+        (intLiteralExpr)
+        (objectBody
+          (objectElement
+            (unqualifiedAccessExpr
+              (identifier))))))))

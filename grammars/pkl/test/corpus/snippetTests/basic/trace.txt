@@ -1,0 +1,130 @@
+===
+basic/trace.pkl
+===
+
+amends "../snippetTest.pkl"
+
+examples {
+  ["trace different values"] {
+    trace(1)
+    trace(true)
+    trace("Barn Owl")
+    trace("""
+      Bird
+      Barn Owl
+      """)
+    trace(List(1, 2, 3))
+    trace(Set(1, 2, 3))
+    trace(Map(1, "one", 2, "two"))
+    trace(new {
+      name = "Barn Owl"
+      age = 42
+    })
+    trace(new {
+      "Parrot"
+      "Barn Owl"
+      "Pigeon"
+    })
+    trace(new {
+      ["Parrot"] {
+        name = "Parrot"
+        age = 42
+      }
+    })
+  }
+}
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (traceExpr
+              (intLiteralExpr)))
+          (objectElement
+            (traceExpr
+              (trueLiteralExpr)))
+          (objectElement
+            (traceExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))))
+          (objectElement
+            (traceExpr
+              (mlStringLiteralExpr
+                (mlStringLiteralPart))))
+          (objectElement
+            (traceExpr
+              (unqualifiedAccessExpr
+                (identifier)
+                (argumentList
+                  (intLiteralExpr)
+                  (intLiteralExpr)
+                  (intLiteralExpr)))))
+          (objectElement
+            (traceExpr
+              (unqualifiedAccessExpr
+                (identifier)
+                (argumentList
+                  (intLiteralExpr)
+                  (intLiteralExpr)
+                  (intLiteralExpr)))))
+          (objectElement
+            (traceExpr
+              (unqualifiedAccessExpr
+                (identifier)
+                (argumentList
+                  (intLiteralExpr)
+                  (slStringLiteralExpr
+                    (slStringLiteralPart))
+                  (intLiteralExpr)
+                  (slStringLiteralExpr
+                    (slStringLiteralPart))))))
+          (objectElement
+            (traceExpr
+              (newExpr
+                (objectBody
+                  (objectProperty
+                    (identifier)
+                    (slStringLiteralExpr
+                      (slStringLiteralPart)))
+                  (objectProperty
+                    (identifier)
+                    (intLiteralExpr))))))
+          (objectElement
+            (traceExpr
+              (newExpr
+                (objectBody
+                  (objectElement
+                    (slStringLiteralExpr
+                      (slStringLiteralPart)))
+                  (objectElement
+                    (slStringLiteralExpr
+                      (slStringLiteralPart)))
+                  (objectElement
+                    (slStringLiteralExpr
+                      (slStringLiteralPart)))))))
+          (objectElement
+            (traceExpr
+              (newExpr
+                (objectBody
+                  (objectEntry
+                    (slStringLiteralExpr
+                      (slStringLiteralPart))
+                    (objectBody
+                      (objectProperty
+                        (identifier)
+                        (slStringLiteralExpr
+                          (slStringLiteralPart)))
+                      (objectProperty
+                        (identifier)
+                        (intLiteralExpr)))))))))))))

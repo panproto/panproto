@@ -1,0 +1,40 @@
+================================================================================
+Interface Declaration
+================================================================================
+
+interface "Test Interface"
+{
+    procedure GetText(): Text;
+    procedure ProcessRecord(var Rec: Record Customer): Boolean;
+    procedure SimpleMethod();
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (interface_declaration
+    (interface_keyword)
+    object_name: (quoted_identifier)
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (text_type))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (record_type
+              reference: (identifier)))))
+      (interface_procedure_suffix
+        return_type: (type_specification
+          (basic_type))))
+    (interface_procedure
+      (procedure_keyword)
+      name: (identifier)
+      (interface_procedure_suffix))))

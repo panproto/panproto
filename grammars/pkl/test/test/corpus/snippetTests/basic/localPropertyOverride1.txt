@@ -1,0 +1,131 @@
+===
+basic/localPropertyOverride1.pkl
+===
+
+
+foo1 {
+  local l = "original"
+  x = l
+}
+
+foo2 = (foo1) {
+  local l = "override"
+}
+
+res1 = foo2.x
+
+
+foo3 {
+  local l = "original"
+  x = l
+}
+
+foo4 = (foo3) {
+  l = "override"
+}
+
+res2 = foo4.x
+
+
+foo5 {
+  l = "original"
+  x = l
+}
+
+foo6 = (foo5) {
+  local l = "override"
+}
+
+res3 = foo6.x
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (modifier)
+        (identifier)
+        (slStringLiteralExpr
+          (slStringLiteralPart)))
+      (objectProperty
+        (identifier)
+        (unqualifiedAccessExpr
+          (identifier)))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (modifier)
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (modifier)
+        (identifier)
+        (slStringLiteralExpr
+          (slStringLiteralPart)))
+      (objectProperty
+        (identifier)
+        (unqualifiedAccessExpr
+          (identifier)))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (slStringLiteralExpr
+          (slStringLiteralPart)))
+      (objectProperty
+        (identifier)
+        (unqualifiedAccessExpr
+          (identifier)))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (modifier)
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart))))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier))))

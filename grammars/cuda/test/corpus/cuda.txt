@@ -1,0 +1,236 @@
+================================================================================
+CUDA functions
+================================================================================
+
+__device__ __host__ int foo() {
+
+}
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (function_definition
+    type: (primitive_type)
+    declarator: (function_declarator
+      declarator: (identifier)
+      parameters: (parameter_list))
+    body: (compound_statement)))
+
+================================================================================
+__restrict__
+================================================================================
+
+__device__ __host__ int foo(int* __restrict__ x, int* __restrict__ y) {
+    
+}
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (function_definition
+    type: (primitive_type)
+    declarator: (function_declarator
+      declarator: (identifier)
+      parameters: (parameter_list
+        (parameter_declaration
+          type: (primitive_type)
+          declarator: (pointer_declarator
+            (type_qualifier)
+            declarator: (identifier)))
+        (parameter_declaration
+          type: (primitive_type)
+          declarator: (pointer_declarator
+            (type_qualifier)
+            declarator: (identifier)))))
+    body: (compound_statement)))
+
+================================================================================
+CUDA kernel calls
+================================================================================
+
+int foo() {
+  foo<<<m>>>();
+  foo<<<m, n>>>();
+  foo< <<m, n>>>();
+}
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (function_definition
+    type: (primitive_type)
+    declarator: (function_declarator
+      declarator: (identifier)
+      parameters: (parameter_list))
+    body: (compound_statement
+      (expression_statement
+        (call_expression
+          function: (identifier)
+          (kernel_call_syntax
+            (identifier))
+          arguments: (argument_list)))
+      (expression_statement
+        (call_expression
+          function: (identifier)
+          (kernel_call_syntax
+            (identifier)
+            (identifier))
+          arguments: (argument_list)))
+      (expression_statement
+        (call_expression
+          function: (identifier)
+          (kernel_call_syntax
+            (identifier)
+            (identifier))
+          arguments: (argument_list))))))
+
+================================================================================
+__launch_bounds__
+================================================================================
+__launch_bounds__(MAX(2, 3), MIN(23,XXX))
+__global__ int foo() {
+
+}
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (function_definition
+    (launch_bounds
+      (call_expression
+        (identifier)
+        (argument_list
+          (number_literal)
+          (number_literal)))
+      (call_expression
+        (identifier)
+        (argument_list
+          (number_literal)
+          (identifier))))
+    (primitive_type)
+    (function_declarator
+      (identifier)
+      (parameter_list))
+    (compound_statement)))
+
+================================================================================
+__launch_bounds__ function declaration
+================================================================================
+void Test2Args(void);
+__launch_bounds__(128, 7) void Test2Args(void);
+__launch_bounds__(128) void Test1Arg(void);
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (declaration
+    (primitive_type)
+    (function_declarator
+      (identifier)
+      (parameter_list
+        (parameter_declaration
+          (primitive_type)))))
+  (declaration
+    (launch_bounds
+      (number_literal)
+      (number_literal))
+    (primitive_type)
+    (function_declarator
+      (identifier)
+      (parameter_list
+        (parameter_declaration
+          (primitive_type)))))
+  (declaration
+    (launch_bounds
+      (number_literal))
+    (primitive_type)
+    (function_declarator
+      (identifier)
+      (parameter_list
+        (parameter_declaration
+          (primitive_type))))))
+
+================================================================================
+__launch_bounds__ template
+================================================================================
+
+template <int... Args>
+__launch_bounds__(MAX(2, 3), MIN(23,XXX))
+__global__ int foo() {
+
+}
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (template_declaration
+    (template_parameter_list
+      (variadic_parameter_declaration
+        (primitive_type)
+        (variadic_declarator
+          (identifier))))
+    (function_definition
+      (launch_bounds
+        (call_expression
+          (identifier)
+          (argument_list
+            (number_literal)
+            (number_literal)))
+        (call_expression
+          (identifier)
+          (argument_list
+            (number_literal)
+            (identifier))))
+      (primitive_type)
+      (function_declarator
+        (identifier)
+        (parameter_list))
+      (compound_statement))))
+
+================================================================================
+template inline
+================================================================================
+inline __device__ void vec_set(int &a, V b) { a = b; }
+template<typename V> inline __device__ void vec_set(int &a, V b) { a = b; }
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (function_definition
+    (storage_class_specifier)
+    (primitive_type)
+    (function_declarator
+      (identifier)
+      (parameter_list
+        (parameter_declaration
+          (primitive_type)
+          (reference_declarator
+            (identifier)))
+        (parameter_declaration
+          (type_identifier)
+          (identifier))))
+    (compound_statement
+      (expression_statement
+        (assignment_expression
+          (identifier)
+          (identifier)))))
+  (template_declaration
+    (template_parameter_list
+      (type_parameter_declaration
+        (type_identifier)))
+    (function_definition
+      (storage_class_specifier)
+      (primitive_type)
+      (function_declarator
+        (identifier)
+        (parameter_list
+          (parameter_declaration
+            (primitive_type)
+            (reference_declarator
+              (identifier)))
+          (parameter_declaration
+            (type_identifier)
+            (identifier))))
+      (compound_statement
+        (expression_statement
+          (assignment_expression
+            (identifier)
+            (identifier)))))))

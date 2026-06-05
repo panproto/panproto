@@ -1,0 +1,1609 @@
+==================
+Module Name
+==================
+
+MODULE_NAME='MyModule' (dev vdvObject, dev dvPort)
+
+---
+
+(source_file
+  (module_name
+    (module_name_keyword)
+    (string_literal
+      (string_content))
+    parameters: (parameter_list
+      (parameter_declaration
+        type: (intrinsic_type
+          (structured_type
+            (dev_keyword)))
+        declarator: (identifier))
+      (parameter_declaration
+        type: (intrinsic_type
+          (structured_type
+            (dev_keyword)))
+        declarator: (identifier)))))
+
+==================
+Program Name
+==================
+
+PROGRAM_NAME='Basic Test'
+
+---
+
+(source_file
+  (program_name
+    (program_name_keyword)
+    (string_literal
+      (string_content))))
+
+==================
+Devices, Constants, Variables
+==================
+
+stack_var volatile integer x
+local_var char y
+volatile long z
+c = 1
+
+integer a
+b
+
+char d[] = 'hello'
+integer my2D[][] = {{1,2,3},{4,5,6}}
+
+dvProj = 5001:1:0
+dvSwitcher = 5001:2:0
+dvTP = 10001:1:0
+
+DEV audioDevices[5]
+DEVLEV volumeControls[5]
+DEVCHAN buttonControls[10]
+
+INTEGER matrix[3][3] = {{1,2,3},{4,5,6},{7,8,9}}
+
+CONSTANT INTEGER MAX_DEVICES = 10
+VOLATILE INTEGER statusFlags
+NON_VOLATILE CHAR deviceNames[5][20]
+PERSISTENT INTEGER lastPowerState
+
+---
+
+(source_file
+  (declaration
+    (storage_class_specifier
+      (stack_var_keyword))
+    (type_qualifier
+      (volatile_keyword))
+    (intrinsic_type
+      (primitive_type
+        (integer_keyword)))
+    (identifier))
+  (declaration
+    (storage_class_specifier
+      (local_var_keyword))
+    (intrinsic_type
+      (primitive_type
+        (char_keyword)))
+    (identifier))
+  (declaration
+    (type_qualifier
+      (volatile_keyword))
+    (intrinsic_type
+      (primitive_type
+        (long_keyword)))
+    (identifier))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (number_literal)))
+  (declaration
+    (intrinsic_type
+      (primitive_type
+        (integer_keyword)))
+    (identifier))
+  (expression_statement
+    (identifier))
+  (declaration
+    (intrinsic_type
+      (primitive_type
+        (char_keyword)))
+    (init_declarator
+      (array_declarator
+        (identifier))
+      (string_literal
+        (string_content))))
+  (declaration
+    (intrinsic_type
+      (primitive_type
+        (integer_keyword)))
+    (init_declarator
+      (array_declarator
+        (array_declarator
+          (identifier)))
+      (initializer_list
+        (initializer_list
+          (number_literal)
+          (number_literal)
+          (number_literal))
+        (initializer_list
+          (number_literal)
+          (number_literal)
+          (number_literal)))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (device_literal
+        (number_literal)
+        (number_literal)
+        (number_literal))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (device_literal
+        (number_literal)
+        (number_literal)
+        (number_literal))))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (device_literal
+        (number_literal)
+        (number_literal)
+        (number_literal))))
+  (declaration
+    (intrinsic_type
+      (structured_type
+        (dev_keyword)))
+    (array_declarator
+      (identifier)
+      (number_literal)))
+  (declaration
+    (intrinsic_type
+      (structured_type
+        (devlev_keyword)))
+    (array_declarator
+      (identifier)
+      (number_literal)))
+  (declaration
+    (intrinsic_type
+      (structured_type
+        (devchan_keyword)))
+    (array_declarator
+      (identifier)
+      (number_literal)))
+  (declaration
+    (intrinsic_type
+      (primitive_type
+        (integer_keyword)))
+    (init_declarator
+      (array_declarator
+        (array_declarator
+          (identifier)
+          (number_literal))
+        (number_literal))
+      (initializer_list
+        (initializer_list
+          (number_literal)
+          (number_literal)
+          (number_literal))
+        (initializer_list
+          (number_literal)
+          (number_literal)
+          (number_literal))
+        (initializer_list
+          (number_literal)
+          (number_literal)
+          (number_literal)))))
+  (declaration
+    (type_qualifier
+      (constant_keyword))
+    (intrinsic_type
+      (primitive_type
+        (integer_keyword)))
+    (init_declarator
+      (identifier)
+      (number_literal)))
+  (declaration
+    (type_qualifier
+      (volatile_keyword))
+    (intrinsic_type
+      (primitive_type
+        (integer_keyword)))
+    (identifier))
+  (declaration
+    (type_qualifier
+      (non_volatile_keyword))
+    (intrinsic_type
+      (primitive_type
+        (char_keyword)))
+    (array_declarator
+      (array_declarator
+        (identifier)
+        (number_literal))
+      (number_literal)))
+  (declaration
+    (type_qualifier
+      (persistent_keyword))
+    (intrinsic_type
+      (primitive_type
+        (integer_keyword)))
+    (identifier)))
+
+=================
+Custom Type Declarations
+=================
+
+stack_var volatile Person x
+local_var Person y
+volatile Person z
+
+integer Car
+Car d[10]
+Boat my2D[][] = {{1,2,3},{4,5,6}}
+
+Animal matrix[3][3] = {{1,2,3},{4,5,6},{7,8,9}}
+
+CONSTANT Person MAX_DEVICES = 10
+VOLATILE Car statusFlags
+NON_VOLATILE Boat deviceNames[5][20]
+PERSISTENT Animal lastPowerState
+constant variant foo
+constant variantarray bar
+
+---
+
+(source_file
+  (declaration
+    (storage_class_specifier
+      (stack_var_keyword))
+    (type_qualifier
+      (volatile_keyword))
+    (type_identifier)
+    (identifier))
+  (declaration
+    (storage_class_specifier
+      (local_var_keyword))
+    (type_identifier)
+    (identifier))
+  (declaration
+    (type_qualifier
+      (volatile_keyword))
+    (type_identifier)
+    (identifier))
+  (declaration
+    (intrinsic_type
+      (primitive_type
+        (integer_keyword)))
+    (identifier))
+  (declaration
+    (type_identifier)
+    (array_declarator
+      (identifier)
+      (number_literal)))
+  (declaration
+    (type_identifier)
+    (init_declarator
+      (array_declarator
+        (array_declarator
+          (identifier)))
+      (initializer_list
+        (initializer_list
+          (number_literal)
+          (number_literal)
+          (number_literal))
+        (initializer_list
+          (number_literal)
+          (number_literal)
+          (number_literal)))))
+  (declaration
+    (type_identifier)
+    (init_declarator
+      (array_declarator
+        (array_declarator
+          (identifier)
+          (number_literal))
+        (number_literal))
+      (initializer_list
+        (initializer_list
+          (number_literal)
+          (number_literal)
+          (number_literal))
+        (initializer_list
+          (number_literal)
+          (number_literal)
+          (number_literal))
+        (initializer_list
+          (number_literal)
+          (number_literal)
+          (number_literal)))))
+  (declaration
+    (type_qualifier
+      (constant_keyword))
+    (type_identifier)
+    (init_declarator
+      (identifier)
+      (number_literal)))
+  (declaration
+    (type_qualifier
+      (volatile_keyword))
+    (type_identifier)
+    (identifier))
+  (declaration
+    (type_qualifier
+      (non_volatile_keyword))
+    (type_identifier)
+    (array_declarator
+      (array_declarator
+        (identifier)
+        (number_literal))
+      (number_literal)))
+  (declaration
+    (type_qualifier
+      (persistent_keyword))
+    (type_identifier)
+    (identifier))
+  (declaration
+    (type_qualifier
+      (constant_keyword))
+    (intrinsic_type
+      (primitive_type
+        (variant_keyword)))
+    (identifier))
+  (declaration
+    (type_qualifier
+      (constant_keyword))
+    (intrinsic_type
+      (primitive_type
+        (variantarray_keyword)))
+    (identifier)))
+
+=================
+Custom Type Definitions
+=================
+
+STRUCTURE DeviceStatus {
+    CHAR name[50]
+    INTEGER isPowered
+    INTEGER volume
+}
+
+struct Person {
+    char name[50]
+    integer age
+}
+
+STRUCT UserConfig {
+    CHAR username[50]
+    INTEGER accessLevel
+    DeviceStatus devices[10]
+}
+
+---
+
+(source_file
+  (type_definition
+    (struct_specifier
+      (structure_keyword)
+      (type_identifier)
+      (field_declaration_list
+        (field_declaration
+          (intrinsic_type
+            (primitive_type
+              (char_keyword)))
+          (array_declarator
+            (field_identifier)
+            (number_literal)))
+        (field_declaration
+          (intrinsic_type
+            (primitive_type
+              (integer_keyword)))
+          (field_identifier))
+        (field_declaration
+          (intrinsic_type
+            (primitive_type
+              (integer_keyword)))
+          (field_identifier)))))
+  (type_definition
+    (struct_specifier
+      (struct_keyword)
+      (type_identifier)
+      (field_declaration_list
+        (field_declaration
+          (intrinsic_type
+            (primitive_type
+              (char_keyword)))
+          (array_declarator
+            (field_identifier)
+            (number_literal)))
+        (field_declaration
+          (intrinsic_type
+            (primitive_type
+              (integer_keyword)))
+          (field_identifier)))))
+  (type_definition
+    (struct_specifier
+      (struct_keyword)
+      (type_identifier)
+      (field_declaration_list
+        (field_declaration
+          (intrinsic_type
+            (primitive_type
+              (char_keyword)))
+          (array_declarator
+            (field_identifier)
+            (number_literal)))
+        (field_declaration
+          (intrinsic_type
+            (primitive_type
+              (integer_keyword)))
+          (field_identifier))
+        (field_declaration
+          (type_identifier)
+          (array_declarator
+            (field_identifier)
+            (number_literal)))))))
+
+==================
+Basic Function
+==================
+
+DEFINE_FUNCTION INTEGER addNumbers(INTEGER a, INTEGER b) {
+    RETURN a + b
+}
+
+DEFINE_FUNCTION doSomething() {
+    // No return value
+    stack_var integer x
+    x = 5
+}
+
+---
+
+(source_file
+  (define_function
+    (define_function_keyword)
+    (function_definition
+      (intrinsic_type
+        (primitive_type
+          (integer_keyword)))
+      (identifier)
+      (parameter_list
+        (parameter_declaration
+          (intrinsic_type
+            (primitive_type
+              (integer_keyword)))
+          (identifier))
+        (parameter_declaration
+          (intrinsic_type
+            (primitive_type
+              (integer_keyword)))
+          (identifier)))
+      (compound_statement
+        (return_statement
+          (return_keyword)
+          (binary_expression
+            (identifier)
+            (identifier))))))
+  (define_function
+    (define_function_keyword)
+    (function_definition
+      (identifier)
+      (parameter_list)
+      (compound_statement
+        (comment)
+        (declaration
+          (storage_class_specifier
+            (stack_var_keyword))
+          (intrinsic_type
+            (primitive_type
+              (integer_keyword)))
+          (identifier))
+        (expression_statement
+          (assignment_expression
+            (identifier)
+            (number_literal)))))))
+
+==================
+Array Return Function
+==================
+
+DEFINE_FUNCTION CHAR[10] getUsername() {
+    RETURN 'admin'
+}
+
+---
+
+(source_file
+  (define_function
+    (define_function_keyword)
+    (function_definition
+      (array_return_type
+        (intrinsic_type
+          (primitive_type
+            (char_keyword)))
+        (number_literal))
+      (identifier)
+      (parameter_list)
+      (compound_statement
+        (return_statement
+          (return_keyword)
+          (string_literal
+            (string_content)))))))
+
+==================
+Array Declarations
+==================
+
+// Basic empty array declarations
+CHAR emptyArray[] = 'Hello'
+CHAR versionString[] = '1.10'
+INTEGER counts[]
+DEV deviceList[]
+
+// Multi-dimensional arrays with empty dimensions
+INTEGER matrix[][3] = {{1,2,3},{4,5,6}}
+CHAR grid[][2][2]
+
+// Array declarations with modifiers
+CONSTANT VOLATILE INTEGER flags[]
+PERSISTENT CHAR names[][50]
+
+// Array with complex initializers
+INTEGER values[] = {1, 2, 3 + x, func()}
+
+---
+
+(source_file
+  (comment)
+  (declaration
+    (intrinsic_type
+      (primitive_type
+        (char_keyword)))
+    (init_declarator
+      (array_declarator
+        (identifier))
+      (string_literal
+        (string_content))))
+  (declaration
+    (intrinsic_type
+      (primitive_type
+        (char_keyword)))
+    (init_declarator
+      (array_declarator
+        (identifier))
+      (string_literal
+        (string_content))))
+  (declaration
+    (intrinsic_type
+      (primitive_type
+        (integer_keyword)))
+    (array_declarator
+      (identifier)))
+  (declaration
+    (intrinsic_type
+      (structured_type
+        (dev_keyword)))
+    (array_declarator
+      (identifier)))
+  (comment)
+  (declaration
+    (intrinsic_type
+      (primitive_type
+        (integer_keyword)))
+    (init_declarator
+      (array_declarator
+        (array_declarator
+          (identifier))
+        (number_literal))
+      (initializer_list
+        (initializer_list
+          (number_literal)
+          (number_literal)
+          (number_literal))
+        (initializer_list
+          (number_literal)
+          (number_literal)
+          (number_literal)))))
+  (declaration
+    (intrinsic_type
+      (primitive_type
+        (char_keyword)))
+    (array_declarator
+      (array_declarator
+        (array_declarator
+          (identifier))
+        (number_literal))
+      (number_literal)))
+  (comment)
+  (declaration
+    (type_qualifier
+      (constant_keyword))
+    (type_qualifier
+      (volatile_keyword))
+    (intrinsic_type
+      (primitive_type
+        (integer_keyword)))
+    (array_declarator
+      (identifier)))
+  (declaration
+    (type_qualifier
+      (persistent_keyword))
+    (intrinsic_type
+      (primitive_type
+        (char_keyword)))
+    (array_declarator
+      (array_declarator
+        (identifier))
+      (number_literal)))
+  (comment)
+  (declaration
+    (intrinsic_type
+      (primitive_type
+        (integer_keyword)))
+    (init_declarator
+      (array_declarator
+        (identifier))
+      (initializer_list
+        (number_literal)
+        (number_literal)
+        (binary_expression
+          (number_literal)
+          (identifier))
+        (call_expression
+          (identifier)
+          (argument_list))))))
+
+========================
+Struct with Array Fields
+========================
+
+STRUCTURE AudioDevice {
+  CHAR name[]
+  INTEGER levels[][8]
+  DEV connectedDevices[]
+}
+
+---
+
+(source_file
+  (type_definition
+    (struct_specifier
+      (structure_keyword)
+      (type_identifier)
+      (field_declaration_list
+        (field_declaration
+          (intrinsic_type
+            (primitive_type
+              (char_keyword)))
+          (array_declarator
+            (field_identifier)))
+        (field_declaration
+          (intrinsic_type
+            (primitive_type
+              (integer_keyword)))
+          (array_declarator
+            (array_declarator
+              (field_identifier))
+            (number_literal)))
+        (field_declaration
+          (intrinsic_type
+            (structured_type
+              (dev_keyword)))
+          (array_declarator
+            (field_identifier)))))))
+
+=========================
+Functions with Array Types
+=========================
+
+DEFINE_FUNCTION CHAR[50] GetDeviceName(DEV device) {
+  RETURN 'Device'
+}
+
+DEFINE_FUNCTION INTEGER[] GetValues() {
+  RETURN {1, 2, 3}
+}
+
+// Functions manipulating arrays
+DEFINE_FUNCTION SortArray(INTEGER array[]) {
+  INTEGER i, j, temp
+  // Array operations in function body
+  array[0] = 42
+}
+
+---
+
+(source_file
+  (define_function
+    (define_function_keyword)
+    (function_definition
+      return_type: (array_return_type
+        (intrinsic_type
+          (primitive_type
+            (char_keyword)))
+        size: (number_literal))
+      name: (identifier)
+      parameters: (parameter_list
+        (parameter_declaration
+          type: (intrinsic_type
+            (structured_type
+              (dev_keyword)))
+          declarator: (identifier)))
+      body: (compound_statement
+        (return_statement
+          (return_keyword)
+          (string_literal
+            (string_content))))))
+  (define_function
+    (define_function_keyword)
+    (function_definition
+      return_type: (array_return_type
+        (intrinsic_type
+          (primitive_type
+            (integer_keyword))))
+      name: (identifier)
+      parameters: (parameter_list)
+      body: (compound_statement
+        (return_statement
+          (return_keyword)
+          (initializer_list
+            (number_literal)
+            (number_literal)
+            (number_literal))))))
+  (comment)
+  (define_function
+    (define_function_keyword)
+    (function_definition
+      name: (identifier)
+      parameters: (parameter_list
+        (parameter_declaration
+          type: (intrinsic_type
+            (primitive_type
+              (integer_keyword)))
+          declarator: (array_declarator
+            declarator: (identifier))))
+      body: (compound_statement
+        (declaration
+          type: (intrinsic_type
+            (primitive_type
+              (integer_keyword)))
+          declarator: (identifier)
+          declarator: (identifier)
+          declarator: (identifier))
+        (comment)
+        (expression_statement
+          (assignment_expression
+            left: (subscript_expression
+              argument: (identifier)
+              index: (number_literal))
+            right: (number_literal)))))))
+
+==============================
+Function Param Qualifiers
+==============================
+
+// Type qualifier before type
+DEFINE_FUNCTION INTEGER MyFunc(CONSTANT INTEGER param1) {}
+
+// Type qualifier after type
+DEFINE_FUNCTION INTEGER MyFunc(INTEGER CONSTANT param1) {}
+
+// Multiple qualifiers
+DEFINE_FUNCTION INTEGER MyFunc(CONSTANT VOLATILE INTEGER param1) {}
+
+// With arrays
+DEFINE_FUNCTION INTEGER MyFunc(CONSTANT CHAR buffer[]) {}
+
+---
+
+(source_file
+  (comment)
+  (define_function
+    (define_function_keyword)
+    (function_definition
+      (intrinsic_type
+        (primitive_type
+          (integer_keyword)))
+      (identifier)
+      (parameter_list
+        (parameter_declaration
+          (type_qualifier
+            (constant_keyword))
+          (intrinsic_type
+            (primitive_type
+              (integer_keyword)))
+          (identifier)))
+      (compound_statement)))
+  (comment)
+  (define_function
+    (define_function_keyword)
+    (function_definition
+      (intrinsic_type
+        (primitive_type
+          (integer_keyword)))
+      (identifier)
+      (parameter_list
+        (parameter_declaration
+          (intrinsic_type
+            (primitive_type
+              (integer_keyword)))
+          (type_qualifier
+            (constant_keyword))
+          (identifier)))
+      (compound_statement)))
+  (comment)
+  (define_function
+    (define_function_keyword)
+    (function_definition
+      (intrinsic_type
+        (primitive_type
+          (integer_keyword)))
+      (identifier)
+      (parameter_list
+        (parameter_declaration
+          (type_qualifier
+            (constant_keyword))
+          (type_qualifier
+            (volatile_keyword))
+          (intrinsic_type
+            (primitive_type
+              (integer_keyword)))
+          (identifier)))
+      (compound_statement)))
+  (comment)
+  (define_function
+    (define_function_keyword)
+    (function_definition
+      (intrinsic_type
+        (primitive_type
+          (integer_keyword)))
+      (identifier)
+      (parameter_list
+        (parameter_declaration
+          (type_qualifier
+            (constant_keyword))
+          (intrinsic_type
+            (primitive_type
+              (char_keyword)))
+          (array_declarator
+            (identifier))))
+      (compound_statement))))
+
+================================
+Function Declarations
+================================
+
+DEFINE_LIBRARY_FUNCTION INTEGER MyFunc(CONSTANT INTEGER param1)
+DEFINE_LIBRARY_FUNCTION INTEGER MyFunc(CONSTANT INTEGER param1) = $FF01
+
+---
+
+(source_file
+  (define_function
+    (define_library_function_keyword)
+    (function_declaration
+      (intrinsic_type
+        (primitive_type
+          (integer_keyword)))
+      (identifier)
+      (parameter_list
+        (parameter_declaration
+          (type_qualifier
+            (constant_keyword))
+          (intrinsic_type
+            (primitive_type
+              (integer_keyword)))
+          (identifier)))))
+  (define_function
+    (define_library_function_keyword)
+    (function_declaration
+      (intrinsic_type
+        (primitive_type
+          (integer_keyword)))
+      (identifier)
+      (parameter_list
+        (parameter_declaration
+          (type_qualifier
+            (constant_keyword))
+          (intrinsic_type
+            (primitive_type
+              (integer_keyword)))
+          (identifier)))
+      (number_literal))))
+
+=================================
+Abstract Array Parameter
+=================================
+
+// Basic abstract array parameter
+DEFINE_FUNCTION INTEGER ProcessArray(INTEGER[])
+{
+    RETURN 0
+}
+
+// Multi-dimensional abstract array
+DEFINE_FUNCTION CHAR[] FormatData(CHAR[][])
+{
+    RETURN ''
+}
+
+// Abstract array with concrete arrays
+DEFINE_FUNCTION INTEGER SumArrays(INTEGER[], INTEGER[10])
+{
+    RETURN 0
+}
+
+---
+
+(source_file
+  (comment)
+  (define_function
+    (define_function_keyword)
+    (function_definition
+      (intrinsic_type
+        (primitive_type
+          (integer_keyword)))
+      (identifier)
+      (parameter_list
+        (parameter_declaration
+          (intrinsic_type
+            (primitive_type
+              (integer_keyword)))
+          (abstract_array_declarator)))
+      (compound_statement
+        (return_statement
+          (return_keyword)
+          (number_literal)))))
+  (comment)
+  (define_function
+    (define_function_keyword)
+    (function_definition
+      (array_return_type
+        (intrinsic_type
+          (primitive_type
+            (char_keyword))))
+      (identifier)
+      (parameter_list
+        (parameter_declaration
+          (intrinsic_type
+            (primitive_type
+              (char_keyword)))
+          (abstract_array_declarator
+            (abstract_array_declarator))))
+      (compound_statement
+        (return_statement
+          (return_keyword)
+          (string_literal)))))
+  (comment)
+  (define_function
+    (define_function_keyword)
+    (function_definition
+      (intrinsic_type
+        (primitive_type
+          (integer_keyword)))
+      (identifier)
+      (parameter_list
+        (parameter_declaration
+          (intrinsic_type
+            (primitive_type
+              (integer_keyword)))
+          (abstract_array_declarator))
+        (parameter_declaration
+          (intrinsic_type
+            (primitive_type
+              (integer_keyword)))
+          (abstract_array_declarator
+            (number_literal))))
+      (compound_statement
+        (return_statement
+          (return_keyword)
+          (number_literal))))))
+
+=================================
+Parenthesized Declarator
+=================================
+
+// Simple parenthesized declarator
+INTEGER (counter)
+
+// Nested parenthesized declarator
+CHAR ((message))
+
+// Parenthesized array declarator
+INTEGER (values)[10]
+
+// Complex nested parenthesized array
+CHAR ((buffer)[50])[100]
+
+---
+
+(source_file
+  (comment)
+  (declaration
+    (intrinsic_type
+      (primitive_type
+        (integer_keyword)))
+    (parenthesized_declarator
+      (identifier)))
+  (comment)
+  (declaration
+    (intrinsic_type
+      (primitive_type
+        (char_keyword)))
+    (parenthesized_declarator
+      (parenthesized_declarator
+        (identifier))))
+  (comment)
+  (declaration
+    (intrinsic_type
+      (primitive_type
+        (integer_keyword)))
+    (array_declarator
+      (parenthesized_declarator
+        (identifier))
+      (number_literal)))
+  (comment)
+  (declaration
+    (intrinsic_type
+      (primitive_type
+        (char_keyword)))
+    (array_declarator
+      (parenthesized_declarator
+        (array_declarator
+          (parenthesized_declarator
+            (identifier))
+          (number_literal)))
+      (number_literal))))
+
+=================================
+Nested Custom Types
+=================================
+
+// Define nested structures
+DEFINE_TYPE
+STRUCTURE DeviceStatus {
+  INTEGER connected
+  INTEGER powerState
+  CHAR statusMessage[50]
+}
+
+STRUCTURE SystemConfig {
+  INTEGER version
+  DeviceStatus primaryDevice
+  DeviceStatus backupDevices[3]
+}
+
+// Using nested types
+VOLATILE DeviceStatus mainProjector
+VOLATILE SystemConfig systemSettings
+
+// Accessing nested fields
+systemSettings.version = 2
+systemSettings.primaryDevice.powerState = 1
+systemSettings.backupDevices[0].statusMessage = 'Standby'
+
+---
+
+(source_file
+  (comment)
+  (section
+    (define_type_section
+      (define_type_keyword)))
+  (type_definition
+    (struct_specifier
+      (structure_keyword)
+      (type_identifier)
+      (field_declaration_list
+        (field_declaration
+          (intrinsic_type
+            (primitive_type
+              (integer_keyword)))
+          (field_identifier))
+        (field_declaration
+          (intrinsic_type
+            (primitive_type
+              (integer_keyword)))
+          (field_identifier))
+        (field_declaration
+          (intrinsic_type
+            (primitive_type
+              (char_keyword)))
+          (array_declarator
+            (field_identifier)
+            (number_literal))))))
+  (type_definition
+    (struct_specifier
+      (structure_keyword)
+      (type_identifier)
+      (field_declaration_list
+        (field_declaration
+          (intrinsic_type
+            (primitive_type
+              (integer_keyword)))
+          (field_identifier))
+        (field_declaration
+          (type_identifier)
+          (field_identifier))
+        (field_declaration
+          (type_identifier)
+          (array_declarator
+            (field_identifier)
+            (number_literal))))))
+  (comment)
+  (declaration
+    (type_qualifier
+      (volatile_keyword))
+    (type_identifier)
+    (identifier))
+  (declaration
+    (type_qualifier
+      (volatile_keyword))
+    (type_identifier)
+    (identifier))
+  (comment)
+  (expression_statement
+    (assignment_expression
+      (field_expression
+        (identifier)
+        (field_identifier))
+      (number_literal)))
+  (expression_statement
+    (assignment_expression
+      (field_expression
+        (field_expression
+          (identifier)
+          (field_identifier))
+        (field_identifier))
+      (number_literal)))
+  (expression_statement
+    (assignment_expression
+      (field_expression
+        (subscript_expression
+          (field_expression
+            (identifier)
+            (field_identifier))
+          (number_literal))
+        (field_identifier))
+      (string_literal
+        (string_content)))))
+
+=================================
+Function Type Declarator
+=================================
+
+// Basic function type
+DEFINE_FUNCTION INTEGER GetCalculator()
+{
+    RETURN 0
+}
+
+// Using function references
+INTEGER calculator
+calculator = GetCalculator()
+
+// Dynamic function calls
+(calculator)(5, 10)
+
+---
+
+(source_file
+  (comment)
+  (define_function
+    (define_function_keyword)
+    (function_definition
+      (intrinsic_type
+        (primitive_type
+          (integer_keyword)))
+      (identifier)
+      (parameter_list)
+      (compound_statement
+        (return_statement
+          (return_keyword)
+          (number_literal)))))
+  (comment)
+  (declaration
+    (intrinsic_type
+      (primitive_type
+        (integer_keyword)))
+    (identifier))
+  (expression_statement
+    (assignment_expression
+      (identifier)
+      (call_expression
+        (identifier)
+        (argument_list))))
+  (comment)
+  (expression_statement
+    (call_expression
+      (parenthesized_expression
+        (identifier))
+      (argument_list
+        (number_literal)
+        (number_literal)))))
+
+=================================
+Parameter Lists with Compound Statements
+=================================
+
+// Function with compound statement in parameters
+DEFINE_FUNCTION INTEGER Process(INTEGER count)
+{
+    RunCallback({
+        SendCommand(dvDevice, 'INIT')
+        WAIT 10
+        SendCommand(dvDevice, 'START')
+    })
+
+    SendWithHandler(dvDevice, 'STATUS', {
+        // Process response
+        result = DATA.TEXT
+        UpdateState(result)
+    })
+
+    RETURN 1
+}
+
+---
+
+(source_file
+  (comment)
+  (define_function
+    (define_function_keyword)
+    (function_definition
+      (intrinsic_type
+        (primitive_type
+          (integer_keyword)))
+      (identifier)
+      (parameter_list
+        (parameter_declaration
+          (intrinsic_type
+            (primitive_type
+              (integer_keyword)))
+          (identifier)))
+      (compound_statement
+        (expression_statement
+          (call_expression
+            (identifier)
+            (argument_list
+              (compound_statement
+                (expression_statement
+                  (call_expression
+                    (identifier)
+                    (argument_list
+                      (identifier)
+                      (string_literal
+                        (string_content)))))
+                (wait_statement
+                  (wait_keyword)
+                  (number_literal))
+                (expression_statement
+                  (call_expression
+                    (identifier)
+                    (argument_list
+                      (identifier)
+                      (string_literal
+                        (string_content)))))))))
+        (expression_statement
+          (call_expression
+            (identifier)
+            (argument_list
+              (identifier)
+              (string_literal
+                (string_content))
+              (compound_statement
+                (comment)
+                (expression_statement
+                  (assignment_expression
+                    (identifier)
+                    (field_expression
+                      (system_variable
+                        (data))
+                      (field_identifier))))
+                (expression_statement
+                  (call_expression
+                    (identifier)
+                    (argument_list
+                      (identifier))))))))
+        (return_statement
+          (return_keyword)
+          (number_literal))))))
+
+==================================
+Function Definitions with Legacy Declarations
+==================================
+
+define_function integer MyFunction(long a, long b)
+stack_var integer i
+stack_var integer j
+{
+    // Weird
+}
+
+---
+
+(source_file
+  (define_function
+    (define_function_keyword)
+    (function_definition
+      (intrinsic_type
+        (primitive_type
+          (integer_keyword)))
+      (identifier)
+      (parameter_list
+        (parameter_declaration
+          (intrinsic_type
+            (primitive_type
+              (long_keyword)))
+          (identifier))
+        (parameter_declaration
+          (intrinsic_type
+            (primitive_type
+              (long_keyword)))
+          (identifier)))
+      (declaration
+        (storage_class_specifier
+          (stack_var_keyword))
+        (intrinsic_type
+          (primitive_type
+            (integer_keyword)))
+        (identifier))
+      (declaration
+        (storage_class_specifier
+          (stack_var_keyword))
+        (intrinsic_type
+          (primitive_type
+            (integer_keyword)))
+        (identifier))
+      (compound_statement
+        (comment)))))
+
+==================================
+Call Definitions with Legacy Declarations
+==================================
+
+define_call 'MyFunction'(long a, long b)
+stack_var integer i
+stack_var integer j
+{
+    // Weird
+}
+
+define_call 'MyFunction'
+stack_var integer i
+stack_var integer j
+{
+    // Weird
+}
+
+---
+
+(source_file
+  (define_call
+    (define_call_keyword)
+    (call_definition
+      (string_literal
+        (string_content))
+      (parameter_list
+        (parameter_declaration
+          (intrinsic_type
+            (primitive_type
+              (long_keyword)))
+          (identifier))
+        (parameter_declaration
+          (intrinsic_type
+            (primitive_type
+              (long_keyword)))
+          (identifier)))
+      (declaration
+        (storage_class_specifier
+          (stack_var_keyword))
+        (intrinsic_type
+          (primitive_type
+            (integer_keyword)))
+        (identifier))
+      (declaration
+        (storage_class_specifier
+          (stack_var_keyword))
+        (intrinsic_type
+          (primitive_type
+            (integer_keyword)))
+        (identifier))
+      (compound_statement
+        (comment))))
+  (define_call
+    (define_call_keyword)
+    (call_definition
+      (string_literal
+        (string_content))
+      (declaration
+        (storage_class_specifier
+          (stack_var_keyword))
+        (intrinsic_type
+          (primitive_type
+            (integer_keyword)))
+        (identifier))
+      (declaration
+        (storage_class_specifier
+          (stack_var_keyword))
+        (intrinsic_type
+          (primitive_type
+            (integer_keyword)))
+        (identifier))
+      (compound_statement
+        (comment)))))
+
+=======================
+Storage Class Combinations
+=======================
+
+stack_var volatile persistent CHAR message[50]
+local_var constant non_volatile INTEGER flags
+
+---
+
+(source_file
+  (declaration
+    (storage_class_specifier
+      (stack_var_keyword))
+    (type_qualifier
+      (volatile_keyword))
+    (type_qualifier
+      (persistent_keyword))
+    (intrinsic_type
+      (primitive_type
+        (char_keyword)))
+    (array_declarator
+      (identifier)
+      (number_literal)))
+  (declaration
+    (storage_class_specifier
+      (local_var_keyword))
+    (type_qualifier
+      (constant_keyword))
+    (type_qualifier
+      (non_volatile_keyword))
+    (intrinsic_type
+      (primitive_type
+        (integer_keyword)))
+    (identifier)))
+
+=============================
+Abstract Array Params
+=============================
+
+DEFINE_FUNCTION process(INTEGER count, CHAR data[], INTEGER maxSize, CHAR param[][]) {}
+
+---
+
+(source_file
+  (define_function
+    (define_function_keyword)
+    (function_definition
+      (identifier)
+      (parameter_list
+        (parameter_declaration
+          (intrinsic_type
+            (primitive_type
+              (integer_keyword)))
+          (identifier))
+        (parameter_declaration
+          (intrinsic_type
+            (primitive_type
+              (char_keyword)))
+          (array_declarator
+            (identifier)))
+        (parameter_declaration
+          (intrinsic_type
+            (primitive_type
+              (integer_keyword)))
+          (identifier))
+        (parameter_declaration
+          (intrinsic_type
+            (primitive_type
+              (char_keyword)))
+          (array_declarator
+            (array_declarator
+              (identifier)))))
+      (compound_statement))))
+
+==============================
+Complex Module Definitions
+==============================
+
+DEFINE_MODULE 'RmsNetLinxAdapter' mdlRms(vdvRMS,
+  dvTP1, {dvTP2, dvTP3},
+  RMS_CONN_TYPE[connectionType],
+  systems[getActiveSystem()].deviceList)
+
+---
+
+(source_file
+  (define_module
+    (define_module_keyword)
+    (module_definition
+      (string_literal
+        (string_content))
+      (identifier)
+      (argument_list
+        (identifier)
+        (identifier)
+        (compound_statement
+          (expression_statement
+            (comma_expression
+              (identifier)
+              (identifier))))
+        (subscript_expression
+          (identifier)
+          (identifier))
+        (field_expression
+          (subscript_expression
+            (identifier)
+            (call_expression
+              (identifier)
+              (argument_list)))
+          (field_identifier))))))
+
+=============================
+Dynamic Array Declarations
+=============================
+
+USER[] = 'Alice'
+
+USERS[][50] = {
+    'Alice',
+    'Bob',
+    'Charlie'
+}
+
+MORE_USERS[][][50] = {
+    {
+        'Alice',
+        'Bob'
+    },
+    {
+        'Charlie',
+        'David'
+    }
+}
+
+---
+
+(source_file
+  (expression_statement
+    (assignment_expression
+      (subscript_expression
+        (identifier))
+      (string_literal
+        (string_content))))
+  (expression_statement
+    (assignment_expression
+      (subscript_expression
+        (subscript_expression
+          (identifier))
+        (number_literal))
+      (initializer_list
+        (string_literal
+          (string_content))
+        (string_literal
+          (string_content))
+        (string_literal
+          (string_content)))))
+  (expression_statement
+    (assignment_expression
+      (subscript_expression
+        (subscript_expression
+          (subscript_expression
+            (identifier)))
+        (number_literal))
+      (initializer_list
+        (initializer_list
+          (string_literal
+            (string_content))
+          (string_literal
+            (string_content)))
+        (initializer_list
+          (string_literal
+            (string_content))
+          (string_literal
+            (string_content)))))))

@@ -1,0 +1,99 @@
+===
+classes/unionTypesErrorNested.pkl
+===
+
+class X {
+  a: Boolean|Map<Int|List<Int>, String|Set<String>>
+}
+
+res1 = new X {
+  a = Map(
+    1, "foo",
+    2, Set("foo", "bar"),
+    List(1, 2, 3), "foo",
+    List(1, 2, 3), Set("bar", 4)
+  )
+}
+
+---
+
+(module
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (unionType
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (declaredType
+              (qualifiedIdentifier
+                (identifier))
+              (typeArgumentList
+                (unionType
+                  (declaredType
+                    (qualifiedIdentifier
+                      (identifier)))
+                  (declaredType
+                    (qualifiedIdentifier
+                      (identifier))
+                    (typeArgumentList
+                      (declaredType
+                        (qualifiedIdentifier
+                          (identifier))))))
+                (unionType
+                  (declaredType
+                    (qualifiedIdentifier
+                      (identifier)))
+                  (declaredType
+                    (qualifiedIdentifier
+                      (identifier))
+                    (typeArgumentList
+                      (declaredType
+                        (qualifiedIdentifier
+                          (identifier)))))))))))))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (unqualifiedAccessExpr
+            (identifier)
+            (argumentList
+              (intLiteralExpr)
+              (slStringLiteralExpr
+                (slStringLiteralPart))
+              (intLiteralExpr)
+              (unqualifiedAccessExpr
+                (identifier)
+                (argumentList
+                  (slStringLiteralExpr
+                    (slStringLiteralPart))
+                  (slStringLiteralExpr
+                    (slStringLiteralPart))))
+              (unqualifiedAccessExpr
+                (identifier)
+                (argumentList
+                  (intLiteralExpr)
+                  (intLiteralExpr)
+                  (intLiteralExpr)))
+              (slStringLiteralExpr
+                (slStringLiteralPart))
+              (unqualifiedAccessExpr
+                (identifier)
+                (argumentList
+                  (intLiteralExpr)
+                  (intLiteralExpr)
+                  (intLiteralExpr)))
+              (unqualifiedAccessExpr
+                (identifier)
+                (argumentList
+                  (slStringLiteralExpr
+                    (slStringLiteralPart))
+                  (intLiteralExpr))))))))))

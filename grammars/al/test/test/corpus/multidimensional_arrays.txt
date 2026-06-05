@@ -1,0 +1,106 @@
+================================================================================
+Multi-dimensional arrays in procedure parameters
+================================================================================
+
+codeunit 123 Test
+{
+    procedure GetData(var ExpectedParts: array[20, 100] of Text[1024])
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (array_type
+              sizes: (integer)
+              sizes: (integer)
+              element_type: (type_specification
+                (text_type
+                  length: (integer)))))))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))
+
+================================================================================
+Single-dimensional array for comparison
+================================================================================
+
+codeunit 123 Test
+{
+    procedure GetData(var InputData: array[20] of Text[1024])
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (array_type
+              sizes: (integer)
+              element_type: (type_specification
+                (text_type
+                  length: (integer)))))))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))
+
+================================================================================
+Three-dimensional array
+================================================================================
+
+codeunit 123 Test
+{
+    procedure GetData(var Data: array[10, 20, 30] of Integer)
+    begin
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (parameter_list
+        (parameter
+          modifier: (var_keyword)
+          name: (identifier)
+          type: (type_specification
+            (array_type
+              sizes: (integer)
+              sizes: (integer)
+              sizes: (integer)
+              element_type: (type_specification
+                (basic_type))))))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))

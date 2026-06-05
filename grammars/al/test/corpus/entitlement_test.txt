@@ -1,0 +1,191 @@
+================================================================================
+Basic entitlement with ApplicationScope
+================================================================================
+
+entitlement "Azure AD Application Api"
+{
+    Type = ApplicationScope;
+    Id = 'API.ReadWrite.All';
+    ObjectEntitlements = "D365 API";
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (entitlement_declaration
+    (entitlement_keyword)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (quoted_identifier))))
+
+================================================================================
+Entitlement with PerUserServicePlan
+================================================================================
+
+entitlement "Dynamics 365 Business Central Essentials"
+{
+    Type = PerUserServicePlan;
+    Id = '920656a2-7dd8-4c83-97b6-a356414dbd36';
+    ObjectEntitlements = "D365 Bus Full Access";
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (entitlement_declaration
+    (entitlement_keyword)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (quoted_identifier))))
+
+================================================================================
+Entitlement with namespace
+================================================================================
+
+namespace Microsoft.API.V2;
+
+entitlement "Internal Administrator API"
+{
+    Type = Role;
+    Id = 'SUPER';
+    ObjectEntitlements = "D365 APIV2";
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (namespace_declaration
+    (namespace_keyword)
+    name: (namespace_name
+      (identifier)
+      (identifier)
+      (identifier)))
+  (entitlement_declaration
+    (entitlement_keyword)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (quoted_identifier))))
+
+================================================================================
+Entitlement with multiple ObjectEntitlements
+================================================================================
+
+entitlement "Premium Features"
+{
+    Type = ApplicationScope;
+    Id = 'PREMIUM.All';
+    ObjectEntitlements = "Base Application", "System Application", "Premium Features";
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (entitlement_declaration
+    (entitlement_keyword)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (quoted_identifier))
+        (option_member
+          (quoted_identifier))
+        (option_member
+          (quoted_identifier))))))
+
+================================================================================
+Entitlement with case variations
+================================================================================
+
+ENTITLEMENT "Test Entitlement"
+{
+    type = ApplicationScope;
+    ID = 'TEST.Scope';
+    objectentitlements = TestPermissionSet;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (entitlement_declaration
+    (entitlement_keyword)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))))
+
+================================================================================
+Entitlement with universal properties
+================================================================================
+
+entitlement "Obsolete Entitlement"
+{
+    Caption = 'Obsolete Entitlement';
+    Description = 'This entitlement is obsolete';
+    ObsoleteState = Removed;
+    ObsoleteReason = 'Replaced by new entitlement system';
+    Type = ApplicationScope;
+    Id = 'OBSOLETE.Scope';
+    ObjectEntitlements = "Legacy Permissions";
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (entitlement_declaration
+    (entitlement_keyword)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (quoted_identifier))))

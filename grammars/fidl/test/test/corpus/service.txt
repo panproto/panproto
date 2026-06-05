@@ -1,0 +1,30 @@
+================================================================================
+service
+================================================================================
+
+library this_is_library;
+
+service Service {
+    device client_end:Device;
+};
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (library
+    (compound_identifier
+      (identifier)))
+  (declaration
+    (service_declaration
+      (identifier)
+      (service_member
+        (member_field
+          (identifier)
+          (type_constructor
+            (layout
+              (builtin_complex_type))
+            (type_constraints
+              (type_constraint
+                (constant_allows_bit_ops
+                  (compound_identifier
+                    (identifier)))))))))))

@@ -1,0 +1,15 @@
+===
+basic/fixedProperty4.pkl
+===
+
+fixed module foo
+
+---
+
+(module
+  (moduleHeader
+    (moduleClause
+
+      (modifier)
+      (qualifiedIdentifier
+        (identifier)))))

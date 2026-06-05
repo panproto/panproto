@@ -1,0 +1,98 @@
+================================================================================
+If expression spread between multiple directives
+================================================================================
+
+<%= if true do %>
+  <%= @x %>
+<% else %>
+  <%= @y %>
+<% end %>
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (directive
+    (partial_expression_value))
+  (directive
+    (expression_value))
+  (directive
+    (partial_expression_value))
+  (directive
+    (expression_value))
+  (directive
+    (ending_expression_value)))
+
+================================================================================
+Case expression spread between multiple directives
+================================================================================
+
+<%= case @x do %>
+  <%= ^x -> %>X, <%= x %>
+  <%= _ -> %>Not X
+<% end %>
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (directive
+    (partial_expression_value))
+  (directive
+    (partial_expression_value))
+  (text)
+  (directive
+    (expression_value))
+  (directive
+    (partial_expression_value))
+  (text)
+  (directive
+    (ending_expression_value)))
+
+================================================================================
+Try expression spread between multiple directives
+================================================================================
+
+<%= try do %>
+  <%= 1 / @x %>
+<% rescue %>
+  <% ArithmeticError -> %> infinity
+<% catch %>
+  <%= value -> %> Value, <%= value %>
+<% else %>
+  <%= y when y < 1 and y > -1 -> %> small
+  <%= _ -> %> large
+<% after %>
+  division
+<% end %>
+
+--------------------------------------------------------------------------------
+
+(fragment
+  (directive
+    (partial_expression_value))
+  (directive
+    (expression_value))
+  (directive
+    (partial_expression_value))
+  (directive
+    (partial_expression_value))
+  (text)
+  (directive
+    (partial_expression_value))
+  (directive
+    (partial_expression_value))
+  (text)
+  (directive
+    (expression_value))
+  (directive
+    (partial_expression_value))
+  (directive
+    (partial_expression_value))
+  (text)
+  (directive
+    (partial_expression_value))
+  (text)
+  (directive
+    (partial_expression_value))
+  (text)
+  (directive
+    (ending_expression_value)))

@@ -1,0 +1,35 @@
+==================
+cmd command
+==================
+
+foo:
+  CMD /server foo
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (cmd_command
+            (shell_fragment)))))
+
+
+==================
+cmd command
+==================
+
+foo:
+  CMD ["/server", "foo"]
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (cmd_command
+            (string_array
+              (double_quoted_string)
+              (double_quoted_string))))))
+

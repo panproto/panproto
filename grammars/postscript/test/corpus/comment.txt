@@ -1,0 +1,78 @@
+================================================================================
+comment at begin of line
+================================================================================
+%comment
+--------------------------------------------------------------------------------
+(document
+  (comment))
+
+================================================================================
+comment with space
+================================================================================
+% comment
+--------------------------------------------------------------------------------
+(document
+  (comment))
+
+================================================================================
+comment like DSC
+================================================================================
+%% comment
+--------------------------------------------------------------------------------
+(document
+  (comment))
+
+================================================================================
+comment after operator
+================================================================================
+showpage %comment
+--------------------------------------------------------------------------------
+(document
+  (operator)
+  (comment))
+
+================================================================================
+document structure comments
+================================================================================
+%!PS-Adobe-3.0
+%%Title: foo
+%%DocumentNeededResources: font Times-Roman Times-Italic
+%%+ font Courier
+%%BeginDefaults
+%%PageMedia: A4
+%%EndDefaults
+
+%end of page
+showpage % hit it
+
+%%EOF
+--------------------------------------------------------------------------------
+(document
+  (document_structure_comment)
+  (document_structure_comment)
+  (document_structure_comment)
+  (document_structure_comment)
+  (document_structure_comment)
+  (document_structure_comment)
+  (document_structure_comment)
+  (comment)
+  (operator)
+  (comment)
+  (document_structure_comment))
+
+================================================================================
+document structure comments with query
+================================================================================
+%!PS-Adobe-3.0 Query
+%%?BeginVMStatus
+vmstatus
+%%?EndVMStatus: Unknown
+%%EOF
+
+--------------------------------------------------------------------------------
+(document
+  (document_structure_comment)
+  (document_structure_comment)
+  (operator)
+  (document_structure_comment)
+  (document_structure_comment))

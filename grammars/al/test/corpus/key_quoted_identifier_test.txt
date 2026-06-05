@@ -1,0 +1,320 @@
+================================================================================
+Table with quoted identifier in key name
+================================================================================
+
+table 50100 "Test Table"
+{
+    fields
+    {
+        field(1; "No."; Code[20])
+        {
+            Caption = 'No.';
+        }
+        field(2; "Description"; Text[100])
+        {
+            Caption = 'Description';
+        }
+    }
+    
+    keys
+    {
+        key("Key 1"; "No.")
+        {
+            Clustered = true;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (code_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (string_literal)))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (string_literal))))
+    (keys_section
+      (keys_keyword)
+      (key_declaration
+        (key_keyword)
+        name: (quoted_identifier)
+        fields: (field_list
+          (quoted_identifier))
+        (property
+          name: (property_name)
+          value: (boolean))))))
+
+================================================================================
+Table with multiple keys using quoted and unquoted identifiers
+================================================================================
+
+table 361 "Analysis by Dim. Parameters"
+{
+    fields
+    {
+        field(1; "Analysis View Code"; Code[10])
+        {
+            Caption = 'Analysis View Code';
+            TableRelation = "Analysis View";
+        }
+        field(2; "Customer No."; Code[20])
+        {
+            Caption = 'Customer No.';
+        }
+    }
+    
+    keys
+    {
+        key("Key 1"; "Analysis View Code")
+        {
+            Clustered = true;
+        }
+        key(Key2; "Customer No.", "Analysis View Code")
+        {
+            Unique = true;
+        }
+        key("Secondary Key"; "Customer No.")
+        {
+            Enabled = false;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (code_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (quoted_identifier)))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (code_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (string_literal))))
+    (keys_section
+      (keys_keyword)
+      (key_declaration
+        (key_keyword)
+        name: (quoted_identifier)
+        fields: (field_list
+          (quoted_identifier))
+        (property
+          name: (property_name)
+          value: (boolean)))
+      (key_declaration
+        (key_keyword)
+        name: (identifier)
+        fields: (field_list
+          (quoted_identifier)
+          (quoted_identifier))
+        (property
+          name: (property_name)
+          value: (boolean)))
+      (key_declaration
+        (key_keyword)
+        name: (quoted_identifier)
+        fields: (field_list
+          (quoted_identifier))
+        (property
+          name: (property_name)
+          value: (boolean))))))
+
+================================================================================
+Key with spaces and special characters in quoted name
+================================================================================
+
+table 50101 "Complex Key Names"
+{
+    fields
+    {
+        field(1; ID; Integer)
+        {
+            Caption = 'ID';
+        }
+        field(2; Code; Code[10])
+        {
+            Caption = 'Code';
+        }
+    }
+    
+    keys
+    {
+        key("Primary Key - Main"; ID)
+        {
+            Clustered = true;
+        }
+        key("Code & ID"; Code, ID)
+        {
+        }
+        key("Special/Characters!"; ID)
+        {
+            Unique = true;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (string_literal)))
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (code_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (string_literal))))
+    (keys_section
+      (keys_keyword)
+      (key_declaration
+        (key_keyword)
+        name: (quoted_identifier)
+        fields: (field_list
+          (identifier))
+        (property
+          name: (property_name)
+          value: (boolean)))
+      (key_declaration
+        (key_keyword)
+        name: (quoted_identifier)
+        fields: (field_list
+          (identifier)
+          (identifier)))
+      (key_declaration
+        (key_keyword)
+        name: (quoted_identifier)
+        fields: (field_list
+          (identifier))
+        (property
+          name: (property_name)
+          value: (boolean))))))
+
+================================================================================
+Key with preprocessor conditionals
+================================================================================
+
+table 50102 "Test Preprocessor Keys"
+{
+    fields
+    {
+        field(1; "Entry No."; Integer)
+        {
+            Caption = 'Entry No.';
+        }
+    }
+    
+    keys
+    {
+        key("Main Key"; "Entry No.")
+        {
+            Clustered = true;
+#if CLEAN26
+            ObsoleteState = Removed;
+            ObsoleteReason = 'Replaced by new key structure';
+#else
+            ObsoleteState = Pending;
+            ObsoleteReason = 'Will be removed in next version';
+#endif
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (string_literal))))
+    (keys_section
+      (keys_keyword)
+      (key_declaration
+        (key_keyword)
+        name: (quoted_identifier)
+        fields: (field_list
+          (quoted_identifier))
+        (property
+          name: (property_name)
+          value: (boolean))
+        (preproc_conditional
+          (preproc_if
+            (preproc_open)
+            condition: (identifier))
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (preproc_else)
+          (property
+            name: (property_name)
+            value: (identifier))
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (preproc_endif
+            (preproc_close)))))))

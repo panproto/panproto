@@ -1,0 +1,68 @@
+================================================================================
+protect statement
+================================================================================
+
+_block
+	stream << external_text_input_stream.new(a_file_name)
+	_protect
+		stream.write("something")
+	_protection
+		stream.close()
+	_endprotect
+_endblock
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (block
+      (assignment
+        (variable)
+        (call
+          (variable)
+          (identifier)
+          (variable)))
+        (protect
+          (call
+            (variable)
+            (identifier)
+            (string_literal))
+          (call
+            (variable)
+            (identifier))))))
+
+================================================================================
+protect locking statement
+================================================================================
+
+_block
+	stream << external_text_input_stream.new(a_file_name)
+	_protect _locking _self
+		stream.write("something")
+	_protection
+		stream.close()
+	_endprotect
+_endblock
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (block
+      (assignment
+        (variable)
+        (call
+          (variable)
+          (identifier)
+          (variable)))
+        (protect
+          (self)
+          (call
+            (variable)
+            (identifier)
+            (string_literal))
+          (call
+            (variable)
+            (identifier))))))

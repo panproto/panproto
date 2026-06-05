@@ -1,0 +1,14 @@
+===
+packages/badImport3.error.pkl
+===
+
+res = import("package://localhost:0/bar/baz@1.0.0")
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (importExpr
+      (stringConstant
+        (slStringLiteralPart)))))

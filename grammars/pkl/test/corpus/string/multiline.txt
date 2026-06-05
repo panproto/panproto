@@ -1,0 +1,39 @@
+================================================================================
+multiline
+================================================================================
+
+res1 = """
+  Hi there
+  """
+
+res2 = #"""
+  "AS IS"
+  """#
+
+res3 = #"""
+  ""AS IS""
+  """#
+
+res4 = #"""
+  """""AS IS"""""
+  """#
+
+--------------------------------------------------------------------------------
+
+(module
+  (classProperty
+    (identifier)
+    (mlStringLiteralExpr
+      (mlStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (mlStringLiteralExpr
+      (mlStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (mlStringLiteralExpr
+      (mlStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (mlStringLiteralExpr
+      (mlStringLiteralPart))))

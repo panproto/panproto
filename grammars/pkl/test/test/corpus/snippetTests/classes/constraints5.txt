@@ -1,0 +1,71 @@
+===
+classes/constraints5.pkl
+===
+
+class Gauge {
+  min: Int
+  max: Int(this >= min)
+}
+
+res1 = new Gauge {
+  min = 4
+  max = 6
+}
+
+res2 = new Gauge {
+  min = 4
+  max = 3
+}
+
+
+
+
+---
+
+(module
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (constrainedType
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (comparisonExpr
+              (thisExpr)
+              (unqualifiedAccessExpr
+                (identifier))))))))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (intLiteralExpr))
+        (objectProperty
+          (identifier)
+          (intLiteralExpr)))))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (intLiteralExpr))
+        (objectProperty
+          (identifier)
+          (intLiteralExpr))))))

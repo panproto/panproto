@@ -1,0 +1,62 @@
+================================================================================
+foreach typed key do block
+================================================================================
+void foo() {
+	foreach (int k : m) {}
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method return_type: (type_void) name: (identifier) body: (block
+	(foreach
+		key: (iterator (type_int) (identifier))
+		iterated: (identifier)
+		body: (block)))))
+
+
+================================================================================
+foreach inferred key do block
+================================================================================
+void foo() {
+	foreach (auto k : m) {}
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method return_type: (type_void) name: (identifier) body: (block
+	(foreach
+		key: (iterator (identifier))
+		iterated: (identifier)
+		body: (block)))))
+
+
+================================================================================
+foreach typed key, value do block
+================================================================================
+void foo() {
+	foreach (int k, int v : m) {}
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method return_type: (type_void) name: (identifier) body: (block
+	(foreach
+		key: (iterator
+			(type_int)
+			(identifier))
+		value: (iterator
+			(type_int)
+			(identifier))
+		iterated: (identifier)
+		body: (block)))))
+
+
+================================================================================
+foreach inferred key, value do block
+================================================================================
+void foo() {
+	foreach (auto k, auto v : m) {}
+}
+--------------------------------------------------------------------------------
+(compilation_unit (decl_method return_type: (type_void) name: (identifier) body: (block
+	(foreach
+		key: (iterator (identifier))
+		value: (iterator (identifier))
+		iterated: (identifier)
+		body: (block)))))
+
+

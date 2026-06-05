@@ -1,0 +1,801 @@
+========================================================================
+Arithmetic expressions
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        x := 1 + 2 * 3;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          (identifier)
+          (additive_expression
+            (integer)
+            (multiplicative_expression
+              (integer)
+              (integer))))
+        (end_keyword)))))
+
+========================================================================
+Division and modulo operators
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        y := x div 10;
+        z := x mod 3;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          (identifier)
+          (multiplicative_expression
+            (identifier)
+            (integer)))
+        (assignment_statement
+          (identifier)
+          (multiplicative_expression
+            (identifier)
+            (integer)))
+        (end_keyword)))))
+
+========================================================================
+Comparison expressions
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        if x = 0 then
+            exit;
+        if x <> y then
+            exit;
+        if x >= 10 then
+            exit;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (if_statement
+          (if_keyword)
+          (comparison_expression
+            (identifier)
+            (comparison_operator)
+            (integer))
+          (then_keyword)
+          (exit_statement
+            (exit_keyword)))
+        (if_statement
+          (if_keyword)
+          (comparison_expression
+            (identifier)
+            (comparison_operator)
+            (identifier))
+          (then_keyword)
+          (exit_statement
+            (exit_keyword)))
+        (if_statement
+          (if_keyword)
+          (comparison_expression
+            (identifier)
+            (comparison_operator)
+            (integer))
+          (then_keyword)
+          (exit_statement
+            (exit_keyword)))
+        (end_keyword)))))
+
+========================================================================
+Logical expressions
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        if (x > 0) and (y < 10) then
+            exit;
+        if not Found then
+            exit;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (if_statement
+          (if_keyword)
+          (logical_expression
+            (parenthesized_expression
+              (comparison_expression
+                (identifier)
+                (comparison_operator)
+                (integer)))
+            (parenthesized_expression
+              (comparison_expression
+                (identifier)
+                (comparison_operator)
+                (integer))))
+          (then_keyword)
+          (exit_statement
+            (exit_keyword)))
+        (if_statement
+          (if_keyword)
+          (unary_expression
+            (identifier))
+          (then_keyword)
+          (exit_statement
+            (exit_keyword)))
+        (end_keyword)))))
+
+========================================================================
+String concatenation
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        s := 'Hello' + ' ' + 'World';
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          (identifier)
+          (additive_expression
+            (additive_expression
+              (string_literal)
+              (string_literal))
+            (string_literal)))
+        (end_keyword)))))
+
+========================================================================
+Member access chain
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        x := Rec.Name;
+        y := Rec."Field Name";
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          (identifier)
+          (member_expression
+            (identifier)
+            (identifier)))
+        (assignment_statement
+          (identifier)
+          (member_expression
+            (identifier)
+            (quoted_identifier)))
+        (end_keyword)))))
+
+========================================================================
+Function call with multiple arguments
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        Message('Hello %1 %2', Name, Age);
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          (identifier)
+          (argument_list
+            (string_literal)
+            (identifier)
+            (identifier)))
+        (end_keyword)))))
+
+========================================================================
+Subscript expression
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        x := MyArray[1];
+        y := MyArray[i + 1];
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          (identifier)
+          (subscript_expression
+            (identifier)
+            (integer)))
+        (assignment_statement
+          (identifier)
+          (subscript_expression
+            (identifier)
+            (additive_expression
+              (identifier)
+              (integer))))
+        (end_keyword)))))
+
+========================================================================
+Parenthesized expression
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        x := (a + b) * c;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          (identifier)
+          (multiplicative_expression
+            (parenthesized_expression
+              (additive_expression
+                (identifier)
+                (identifier)))
+            (identifier)))
+        (end_keyword)))))
+
+========================================================================
+Qualified enum value
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        x := Status::Active;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          (identifier)
+          (qualified_enum_value
+            (identifier)
+            (identifier)))
+        (end_keyword)))))
+
+========================================================================
+Qualified enum with quoted identifiers
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        x := "Sales Line Type"::Item;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          (identifier)
+          (qualified_enum_value
+            (quoted_identifier)
+            (identifier)))
+        (end_keyword)))))
+
+========================================================================
+In expression
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        if x in [1, 2, 3] then
+            exit;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (if_statement
+          (if_keyword)
+          (identifier)
+          (in_keyword)
+          (list_literal
+            (integer)
+            (integer)
+            (integer))
+          (then_keyword)
+          (exit_statement
+            (exit_keyword)))
+        (end_keyword)))))
+
+========================================================================
+Unary negation
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        x := -y;
+        z := +w;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          (identifier)
+          (unary_expression
+            (identifier)))
+        (assignment_statement
+          (identifier)
+          (unary_expression
+            (identifier)))
+        (end_keyword)))))
+
+========================================================================
+Range expression
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        if x in [1..10] then
+            exit;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (if_statement
+          (if_keyword)
+          (identifier)
+          (in_keyword)
+          (list_literal
+            (range_expression
+              (integer)
+              (integer)))
+          (then_keyword)
+          (exit_statement
+            (exit_keyword)))
+        (end_keyword)))))
+
+========================================================================
+Database reference
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        x := DATABASE::"Customer";
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          (identifier)
+          (database_reference
+            (object_type_keyword)
+            (quoted_identifier)))
+        (end_keyword)))))
+
+========================================================================
+Chained method calls
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        Rec.SetRange("No.", '10000');
+        Rec.FindFirst();
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          (member_expression
+            (identifier)
+            (identifier))
+          (argument_list
+            (quoted_identifier)
+            (string_literal)))
+        (call_expression
+          (member_expression
+            (identifier)
+            (identifier))
+          (argument_list))
+        (end_keyword)))))
+
+========================================================================
+Nested function calls
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        x := Format(Abs(y));
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          (identifier)
+          (call_expression
+            (identifier)
+            (argument_list
+              (call_expression
+                (identifier)
+                (argument_list
+                  (identifier))))))
+        (end_keyword)))))
+
+========================================================================
+XOR expression
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        if a xor b then
+            exit;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (if_statement
+          (if_keyword)
+          (logical_expression
+            (identifier)
+            (identifier))
+          (then_keyword)
+          (exit_statement
+            (exit_keyword)))
+        (end_keyword)))))
+
+========================================================================
+Complex expression precedence
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        x := a + b * c - d / e;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          (identifier)
+          (additive_expression
+            (additive_expression
+              (identifier)
+              (multiplicative_expression
+                (identifier)
+                (identifier)))
+            (multiplicative_expression
+              (identifier)
+              (identifier))))
+        (end_keyword)))))
+
+========================================================================
+Empty argument list
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        DoSomething();
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          (identifier)
+          (argument_list))
+        (end_keyword)))))
+
+========================================================================
+Boolean literal in expression
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        x := true;
+        y := false;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          (identifier)
+          (boolean))
+        (assignment_statement
+          (identifier)
+          (boolean))
+        (end_keyword)))))
+
+========================================================================
+Or expression
+========================================================================
+
+codeunit 50100 Test
+{
+    procedure Foo()
+    begin
+        if a or b then
+            exit;
+    end;
+}
+
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (identifier)
+    (procedure
+      (procedure_keyword)
+      (identifier)
+      (code_block
+        (begin_keyword)
+        (if_statement
+          (if_keyword)
+          (logical_expression
+            (identifier)
+            (identifier))
+          (then_keyword)
+          (exit_statement
+            (exit_keyword)))
+        (end_keyword)))))

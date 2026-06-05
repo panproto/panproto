@@ -1,0 +1,114 @@
+===
+api/jsonRendererEmptyComposites.pkl
+===
+
+a1 = List()
+a2 = Set()
+a3 = new Listing {}
+
+b1 = Map()
+b2 = new Mapping {}
+b3 = new Dynamic {}
+
+nested {
+  a1 = List()
+  a2 = Set()
+  a3 = new Listing {}
+
+  b1 = Map()
+  b2 = new Mapping {}
+  b3 = new Dynamic {}
+}
+
+output {
+  renderer = new JsonRenderer {}
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList)))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList)))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody)))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList)))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody)))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody)))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList)))
+      (objectProperty
+        (identifier)
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList)))
+      (objectProperty
+        (identifier)
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (objectBody)))
+      (objectProperty
+        (identifier)
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList)))
+      (objectProperty
+        (identifier)
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (objectBody)))
+      (objectProperty
+        (identifier)
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (objectBody)))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (objectBody))))))

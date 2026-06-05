@@ -1,0 +1,20 @@
+===========================================
+Limit switch damage
+===========================================
+
+switch foo {
+| 7 => 42
+| zhopa-priehali?
+}
+
+let x = 5
+
+(TODO: make this working)
+
+(source_file
+  (expression_statement
+    (switch_expression
+      (value_identifier)
+      (switch_match (number) (expression_statement (number)))
+      (ERROR (value_identifier) (UNEXPECTED 'p'))))
+  (let_binding (value_identifier) (number)))

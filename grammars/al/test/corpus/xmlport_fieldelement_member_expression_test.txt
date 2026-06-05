@@ -1,0 +1,133 @@
+================================================================================
+XMLPort fieldelement with member expression (unquoted field)
+================================================================================
+
+xmlport 50100 "SEPA Test"
+{
+    schema
+    {
+        textelement(Root)
+        {
+            textelement(GrpHdr)
+            {
+                textelement(InitgPty)
+                {
+                    fieldelement(Nm; CompanyInformation.Name)
+                    {
+                    }
+                    textelement(PstlAdr)
+                    {
+                        fieldelement(StrtNm; CompanyInformation.Address)
+                        {
+
+                            trigger OnBeforePassField()
+                            begin
+                            end;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (schema_section
+      (schema_keyword)
+      (xmlport_element
+        name: (identifier)
+        (xmlport_element
+          name: (identifier)
+          (xmlport_element
+            name: (identifier)
+            (xmlport_element
+              name: (identifier)
+              source: (member_expression
+                object: (identifier)
+                member: (identifier)))
+            (xmlport_element
+              name: (identifier)
+              (xmlport_element
+                name: (identifier)
+                source: (member_expression
+                  object: (identifier)
+                  member: (identifier))
+                (trigger_declaration
+                  (trigger_keyword)
+                  name: (identifier)
+                  (code_block
+                    (begin_keyword)
+                    (end_keyword)))))))))))
+
+================================================================================
+XMLPort fieldelement mixed syntax with table declaration
+================================================================================
+
+xmlport 1227 "SEPA CT-pain.001.001.03"
+{
+    Caption = 'SEPA CT-pain.001.001.03';
+    Direction = Export;
+    
+    schema
+    {
+        tableelement("Gen. Jnl. Line"; "Gen. Journal Line")
+        {
+            textelement(Document)
+            {
+                textelement(CstmrCdtTrfInitn)
+                {
+                    fieldelement(MsgId; "Gen. Jnl. Line"."Message ID")
+                    {
+                    }
+                    textelement(PmtInf)
+                    {
+                        fieldelement(Dbtr; CompanyInformation.Name)
+                        {
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (schema_section
+      (schema_keyword)
+      (xmlport_element
+        name: (quoted_identifier)
+        source: (quoted_identifier)
+        (xmlport_element
+          name: (identifier)
+          (xmlport_element
+            name: (identifier)
+            (xmlport_element
+              name: (identifier)
+              source: (member_expression
+                object: (quoted_identifier)
+                member: (quoted_identifier)))
+            (xmlport_element
+              name: (identifier)
+              (xmlport_element
+                name: (identifier)
+                source: (member_expression
+                  object: (identifier)
+                  member: (identifier))))))))))

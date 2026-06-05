@@ -1,0 +1,205 @@
+================================================================================
+CalcFormula with namespace-qualified table name
+================================================================================
+
+table 39 "Purchase Line"
+{
+    fields
+    {
+        field(2677; "Alloc. Acc. Modified by User"; Boolean)
+        {
+            Caption = 'Allocation Account Distributions Modified';
+            FieldClass = FlowField;
+            CalcFormula = exist(Microsoft.Finance.AllocationAccount."Alloc. Acc. Manual Override" where("Parent System Id" = field(SystemId), "Parent Table Id" = const(Database::"Purchase Line")));
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (identifier))
+        (property
+          name: (property_name)
+          value: (aggregate_formula
+            function: (aggregate_function)
+            target: (calc_field_reference
+              (identifier)
+              (identifier)
+              (identifier)
+              (quoted_identifier))
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (quoted_identifier)
+                  value: (identifier))
+                (where_condition
+                  field: (quoted_identifier)
+                  value: (database_reference
+                    keyword: (object_type_keyword)
+                    table_name: (quoted_identifier)))))))))))
+
+================================================================================
+CalcFormula with different namespace variations
+================================================================================
+
+table 50000 TestTable
+{
+    fields
+    {
+        field(1; FlowField1; Boolean)
+        {
+            FieldClass = FlowField;
+            CalcFormula = exist(Microsoft.Sales."Sales Header" where("Document Type" = const(Order)));
+        }
+        field(2; FlowField2; Boolean)
+        {
+            FieldClass = FlowField;
+            CalcFormula = exist(System.Security.User where("User Name" = field(UserId)));
+        }
+        field(3; FlowField3; Boolean)
+        {
+            FieldClass = FlowField;
+            CalcFormula = exist(A.B.C.D.TableName where(Id = field(Id)));
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (identifier))
+        (property
+          name: (property_name)
+          value: (aggregate_formula
+            function: (aggregate_function)
+            target: (calc_field_reference
+              (identifier)
+              (identifier)
+              (quoted_identifier))
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (quoted_identifier)
+                  value: (identifier)))))))
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (identifier))
+        (property
+          name: (property_name)
+          value: (aggregate_formula
+            function: (aggregate_function)
+            target: (calc_field_reference
+              (keyword_identifier)
+              (identifier)
+              (identifier))
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (quoted_identifier)
+                  value: (identifier)))))))
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (identifier))
+        (property
+          name: (property_name)
+          value: (aggregate_formula
+            function: (aggregate_function)
+            target: (calc_field_reference
+              (identifier)
+              (identifier)
+              (identifier)
+              (identifier)
+              (identifier))
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (identifier)
+                  value: (identifier))))))))))
+
+================================================================================
+CalcFormula with sum and namespace tables
+================================================================================
+
+table 50001 TestTable2
+{
+    fields
+    {
+        field(1; Total; Decimal)
+        {
+            FieldClass = FlowField;
+            CalcFormula = sum(Microsoft.Finance.GLEntry.Amount where("Posting Date" = field(Date)));
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (identifier))
+        (property
+          name: (property_name)
+          value: (aggregate_formula
+            function: (aggregate_function)
+            target: (calc_field_reference
+              (identifier)
+              (identifier)
+              (identifier)
+              (identifier))
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (quoted_identifier)
+                  value: (identifier))))))))))

@@ -1,0 +1,37 @@
+===
+lambdas/wrongArgumentListLength.pkl
+===
+
+f = (a1, a2, a3) -> a1
+res = f.applyToList(List(1, 2, 3, 4, 5, 6))
+---
+
+(module
+  (classProperty
+    (identifier)
+    (functionLiteralExpr
+      (parameterList
+        (typedIdentifier
+          (identifier))
+        (typedIdentifier
+          (identifier))
+        (typedIdentifier
+          (identifier)))
+      (unqualifiedAccessExpr
+        (identifier))))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList
+            (intLiteralExpr)
+            (intLiteralExpr)
+            (intLiteralExpr)
+            (intLiteralExpr)
+            (intLiteralExpr)
+            (intLiteralExpr)))))))

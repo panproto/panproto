@@ -1,0 +1,456 @@
+===
+Comments
+===
+
+% comment %{
+
+%{
+comment % } %{
+%}
+
+%{ comment %} % comment
+
+%
+%
+
+---
+
+(lilypond_program
+  (comment)
+  (comment)
+  (comment)
+  (comment)
+  (comment)
+  (comment))
+
+
+===
+Symbols and escaped words
+===
+
+\version "1"
+\include "file.ily"
+\language english
+
+---
+
+(lilypond_program
+  (escaped_word)
+  (string
+    (string_fragment))
+  (escaped_word)
+  (string
+    (string_fragment))
+  (escaped_word)
+  (symbol))
+
+
+===
+Expression components
+===
+
+0
+12
+3/4
+5.6
+' , ? ! . * - ^ _ > + ~ ( ) \( \) [ ] : / = |
+\< \> \!
+\78
+
+---
+
+(lilypond_program
+  (unsigned_integer)
+  (unsigned_integer)
+  (fraction)
+  (decimal_number)
+  (punctuation)
+  (punctuation)
+  (punctuation)
+  (punctuation)
+  (punctuation)
+  (punctuation)
+  (punctuation)
+  (punctuation)
+  (punctuation)
+  (punctuation)
+  (punctuation)
+  (punctuation)
+  (punctuation)
+  (punctuation)
+  (punctuation)
+  (punctuation)
+  (punctuation)
+  (punctuation)
+  (punctuation)
+  (punctuation)
+  (punctuation)
+  (punctuation)
+  (dynamic)
+  (dynamic)
+  (dynamic)
+  (instrument_string_number))
+
+
+===
+Strings
+===
+
+""
+"%x\n%y"
+"lily\npond\""
+
+---
+
+(lilypond_program
+  (string)
+  (string
+    (string_fragment)
+    (escape_sequence)
+    (string_fragment))
+  (string
+    (string_fragment)
+    (escape_sequence)
+    (string_fragment)
+    (escape_sequence)))
+
+
+===
+Durations
+===
+
+c1 2 4 8 16 32 64. 128
+
+---
+
+(lilypond_program
+  (symbol)
+  (unsigned_integer)
+  (unsigned_integer)
+  (unsigned_integer)
+  (unsigned_integer)
+  (unsigned_integer)
+  (unsigned_integer)
+  (unsigned_integer)
+  (punctuation)
+  (unsigned_integer))
+
+
+===
+Ties and scaled durations
+===
+
+c2*2/3 c~c c2 *%{%}2%{%}
+
+---
+
+(lilypond_program
+  (symbol)
+  (unsigned_integer)
+  (punctuation)
+  (fraction)
+  (symbol)
+  (punctuation)
+  (symbol)
+  (symbol)
+  (unsigned_integer)
+  (punctuation)
+  (comment)
+  (unsigned_integer)
+  (comment))
+
+
+===
+Rests and beams
+===
+
+r8 c[ r c] s2 | R1
+
+---
+
+(lilypond_program
+  (symbol)
+  (unsigned_integer)
+  (symbol)
+  (punctuation)
+  (symbol)
+  (symbol)
+  (punctuation)
+  (symbol)
+  (unsigned_integer)
+  (punctuation)
+  (symbol)
+  (unsigned_integer))
+
+
+===
+Articulations
+===
+
+c8-^ c-+ c-- c-! c-> c-. c4-_
+
+---
+
+(lilypond_program
+  (symbol)
+  (unsigned_integer)
+  (punctuation)
+  (punctuation)
+  (symbol)
+  (punctuation)
+  (punctuation)
+  (symbol)
+  (punctuation)
+  (punctuation)
+  (symbol)
+  (punctuation)
+  (punctuation)
+  (symbol)
+  (punctuation)
+  (punctuation)
+  (symbol)
+  (punctuation)
+  (punctuation)
+  (symbol)
+  (unsigned_integer)
+  (punctuation)
+  (punctuation))
+
+
+===
+Dynamics
+===
+
+c\< c\! c\> c\!
+
+---
+
+(lilypond_program
+  (symbol)
+  (dynamic)
+  (symbol)
+  (dynamic)
+  (symbol)
+  (dynamic)
+  (symbol)
+  (dynamic))
+
+
+===
+Chords
+===
+
+<c e-> g\1>2q <>->
+
+---
+
+(lilypond_program
+  (chord
+    (symbol)
+    (symbol)
+    (punctuation)
+    (punctuation)
+    (symbol)
+    (instrument_string_number))
+  (unsigned_integer)
+  (symbol)
+  (chord)
+  (punctuation)
+  (punctuation))
+
+
+===
+Parallel music
+===
+
+<< e1 \\ c >>
+
+---
+
+(lilypond_program
+  (parallel_music
+    (symbol)
+    (unsigned_integer)
+    (parallel_music_separator)
+    (symbol)))
+
+
+===
+Slurs
+===
+
+c8( c) c\( c\) c\=1( c\=1) c\=%{%}"label"\( c\="label"%{%}\)
+
+---
+
+(lilypond_program
+  (symbol)
+  (unsigned_integer)
+  (punctuation)
+  (symbol)
+  (punctuation)
+  (symbol)
+  (punctuation)
+  (symbol)
+  (punctuation)
+  (symbol)
+  (escaped_word)
+  (unsigned_integer)
+  (punctuation)
+  (symbol)
+  (escaped_word)
+  (unsigned_integer)
+  (punctuation)
+  (symbol)
+  (escaped_word)
+  (comment)
+  (string
+    (string_fragment))
+  (punctuation)
+  (symbol)
+  (escaped_word)
+  (string
+    (string_fragment))
+  (comment)
+  (punctuation))
+
+
+===
+Text-only markup
+===
+
+c4^"up" c_"down" c2-"default"
+
+---
+
+(lilypond_program
+  (symbol)
+  (unsigned_integer)
+  (punctuation)
+  (string
+    (string_fragment))
+  (symbol)
+  (punctuation)
+  (string
+    (string_fragment))
+  (symbol)
+  (unsigned_integer)
+  (punctuation)
+  (string
+    (string_fragment)))
+
+
+===
+Octave shifts
+===
+
+ces'!4 ces,? c='2
+
+---
+
+(lilypond_program
+  (symbol)
+  (punctuation)
+  (punctuation)
+  (unsigned_integer)
+  (symbol)
+  (punctuation)
+  (punctuation)
+  (symbol)
+  (punctuation)
+  (punctuation)
+  (unsigned_integer))
+
+
+===
+Ligatures
+===
+
+\[ c2 c \]
+
+---
+
+(lilypond_program
+  (ligature)
+  (symbol)
+  (unsigned_integer)
+  (symbol)
+  (ligature))
+
+
+===
+Embedded Scheme
+===
+
+#(begin
+;
+
+#|
+comment
+|#
+
+#|
+nested
+#|
+comment
+|#
+|#
+)
+
+---
+
+(lilypond_program
+  (embedded_scheme
+    (embedded_scheme_prefix)
+    (embedded_scheme_text
+      (scheme_list
+        (scheme_symbol)
+        (scheme_comment)
+        (scheme_comment)
+        (scheme_comment)))))
+
+
+===
+Embedded Scheme and LilyPond
+===
+
+#(define foo #{
+  \relative {
+    #(make-sequential-music
+      (map (lambda (%) #{ s1 #})
+           (iota 1)))
+  }
+#})
+
+
+---
+
+(lilypond_program
+  (embedded_scheme
+    (embedded_scheme_prefix)
+    (embedded_scheme_text
+      (scheme_list
+        (scheme_symbol)
+        (scheme_symbol)
+        (scheme_embedded_lilypond
+          (scheme_embedded_lilypond_text
+            (escaped_word)
+            (expression_block
+              (embedded_scheme
+                (embedded_scheme_prefix)
+                (embedded_scheme_text
+                  (scheme_list
+                    (scheme_symbol)
+                    (scheme_list
+                      (scheme_symbol)
+                      (scheme_list
+                        (scheme_symbol)
+                        (scheme_list
+                          (scheme_symbol))
+                        (scheme_embedded_lilypond
+                          (scheme_embedded_lilypond_text
+                            (symbol)
+                            (unsigned_integer))))
+                      (scheme_list
+                        (scheme_symbol)
+                        (scheme_number)))))))))))))

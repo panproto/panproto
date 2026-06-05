@@ -1,0 +1,111 @@
+==================
+simple variable assignment
+==================
+
+CC = gcc
+
+----
+
+(source_file)
+
+==================
+recursive and simple assignment
+==================
+
+CFLAGS := -Wall -O2
+LDFLAGS ?= -lm
+
+----
+
+(source_file)
+
+==================
+basic rule with recipe
+==================
+
+all:
+	echo building
+
+----
+
+(source_file)
+
+==================
+rule with prerequisites
+==================
+
+main.o: main.c main.h
+	$(CC) $(CFLAGS) -c main.c
+
+----
+
+(source_file)
+
+==================
+phony target
+==================
+
+.PHONY: clean
+clean:
+	rm -f *.o
+
+----
+
+(source_file)
+
+==================
+pattern rule
+==================
+
+%.o: %.c
+	$(CC) -c $< -o $@
+
+----
+
+(source_file)
+
+==================
+include directive
+==================
+
+include config.mk
+
+----
+
+(source_file)
+
+==================
+ifeq conditional
+==================
+
+ifeq ($(OS),Windows_NT)
+RM = del
+else
+RM = rm -f
+endif
+
+----
+
+(source_file)
+
+==================
+append assignment
+==================
+
+SOURCES = main.c
+SOURCES += util.c
+
+----
+
+(source_file)
+
+==================
+multiple targets
+==================
+
+foo bar baz:
+	touch $@
+
+----
+
+(source_file)

@@ -1,0 +1,53 @@
+================================================================================
+Namespace
+================================================================================
+
+namespace X
+  export
+  test : Int -> Int
+
+--------------------------------------------------------------------------------
+
+(idris
+  (namespace
+    (caname)
+    (namespace_body
+      (signature
+        (visibility)
+        (loname)
+        (colon)
+        (exp_name
+          (caname))
+        (arrow_separator)
+        (exp_name
+          (caname))))))
+
+================================================================================
+Namespace inside function where
+================================================================================
+
+_ = g where
+  namespace X
+    export
+    g : Nat
+
+--------------------------------------------------------------------------------
+
+(idris
+  (function
+    (lhs
+      (wildcard))
+    (rhs
+      (exp_name
+        (loname)))
+    (where)
+    (declarations
+      (namespace
+        (caname)
+        (namespace_body
+          (signature
+            (visibility)
+            (loname)
+            (colon)
+            (exp_name
+              (caname))))))))

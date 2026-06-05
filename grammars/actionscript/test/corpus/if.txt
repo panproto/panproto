@@ -1,0 +1,74 @@
+=========
+simple if
+=========
+
+if (a == b) {
+
+}
+
+---
+
+(program
+    (if_statement
+        (parenthesized_expression
+            (binary_expression (identifier) (identifier))
+        )
+        (statement_block)
+    )
+)
+
+=======
+if-else
+=======
+
+if (a == b) {
+
+} else {
+
+}
+
+---
+
+(program
+    (if_statement
+        (parenthesized_expression
+            (binary_expression (identifier) (identifier))
+        )
+        (statement_block)
+    (else_clause
+        (statement_block))
+    )
+)
+
+==============
+if-elseif-else
+==============
+
+if (a == b) {
+
+} else if (a == c) {
+
+} else {
+
+}
+
+---
+
+
+(program
+    (if_statement
+        (parenthesized_expression
+            (binary_expression (identifier) (identifier))
+        )
+        (statement_block)
+    (else_clause
+        (if_statement
+            (parenthesized_expression
+                (binary_expression (identifier) (identifier))
+            )
+        (statement_block)
+        (else_clause
+            (statement_block)))
+        )
+    )
+)

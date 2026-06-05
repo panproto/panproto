@@ -1,0 +1,61 @@
+================================================================================
+Visible property case variations test
+================================================================================
+
+page 50000 "Test Page"
+{
+    layout
+    {
+        area(content)
+        {
+            field("Field1"; Rec."Field1")
+            {
+                Visible = true;
+            }
+            field("Field2"; Rec."Field2")
+            {
+                visible = false;
+            }
+            field("Field3"; Rec."Field3")
+            {
+                VISIBLE = true;
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (page_field
+          name: (quoted_identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (quoted_identifier))
+          (property
+            name: (property_name)
+            value: (boolean)))
+        (page_field
+          name: (quoted_identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (quoted_identifier))
+          (property
+            name: (property_name)
+            value: (boolean)))
+        (page_field
+          name: (quoted_identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (quoted_identifier))
+          (property
+            name: (property_name)
+            value: (boolean)))))))

@@ -1,0 +1,26 @@
+===
+modules/lists.pkl
+===
+
+x = List(
+  List(1, 2),
+  List(3, 4)
+)
+---
+
+(module
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList
+            (intLiteralExpr)
+            (intLiteralExpr)))
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList
+            (intLiteralExpr)
+            (intLiteralExpr)))))))

@@ -1,0 +1,116 @@
+===
+basic/newInAmendingModuleMethod.pkl
+===
+
+amends "baseModule.pkl"
+
+local class Person {
+  name: String
+  type: String
+}
+
+local function pigeon(): Person = new { name = "Pigeon"; type = getClass().simpleName }
+
+local function barnOwl() = new { name = "Barn Owl"; type = getClass().simpleName }
+
+local function parrot(): unknown = new { name = "Parrot"; type = getClass().simpleName }
+
+foo = List(pigeon(), barnOwl(), parrot())
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (clazz
+    (modifier)
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))))
+  (classMethod
+    (methodHeader
+      (modifier)
+      (identifier)
+      (parameterList)
+      (typeAnnotation
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))))
+    (newExpr
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart)))
+        (objectProperty
+          (identifier)
+          (qualifiedAccessExpr
+            (unqualifiedAccessExpr
+              (identifier)
+              (argumentList))
+            (identifier))))))
+  (classMethod
+    (methodHeader
+      (modifier)
+      (identifier)
+      (parameterList))
+    (newExpr
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart)))
+        (objectProperty
+          (identifier)
+          (qualifiedAccessExpr
+            (unqualifiedAccessExpr
+              (identifier)
+              (argumentList))
+            (identifier))))))
+  (classMethod
+    (methodHeader
+      (modifier)
+      (identifier)
+      (parameterList)
+      (typeAnnotation
+        (unknownType)))
+    (newExpr
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart)))
+        (objectProperty
+          (identifier)
+          (qualifiedAccessExpr
+            (unqualifiedAccessExpr
+              (identifier)
+              (argumentList))
+            (identifier))))))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList))
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList))
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList))))))

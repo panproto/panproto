@@ -1,0 +1,247 @@
+================================================================================
+Enum variant destructuring
+================================================================================
+
+let 'Foo ('Bar x) = 'Foo ('Bar std.array) in x
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (let_expr
+      (let_in_block
+        (let_binding
+          (pattern
+            (enum_pattern
+              (enum_variant_pattern
+                (enum_tag
+                  (raw_enum_tag))
+                (pattern_fun
+                  (enum_pattern_parens
+                    (enum_variant_pattern
+                      (enum_tag
+                        (raw_enum_tag))
+                      (pattern_fun
+                        (ident))))))))
+          (term
+            (uni_term
+              (infix_expr
+                (applicative
+                  (enum_variant
+                    (enum_tag
+                      (raw_enum_tag))
+                    (record_operand
+                      (atom
+                        (uni_term
+                          (infix_expr
+                            (applicative
+                              (enum_variant
+                                (enum_tag
+                                  (raw_enum_tag))
+                                (record_operand
+                                  (record_operation_chain
+                                    (record_operand
+                                      (atom
+                                        (ident)))
+                                    (ident))))))))))))))))
+      (term
+        (uni_term
+          (infix_expr
+            (applicative
+              (record_operand
+                (atom
+                  (ident))))))))))
+
+================================================================================
+Function destructuring
+================================================================================
+
+fun {x,y} {y,z} ('Foo e) 'Bar or 'Baz => x + y + z
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (fun_expr
+      (pattern_fun
+        (record_pattern
+          (field_pattern
+            (ident))
+          (last_field_pat
+            (field_pattern
+              (ident)))))
+      (pattern_fun
+        (record_pattern
+          (field_pattern
+            (ident))
+          (last_field_pat
+            (field_pattern
+              (ident)))))
+      (pattern_fun
+        (enum_pattern_parens
+          (enum_variant_pattern
+            (enum_tag
+              (raw_enum_tag))
+            (pattern_fun
+              (ident)))))
+      (pattern_fun
+        (enum_pattern_parens
+          (enum_tag
+            (raw_enum_tag))))
+      (pattern_fun
+        (ident))
+      (pattern_fun
+        (enum_pattern_parens
+          (enum_tag
+            (raw_enum_tag))))
+      (term
+        (uni_term
+          (infix_expr
+            (infix_expr
+              (infix_expr
+                (applicative
+                  (record_operand
+                    (atom
+                      (ident)))))
+              (infix_b_op_4)
+              (infix_expr
+                (applicative
+                  (record_operand
+                    (atom
+                      (ident))))))
+            (infix_b_op_4)
+            (infix_expr
+              (applicative
+                (record_operand
+                  (atom
+                    (ident)))))))))))
+
+================================================================================
+Alias destructuring
+================================================================================
+
+let x @ {} = {} in x
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (let_expr
+      (let_in_block
+        (let_binding
+          (pattern
+            (ident)
+            (record_pattern))
+          (term
+            (uni_term
+              (infix_expr
+                (applicative
+                  (record_operand
+                    (atom
+                      (uni_record)))))))))
+      (term
+        (uni_term
+          (infix_expr
+            (applicative
+              (record_operand
+                (atom
+                  (ident))))))))))
+
+================================================================================
+Record pattern matching
+================================================================================
+
+match {
+  {x, y=z, u=v@'Foo w} => x,
+  {x, ..rest} => rest,
+  {x={y}, z='Foo {u, v}} => null,
+  _ => null,
+}
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (infix_expr
+      (applicative
+        (match_expr
+          (match_branch
+            (pattern
+              (record_pattern
+                (field_pattern
+                  (ident))
+                (field_pattern
+                  (ident)
+                  (pattern
+                    (ident)))
+                (last_field_pat
+                  (field_pattern
+                    (ident)
+                    (pattern
+                      (ident)
+                      (enum_pattern
+                        (enum_variant_pattern
+                          (enum_tag
+                            (raw_enum_tag))
+                          (pattern_fun
+                            (ident)))))))))
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom
+                        (ident))))))))
+          (match_branch
+            (pattern
+              (record_pattern
+                (field_pattern
+                  (ident))
+                (last_field_pat
+                  (ident))))
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom
+                        (ident))))))))
+          (match_branch
+            (pattern
+              (record_pattern
+                (field_pattern
+                  (ident)
+                  (pattern
+                    (record_pattern
+                      (last_field_pat
+                        (field_pattern
+                          (ident))))))
+                (last_field_pat
+                  (field_pattern
+                    (ident)
+                    (pattern
+                      (enum_pattern
+                        (enum_variant_pattern
+                          (enum_tag
+                            (raw_enum_tag))
+                          (pattern_fun
+                            (record_pattern
+                              (field_pattern
+                                (ident))
+                              (last_field_pat
+                                (field_pattern
+                                  (ident))))))))))))
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom)))))))
+          (match_branch
+            (pattern)
+            (term
+              (uni_term
+                (infix_expr
+                  (applicative
+                    (record_operand
+                      (atom))))))))))))

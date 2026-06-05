@@ -1,0 +1,59 @@
+===
+objects/super2.pkl
+===
+
+parent {
+ x = 1 + y
+ y = 2
+}
+
+child = (parent) {
+  x = super.x + 100
+  y = 3
+}
+
+grandChild = (child) {
+  y = 4
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (additiveExpr
+          (intLiteralExpr)
+          (unqualifiedAccessExpr
+            (identifier))))
+      (objectProperty
+        (identifier)
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (additiveExpr
+            (superAccessExpr
+              (identifier))
+            (intLiteralExpr)))
+        (objectProperty
+          (identifier)
+          (intLiteralExpr)))))
+  (classProperty
+    (identifier)
+    (amendExpr
+      (parenthesizedExpr
+        (unqualifiedAccessExpr
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (intLiteralExpr))))))

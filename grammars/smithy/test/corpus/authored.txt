@@ -1,0 +1,117 @@
+==================
+Version and namespace
+==================
+
+$version: "2.0"
+
+namespace example.weather
+
+---
+
+(source_file)
+
+==================
+Structure shape
+==================
+
+namespace example.weather
+
+structure City {
+    name: String
+    coordinates: CityCoordinates
+}
+
+---
+
+(source_file)
+
+==================
+Service shape
+==================
+
+namespace example.weather
+
+service Weather {
+    version: "2006-03-01"
+    resources: [City]
+}
+
+---
+
+(source_file)
+
+==================
+Operation shape
+==================
+
+namespace example.weather
+
+operation GetCity {
+    input: GetCityInput
+    output: GetCityOutput
+}
+
+---
+
+(source_file)
+
+==================
+List shape
+==================
+
+namespace example.weather
+
+list CityList {
+    member: City
+}
+
+---
+
+(source_file)
+
+==================
+Use statements
+==================
+
+$version: "2.0"
+
+namespace example.weather
+
+use aws.protocols#restJson1
+
+---
+
+(source_file)
+
+==================
+Traits on structure
+==================
+
+namespace example.weather
+
+@error("client")
+structure NoSuchResource {
+    @required
+    resourceType: String
+}
+
+---
+
+(source_file)
+
+==================
+Enum shape
+==================
+
+namespace example.weather
+
+enum Suit {
+    DIAMOND
+    CLUB
+    HEART
+    SPADE
+}
+
+---
+
+(source_file)

@@ -1,0 +1,104 @@
+===
+packages/packages2.pkl
+===
+
+amends ".../snippetTest.pkl"
+
+examples {
+  ["glob import"] {
+    import*("package://localhost:0/birds@0.5.0#/catalog/*.pkl")
+  }
+  ["glob import within package"] {
+    import("package://localhost:0/birds@0.5.0#/catalog.pkl").catalog
+  }
+  ["glob import transitive dep within package"] {
+    import("package://localhost:0/birds@0.5.0#/allFruit.pkl").fruit
+  }
+  ["glob read"] {
+    read*("package://localhost:0/birds@0.5.0#/catalog/*.pkl")
+  }
+  ["glob read within package"] {
+    import("package://localhost:0/birds@0.5.0#/catalog.pkl").catalogFiles
+  }
+  ["glob read transitive dep within package"] {
+    import("package://localhost:0/birds@0.5.0#/allFruit.pkl").fruitFiles
+  }
+  ["glob import while specifying checksum"] {
+    import*("package://localhost:0/birds@0.5.0::sha256:6f18af649b47986530cd6dc39abe17888db2701bc5381c385fb86a32fda2685e#/catalog/*.pkl")
+  }
+}
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (importExpr
+              (stringConstant
+                (slStringLiteralPart))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (qualifiedAccessExpr
+              (importExpr
+                (stringConstant
+                  (slStringLiteralPart)))
+              (identifier)))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (qualifiedAccessExpr
+              (importExpr
+                (stringConstant
+                  (slStringLiteralPart)))
+              (identifier)))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (readExpr
+              (slStringLiteralExpr
+                (slStringLiteralPart))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (qualifiedAccessExpr
+              (importExpr
+                (stringConstant
+                  (slStringLiteralPart)))
+              (identifier)))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (qualifiedAccessExpr
+              (importExpr
+                (stringConstant
+                  (slStringLiteralPart)))
+              (identifier)))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (importExpr
+              (stringConstant
+                (slStringLiteralPart)))))))))

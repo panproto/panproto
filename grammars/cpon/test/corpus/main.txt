@@ -1,0 +1,305 @@
+================================================================================
+Meta
+================================================================================
+
+<"foo":"bar", 1:<2:"baz">"baz">1
+
+---
+
+(document
+  (meta_map
+    (meta_pair
+      (string
+        (string_content))
+      (string
+        (string_content)))
+    (meta_pair
+      (number)
+      (meta_map
+        (meta_pair
+          (number)
+          (string
+            (string_content))))
+      (string
+        (string_content))))
+  (number))
+
+
+
+================================================================================
+Meta with weird spacing
+================================================================================
+
+<
+  "foo":  "bar"
+  1:<
+    2: "baz"
+  >
+    "baz"
+>1
+
+---
+
+(document
+  (meta_map
+    (meta_pair
+      (string
+        (string_content))
+      (string
+        (string_content)))
+    (meta_pair
+      (number)
+      (meta_map
+        (meta_pair
+          (number)
+          (string
+            (string_content))))
+      (string
+        (string_content))))
+  (number))
+
+
+
+=================================================================================
+Array
+=================================================================================
+
+[
+  345,
+  10.1  10,
+
+  -10,
+  123u
+  0xabc,
+  0x23efu,
+  0X123dc
+  null
+
+  true,
+  false,
+,
+  { "stuff": "good" },
+  i{ 
+    1: 2 2:"foo",
+  },
+]
+
+---
+
+(document
+  (array
+    (number)
+    (float)
+    (number)
+    (number)
+    (number)
+    (number)
+    (number)
+    (number)
+    (null)
+    (boolean)
+    (boolean)
+    (map
+      (pair
+        (string (string_content))
+        (string (string_content))))
+    (imap
+      (ipair
+        (number)
+        (number))
+      (ipair
+        (number)
+        (string (string_content))))))
+
+
+
+=================================================================================
+Array with comment
+================================================================================
+
+[1,/*2,*/3]
+
+---
+
+(document
+  (array
+    (number)
+    (comment)
+    (number)))
+
+
+
+=================================================================================
+DateTime
+================================================================================
+
+[
+  d"2020-01-23T12:13:14"
+  d"2020-01-23T12:13:14.123"
+  d"2020-01-23T12:13:14.123Z"
+  d"2020-01-23T12:13:14+1030"
+  d"2020-01-23T12:13:14.999-03"
+  d"2020-01-23T12:13:14.456Z"
+  d"2020-01-23T12:13:14Z"
+]
+
+---
+
+(document
+  (array
+    (datetime)
+    (datetime)
+    (datetime)
+    (datetime)
+    (datetime)
+    (datetime)
+    (datetime)))
+
+
+
+================================================================================
+String content
+================================================================================
+
+[
+  "",
+  "abc",
+  "def\n",
+  "ghi\t",
+  "jkl\f"
+]
+
+---
+
+(document
+  (array
+	(string)
+	(string
+	  (string_content))
+	(string
+	  (string_content)
+	  (escape_sequence))
+	(string
+	  (string_content)
+	  (escape_sequence))
+	(string
+	  (string_content)
+	  (escape_sequence))))
+
+
+
+================================================================================
+Top-level number
+================================================================================
+
+-1
+
+---
+
+(document
+  (number))
+
+
+
+================================================================================
+Array of numbers
+================================================================================
+
+[
+  1
+  0xabc
+  1e23
+]
+
+---
+
+(document
+  (array
+    (number)
+    (number)
+    (float)))
+
+
+
+================================================================================
+Array of blobs
+================================================================================
+
+[
+  b"ab\\\3123" // "ab\123"
+  b"ab1"
+  b"ab\31"
+  x"616231"
+]
+
+---
+
+(document
+  (array
+	(esc_blob
+	  (string_content)
+	  (escape_sequence)
+	  (escape_sequence)
+	  (string_content))
+	(comment)
+	(esc_blob
+	  (string_content))
+	(esc_blob
+	  (string_content)
+	  (escape_sequence))
+	(hex_blob)))
+
+
+
+================================================================================
+Top-level null
+================================================================================
+
+null
+
+---
+
+(document
+  (null))
+
+
+
+================================================================================
+Comments
+================================================================================
+
+{
+  "a": 1,
+  
+  // we allow comments, because several
+  // commonly used tools allow comments in
+  // files with the extension `.cpon`
+  "b": "2",
+
+  /*
+   * Block comments are also ok
+   */
+  "c": 3
+}
+
+---
+
+(document
+  (map
+	(pair
+	  (string
+		(string_content))
+	  (number))
+	(comment)
+	(comment)
+	(comment)
+	(pair
+	  (string
+		(string_content))
+	  (string
+		(string_content)))
+	(comment)
+	(pair
+	  (string
+		(string_content))
+	  (number))))

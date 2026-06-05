@@ -1,0 +1,74 @@
+==================
+Enum Keyword Qualification
+==================
+
+codeunit 50120 "Enum Keyword Qualification Test"
+{
+    local procedure Initialize()
+    var
+        CopilotCapability: Codeunit "Copilot Capability";
+    begin
+        if not CopilotCapability.IsCapabilityRegistered(Enum::"Copilot Capability"::"CDO Translation of HTML Email") then
+            CopilotCapability.RegisterCapability(Enum::"Copilot Capability"::"CDO Translation of HTML Email", CapabilityDocumentationUrlLbl);
+
+        MaxTokensCount := 8192;
+        DefaultTemperature := 0.7;
+    end;
+}
+
+---
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    (integer)
+    (quoted_identifier)
+    (procedure
+      (procedure_modifier
+        (local_keyword))
+      (procedure_keyword)
+      (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          (identifier)
+          (type_specification
+            (object_reference_type
+              (codeunit_keyword)
+              (quoted_identifier)))))
+      (code_block
+        (begin_keyword)
+        (if_statement
+          (if_keyword)
+          (unary_expression
+            (call_expression
+              (member_expression
+                (identifier)
+                (identifier))
+              (argument_list
+                (qualified_enum_value
+                  (qualified_enum_value
+                    (keyword_identifier
+                      (enum_keyword))
+                    (quoted_identifier))
+                  (quoted_identifier)))))
+          (then_keyword)
+          (call_expression
+            (member_expression
+              (identifier)
+              (identifier))
+            (argument_list
+              (qualified_enum_value
+                (qualified_enum_value
+                  (keyword_identifier
+                    (enum_keyword))
+                  (quoted_identifier))
+                (quoted_identifier))
+              (identifier))))
+        (assignment_statement
+          (identifier)
+          (integer))
+        (assignment_statement
+          (identifier)
+          (decimal))
+        (end_keyword)))))

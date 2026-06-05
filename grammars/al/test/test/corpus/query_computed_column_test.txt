@@ -1,0 +1,99 @@
+==================
+Query with computed column
+==================
+
+query 50000 "Test Query"
+{
+    elements
+    {
+        dataitem(InvoiceLines; "Invoice Line")
+        {
+            column(LinesCount)
+            {
+                Method = Count;
+            }
+            column(TotalAmount)
+            {
+                Method = Sum;
+            }
+        }
+    }
+}
+
+---
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))))))
+
+==================
+Query with standard and computed columns
+==================
+
+query 50001 "Mixed Columns"
+{
+    elements
+    {
+        dataitem(Orders; "Sales Order")
+        {
+            column(Order_No_; "Order No.")
+            {
+            }
+            column(RecordCount)
+            {
+                Method = Count;
+            }
+            column(Amount; Amount)
+            {
+            }
+        }
+    }
+}
+
+---
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          field_name: (quoted_identifier))
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (identifier)))
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          field_name: (identifier))))))

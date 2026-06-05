@@ -1,0 +1,89 @@
+===
+refer dll
+===
+
+#r "path/to/MyAssembly.dll"
+#r @"path/to/MyAssembly.dll"
+
+---
+
+(file
+  (fsi_directive_decl
+    (string))
+  (fsi_directive_decl
+    (verbatim_string)))
+
+===
+refer nuget package
+===
+
+#r "nuget: FSharp.Data"
+#r @"nuget: FSharp.Data"
+
+---
+
+(file
+  (fsi_directive_decl
+    (string))
+  (fsi_directive_decl
+    (verbatim_string)))
+
+===
+load script
+===
+
+#load "Script1.fsx"
+#load @"Script1.fsx"
+
+---
+
+(file
+  (fsi_directive_decl
+    (string))
+  (fsi_directive_decl
+    (verbatim_string)))
+
+===
+time directive
+===
+
+#time
+
+---
+
+(file
+  (fsi_directive_decl))
+
+===
+include path directive
+===
+
+#I "path/to/dir"
+
+---
+
+(file
+  (fsi_directive_decl
+    (string)))
+
+===
+help directive
+===
+
+#help
+
+---
+
+(file
+  (fsi_directive_decl))
+
+===
+quit directive
+===
+
+#quit
+
+---
+
+(file
+  (fsi_directive_decl))

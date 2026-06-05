@@ -1,0 +1,262 @@
+================================================================================
+Simple fragment
+================================================================================
+
+filesrc location="music mp3" foo=99 ! mad ! audioconvert ! audioresample ! osssink
+filesrc location=music.mp3 ! mad ! audioconvert ! audioresample ! osssink
+
+--------------------------------------------------------------------------------
+
+(pipeline
+  (fragment
+    (element
+      (simple_element
+        (identifier)
+        (property
+          (identifier)
+          (value
+            (string_literal
+              (string_content))))
+        (property
+          (identifier)
+          (value))))
+    (element
+      (simple_element
+        (identifier)))
+    (element
+      (simple_element
+        (identifier)))
+    (element
+      (simple_element
+        (identifier)))
+    (element
+      (simple_element
+        (identifier))))
+  (fragment
+    (element
+      (simple_element
+        (identifier)
+        (property
+          (identifier)
+          (value))))
+    (element
+      (simple_element
+        (identifier)))
+    (element
+      (simple_element
+        (identifier)))
+    (element
+      (simple_element
+        (identifier)))
+    (element
+      (simple_element
+        (identifier)))))
+
+================================================================================
+Multiline
+================================================================================
+
+filesrc 
+  location="music mp3" foo=99 
+  ! mad !
+  audioconvert ! audioresample ! osssink
+--------------------------------------------------------------------------------
+
+(pipeline
+  (fragment
+    (element
+      (simple_element
+        (identifier)
+        (property
+          (identifier)
+          (value
+            (string_literal
+              (string_content))))
+        (property
+          (identifier)
+          (value))))
+    (element
+      (simple_element
+        (identifier)))
+    (element
+      (simple_element
+        (identifier)))
+    (element
+      (simple_element
+        (identifier)))
+    (element
+      (simple_element
+        (identifier)))))
+
+================================================================================
+Caps
+================================================================================
+video/x-raw-yuv,format=(fourcc)YUY2;video/x-raw-yuv,format=(fourcc)YV12 ! foo
+
+videotestsrc !
+video/x-raw-yuv,format=(fourcc)YUY2;video/x-raw-yuv,format=(fourcc)YV12
+! xvimagesink
+
+--------------------------------------------------------------------------------
+
+(pipeline
+  (fragment
+    (element
+      (caps
+        (cap
+          (identifier)
+          (identifier)
+          (property
+            (identifier)
+            (value)))
+        (cap
+          (identifier)
+          (identifier)
+          (property
+            (identifier)
+            (value)))))
+    (element
+      (simple_element
+        (identifier))))
+  (fragment
+    (element
+      (simple_element
+        (identifier)))
+    (element
+      (caps
+        (cap
+          (identifier)
+          (identifier)
+          (property
+            (identifier)
+            (value)))
+        (cap
+          (identifier)
+          (identifier)
+          (property
+            (identifier)
+            (value)))))
+    (element
+      (simple_element
+        (identifier)))))
+
+================================================================================
+Bin Syntax
+================================================================================
+
+pipeline. ( latency=2000000000 videotestsrc ! jpegenc ! jpegdec ! fakevideosink )
+
+--------------------------------------------------------------------------------
+
+(pipeline
+  (fragment
+    (element
+      (bin
+        (identifier)
+        (property
+          (identifier)
+          (value))
+        (fragment
+          (element
+            (simple_element
+              (identifier)))
+          (element
+            (simple_element
+              (identifier)))
+          (element
+            (simple_element
+              (identifier)))
+          (element
+            (simple_element
+              (identifier))))))))
+
+================================================================================
+Reference
+================================================================================
+
+.foo ! filesrc ! foo.bar !
+  .bie ! .bu ! osssink
+--------------------------------------------------------------------------------
+
+(pipeline
+  (fragment
+    (element
+      (reference
+        (identifier)))
+    (element
+      (simple_element
+        (identifier)))
+    (element
+      (reference
+        (identifier)
+        (identifier)))
+    (element
+      (reference
+        (identifier)))
+    (element
+      (reference
+        (identifier)))
+    (element
+      (simple_element
+        (identifier)))))
+
+================================================================================
+Allow bash line breaks
+================================================================================
+
+filesrc location="music mp3" foo=99 \
+  ! mad \
+  ! audioconvert \
+  ! audioresample \
+  ! osssink
+
+--------------------------------------------------------------------------------
+
+(pipeline
+  (fragment
+    (element
+      (simple_element
+        (identifier)
+        (property
+          (identifier)
+          (value
+            (string_literal
+              (string_content))))
+        (property
+          (identifier)
+          (value))))
+    (element
+      (simple_element
+        (identifier)))
+    (element
+      (simple_element
+        (identifier)))
+    (element
+      (simple_element
+        (identifier)))
+    (element
+      (simple_element
+        (identifier)))))
+
+================================================================================
+Multi-pad references
+================================================================================
+
+filesrc .src_0,src_1 ! .sink0,sink1 foo
+--------------------------------------------------------------------------------
+
+(pipeline
+  (fragment
+    (element
+      (reference
+        (identifier)
+        (identifier)
+        (identifier)))
+    (element
+      (reference
+        (identifier)
+        (identifier))))
+  (fragment
+    (element
+      (simple_element
+        (identifier)))))

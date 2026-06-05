@@ -1,0 +1,19 @@
+==================
+Tool directive
+==================
+
+tool github.com/ConradIrwin/dbg
+
+tool (
+    github.com/ConradIrwin/parallel
+    github.com/ConradIrwin/dbg
+)
+
+---
+
+(source_file
+	(tool_directive
+		(tool))
+	(tool_directive
+		(tool)
+		(tool)))

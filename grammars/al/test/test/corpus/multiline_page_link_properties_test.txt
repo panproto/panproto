@@ -1,0 +1,138 @@
+================================================================================
+SubPageLink with multiline field mappings with comma
+================================================================================
+
+page 50100 "Job WIP Cockpit"
+{
+    layout
+    {
+        area(content)
+        {
+            part(Control28; "Job WIP Totals")
+            {
+                SubPageLink = "Job No." = field("No."),
+                              "Posted to G/L" = const(false);
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (part_section
+          (part_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (quoted_identifier)
+                value: (quoted_identifier))
+              (link_value
+                field: (quoted_identifier)
+                value: (boolean)))))))))
+
+================================================================================
+RunPageLink with multiline field mappings with comma
+================================================================================
+
+page 50101 "Job WIP G/L Entries"
+{
+    actions
+    {
+        area(processing)
+        {
+            action(ViewEntries)
+            {
+                RunObject = Page "Job WIP G/L Entries";
+                RunPageLink = "Job No." = field("No."),
+                              Reversed = const(false);
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (actions_section
+      (actions_keyword)
+      (action_area_section
+        (area_keyword)
+        (action_declaration
+          name: (identifier)
+          (property
+            name: (property_name)
+            value: (object_reference_value
+              (page_keyword)
+              (quoted_identifier)))
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (quoted_identifier)
+                value: (quoted_identifier))
+              (link_value
+                field: (identifier)
+                value: (boolean)))))))))
+
+================================================================================
+Mixed multiline and comma-separated syntax
+================================================================================
+
+page 50102 "Mixed Links"
+{
+    layout
+    {
+        area(content)
+        {
+            part(Part1; "Test Part")
+            {
+                SubPageLink = "Job No." = field("No."), "Type" = const(Resource),
+                              "Posted" = const(false);
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (part_section
+          (part_keyword)
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (link_value_list
+              (link_value
+                field: (quoted_identifier)
+                value: (quoted_identifier))
+              (link_value
+                field: (quoted_identifier)
+                value: (identifier))
+              (link_value
+                field: (quoted_identifier)
+                value: (boolean)))))))))

@@ -1,0 +1,354 @@
+===
+mul
+===
+
+2 * 3;
+
+---
+
+(program
+    (expression_statement
+        (binary_expression (number) (number))
+    )
+)
+
+===
+div
+===
+
+2 / 3;
+
+---
+
+(program
+    (expression_statement
+        (binary_expression (number) (number))
+    )
+)
+
+===
+mod
+===
+
+2 % 3;
+
+---
+
+(program
+    (expression_statement
+        (binary_expression (number) (number))
+    )
+)
+
+===
+add
+===
+
+2 + 3;
+
+---
+
+(program
+    (expression_statement
+        (binary_expression (number) (number))
+    )
+)
+
+===
+sub
+===
+
+2 - 3;
+
+---
+
+(program
+    (expression_statement
+        (binary_expression (number) (number))
+    )
+)
+
+===
+shl
+===
+
+4 << 1;
+
+---
+
+(program
+    (expression_statement
+        (binary_expression (number) (number))
+    )
+)
+
+===
+shr
+===
+
+4 >> 1;
+
+---
+
+(program
+    (expression_statement
+        (binary_expression (number) (number))
+    )
+)
+
+====
+ushr
+====
+
+4 >>> 1;
+
+---
+
+(program
+    (expression_statement
+        (binary_expression (number) (number))
+    )
+)
+
+===
+gt
+===
+
+4 > 1;
+
+---
+
+(program
+    (expression_statement
+        (binary_expression (number) (number))
+    )
+)
+
+===
+lt
+===
+
+4 < 1;
+
+---
+
+(program
+    (expression_statement
+        (binary_expression (number) (number))
+    )
+)
+
+===
+gte
+===
+
+4 >= 1;
+
+---
+
+(program
+    (expression_statement
+        (binary_expression (number) (number))
+    )
+)
+
+===
+lte
+===
+
+4 <= 1;
+
+---
+
+(program
+    (expression_statement
+        (binary_expression (number) (number))
+    )
+)
+
+===
+as
+===
+
+23 as float;
+
+---
+
+(program
+    (expression_statement
+        (cast_expression (number) (identifier))
+    )
+)
+
+===
+in
+===
+
+1 in [1, 2];
+
+---
+
+(program
+    (expression_statement
+        (binary_expression 
+            (number)
+            (array (number) (number))
+        )
+    )
+)
+
+==========
+instanceof
+==========
+
+"Hello" instanceof String;
+
+---
+
+(program
+    (expression_statement
+        (binary_expression (string) (identifier))
+    )
+)
+
+===
+is
+===
+
+b is null;
+
+---
+
+(program
+    (expression_statement
+        (binary_expression (identifier) (null))
+    )
+)
+
+===
+eq
+===
+
+true == true;
+
+---
+
+(program
+    (expression_statement
+        (binary_expression (true) (true))
+    )
+)
+
+===
+neq
+===
+
+true != false;
+
+---
+
+(program
+    (expression_statement
+        (binary_expression (true) (false))
+    )
+)
+
+===
+seq
+===
+
+true === true;
+
+---
+
+(program
+    (expression_statement
+        (binary_expression (true) (true))
+    )
+)
+
+====
+sneq
+====
+
+true !== false;
+
+---
+
+(program
+    (expression_statement
+        (binary_expression (true) (false))
+    )
+)
+
+====
+band
+====
+
+4 & 1;
+
+---
+
+(program
+    (expression_statement
+        (binary_expression (number) (number))
+    )
+)
+
+====
+bxor
+====
+
+4 ^ 1;
+
+---
+
+(program
+    (expression_statement
+        (binary_expression (number) (number))
+    )
+)
+
+===
+bor
+===
+
+4 | 1;
+
+---
+
+(program
+    (expression_statement
+        (binary_expression (number) (number))
+    )
+)
+
+===
+and
+===
+
+true && true;
+
+---
+
+(program
+    (expression_statement
+        (binary_expression (true) (true))
+    )
+)
+
+
+===
+or
+===
+
+true || false;
+
+---
+
+(program
+    (expression_statement
+        (binary_expression (true) (false))
+    )
+)
+

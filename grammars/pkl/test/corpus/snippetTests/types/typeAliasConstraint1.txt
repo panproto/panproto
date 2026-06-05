@@ -1,0 +1,79 @@
+===
+types/typeAliasConstraint1.pkl
+===
+
+local typealias OneCharacterString = String(length == 1)
+
+local class ClassWithLengthProperty {
+  length: Int = 99
+  
+  characters: List<OneCharacterString> = List("a", "b")
+}
+
+res1: OneCharacterString = "a"
+res2 = let (c = new ClassWithLengthProperty {}) c.characters
+
+---
+
+(module
+  (typeAlias
+    (modifier)
+    (identifier)
+    (constrainedType
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (equalityExpr
+        (unqualifiedAccessExpr
+          (identifier))
+        (intLiteralExpr))))
+  (clazz
+    (modifier)
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))
+        (intLiteralExpr))
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))
+            (typeArgumentList
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier))))))
+        (unqualifiedAccessExpr
+          (identifier)
+          (argumentList
+            (slStringLiteralExpr
+              (slStringLiteralPart))
+            (slStringLiteralExpr
+              (slStringLiteralPart)))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (slStringLiteralExpr
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (letExpr
+      (typedIdentifier
+        (identifier))
+      (newExpr
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (objectBody))
+      (qualifiedAccessExpr
+        (unqualifiedAccessExpr
+          (identifier))
+        (identifier)))))

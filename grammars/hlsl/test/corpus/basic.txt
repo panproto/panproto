@@ -1,0 +1,637 @@
+================================================================================
+Simple compute shader
+================================================================================
+
+[numthreads(group_width, 1, 1)]
+void main(uint2 px: SV_DispatchThreadID, uint2 px_within_group: SV_GroupThreadID, uint2 group_id: SV_GroupID) {
+  for (int xfetch = px_within_group.x; xfetch < vblur_window_size; xfetch += group_width) {
+    vblur_into_shmem(px, xfetch, group_id);
+  }
+
+  vblur_into_shmem(px, xfetch, group_id);
+}
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (function_definition
+    (hlsl_attribute
+      (call_expression
+        (identifier)
+        (argument_list
+          (identifier)
+          (number_literal)
+          (number_literal))))
+    (primitive_type)
+    (function_declarator
+      (identifier)
+      (parameter_list
+        (parameter_declaration
+          (type_identifier)
+          (identifier)
+          (semantics
+            (identifier)))
+        (parameter_declaration
+          (type_identifier)
+          (identifier)
+          (semantics
+            (identifier)))
+        (parameter_declaration
+          (type_identifier)
+          (identifier)
+          (semantics
+            (identifier)))))
+    (compound_statement
+      (for_statement
+        (declaration
+          (primitive_type)
+          (init_declarator
+            (identifier)
+            (field_expression
+              (identifier)
+              (field_identifier))))
+        (binary_expression
+          (identifier)
+          (identifier))
+        (assignment_expression
+          (identifier)
+          (identifier))
+        (compound_statement
+          (expression_statement
+            (call_expression
+              (identifier)
+              (argument_list
+                (identifier)
+                (identifier)
+                (identifier))))))
+      (expression_statement
+        (call_expression
+          (identifier)
+          (argument_list
+            (identifier)
+            (identifier)
+            (identifier)))))))
+
+================================================================================
+uniform position
+================================================================================
+uniform float4 position : SV_POSITION; 
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (declaration
+    (qualifiers)
+    (type_identifier)
+    (identifier)
+    (semantics)
+    (semantics
+      (identifier))))
+
+================================================================================
+register semantics
+================================================================================
+SamplerState smp : register(s0);
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (declaration
+    (type_identifier)
+    (identifier)
+    (semantics)
+    (semantics
+      (call_expression
+        (identifier)
+        (argument_list
+          (identifier))))))
+
+================================================================================
+discard
+================================================================================
+
+float4 PS( PS_INPUT input) : SV_Target
+{
+    if(input.r >= 0.999998f)
+        discard;
+    return result;
+}
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (function_definition
+    (type_identifier)
+    (function_declarator
+      (identifier)
+      (parameter_list
+        (parameter_declaration
+          (type_identifier)
+          (identifier)))
+      (semantics
+        (identifier)))
+    (compound_statement
+      (if_statement
+        (condition_clause
+          (binary_expression
+            (field_expression
+              (identifier)
+              (field_identifier))
+            (number_literal)))
+        (discard_statement))
+      (return_statement
+        (identifier)))))
+
+================================================================================
+Packing
+================================================================================
+cbuffer MyBuffer
+{
+    float4 Element1 : packoffset(c0);
+    float1 Element2 : packoffset(c0);
+    float1 Element3 : packoffset(c0.y);
+}
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (function_definition
+    (type_identifier)
+    (identifier)
+    (compound_statement
+      (declaration
+        (type_identifier)
+        (identifier)
+        (semantics)
+        (semantics
+          (call_expression
+            (identifier)
+            (argument_list
+              (identifier)))))
+      (declaration
+        (type_identifier)
+        (identifier)
+        (semantics)
+        (semantics
+          (call_expression
+            (identifier)
+            (argument_list
+              (identifier)))))
+      (declaration
+        (type_identifier)
+        (identifier)
+        (semantics)
+        (semantics
+          (call_expression
+            (identifier)
+            (argument_list
+              (field_expression
+                (identifier)
+                (field_identifier)))))))))
+
+================================================================================
+Attributed fields
+================================================================================
+
+struct VsOut {
+	float4 position: SV_Position;
+    [[vk::location(0)]] float4 color: TEXCOORD0;
+    [[vk::location(1)]] float2 uv: TEXCOORD1;
+    [[vk::location(2)]] float3 normal: TEXCOORD2;
+    [[vk::location(3)]] nointerpolation uint material_id: TEXCOORD3;
+    [[vk::location(4)]] float3 tangent: TEXCOORD4;
+    [[vk::location(5)]] float3 bitangent: TEXCOORD5;
+    [[vk::location(6)]] float3 vs_pos: TEXCOORD6;
+    [[vk::location(7)]] float3 prev_vs_pos: TEXCOORD7;
+};
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (struct_specifier
+    (type_identifier)
+    (field_declaration_list
+      (field_declaration
+        (type_identifier)
+        (field_identifier)
+        (bitfield_clause
+          (identifier)))
+      (field_declaration
+        (attribute_declaration
+          (attribute
+            (identifier)
+            (identifier)
+            (argument_list
+              (number_literal))))
+        (type_identifier)
+        (field_identifier)
+        (bitfield_clause
+          (identifier)))
+      (field_declaration
+        (attribute_declaration
+          (attribute
+            (identifier)
+            (identifier)
+            (argument_list
+              (number_literal))))
+        (type_identifier)
+        (field_identifier)
+        (bitfield_clause
+          (identifier)))
+      (field_declaration
+        (attribute_declaration
+          (attribute
+            (identifier)
+            (identifier)
+            (argument_list
+              (number_literal))))
+        (type_identifier)
+        (field_identifier)
+        (bitfield_clause
+          (identifier)))
+      (field_declaration
+        (attribute_declaration
+          (attribute
+            (identifier)
+            (identifier)
+            (argument_list
+              (number_literal))))
+        (qualifiers)
+        (type_identifier)
+        (field_identifier)
+        (bitfield_clause
+          (identifier)))
+      (field_declaration
+        (attribute_declaration
+          (attribute
+            (identifier)
+            (identifier)
+            (argument_list
+              (number_literal))))
+        (type_identifier)
+        (field_identifier)
+        (bitfield_clause
+          (identifier)))
+      (field_declaration
+        (attribute_declaration
+          (attribute
+            (identifier)
+            (identifier)
+            (argument_list
+              (number_literal))))
+        (type_identifier)
+        (field_identifier)
+        (bitfield_clause
+          (identifier)))
+      (field_declaration
+        (attribute_declaration
+          (attribute
+            (identifier)
+            (identifier)
+            (argument_list
+              (number_literal))))
+        (type_identifier)
+        (field_identifier)
+        (bitfield_clause
+          (identifier)))
+      (field_declaration
+        (attribute_declaration
+          (attribute
+            (identifier)
+            (identifier)
+            (argument_list
+              (number_literal))))
+        (type_identifier)
+        (field_identifier)
+        (bitfield_clause
+          (identifier))))))
+
+================================================================================
+Unroll
+================================================================================
+
+    [unroll]
+    for (uint step = 0; step < STEP_COUNT; step++) {
+    }
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (for_statement
+    (hlsl_attribute
+      (identifier))
+    (declaration
+      (type_identifier)
+      (init_declarator
+        (identifier)
+        (number_literal)))
+    (binary_expression
+      (identifier)
+      (identifier))
+    (update_expression
+      (identifier))
+    (compound_statement)))
+
+================================================================================
+semantic return
+================================================================================
+
+fixed4 frag(v2f v) : SV_Target {
+  return float4(1.0,1.0,1.0,1.0);
+}
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (function_definition
+    (type_identifier)
+    (function_declarator
+      (identifier)
+      (parameter_list
+        (parameter_declaration
+          (type_identifier)
+          (identifier)))
+      (semantics
+        (identifier)))
+    (compound_statement
+      (return_statement
+        (call_expression
+          (identifier)
+          (argument_list
+            (number_literal)
+            (number_literal)
+            (number_literal)
+            (number_literal)))))))
+
+================================================================================
+Decorated if
+================================================================================
+
+
+    [branch]
+    if (is_cleared)
+    {
+        if (pass != 1)
+        {
+            results.x = all_in_light ? 1.0 : 0.0;
+            bWriteResults = true;
+        }
+    }
+    else
+    {
+        results = FFX_DNSR_Shadows_ApplyFilterWithPrecache(did, gtid, stepsize);
+        bWriteResults = true;
+    }
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (if_statement
+    (hlsl_attribute
+      (identifier))
+    (condition_clause
+      (identifier))
+    (compound_statement
+      (if_statement
+        (condition_clause
+          (binary_expression
+            (identifier)
+            (number_literal)))
+        (compound_statement
+          (expression_statement
+            (assignment_expression
+              (field_expression
+                (identifier)
+                (field_identifier))
+              (conditional_expression
+                (identifier)
+                (number_literal)
+                (number_literal))))
+          (expression_statement
+            (assignment_expression
+              (identifier)
+              (true))))))
+    (else_clause
+      (compound_statement
+        (expression_statement
+          (assignment_expression
+            (identifier)
+            (call_expression
+              (identifier)
+              (argument_list
+                (identifier)
+                (identifier)
+                (identifier)))))
+        (expression_statement
+          (assignment_expression
+            (identifier)
+            (true)))))))
+
+================================================================================
+Properties
+================================================================================
+Properties {
+  _MainTex("Texture", 2D) = "white" {}
+}
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (expression_statement
+    (compound_literal_expression
+      (type_identifier)
+      (initializer_list
+        (assignment_expression
+          (call_expression
+            (identifier)
+            (argument_list
+              (string_literal
+                (string_content))
+              (user_defined_literal
+                (number_literal)
+                (literal_suffix))))
+          (ERROR
+            (string_literal
+              (string_content)))
+          (initializer_list))))
+    (MISSING ";")))
+
+================================================================================
+Blur
+================================================================================
+void vblur_into_shmem(int2 dst_px, uint xfetch, uint2 group_id) {
+    int2 src_px = group_id * int2(group_width * 2, 2) + int2(xfetch - kernel_radius, -kernel_radius);
+    vblur_out[xfetch] = vblur(dst_px, src_px);
+}
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (function_definition
+    (primitive_type)
+    (function_declarator
+      (identifier)
+      (parameter_list
+        (parameter_declaration
+          (type_identifier)
+          (identifier))
+        (parameter_declaration
+          (type_identifier)
+          (identifier))
+        (parameter_declaration
+          (type_identifier)
+          (identifier))))
+    (compound_statement
+      (declaration
+        (type_identifier)
+        (init_declarator
+          (identifier)
+          (binary_expression
+            (binary_expression
+              (identifier)
+              (call_expression
+                (identifier)
+                (argument_list
+                  (binary_expression
+                    (identifier)
+                    (number_literal))
+                  (number_literal))))
+            (call_expression
+              (identifier)
+              (argument_list
+                (binary_expression
+                  (identifier)
+                  (identifier))
+                (unary_expression
+                  (identifier)))))))
+      (expression_statement
+        (assignment_expression
+          (subscript_expression
+            (identifier)
+            (subscript_argument_list
+              (identifier)))
+          (call_expression
+            (identifier)
+            (argument_list
+              (identifier)
+              (identifier))))))))
+
+================================================================================
+Compute with array
+================================================================================
+[numthreads(64, 1, 1)]
+void main(uint entry_idx: SV_DispatchThreadID) {
+    entry_occupancy_buf[entry_idx] = valid;
+}
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (function_definition
+    (hlsl_attribute
+      (call_expression
+        (identifier)
+        (argument_list
+          (number_literal)
+          (number_literal)
+          (number_literal))))
+    (primitive_type)
+    (function_declarator
+      (identifier)
+      (parameter_list
+        (parameter_declaration
+          (type_identifier)
+          (identifier)
+          (semantics
+            (identifier)))))
+    (compound_statement
+      (expression_statement
+        (assignment_expression
+          (subscript_expression
+            (identifier)
+            (subscript_argument_list
+              (identifier)))
+          (identifier))))))
+
+================================================================================
+DXC mapping example
+================================================================================
+[[vk::location(1)]]
+float4 VSMain(in  VSInput input,
+              [[vk::location(2)]]
+              in  float4  tex     : TEXCOORD,
+              out float4  pos     : SV_Position) : TEXCOORD {
+  pos = input.pos;
+  return tex;
+}
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (function_definition
+    (attribute_declaration
+      (attribute
+        (identifier)
+        (identifier)
+        (argument_list
+          (number_literal))))
+    (type_identifier)
+    (function_declarator
+      (identifier)
+      (parameter_list
+        (parameter_declaration
+          (type_identifier)
+          (identifier))
+        (parameter_declaration
+          (attribute_declaration
+            (attribute
+              (identifier)
+              (identifier)
+              (argument_list
+                (number_literal))))
+          (type_identifier)
+          (identifier)
+          (semantics
+            (identifier)))
+        (parameter_declaration
+          (type_identifier)
+          (identifier)
+          (semantics
+            (identifier))))
+      (semantics
+        (identifier)))
+    (compound_statement
+      (expression_statement
+        (assignment_expression
+          (identifier)
+          (field_expression
+            (identifier)
+            (field_identifier))))
+      (return_statement
+        (identifier)))))
+
+================================================================================
+static method
+================================================================================
+
+struct OcclusionScreenRayMarch {
+    static OcclusionScreenRayMarch create(
+        float2 raymarch_start_uv
+    ) {
+        OcclusionScreenRayMarch res;
+        return res;
+    }
+};
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (struct_specifier
+    (type_identifier)
+    (field_declaration_list
+      (function_definition
+        (storage_class_specifier)
+        (type_identifier)
+        (function_declarator
+          (field_identifier)
+          (parameter_list
+            (parameter_declaration
+              (type_identifier)
+              (identifier))))
+        (compound_statement
+          (declaration
+            (type_identifier)
+            (identifier))
+          (return_statement
+            (identifier)))))))

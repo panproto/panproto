@@ -1,0 +1,37 @@
+=========
+Brackets
+=========
+
+|1000
+
+[]
+
+[#10 "a
+
+]
+
+@Console [ &vector $2 &read ]
+
+---
+
+(program
+  (memory_execution
+    (absolute_pad_operation
+      (number))
+    (brackets)
+    (brackets
+      (hex_literal
+        (hex_lit_value))
+      (raw_ascii)))
+  (subroutine
+    (label
+      (identifier))
+    (brackets
+      (rune
+        (rune_char)
+        (identifier))
+      (relative_pad_operation
+        (number))
+      (rune
+        (rune_char)
+        (identifier)))))

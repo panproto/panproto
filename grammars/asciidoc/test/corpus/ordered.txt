@@ -1,0 +1,98 @@
+===========
+ordered
+===========
+
+1. Protons
+2. Electrons
+3. Neutrons
+
+. Linux
+
+* Fedora
+* Ubuntu
+* Slackware
+
+. BSD
+
+* FreeBSD
+* NetBSD
+
+α. Protons
+β. Electrons
+γ. Neutrons
+
+-----
+
+(document
+  (block_element
+    (section_block
+      (list
+        (ordered_list
+          (ordered_list_item
+            (ordered_list_marker
+              (list_marker_digit))
+            (line))
+          (ordered_list_item
+            (ordered_list_marker
+              (list_marker_digit))
+            (line))
+          (ordered_list_item
+            (ordered_list_marker
+              (list_marker_digit))
+            (line))
+          (ordered_list_item
+            (ordered_list_marker
+              (list_marker_dot))
+            (line))))))
+  (block_element
+    (section_block
+      (list
+        (unordered_list
+          (unordered_list_item
+            (unordered_list_marker
+              (list_marker_star))
+            (line))
+          (unordered_list_item
+            (unordered_list_marker
+              (list_marker_star))
+            (line))
+          (unordered_list_item
+            (unordered_list_marker
+              (list_marker_star))
+            (line))))))
+  (block_element
+    (section_block
+      (list
+        (ordered_list
+          (ordered_list_item
+            (ordered_list_marker
+              (list_marker_dot))
+            (line))))))
+  (block_element
+    (section_block
+      (list
+        (unordered_list
+          (unordered_list_item
+            (unordered_list_marker
+              (list_marker_star))
+            (line))
+          (unordered_list_item
+            (unordered_list_marker
+              (list_marker_star))
+            (line))))))
+  (block_element
+    (section_block
+      (list
+        (ordered_list
+          (ordered_list_item
+            (ordered_list_marker
+              (list_marker_geek))
+            (line))
+          (ordered_list_item
+            (ordered_list_marker
+              (list_marker_geek))
+            (line))
+          (ordered_list_item
+            (ordered_list_marker
+              (list_marker_geek))
+            (line)))))))

@@ -1,0 +1,85 @@
+==================
+forward application
+==================
+
+rule app(X, Y) : X/Y, Y => X
+
+---
+
+(source_file
+  (rule_decl
+    name: (identifier)
+    variables: (identifier)
+    variables: (identifier)
+    premises: (type_slash
+      result: (type_atom (identifier))
+      argument: (type_atom (identifier)))
+    premises: (type_atom (identifier))
+    conclusion: (type_atom (identifier))))
+
+==================
+forward composition (left-associative)
+==================
+
+rule comp(X, Y, Z) : X/Y, Y/Z => X/Z
+
+---
+
+(source_file
+  (rule_decl
+    name: (identifier)
+    variables: (identifier)
+    variables: (identifier)
+    variables: (identifier)
+    premises: (type_slash
+      result: (type_atom (identifier))
+      argument: (type_atom (identifier)))
+    premises: (type_slash
+      result: (type_atom (identifier))
+      argument: (type_atom (identifier)))
+    conclusion: (type_slash
+      result: (type_atom (identifier))
+      argument: (type_atom (identifier)))))
+
+==================
+parenthesized backslash
+==================
+
+rule lift(A) : A => B/(A\B)
+
+---
+
+(source_file
+  (rule_decl
+    name: (identifier)
+    variables: (identifier)
+    premises: (type_atom (identifier))
+    conclusion: (type_slash
+      result: (type_atom (identifier))
+      argument: (type_paren
+        (type_slash
+          result: (type_atom (identifier))
+          argument: (type_atom (identifier)))))))
+
+==================
+effect-typed application: T(X)
+==================
+
+rule scope_take(X, Y) : Cont_S(X/Y), Y => Cont_S(X)
+
+---
+
+(source_file
+  (rule_decl
+    name: (identifier)
+    variables: (identifier)
+    variables: (identifier)
+    premises: (type_effect_apply
+      effect: (identifier)
+      args: (type_slash
+        result: (type_atom (identifier))
+        argument: (type_atom (identifier))))
+    premises: (type_atom (identifier))
+    conclusion: (type_effect_apply
+      effect: (identifier)
+      args: (type_atom (identifier)))))

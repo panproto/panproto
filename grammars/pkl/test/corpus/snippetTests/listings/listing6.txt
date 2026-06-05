@@ -1,0 +1,208 @@
+===
+listings/listing6.pkl
+===
+
+amends "../snippetTest.pkl"
+
+local class TheClass {
+  local isLongString = (it) -> it.length > 10
+
+  prop: Listing<String(isLongString)>
+}
+
+local class TheClass2 {
+  hidden requiredLength: Int
+
+  prop: Listing<String(length > requiredLength)>
+}
+
+examples {
+  ["name resolution in type constraint"] {
+    module.catch(() -> new TheClass {
+      prop {
+        "too short"
+      }
+    }.prop[0])
+
+    new TheClass {
+      prop {
+        "this is long enough"
+      }
+    }
+  }
+  ["resolves the receiver"] {
+    local base: TheClass2 = new {
+      requiredLength = 5
+    }
+    (base) {
+      prop {
+        "long enough"
+      }
+    }
+    module.catch(() -> (base) {
+      requiredLength = 10
+      prop {
+        "too short"
+      }
+    }.prop[0])
+  }
+}
+
+---
+
+(module
+  (moduleHeader
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (clazz
+    (modifier)
+    (identifier)
+    (classBody
+      (classProperty
+        (modifier)
+        (identifier)
+        (functionLiteralExpr
+          (parameterList
+            (typedIdentifier
+              (identifier)))
+          (comparisonExpr
+            (qualifiedAccessExpr
+              (unqualifiedAccessExpr
+                (identifier))
+              (identifier))
+            (intLiteralExpr))))
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))
+            (typeArgumentList
+              (constrainedType
+                (declaredType
+                  (qualifiedIdentifier
+                    (identifier)))
+                (unqualifiedAccessExpr
+                  (identifier)))))))))
+  (clazz
+    (modifier)
+    (identifier)
+    (classBody
+      (classProperty
+        (modifier)
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))))
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))
+            (typeArgumentList
+              (constrainedType
+                (declaredType
+                  (qualifiedIdentifier
+                    (identifier)))
+                (comparisonExpr
+                  (unqualifiedAccessExpr
+                    (identifier))
+                  (unqualifiedAccessExpr
+                    (identifier))))))))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectElement
+            (qualifiedAccessExpr
+              (moduleExpr)
+              (identifier)
+              (argumentList
+                (functionLiteralExpr
+                  (parameterList)
+                  (subscriptExpr
+                    (qualifiedAccessExpr
+                      (newExpr
+                        (declaredType
+                          (qualifiedIdentifier
+                            (identifier)))
+                        (objectBody
+                          (objectProperty
+                            (identifier)
+                            (objectBody
+                              (objectElement
+                                (slStringLiteralExpr
+                                  (slStringLiteralPart)))))))
+                      (identifier))
+                    (intLiteralExpr))))))
+          (objectElement
+            (newExpr
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier)))
+              (objectBody
+                (objectProperty
+                  (identifier)
+                  (objectBody
+                    (objectElement
+                      (slStringLiteralExpr
+                        (slStringLiteralPart))))))))))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (objectBody
+          (objectProperty
+            (modifier)
+            (identifier)
+            (typeAnnotation
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier))))
+            (newExpr
+              (objectBody
+                (objectProperty
+                  (identifier)
+                  (intLiteralExpr)))))
+          (objectElement
+            (amendExpr
+              (parenthesizedExpr
+                (unqualifiedAccessExpr
+                  (identifier)))
+              (objectBody
+                (objectProperty
+                  (identifier)
+                  (objectBody
+                    (objectElement
+                      (slStringLiteralExpr
+                        (slStringLiteralPart))))))))
+          (objectElement
+            (qualifiedAccessExpr
+              (moduleExpr)
+              (identifier)
+              (argumentList
+                (functionLiteralExpr
+                  (parameterList)
+                  (subscriptExpr
+                    (qualifiedAccessExpr
+                      (amendExpr
+                        (parenthesizedExpr
+                          (unqualifiedAccessExpr
+                            (identifier)))
+                        (objectBody
+                          (objectProperty
+                            (identifier)
+                            (intLiteralExpr))
+                          (objectProperty
+                            (identifier)
+                            (objectBody
+                              (objectElement
+                                (slStringLiteralExpr
+                                  (slStringLiteralPart)))))))
+                      (identifier))
+                    (intLiteralExpr)))))))))))

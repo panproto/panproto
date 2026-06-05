@@ -1,0 +1,95 @@
+==================
+algebra and atoms
+==================
+
+algebra product_fuzzy
+category S, NP, N, VP
+
+---
+
+(source_file
+  (algebra_decl name: (identifier))
+  (category_decl
+    names: (identifier)
+    names: (identifier)
+    names: (identifier)
+    names: (identifier)))
+
+==================
+object and morphism
+==================
+
+object State : 8
+latent f : State -> State [scale=0.1] = identity(State)
+
+---
+
+(source_file
+  (object_decl
+    name: (identifier)
+    type: (type_atom (integer)))
+  (morphism_decl
+    name: (identifier)
+    domain: (type_atom (identifier))
+    codomain: (type_atom (identifier))
+    options: (option_block
+      (option_entry
+        key: (identifier)
+        value: (float)))
+    init: (identity_expr object: (identifier))))
+
+==================
+type alias and space
+==================
+
+type Latent = Euclidean 16
+space ObsSpace : Euclidean(2, low=0.0, high=1.0)
+
+---
+
+(source_file
+  (type_alias_decl
+    name: (identifier)
+    value: (space_constructor_bare
+      constructor: (identifier)
+      arg: (integer)))
+  (space_decl
+    name: (identifier)
+    value: (space_constructor
+      constructor: (identifier)
+      args: (integer)
+      args: (space_kwarg key: (identifier) value: (float))
+      args: (space_kwarg key: (identifier) value: (float)))))
+
+==================
+continuous, stochastic, discretize, embed
+==================
+
+continuous f[4] : A -> B ~ Normal [scale=0.1]
+stochastic g : A -> B
+discretize d : Latent -> 16
+embed e : Token -> Latent
+
+---
+
+(source_file
+  (continuous_decl
+    name: (identifier)
+    replicate: (replicate_count (integer))
+    domain: (type_atom (identifier))
+    codomain: (type_atom (identifier))
+    family: (identifier)
+    options: (option_block
+      (option_entry key: (identifier) value: (float))))
+  (stochastic_decl
+    name: (identifier)
+    domain: (type_atom (identifier))
+    codomain: (type_atom (identifier)))
+  (discretize_decl
+    name: (identifier)
+    space: (identifier)
+    bins: (integer))
+  (embed_decl
+    name: (identifier)
+    domain: (identifier)
+    codomain: (identifier)))

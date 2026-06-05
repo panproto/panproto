@@ -1,0 +1,692 @@
+==============================
+module definitions
+==============================
+
+module A
+
+baremodule B end
+
+module C
+end
+
+end
+
+---
+
+(source_file
+  (module_definition
+    name: (identifier)
+    (block
+      (module_definition name: (identifier))
+      (module_definition name: (identifier)))))
+
+
+==============================
+abstract type definitions
+==============================
+
+abstract type T end
+abstract type T <: S end
+abstract type T{S} <: U end
+
+---
+
+(source_file
+  (abstract_definition
+    (type_head (identifier)))
+  (abstract_definition
+    (type_head
+      (binary_expression
+        (identifier)
+        (operator)
+        (identifier))))
+  (abstract_definition
+    (type_head
+      (binary_expression
+        (parametrized_type_expression
+          (identifier)
+          (curly_expression (identifier)))
+        (operator)
+        (identifier)))))
+
+
+==============================
+primitive type definitions
+==============================
+
+primitive type T 8 end
+primitive type T <: S 16 end
+primitive type Ptr{T} 32 end
+
+---
+
+(source_file
+  (primitive_definition
+    (type_head (identifier))
+    (integer_literal))
+  (primitive_definition
+    (type_head
+      (binary_expression
+        (identifier)
+        (operator)
+        (identifier)))
+     (integer_literal))
+  (primitive_definition
+    (type_head
+      (parametrized_type_expression
+        (identifier)
+        (curly_expression (identifier))))
+    (integer_literal)))
+
+
+==============================
+struct definitions
+==============================
+
+struct Unit end
+
+struct MyInt field::Int end
+
+mutable struct Foo
+  bar
+  baz::Float64
+end
+
+---
+
+(source_file
+  (struct_definition
+    (type_head (identifier)))
+
+  (struct_definition
+    (type_head (identifier))
+    (block
+      (typed_expression
+        (identifier)
+        (identifier))))
+
+  (struct_definition
+    (type_head (identifier))
+    (block
+      (identifier)
+      (typed_expression (identifier) (identifier)))))
+
+==============================
+parametric struct definitions
+==============================
+
+struct Point{T}
+  x::T
+  y::T
+end
+
+struct Rational{T<:Integer} <: Real
+  num::T
+  den::T
+end
+
+mutable struct MyVec <: AbstractArray
+  foos::Vector{Foo}
+end
+
+---
+
+(source_file
+  (struct_definition
+    (type_head
+      (parametrized_type_expression
+        (identifier)
+        (curly_expression (identifier))))
+    (block
+      (typed_expression (identifier) (identifier))
+      (typed_expression (identifier) (identifier))))
+
+  ;; Parametric subtypes
+  (struct_definition
+    (type_head
+      (binary_expression
+        (parametrized_type_expression
+          (identifier)
+          (curly_expression (binary_expression (identifier) (operator) (identifier))))
+        (operator)
+        (identifier)))
+    (block
+      (typed_expression (identifier) (identifier))
+      (typed_expression (identifier) (identifier))))
+
+  ;; Parametric fields
+  (struct_definition
+    (type_head
+      (binary_expression
+        (identifier)
+        (operator)
+        (identifier)))
+    (block
+      (typed_expression
+        (identifier)
+        (parametrized_type_expression
+          (identifier)
+          (curly_expression (identifier)))))))
+
+
+========================================
+struct definitions - const fields
+========================================
+
+struct Foo
+    const x::Int
+end
+
+---
+(source_file
+  (struct_definition
+    (type_head (identifier))
+    (block
+      (const_statement
+        (typed_expression (identifier) (identifier))))))
+
+
+==============================
+function definitions
+==============================
+
+function f end
+
+function nop() end
+
+function I(x) x end
+
+function Base.rand(n::MyInt)
+    return 4
+end
+
+function Γ(z)
+    gamma(z)
+end
+
+function ⊕(x, y)
+    x + y
+end
+
+function fix2(f, x)
+    return function(y)
+        f(x, y)
+    end
+end
+
+function (foo::Foo)()
+end
+
+---
+
+(source_file
+  (function_definition
+    (signature
+      (identifier)))
+
+  (function_definition
+    (signature
+      (call_expression (identifier) (argument_list))))
+
+  (function_definition
+    (signature
+      (call_expression (identifier) (argument_list (identifier))))
+    (block
+      (identifier)))
+
+  (function_definition
+    (signature
+      (call_expression
+        (field_expression value: (identifier) (identifier))
+        (argument_list
+          (typed_expression (identifier) (identifier)))))
+    (block
+      (return_statement (integer_literal))))
+
+  (function_definition
+    (signature
+      (call_expression (identifier) (argument_list (identifier))))
+    (block
+      (call_expression (identifier) (argument_list (identifier)))))
+
+  (function_definition
+    (signature
+      (call_expression (operator) (argument_list (identifier) (identifier))))
+    (block
+      (binary_expression
+        (identifier)
+        (operator)
+        (identifier))))
+
+  ;; Anonymous function
+  (function_definition
+    (signature
+      (call_expression (identifier) (argument_list (identifier) (identifier))))
+    (block
+      (return_statement
+        (function_definition
+          (signature
+            (argument_list (identifier)))
+          (block
+          (call_expression
+            (identifier)
+            (argument_list (identifier) (identifier))))))))
+
+  ;; Function Objects
+  (function_definition
+    (signature
+      (call_expression
+        (parenthesized_expression
+          (typed_expression (identifier) (identifier)))
+        (argument_list)))))
+
+
+==============================
+short function definitions
+==============================
+
+s(n) = n + 1
+
+Base.foo(x) = x
+
+ι(n) = range(1, n)
+
+⊗(x, y) = x * y
+
+(+)(x, y) = x + y
+
+---
+
+(source_file
+  (assignment
+    (call_expression
+      (identifier)
+      (argument_list (identifier)))
+    (operator)
+    (binary_expression
+      (identifier)
+      (operator)
+      (integer_literal)))
+
+  (assignment
+    (call_expression
+      (field_expression value: (identifier) (identifier))
+      (argument_list (identifier)))
+    (operator)
+    (identifier))
+
+  (assignment
+    (call_expression
+      (identifier)
+      (argument_list (identifier)))
+    (operator)
+    (call_expression
+      (identifier)
+      (argument_list
+        (integer_literal)
+        (identifier))))
+
+  (assignment
+    (call_expression
+      (operator)
+      (argument_list (identifier) (identifier)))
+    (operator)
+    (binary_expression
+      (identifier)
+      (operator)
+      (identifier)))
+
+  (assignment
+    (call_expression
+      (parenthesized_expression (operator))
+      (argument_list (identifier) (identifier)))
+    (operator)
+    (binary_expression
+      (identifier)
+      (operator)
+      (identifier))))
+
+
+==============================
+function definition parameters
+==============================
+
+function f(x, y::Int, z=1, ws...) end
+
+function (::Type{Int}, x::Int = 1, y::Int...) end
+
+function apply(f, args...; kwargs...)
+end
+
+function g(; x, y::Int, z = 1, kwargs...) nothing end
+
+---
+
+(source_file
+  ;; Parameters
+  (function_definition
+    (signature
+      (call_expression
+        (identifier)
+        (argument_list
+          (identifier)
+          (typed_expression
+            (identifier)
+            (identifier))
+          (assignment (identifier) (operator) (integer_literal))
+          (splat_expression (identifier))))))
+
+  ;; Typed parameters
+  (function_definition
+    (signature
+      (argument_list
+        (unary_typed_expression
+          (parametrized_type_expression
+            (identifier)
+            (curly_expression (identifier))))
+        (assignment
+          (typed_expression
+            (identifier)
+            (identifier))
+          (operator)
+          (integer_literal))
+        (splat_expression
+          (typed_expression
+            (identifier)
+            (identifier))))))
+
+  ;; Keyword parameters
+  (function_definition
+    (signature
+      (call_expression
+        (identifier)
+        (argument_list
+          (identifier)
+          (splat_expression (identifier))
+          (splat_expression (identifier))))))
+
+  (function_definition
+    (signature
+      (call_expression
+        (identifier)
+        (argument_list
+          (identifier)
+          (typed_expression
+            (identifier)
+            (identifier))
+          (assignment (identifier) (operator) (integer_literal))
+          (splat_expression (identifier)))))
+    (block
+      (identifier))))
+
+
+==================================================
+function definition return types
+==================================================
+
+function s(n)::MyInt
+    MyInt(n + 1)
+end
+
+function bar(f, xs::Foo.Bar)::Foo.Bar
+    map(f, xs)
+end
+
+---
+(source_file
+  (function_definition
+    (signature
+      (typed_expression
+        (call_expression
+          (identifier)
+          (argument_list (identifier)))
+        (identifier)))
+    (block
+      (call_expression
+        (identifier)
+        (argument_list
+          (binary_expression (identifier) (operator) (integer_literal))))))
+  (function_definition
+    (signature
+      (typed_expression
+        (call_expression
+          (identifier)
+          (argument_list
+            (identifier)
+            (typed_expression
+              (identifier)
+              (field_expression (identifier) (identifier)))))
+        (field_expression (identifier) (identifier))))
+    (block
+      (call_expression
+        (identifier)
+        (argument_list
+          (identifier)
+          (identifier))))))
+
+
+==================================================
+function definition tuple parameters
+==================================================
+
+function swap((x, y))
+    (y, x)
+end
+
+function f((x, y)=(1,2))
+    (x, y)
+end
+
+function car((x, y)::Tuple{T, T}) where T
+    x
+end
+
+
+---
+(source_file
+  (function_definition
+    (signature
+      (call_expression
+        (identifier)
+        (argument_list (tuple_expression (identifier) (identifier)))))
+    (block
+      (tuple_expression (identifier) (identifier))))
+
+
+  (function_definition
+    (signature
+      (call_expression
+        (identifier)
+        (argument_list
+          (assignment
+            (tuple_expression (identifier) (identifier))
+            (operator)
+            (tuple_expression (integer_literal) (integer_literal))))))
+    (block
+      (tuple_expression (identifier) (identifier))))
+
+  (function_definition
+    (signature
+      (where_expression
+        (call_expression
+          (identifier)
+          (argument_list
+            (typed_expression
+              (tuple_expression (identifier) (identifier))
+              (parametrized_type_expression
+                (identifier)
+                (curly_expression (identifier) (identifier))))))
+        (identifier)))
+    (block
+      (identifier))))
+
+
+==================================================
+type parametric function definition parameters
+==================================================
+
+function f(x::T) where T
+end
+
+function f(n::N) where {N <: Integer}
+    n
+end
+
+f(n::N, m::M) where {N <: Number} where {M <: Integer} = n^m
+
+Foo{T}(x::T) where {T} = x
+
+function norm(p::Point{T} where T<:Real)
+    norm2(p)
+end
+
+Base.show(io::IO, ::MIME"text/plain", m::Method; kwargs...) = show_method(io, m, kwargs)
+
+---
+
+(source_file
+  ;; `where` without brackets
+  (function_definition
+    (signature
+      (where_expression
+        (call_expression
+          (identifier)
+          (argument_list
+            (typed_expression
+              (identifier)
+              (identifier))))
+        (identifier))))
+
+  ;; `where`
+  (function_definition
+    (signature
+      (where_expression
+        (call_expression
+          (identifier)
+          (argument_list
+            (typed_expression
+              (identifier)
+              (identifier))))
+        (curly_expression
+          (binary_expression
+            (identifier)
+            (operator)
+            (identifier)))))
+    (block
+      (identifier)))
+
+  ;; Short function `where`
+  (assignment
+    (where_expression
+      (where_expression
+        (call_expression
+          (identifier)
+          (argument_list
+            (typed_expression (identifier) (identifier))
+            (typed_expression (identifier) (identifier))))
+        (curly_expression
+          (binary_expression
+            (identifier)
+            (operator)
+            (identifier))))
+      (curly_expression
+        (binary_expression
+          (identifier)
+          (operator)
+          (identifier))))
+    (operator)
+    (binary_expression
+      (identifier)
+      (operator)
+      (identifier)))
+
+  ;; Short function with type parameters
+  (assignment
+    (where_expression
+      (call_expression
+        (parametrized_type_expression
+          (identifier)
+          (curly_expression (identifier)))
+        (argument_list
+          (typed_expression (identifier) (identifier))))
+      (curly_expression (identifier)))
+    (operator)
+    (identifier))
+
+  ;; `where` clauses in parameters
+  (function_definition
+    (signature
+      (call_expression
+        (identifier)
+        (argument_list
+          (where_expression
+            (typed_expression
+              (identifier)
+              (parametrized_type_expression
+                (identifier)
+                (curly_expression (identifier))))
+            (binary_expression
+              (identifier)
+              (operator)
+              (identifier))))))
+    (block
+      (call_expression (identifier) (argument_list (identifier)))))
+
+  ;; Almost everything at once
+  (assignment
+    (call_expression
+      (field_expression
+        value: (identifier)
+        (identifier))
+      (argument_list
+        (typed_expression (identifier) (identifier))
+        (unary_typed_expression
+          (prefixed_string_literal
+            prefix: (identifier)
+            (content)))
+        (typed_expression (identifier) (identifier))
+        (splat_expression (identifier))))
+    (operator)
+    (call_expression
+      (identifier)
+      (argument_list
+        (identifier)
+        (identifier)
+        (identifier)))))
+
+
+==============================
+macro definitions
+==============================
+
+macro name(s::Symbol)
+    String(s)
+end
+
+macro count(args...) length(args) end
+
+---
+
+(source_file
+    (macro_definition
+      (signature
+        (call_expression
+          (identifier)
+          (argument_list
+            (typed_expression (identifier) (identifier)))))
+      (block
+        (call_expression
+          (identifier)
+          (argument_list (identifier)))))
+
+    (macro_definition
+      (signature
+        (call_expression
+          (identifier)
+          (argument_list
+            (splat_expression (identifier)))))
+      (block
+        (call_expression
+          (identifier)
+          (argument_list (identifier))))))
+

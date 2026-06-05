@@ -1,0 +1,256 @@
+================================================================================
+Basic profile declaration
+================================================================================
+
+profile TestProfile
+{
+    Description = 'Test Profile Description';
+    RoleCenter = "Test Role Center";
+    Caption = 'Test Profile Caption';
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (profile_declaration
+    (profile_keyword)
+    object_name: (identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (quoted_identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))))
+
+================================================================================
+Profile with customizations list
+================================================================================
+
+profile DocumentCapture
+{
+    Description = 'Continia Document Capture';
+    RoleCenter = "CDC Doc. Capture Role Center";
+    Caption = 'Document Capture';
+    Customizations = "Purchase Order List", "Purchase Invoices", "Purchase Return Order List";
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (profile_declaration
+    (profile_keyword)
+    object_name: (identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (quoted_identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (quoted_identifier))
+        (option_member
+          (quoted_identifier))
+        (option_member
+          (quoted_identifier))))))
+
+================================================================================
+Profile with single customization
+================================================================================
+
+profile SimpleProfile
+{
+    Description = 'Simple Profile';
+    RoleCenter = "Role Center Page";
+    Customizations = "Single Custom Page";
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (profile_declaration
+    (profile_keyword)
+    object_name: (identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (quoted_identifier))
+    (property
+      name: (property_name)
+      value: (quoted_identifier))))
+
+================================================================================
+Profile with unquoted identifiers
+================================================================================
+
+profile UnquotedProfile
+{
+    Description = 'Profile with unquoted identifiers';
+    RoleCenter = RoleCenterPage;
+    Caption = 'Unquoted Profile';
+    Customizations = CustomPage1, CustomPage2;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (profile_declaration
+    (profile_keyword)
+    object_name: (identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (identifier))
+        (option_member
+          (identifier))))))
+
+================================================================================
+Profile with minimal properties
+================================================================================
+
+profile MinimalProfile
+{
+    Description = 'Minimal profile';
+    RoleCenter = "Basic Role Center";
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (profile_declaration
+    (profile_keyword)
+    object_name: (identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (quoted_identifier))))
+
+================================================================================
+Profile with extended properties
+================================================================================
+
+profile ExtendedProfile
+{
+    Enabled = true;
+    ProfileDescription = 'Extended profile with all properties';
+    Caption = 'Extended Profile';
+    RoleCenter = "Advanced Role Center";
+    Promoted = false;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (profile_declaration
+    (profile_keyword)
+    object_name: (identifier)
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (quoted_identifier))
+    (property
+      name: (property_name)
+      value: (boolean))))
+
+================================================================================
+Profile with mixed property types
+================================================================================
+
+profile MixedProfile
+{
+    Enabled = false;
+    Description = 'Traditional description property';
+    ProfileDescription = 'New style description property';
+    RoleCenter = SimpleRoleCenter;
+    Promoted = true;
+    Customizations = "Custom Page 1", "Custom Page 2";
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (profile_declaration
+    (profile_keyword)
+    object_name: (identifier)
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (boolean))
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (quoted_identifier))
+        (option_member
+          (quoted_identifier))))))
+
+================================================================================
+Profile with empty customizations
+================================================================================
+
+profile EmptyCustomizationsProfile
+{
+    Description = 'Profile with empty customizations';
+    RoleCenter = "Role Center";
+    Customizations =;
+    Caption = 'Empty Customizations';
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (profile_declaration
+    (profile_keyword)
+    object_name: (identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (quoted_identifier))
+    (property
+      name: (property_name))
+    (property
+      name: (property_name)
+      value: (string_literal))))

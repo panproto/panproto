@@ -1,0 +1,42 @@
+======
+Runes
+======
+
+|10
+
+|0100
+
+"h "Long
+
+#10
+
+#1030
+
+@Console &vector $2 &read
+
+---
+
+(program
+  (memory_execution
+    (absolute_pad_operation
+      (number)))
+  (memory_execution
+    (absolute_pad_operation
+      (number))
+    (raw_ascii)
+    (raw_ascii)
+    (hex_literal
+      (hex_lit_value))
+    (hex_literal
+      (hex_lit_value)))
+  (subroutine
+    (label
+      (identifier))
+    (rune
+      (rune_char)
+      (identifier))
+    (relative_pad_operation
+      (number))
+    (rune
+      (rune_char)
+      (identifier))))

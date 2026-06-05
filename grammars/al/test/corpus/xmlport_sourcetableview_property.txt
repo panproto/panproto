@@ -1,0 +1,125 @@
+================================================================================
+XMLPort SourceTableView property
+================================================================================
+
+xmlport 9611 "Code Coverage Detailed"
+{
+    Caption = 'Code Coverage Detailed';
+    Format = VariableText;
+
+    schema
+    {
+        textelement(Coverage)
+        {
+            tableelement("Code Coverage"; "Code Coverage")
+            {
+                XmlName = 'CodeCoverage';
+                SourceTableView = where("Line Type" = const(Code), "No. of Hits" = filter(> 0));
+                
+                fieldelement(ObjectType; "Code Coverage"."Object Type")
+                {
+                }
+                fieldelement(ObjectID; "Code Coverage"."Object ID")
+                {
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (schema_section
+      (schema_keyword)
+      (xmlport_element
+        name: (identifier)
+        (xmlport_element
+          name: (quoted_identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (string_literal))
+          (property
+            name: (property_name)
+            value: (where_clause
+              (where_conditions
+                (where_condition
+                  field: (quoted_identifier)
+                  value: (identifier))
+                (where_condition
+                  field: (quoted_identifier)
+                  (filter_keyword)
+                  value: (filter_value
+                    (integer))))))
+          (xmlport_element
+            name: (identifier)
+            source: (member_expression
+              object: (quoted_identifier)
+              member: (quoted_identifier)))
+          (xmlport_element
+            name: (identifier)
+            source: (member_expression
+              object: (quoted_identifier)
+              member: (quoted_identifier))))))))
+
+================================================================================
+XMLPort with complex SourceTableView
+================================================================================
+
+xmlport 50000 "Test Complex View"
+{
+    schema
+    {
+        tableelement(Customer; Customer)
+        {
+            SourceTableView = sorting("Name") order(ascending) where("Balance" = filter(> 1000), "Blocked" = const(' '));
+            
+            fieldelement(No; Customer."No.")
+            {
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (schema_section
+      (schema_keyword)
+      (xmlport_element
+        name: (identifier)
+        source: (identifier)
+        (property
+          name: (property_name)
+          value: (sorting_value
+            (quoted_identifier)
+            (where_clause
+              (where_conditions
+                (where_condition
+                  field: (quoted_identifier)
+                  (filter_keyword)
+                  value: (filter_value
+                    (integer)))
+                (where_condition
+                  field: (quoted_identifier)
+                  value: (string_literal))))))
+        (xmlport_element
+          name: (identifier)
+          source: (member_expression
+            object: (identifier)
+            member: (quoted_identifier)))))))

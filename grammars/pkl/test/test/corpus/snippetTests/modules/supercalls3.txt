@@ -1,0 +1,142 @@
+===
+modules/supercalls3.pkl
+===
+
+module supercalls3
+
+extends "supercalls2.pkl"
+
+import "pkl:test"
+
+hidden pigeonBarnOwl = super.pigeon + super.barnOwl()
+function barnOwlPigeon() = super.barnOwl() + super.pigeon
+hidden parrot = super.say("Parrot")
+function other() = super.other()
+function sameMethod() = 3 + super.sameMethod()
+sameProp = super.sameProp + "c"
+
+prefix = "Oh "
+
+res1 = pigeon
+res2 = barnOwl()
+res3 = say2("Parrot")
+res4 = pigeonBarnOwl
+res5 = barnOwlPigeon()
+res6 = parrot
+res7 = test.catch(() -> other())
+res8 = sameMethod()
+
+---
+
+(module
+  (moduleHeader
+    (moduleClause
+
+      (qualifiedIdentifier
+        (identifier)))
+      (extendsOrAmendsClause
+      (stringConstant
+        (slStringLiteralPart))))
+  (importClause
+    (stringConstant
+      (slStringLiteralPart)))
+  (classProperty
+    (modifier)
+    (identifier)
+    (additiveExpr
+      (superAccessExpr
+        (identifier))
+      (superAccessExpr
+        (identifier)
+        (argumentList))))
+  (classMethod
+    (methodHeader
+      (identifier)
+      (parameterList))
+    (additiveExpr
+      (superAccessExpr
+        (identifier)
+        (argumentList))
+      (superAccessExpr
+        (identifier))))
+  (classProperty
+    (modifier)
+    (identifier)
+    (superAccessExpr
+      (identifier)
+      (argumentList
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classMethod
+    (methodHeader
+      (identifier)
+      (parameterList))
+    (superAccessExpr
+      (identifier)
+      (argumentList)))
+  (classMethod
+    (methodHeader
+      (identifier)
+      (parameterList))
+    (additiveExpr
+      (intLiteralExpr)
+      (superAccessExpr
+        (identifier)
+        (argumentList))))
+  (classProperty
+    (identifier)
+    (additiveExpr
+      (superAccessExpr
+        (identifier))
+      (slStringLiteralExpr
+        (slStringLiteralPart))))
+  (classProperty
+    (identifier)
+    (slStringLiteralExpr
+      (slStringLiteralPart)))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList)))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList)))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)))
+  (classProperty
+    (identifier)
+    (qualifiedAccessExpr
+      (unqualifiedAccessExpr
+        (identifier))
+      (identifier)
+      (argumentList
+        (functionLiteralExpr
+          (parameterList)
+          (unqualifiedAccessExpr
+            (identifier)
+            (argumentList))))))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList))))

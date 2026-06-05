@@ -1,0 +1,79 @@
+================================================================================
+XMLPort Format property with VariableText
+================================================================================
+
+xmlport 123 "Test XMLPort"
+{
+    Format = VariableText;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))))
+
+================================================================================
+XMLPort Format property with FixedText
+================================================================================
+
+xmlport 124 "Fixed XMLPort"
+{
+    Format = FixedText;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))))
+
+================================================================================
+XMLPort Format property with original values
+================================================================================
+
+xmlport 125 "Original XMLPort"
+{
+    Format = Variable;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))))
+
+================================================================================
+XMLPort Format property case variations
+================================================================================
+
+xmlport 126 "Case Test XMLPort"
+{
+    Format = VARIABLETEXT;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))))

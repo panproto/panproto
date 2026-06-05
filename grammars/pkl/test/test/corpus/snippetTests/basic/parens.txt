@@ -1,0 +1,59 @@
+===
+basic/parens.pkl
+===
+
+res1 = 2 + 3 * 4
+res2 = (2 + 3) * 4
+res3 = 2 + (3 * 4)
+res4 = (2) + (3) * (4)
+res5 = ((((2) + (3)) * ((4))))
+---
+
+(module
+  (classProperty
+    (identifier)
+    (additiveExpr
+      (intLiteralExpr)
+      (multiplicativeExpr
+        (intLiteralExpr)
+        (intLiteralExpr))))
+  (classProperty
+    (identifier)
+    (multiplicativeExpr
+      (parenthesizedExpr
+        (additiveExpr
+          (intLiteralExpr)
+          (intLiteralExpr)))
+      (intLiteralExpr)))
+  (classProperty
+    (identifier)
+    (additiveExpr
+      (intLiteralExpr)
+      (parenthesizedExpr
+        (multiplicativeExpr
+          (intLiteralExpr)
+          (intLiteralExpr)))))
+  (classProperty
+    (identifier)
+    (additiveExpr
+      (parenthesizedExpr
+        (intLiteralExpr))
+      (multiplicativeExpr
+        (parenthesizedExpr
+          (intLiteralExpr))
+        (parenthesizedExpr
+          (intLiteralExpr)))))
+  (classProperty
+    (identifier)
+    (parenthesizedExpr
+      (parenthesizedExpr
+        (multiplicativeExpr
+          (parenthesizedExpr
+            (additiveExpr
+              (parenthesizedExpr
+                (intLiteralExpr))
+              (parenthesizedExpr
+                (intLiteralExpr))))
+          (parenthesizedExpr
+            (parenthesizedExpr
+              (intLiteralExpr))))))))

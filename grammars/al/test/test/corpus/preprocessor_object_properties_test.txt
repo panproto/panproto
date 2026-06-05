@@ -1,0 +1,542 @@
+================================================================================
+Codeunit with preprocessor conditional properties
+================================================================================
+
+codeunit 6086078 "Test Codeunit"
+{
+#if BC22
+    InherentEntitlements = X;
+    InherentPermissions = X;
+#endif
+
+    var
+        TestVariable: Integer;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (preproc_conditional
+      (preproc_if
+        (preproc_open)
+        condition: (identifier))
+      (property
+        name: (property_name)
+        value: (identifier))
+      (property
+        name: (property_name)
+        value: (identifier))
+      (preproc_endif
+        (preproc_close)))
+    (var_section
+      (var_keyword)
+      (variable_declaration
+        name: (identifier)
+        type: (type_specification
+          (basic_type))))))
+
+================================================================================
+Codeunit with mixed properties and preprocessor conditionals
+================================================================================
+
+codeunit 50000 "Mixed Properties"
+{
+    Subtype = Test;
+#if BC23
+    InherentEntitlements = X;
+    InherentPermissions = X;
+#else
+    InherentEntitlements = RCMDXI;
+    InherentPermissions = RCMDXI;
+#endif
+    TestIsolation = Codeunit;
+
+    trigger OnRun()
+    begin
+        Message('Test');
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (preproc_conditional
+      (preproc_if
+        (preproc_open)
+        condition: (identifier))
+      (property
+        name: (property_name)
+        value: (identifier))
+      (property
+        name: (property_name)
+        value: (identifier))
+      (preproc_else)
+      (property
+        name: (property_name)
+        value: (identifier))
+      (property
+        name: (property_name)
+        value: (identifier))
+      (preproc_endif
+        (preproc_close)))
+    (property
+      name: (property_name)
+      value: (keyword_identifier
+        (codeunit_keyword)))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (call_expression
+          function: (identifier)
+          arguments: (argument_list
+            (string_literal)))
+        (end_keyword)))))
+
+================================================================================
+Table with preprocessor conditional properties
+================================================================================
+
+table 50000 "Test Table"
+{
+#if CLOUD
+    DataPerCompany = false;
+    ReplicateData = false;
+#endif
+
+    fields
+    {
+        field(1; Code; Code[20])
+        {
+            Caption = 'Code';
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (preproc_conditional
+      (preproc_if
+        (preproc_open)
+        condition: (identifier))
+      (property
+        name: (property_name)
+        value: (boolean))
+      (property
+        name: (property_name)
+        value: (boolean))
+      (preproc_endif
+        (preproc_close)))
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (code_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (string_literal))))))
+
+================================================================================
+Page with preprocessor conditional properties
+================================================================================
+
+page 50001 "Test Page"
+{
+#if BC22
+    PageType = List;
+    ApplicationArea = All;
+#else
+    PageType = Card;
+    ApplicationArea = Basic, Suite;
+#endif
+    SourceTable = "Test Table";
+
+    layout
+    {
+        area(Content)
+        {
+            group(General)
+            {
+                field(Code; Code)
+                {
+                    ApplicationArea = All;
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (preproc_conditional
+      (preproc_if
+        (preproc_open)
+        condition: (identifier))
+      (property
+        name: (property_name)
+        value: (identifier))
+      (property
+        name: (property_name)
+        value: (identifier))
+      (preproc_else)
+      (property
+        name: (property_name)
+        value: (identifier))
+      (property
+        name: (property_name)
+        value: (option_member_list
+          (option_member
+            (identifier))
+          (option_member
+            (identifier))))
+      (preproc_endif
+        (preproc_close)))
+    (property
+      name: (property_name)
+      value: (quoted_identifier))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (group_section
+          (group_keyword)
+          name: (identifier)
+          (page_field
+            name: (identifier)
+            source: (identifier)
+            (property
+              name: (property_name)
+              value: (identifier))))))))
+
+================================================================================
+Report with preprocessor conditional properties
+================================================================================
+
+report 50002 "Test Report"
+{
+#if ONPREM
+    ProcessingOnly = true;
+    UseRequestPage = false;
+#endif
+    
+    dataset
+    {
+        dataitem(Customer; Customer)
+        {
+            column(Name; Name) { }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (preproc_conditional
+      (preproc_if
+        (preproc_open)
+        condition: (identifier))
+      (property
+        name: (property_name)
+        value: (boolean))
+      (property
+        name: (property_name)
+        value: (boolean))
+      (preproc_endif
+        (preproc_close)))
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (report_column
+          (column_keyword)
+          name: (identifier)
+          source: (identifier))))))
+
+================================================================================
+XMLPort with preprocessor conditional properties
+================================================================================
+
+xmlport 50003 "Test XMLPort"
+{
+#if BC21
+    Direction = Import;
+    Format = VariableText;
+#endif
+
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Customer; Customer)
+            {
+                fieldelement(No; "No.") { }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (preproc_conditional
+      (preproc_if
+        (preproc_open)
+        condition: (identifier))
+      (property
+        name: (property_name)
+        value: (identifier))
+      (property
+        name: (property_name)
+        value: (identifier))
+      (preproc_endif
+        (preproc_close)))
+    (schema_section
+      (schema_keyword)
+      (xmlport_element
+        name: (identifier)
+        (xmlport_element
+          name: (identifier)
+          source: (identifier)
+          (xmlport_element
+            name: (identifier)
+            source: (quoted_identifier)))))))
+
+================================================================================
+Query with preprocessor conditional properties
+================================================================================
+
+query 50004 "Test Query"
+{
+#if CLOUD
+    QueryType = Normal;
+    DataAccessIntent = ReadOnly;
+#endif
+
+    elements
+    {
+        dataitem(Customer; Customer)
+        {
+            column(No; "No.") { }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (preproc_conditional
+      (preproc_if
+        (preproc_open)
+        condition: (identifier))
+      (property
+        name: (property_name)
+        value: (identifier))
+      (property
+        name: (property_name)
+        value: (identifier))
+      (preproc_endif
+        (preproc_close)))
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (query_column
+          (column_keyword)
+          name: (identifier)
+          field_name: (quoted_identifier))))))
+
+================================================================================
+Enum with preprocessor conditional properties
+================================================================================
+
+enum 50005 "Test Enum"
+{
+#if BC23
+    Extensible = true;
+    Caption = 'Test Enum';
+#endif
+
+    value(0; "Option1")
+    {
+        Caption = 'Option 1';
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (enum_declaration
+    (enum_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (preproc_conditional
+      (preproc_if
+        (preproc_open)
+        condition: (identifier))
+      (property
+        name: (property_name)
+        value: (boolean))
+      (property
+        name: (property_name)
+        value: (string_literal))
+      (preproc_endif
+        (preproc_close)))
+    (enum_value_declaration
+      value_id: (integer)
+      value_name: (quoted_identifier)
+      (property
+        name: (property_name)
+        value: (string_literal)))))
+
+================================================================================
+PermissionSet with preprocessor conditional properties
+================================================================================
+
+permissionset 50006 "Test Permission Set"
+{
+#if ONPREM
+    Assignable = true;
+    Caption = 'Test Permissions';
+#endif
+
+    Permissions = tabledata Customer = R;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (permissionset_declaration
+    (permissionset_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (preproc_conditional
+      (preproc_if
+        (preproc_open)
+        condition: (identifier))
+      (property
+        name: (property_name)
+        value: (boolean))
+      (property
+        name: (property_name)
+        value: (string_literal))
+      (preproc_endif
+        (preproc_close)))
+    (property
+      name: (property_name)
+      value: (tabledata_permission_list
+        (tabledata_permission
+          table_name: (identifier)
+          permission: (permission_type))))))
+
+================================================================================
+ControlAddIn with preprocessor conditional properties
+================================================================================
+
+controladdin "Test Control"
+{
+#if BC22
+    RequestedHeight = 300;
+    RequestedWidth = 500;
+#endif
+
+    Scripts = 'script.js';
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (controladdin_declaration
+    (controladdin_keyword)
+    object_name: (quoted_identifier)
+    (preproc_conditional_controladdin
+      (preproc_if
+        (preproc_open)
+        condition: (identifier))
+      (property
+        name: (property_name)
+        value: (integer))
+      (property
+        name: (property_name)
+        value: (integer))
+      (preproc_endif
+        (preproc_close)))
+    (property
+      name: (property_name)
+      value: (string_literal))))
+
+================================================================================
+Profile with preprocessor conditional properties
+================================================================================
+
+profile "Test Profile"
+{
+#if BC23
+    Description = 'Test Profile Description';
+    Enabled = true;
+#endif
+
+    RoleCenter = "Business Manager RC";
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (profile_declaration
+    (profile_keyword)
+    object_name: (quoted_identifier)
+    (preproc_conditional
+      (preproc_if
+        (preproc_open)
+        condition: (identifier))
+      (property
+        name: (property_name)
+        value: (string_literal))
+      (property
+        name: (property_name)
+        value: (boolean))
+      (preproc_endif
+        (preproc_close)))
+    (property
+      name: (property_name)
+      value: (quoted_identifier))))

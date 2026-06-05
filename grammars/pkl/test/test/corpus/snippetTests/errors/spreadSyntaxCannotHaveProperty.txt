@@ -1,0 +1,34 @@
+===
+errors/spreadSyntaxCannotHaveProperty.pkl
+===
+
+local source {
+  foo = "foo"
+}
+
+res: Listing = new {
+  ...source
+}
+
+---
+
+(module
+  (classProperty
+    (modifier)
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (newExpr
+      (objectBody
+        (objectSpread
+          (unqualifiedAccessExpr
+            (identifier)))))))

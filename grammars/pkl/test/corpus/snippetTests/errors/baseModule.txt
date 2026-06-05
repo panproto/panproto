@@ -1,0 +1,24 @@
+===
+errors/baseModule.pkl
+===
+
+open module baseModule
+
+x: Int = 42
+
+---
+
+(module
+  (moduleHeader
+    (moduleClause
+
+      (modifier)
+      (qualifiedIdentifier
+        (identifier))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))))
+    (intLiteralExpr)))

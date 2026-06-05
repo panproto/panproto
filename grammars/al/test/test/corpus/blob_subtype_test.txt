@@ -1,0 +1,40 @@
+================================================================================
+BLOB field with SubType property
+================================================================================
+
+table 50100 "Test Table"
+{
+    fields
+    {
+        field(1; Icon; BLOB)
+        {
+            Caption = 'Icon';
+            DataClassification = CustomerContent;
+            SubType = Bitmap;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (identifier)
+        type: (type_specification
+          (basic_type))
+        (property
+          name: (property_name)
+          value: (string_literal))
+        (property
+          name: (property_name)
+          value: (identifier))
+        (property
+          name: (property_name)
+          value: (identifier))))))

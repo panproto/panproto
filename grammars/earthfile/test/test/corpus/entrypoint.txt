@@ -1,0 +1,35 @@
+==================
+entrypoint command
+==================
+
+foo:
+  ENTRYPOINT /server foo
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (entrypoint_command
+            (shell_fragment)))))
+
+
+==================
+entrypoint command array variant
+==================
+
+foo:
+  ENTRYPOINT ["/server", "foo"]
+
+---
+
+    (source_file
+      (target
+        name: (identifier)
+        (block
+          (entrypoint_command
+            (string_array
+              (double_quoted_string)
+              (double_quoted_string))))))
+

@@ -1,0 +1,46 @@
+================================================================================
+Glob
+================================================================================
+
+echo *
+ls ./*
+ls *.txt
+set *.h
+$cmd *.h
+echo ./**/*.txt
+
+--------------------------------------------------------------------------------
+
+(program
+  (command
+    (word)
+    (glob))
+  (command
+    (word)
+    (concatenation
+      (word)
+      (glob)))
+  (command
+    (word)
+    (concatenation
+      (glob)
+      (word)))
+  (command
+    (word)
+    (concatenation
+      (glob)
+      (word)))
+  (command
+    (variable_expansion
+      (variable_name))
+    (concatenation
+      (glob)
+      (word)))
+  (command
+    (word)
+    (concatenation
+      (word)
+      (glob)
+      (word)
+      (glob)
+      (word))))

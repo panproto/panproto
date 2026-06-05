@@ -1,0 +1,337 @@
+======
+Ref'd array
+======
+
+(
+`[1,2,3]
+)
+
+---
+(source_file
+  (code_block
+    (collection
+      (ref )
+      (literal
+        (number
+          (integer )))
+      (literal
+        (number
+          (integer )))
+      (literal
+        (number
+          (integer ))))))
+
+======
+Class name as expression
+======
+(
+SinOsc;
+)
+---
+(source_file
+  (code_block
+    (class )))
+
+==================
+Empty symbol with single quotes
+==================
+(
+var sym = '';
+)
+
+---
+(source_file
+  (code_block
+    (variable_definition
+      name: (variable
+        (local_var
+          name: (identifier )))
+      value: (literal
+        (symbol )))))
+
+==================
+Empty symbol with single slash
+==================
+(
+var sym = \;
+)
+
+---
+(source_file
+  (code_block
+    (variable_definition
+      name: (variable
+        (local_var
+          name: (identifier )))
+      value: (literal
+        (symbol )))))
+
+==================
+string concat
+==================
+(
+"hej" ++ "med dig";
+)
+---
+(source_file
+  (code_block
+    (binary_expression
+      left: (literal
+        (string ))
+      right: (literal
+        (string )))))
+
+==================
+(1..3pi)
+==================
+(
+(1..3pi)
+)
+---
+(source_file
+  (code_block
+    (collection
+      (arithmetic_series
+        (number
+          (integer ))
+        (number
+          (number
+            (integer )))))))
+
+==================
+2.0pi
+==================
+(
+2.0pi
+)
+---
+(source_file
+  (code_block
+    (literal
+      (number
+        (number
+          (float ))))))
+
+==================
+2pi
+==================
+(
+2pi
+)
+---
+(source_file
+  (code_block
+    (literal
+      (number
+        (number
+          (integer ))))))
+
+==================
+single number
+==================
+1;
+
+---
+(source_file
+  (literal
+    (number
+      (integer))))
+
+==================
+unary single number
+==================
+-1;
+
+---
+(source_file
+  (unary_expression
+    right:
+	(literal
+		(number
+        	(integer )))))
+
+==================
+unary numbers in binary expression
+==================
+-1 * -2;
+
+---
+(source_file
+  (binary_expression
+    left: (unary_expression
+      right: (literal
+        (number
+          (integer ))))
+    right: (unary_expression
+      right: (literal
+        (number
+          (integer ))))
+		  ))
+
+==================
+literal with method
+==================
+10.5.round;
+---
+(source_file
+  (function_call
+    receiver: (literal (number (float )))
+    name: (identifier)))
+
+==================
+literal number
+==================
+var number = 100;
+var anotherNumber = 100.81238;
+var aHexyNumber = 0xFFFFFF;
+var expNegative = 1e-10;
+var expPositive = 14e10;
+var expDecimal = 1.4e4;
+var expUpperCase = 1E8;
+var expNegativePre = -1E8;
+
+---
+(source_file
+  (variable_definition
+    (variable
+      (local_var
+        (identifier )))
+    (literal
+      (number
+        (integer ))))
+(variable_definition
+    (variable
+      (local_var
+        (identifier )))
+    (literal
+      (number
+        (float ))))
+(variable_definition
+    (variable
+      (local_var
+        (identifier )))
+    (literal
+      (number
+        (hexinteger ))))
+(variable_definition
+    (variable
+      (local_var
+        (identifier )))
+    (literal
+      (number
+        (exponential ))))
+(variable_definition
+    (variable
+      (local_var
+        (identifier )))
+    (literal
+      (number
+        (exponential ))))
+(variable_definition
+    (variable
+      (local_var
+        (identifier )))
+    (literal
+      (number
+        (exponential ))))
+(variable_definition
+    (variable
+      (local_var
+        (identifier )))
+    (literal
+      (number
+        (exponential ))))
+(variable_definition
+    (variable
+      (local_var
+        (identifier )))
+    (literal
+      (number
+        (exponential ))))
+	)
+
+==================
+literal string
+==================
+var string = "hej med Dig !#)¤!¤AZ";
+
+---
+(source_file
+  (variable_definition
+    (variable
+      (local_var
+        (identifier )))
+    (literal
+      (string ))))
+
+==================
+literal symbol with non alphabetic characters
+==================
+'AUTHENTIC_SOUND_EFFECTS.vol1';
+---
+(source_file
+  (literal
+    (symbol )))
+
+==================
+literal symbol slashed
+==================
+var sym = \averyLongSymbol;
+
+---
+(source_file
+  (variable_definition
+    (variable
+      (local_var
+        (identifier )))
+    (literal
+        (symbol ))))
+
+==================
+literal symbol single quoted
+==================
+var sym = 'averyLongSymbol';
+
+---
+(source_file
+  (variable_definition
+    (variable
+      (local_var
+        (identifier )))
+    (literal
+        (symbol ))))
+
+==================
+literal char
+==================
+var charvar = $w;
+
+---
+(source_file
+  (variable_definition
+    (variable
+      (local_var
+        (identifier )))
+    (literal
+        (char ))))
+
+==================
+literal bool
+==================
+var boolean = true;
+var boolean2 = false;
+
+---
+(source_file
+  (variable_definition
+    (variable
+      (local_var
+        (identifier )))
+    (literal
+        (bool )))
+  (variable_definition
+    (variable
+      (local_var
+        (identifier )))
+    (literal
+        (bool ))))

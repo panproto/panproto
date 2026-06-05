@@ -1,0 +1,104 @@
+================================================================================
+ObsoleteState property with Moved value test
+================================================================================
+
+table 50000 "Test Table with Moved State"
+{
+    ObsoleteState = Moved;
+    ObsoleteReason = 'This table has been moved to another module';
+    
+    fields
+    {
+        field(1; "ID"; Integer)
+        {
+        }
+    }
+}
+
+codeunit 50001 "Test Codeunit with Moved State"
+{
+    ObsoleteState = moved;
+    ObsoleteReason = 'Functionality moved elsewhere';
+    
+    trigger OnRun()
+    begin
+    end;
+}
+
+page 50002 "Test Page"
+{
+    SourceTable = "Test Table";
+    ObsoleteState = MOVED;
+    
+    layout
+    {
+        area(Content)
+        {
+            group(General)
+            {
+                field("ID"; Rec."ID")
+                {
+                }
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (basic_type)))))
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (end_keyword))))
+  (page_declaration
+    (page_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (quoted_identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (layout_section
+      (layout_keyword)
+      (area_section
+        (area_keyword)
+        (group_section
+          (group_keyword)
+          name: (identifier)
+          (page_field
+            name: (quoted_identifier)
+            source: (member_expression
+              object: (identifier)
+              member: (quoted_identifier))))))))

@@ -1,0 +1,106 @@
+===
+api/yamlRendererBug66849708.yml.pkl
+===
+
+object {
+  nullable = null
+  property = "value"
+}
+
+mapping {
+  ["nullable"] = null
+  ["key"] = "value"
+}
+
+map = Map("nullable", null, "key", "value")
+
+output {
+  renderer = new YamlRenderer {
+    omitNullProperties = true
+    converters {
+      ["object.property"] = (it) -> "converted"
+      ["mapping[key]"] = (it) -> "converted"
+      ["map[key]"] = (it) -> "converted"
+    }
+  }
+}
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (nullLiteralExpr))
+      (objectProperty
+        (identifier)
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (nullLiteralExpr))
+      (objectEntry
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (nullLiteralExpr)
+        (slStringLiteralExpr
+          (slStringLiteralPart))
+        (slStringLiteralExpr
+          (slStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (objectBody
+      (objectProperty
+        (identifier)
+        (newExpr
+          (declaredType
+            (qualifiedIdentifier
+              (identifier)))
+          (objectBody
+            (objectProperty
+              (identifier)
+              (trueLiteralExpr))
+            (objectProperty
+              (identifier)
+              (objectBody
+                (objectEntry
+                  (slStringLiteralExpr
+                    (slStringLiteralPart))
+                  (functionLiteralExpr
+                    (parameterList
+                      (typedIdentifier
+                        (identifier)))
+                    (slStringLiteralExpr
+                      (slStringLiteralPart))))
+                (objectEntry
+                  (slStringLiteralExpr
+                    (slStringLiteralPart))
+                  (functionLiteralExpr
+                    (parameterList
+                      (typedIdentifier
+                        (identifier)))
+                    (slStringLiteralExpr
+                      (slStringLiteralPart))))
+                (objectEntry
+                  (slStringLiteralExpr
+                    (slStringLiteralPart))
+                  (functionLiteralExpr
+                    (parameterList
+                      (typedIdentifier
+                        (identifier)))
+                    (slStringLiteralExpr
+                      (slStringLiteralPart))))))))))))

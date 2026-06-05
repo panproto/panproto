@@ -1,0 +1,51 @@
+================================================================================
+XMLPort with FormatEvaluate and schema
+================================================================================
+
+namespace Microsoft.Test;
+
+xmlport 12 "IC Outbox Imp/Exp"
+{
+    Caption = 'IC Outbox Imp/Exp';
+    FormatEvaluate = Xml;
+
+    schema
+    {
+        textelement(ICTransactions)
+        {
+            tableelement(icoutboxtrans; "IC Outbox Transaction")
+            {
+                XmlName = 'ICOutboxTrans';
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (namespace_declaration
+    (namespace_keyword)
+    name: (namespace_name
+      (identifier)
+      (identifier)))
+  (xmlport_declaration
+    (xmlport_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (schema_section
+      (schema_keyword)
+      (xmlport_element
+        name: (identifier)
+        (xmlport_element
+          name: (identifier)
+          source: (quoted_identifier)
+          (property
+            name: (property_name)
+            value: (string_literal)))))))

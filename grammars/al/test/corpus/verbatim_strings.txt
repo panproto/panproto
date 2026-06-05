@@ -1,0 +1,101 @@
+========================================================================
+Verbatim string in expression
+========================================================================
+codeunit 1 T
+{
+    procedure X()
+    var
+        t: Text;
+    begin
+        t := @'
+            {
+                "status": 400,
+                "detail": "Validation failed"
+            }';
+    end;
+}
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (text_type))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (identifier)
+          right: (verbatim_string))
+        (end_keyword)))))
+
+========================================================================
+Verbatim string in Label variable
+========================================================================
+codeunit 1 T
+{
+    procedure X()
+    var
+        Err: Label @'Document sending has been moved.\
+            You have to activate the product.';
+    begin
+    end;
+}
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (basic_type)
+          value: (verbatim_string)))
+      (code_block
+        (begin_keyword)
+        (end_keyword)))))
+
+========================================================================
+Verbatim string as procedure argument
+========================================================================
+codeunit 1 T
+{
+    procedure X()
+    begin
+        exit(@'{
+            "data": {
+                "id": "test-123"
+            }
+        }');
+    end;
+}
+------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (exit_statement
+          (exit_keyword)
+          return_value: (verbatim_string))
+        (end_keyword)))))

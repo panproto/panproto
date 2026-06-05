@@ -576,7 +576,6 @@ mod bash {
     }
 
     #[test]
-    #[ignore = "EMITTER: = in CHOICE[\"=\",\"+=\"] gets Operator role instead of Connector; unwrap_to_string does not handle CHOICE-of-strings"]
     fn variable_assignment() {
         round_trip("bash", b"x=hello\necho $x\n");
     }

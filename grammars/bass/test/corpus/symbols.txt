@@ -1,0 +1,14 @@
+===
+Symbols
+===
+
+foo
+foo.bar
+foo-bar
+
+---
+
+(source
+  (symbol)
+  (symbol)
+  (symbol))

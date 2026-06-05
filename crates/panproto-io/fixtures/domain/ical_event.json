@@ -1,0 +1,25 @@
+[
+  "vcalendar",
+  [
+    ["version", {}, "text", "2.0"],
+    ["prodid", {}, "text", "-//panproto//ical 1.0//EN"],
+    ["calscale", {}, "text", "GREGORIAN"]
+  ],
+  [
+    [
+      "vevent",
+      [
+        ["uid", {}, "text", "20260312T153000Z-1@panproto.dev"],
+        ["dtstamp", {}, "date-time", "2026-03-12T15:30:00Z"],
+        ["dtstart", { "tzid": "America/New_York" }, "date-time", "2026-04-01T09:00:00"],
+        ["dtend", { "tzid": "America/New_York" }, "date-time", "2026-04-01T10:30:00"],
+        ["summary", {}, "text", "Réunion: café & croissants 🥐"],
+        ["description", {}, "text", "Agenda:\n  1. Demo\n  2. Q&A"],
+        ["sequence", {}, "integer", 0],
+        ["priority", {}, "integer", 5],
+        ["geo", {}, "float", [37.386013, -122.082932]]
+      ],
+      []
+    ]
+  ]
+]

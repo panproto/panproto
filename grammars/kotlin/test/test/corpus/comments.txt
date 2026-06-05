@@ -1,0 +1,979 @@
+================================================================================
+Comments
+================================================================================
+
+1 + 2
+// 1 + 2
+/* very
+  /* nested
+     /* comment */
+  goes
+  */ 
+  here
+*/
+// "strings are cool too"
+/* even """multiline strings""" */
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (additive_expression
+    (integer_literal)
+    (integer_literal))
+  (line_comment)
+  (multiline_comment)
+  (line_comment)
+  (multiline_comment))
+
+================================================================================
+Line comment between chain calls
+================================================================================
+
+fun main() {
+    val result = listOf(1, 2, 3)
+        // this comment breaks the chain
+        .reversed()
+        .map { it * 2 }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (property_declaration
+          (binding_pattern_kind)
+          (variable_declaration
+            (simple_identifier))
+          (call_expression
+            (navigation_expression
+              (call_expression
+                (navigation_expression
+                  (call_expression
+                    (simple_identifier)
+                    (call_suffix
+                      (value_arguments
+                        (value_argument
+                          (integer_literal))
+                        (value_argument
+                          (integer_literal))
+                        (value_argument
+                          (integer_literal)))))
+                  (line_comment)
+                  (navigation_suffix
+                    (simple_identifier)))
+                (call_suffix
+                  (value_arguments)))
+              (navigation_suffix
+                (simple_identifier)))
+            (call_suffix
+              (annotated_lambda
+                (lambda_literal
+                  (statements
+                    (multiplicative_expression
+                      (simple_identifier)
+                      (integer_literal))))))))))))
+
+================================================================================
+Block comment between chain calls
+================================================================================
+
+fun main() {
+    val x = listOf(1)
+        /* transform */
+        .map { it + 1 }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (property_declaration
+          (binding_pattern_kind)
+          (variable_declaration
+            (simple_identifier))
+          (call_expression
+            (navigation_expression
+              (call_expression
+                (simple_identifier)
+                (call_suffix
+                  (value_arguments
+                    (value_argument
+                      (integer_literal)))))
+              (multiline_comment)
+              (navigation_suffix
+                (simple_identifier)))
+            (call_suffix
+              (annotated_lambda
+                (lambda_literal
+                  (statements
+                    (additive_expression
+                      (simple_identifier)
+                      (integer_literal))))))))))))
+
+================================================================================
+Multiple line comments between chain calls
+================================================================================
+
+fun main() {
+    val x = listOf(1)
+        // comment 1
+        // comment 2
+        .reversed()
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (property_declaration
+          (binding_pattern_kind)
+          (variable_declaration
+            (simple_identifier))
+          (call_expression
+            (navigation_expression
+              (call_expression
+                (simple_identifier)
+                (call_suffix
+                  (value_arguments
+                    (value_argument
+                      (integer_literal)))))
+              (line_comment)
+              (line_comment)
+              (navigation_suffix
+                (simple_identifier)))
+            (call_suffix
+              (value_arguments))))))))
+
+================================================================================
+Comment before safe navigation
+================================================================================
+
+fun main() {
+    val x = obj
+        // comment
+        ?.method()
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (property_declaration
+          (binding_pattern_kind)
+          (variable_declaration
+            (simple_identifier))
+          (call_expression
+            (navigation_expression
+              (simple_identifier)
+              (line_comment)
+              (navigation_suffix
+                (simple_identifier)))
+            (call_suffix
+              (value_arguments))))))))
+
+================================================================================
+Comments in middle of long chain
+================================================================================
+
+fun main() {
+    val x = listOf(1)
+        .filter { it > 0 }
+        // filter done
+        .map { it * 2 }
+        // map done
+        .sorted()
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (property_declaration
+          (binding_pattern_kind)
+          (variable_declaration
+            (simple_identifier))
+          (call_expression
+            (navigation_expression
+              (call_expression
+                (navigation_expression
+                  (call_expression
+                    (navigation_expression
+                      (call_expression
+                        (simple_identifier)
+                        (call_suffix
+                          (value_arguments
+                            (value_argument
+                              (integer_literal)))))
+                      (navigation_suffix
+                        (simple_identifier)))
+                    (call_suffix
+                      (annotated_lambda
+                        (lambda_literal
+                          (statements
+                            (comparison_expression
+                              (simple_identifier)
+                              (integer_literal)))))))
+                  (line_comment)
+                  (navigation_suffix
+                    (simple_identifier)))
+                (call_suffix
+                  (annotated_lambda
+                    (lambda_literal
+                      (statements
+                        (multiplicative_expression
+                          (simple_identifier)
+                          (integer_literal)))))))
+              (line_comment)
+              (navigation_suffix
+                (simple_identifier)))
+            (call_suffix
+              (value_arguments))))))))
+
+================================================================================
+Mixed line and block comments between chain calls
+================================================================================
+
+fun main() {
+    val x = listOf(1)
+        // line comment
+        /* block comment */
+        .reversed()
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (property_declaration
+          (binding_pattern_kind)
+          (variable_declaration
+            (simple_identifier))
+          (call_expression
+            (navigation_expression
+              (call_expression
+                (simple_identifier)
+                (call_suffix
+                  (value_arguments
+                    (value_argument
+                      (integer_literal)))))
+              (line_comment)
+              (multiline_comment)
+              (navigation_suffix
+                (simple_identifier)))
+            (call_suffix
+              (value_arguments))))))))
+
+================================================================================
+Nested block comment before chain call
+================================================================================
+
+fun main() {
+    val x = listOf(1)
+        /* outer /* inner */ still outer */
+        .reversed()
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (property_declaration
+          (binding_pattern_kind)
+          (variable_declaration
+            (simple_identifier))
+          (call_expression
+            (navigation_expression
+              (call_expression
+                (simple_identifier)
+                (call_suffix
+                  (value_arguments
+                    (value_argument
+                      (integer_literal)))))
+              (multiline_comment)
+              (navigation_suffix
+                (simple_identifier)))
+            (call_suffix
+              (value_arguments))))))))
+
+================================================================================
+Comment between unrelated statements
+================================================================================
+
+fun main() {
+    val a = 1
+    // new statement
+    val b = 2
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (property_declaration
+          (binding_pattern_kind)
+          (variable_declaration
+            (simple_identifier))
+          (integer_literal))
+        (line_comment)
+        (property_declaration
+          (binding_pattern_kind)
+          (variable_declaration
+            (simple_identifier))
+          (integer_literal))))))
+
+================================================================================
+Comment before prefix plus
+================================================================================
+
+fun main() {
+    val a = 1
+    // comment
+    + 2
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (property_declaration
+          (binding_pattern_kind)
+          (variable_declaration
+            (simple_identifier))
+          (integer_literal))
+        (line_comment)
+        (prefix_expression
+          (integer_literal))))))
+
+================================================================================
+Line comment before else
+================================================================================
+
+if (x) 1
+// comment
+else 2
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (if_expression
+    condition: (simple_identifier)
+    consequence: (control_structure_body
+      (integer_literal))
+    (line_comment)
+    alternative: (control_structure_body
+      (integer_literal))))
+
+================================================================================
+Block comment before else
+================================================================================
+
+if (x) 1
+/* comment */
+else 2
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (if_expression
+    condition: (simple_identifier)
+    consequence: (control_structure_body
+      (integer_literal))
+    (multiline_comment)
+    alternative: (control_structure_body
+      (integer_literal))))
+
+================================================================================
+Line comment before as
+================================================================================
+
+val x = obj
+// comment
+as String
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (property_declaration
+    (binding_pattern_kind)
+    (variable_declaration
+      (simple_identifier))
+    (as_expression
+      (simple_identifier)
+      (line_comment)
+      (user_type
+        (type_identifier)))))
+
+================================================================================
+Block comment before as
+================================================================================
+
+val x = obj
+/* comment */
+as String
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (property_declaration
+    (binding_pattern_kind)
+    (variable_declaration
+      (simple_identifier))
+    (as_expression
+      (simple_identifier)
+      (multiline_comment)
+      (user_type
+        (type_identifier)))))
+
+================================================================================
+Line comment before where
+================================================================================
+
+fun <T> foo()
+// comment
+where T : Bar {
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (type_parameters
+      (type_parameter
+        (type_identifier)))
+    (simple_identifier)
+    (function_value_parameters)
+    (line_comment)
+    (type_constraints
+      (type_constraint
+        (type_identifier)
+        (user_type
+          (type_identifier))))
+    (function_body)))
+
+================================================================================
+Block comment before where
+================================================================================
+
+fun <T> foo()
+/* comment */
+where T : Bar {
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (type_parameters
+      (type_parameter
+        (type_identifier)))
+    (simple_identifier)
+    (function_value_parameters)
+    (multiline_comment)
+    (type_constraints
+      (type_constraint
+        (type_identifier)
+        (user_type
+          (type_identifier))))
+    (function_body)))
+
+================================================================================
+Empty block comment in method chain
+================================================================================
+
+val x = listOf(1)
+/**/
+.reversed()
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (property_declaration
+    (binding_pattern_kind)
+    (variable_declaration
+      (simple_identifier))
+    (call_expression
+      (navigation_expression
+        (call_expression
+          (simple_identifier)
+          (call_suffix
+            (value_arguments
+              (value_argument
+                (integer_literal)))))
+        (multiline_comment)
+        (navigation_suffix
+          (simple_identifier)))
+      (call_suffix
+        (value_arguments)))))
+
+================================================================================
+Multiline block comment in method chain
+================================================================================
+
+val x = listOf(1)
+/* multi
+   line
+   comment */
+.reversed()
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (property_declaration
+    (binding_pattern_kind)
+    (variable_declaration
+      (simple_identifier))
+    (call_expression
+      (navigation_expression
+        (call_expression
+          (simple_identifier)
+          (call_suffix
+            (value_arguments
+              (value_argument
+                (integer_literal)))))
+        (multiline_comment)
+        (navigation_suffix
+          (simple_identifier)))
+      (call_suffix
+        (value_arguments)))))
+
+================================================================================
+Block comment between unrelated statements
+================================================================================
+
+val a = 1
+/* comment */
+val b = 2
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (property_declaration
+    (binding_pattern_kind)
+    (variable_declaration
+      (simple_identifier))
+    (integer_literal))
+  (multiline_comment)
+  (property_declaration
+    (binding_pattern_kind)
+    (variable_declaration
+      (simple_identifier))
+    (integer_literal)))
+
+================================================================================
+Block comment before prefix plus
+================================================================================
+
+val a = 1
+/* comment */
++ 2
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (property_declaration
+    (binding_pattern_kind)
+    (variable_declaration
+      (simple_identifier))
+    (integer_literal))
+  (multiline_comment)
+  (prefix_expression
+    (integer_literal)))
+
+================================================================================
+Division after line comment
+================================================================================
+
+fun foo() {
+    val x = a
+        // comment
+        / b
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (property_declaration
+          (binding_pattern_kind)
+          (variable_declaration
+            (simple_identifier))
+          (multiplicative_expression
+            (simple_identifier)
+            (line_comment)
+            (simple_identifier)))))))
+
+================================================================================
+Division after block comment
+================================================================================
+
+fun foo() {
+    val x = a
+        /* comment */
+        / b
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (property_declaration
+          (binding_pattern_kind)
+          (variable_declaration
+            (simple_identifier))
+          (multiplicative_expression
+            (simple_identifier)
+            (multiline_comment)
+            (simple_identifier)))))))
+
+================================================================================
+Consecutive block comments in method chain
+================================================================================
+
+val x = a
+/* c1 */
+/* c2 */
+.foo()
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (property_declaration
+    (binding_pattern_kind)
+    (variable_declaration
+      (simple_identifier))
+    (call_expression
+      (navigation_expression
+        (simple_identifier)
+        (multiline_comment)
+        (multiline_comment)
+        (navigation_suffix
+          (simple_identifier)))
+      (call_suffix
+        (value_arguments)))))
+
+================================================================================
+Block comment then line comment before dot
+================================================================================
+
+val x = a
+/* block */
+// line
+.foo()
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (property_declaration
+    (binding_pattern_kind)
+    (variable_declaration
+      (simple_identifier))
+    (call_expression
+      (navigation_expression
+        (simple_identifier)
+        (multiline_comment)
+        (line_comment)
+        (navigation_suffix
+          (simple_identifier)))
+      (call_suffix
+        (value_arguments)))))
+
+================================================================================
+Builder pattern with mixed comments
+================================================================================
+
+val dialog = AlertDialog.Builder(context)
+    // set the title
+    .setTitle("Hello")
+    /* set the message */
+    .setMessage("World")
+    // show it
+    .show()
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (property_declaration
+    (binding_pattern_kind)
+    (variable_declaration
+      (simple_identifier))
+    (call_expression
+      (navigation_expression
+        (call_expression
+          (navigation_expression
+            (call_expression
+              (navigation_expression
+                (call_expression
+                  (navigation_expression
+                    (simple_identifier)
+                    (navigation_suffix
+                      (simple_identifier)))
+                  (call_suffix
+                    (value_arguments
+                      (value_argument
+                        (simple_identifier)))))
+                (line_comment)
+                (navigation_suffix
+                  (simple_identifier)))
+              (call_suffix
+                (value_arguments
+                  (value_argument
+                    (string_literal
+                      (string_content))))))
+            (multiline_comment)
+            (navigation_suffix
+              (simple_identifier)))
+          (call_suffix
+            (value_arguments
+              (value_argument
+                (string_literal
+                  (string_content))))))
+        (line_comment)
+        (navigation_suffix
+          (simple_identifier)))
+      (call_suffix
+        (value_arguments)))))
+
+================================================================================
+Comment before lambda brace
+================================================================================
+
+fun foo() {
+    list.map
+        // comment
+        { it * 2 }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (call_expression
+          (navigation_expression
+            (simple_identifier)
+            (navigation_suffix
+              (simple_identifier)))
+          (line_comment)
+          (call_suffix
+            (annotated_lambda
+              (lambda_literal
+                (statements
+                  (multiplicative_expression
+                    (simple_identifier)
+                    (integer_literal)))))))))))
+
+================================================================================
+Comment before call parentheses
+================================================================================
+
+fun foo() {
+    bar
+        // comment
+        (1, 2)
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (call_expression
+          (simple_identifier)
+          (line_comment)
+          (call_suffix
+            (value_arguments
+              (value_argument
+                (integer_literal))
+              (value_argument
+                (integer_literal)))))))))
+
+================================================================================
+Try-catch with second catch on new line
+================================================================================
+
+try { foo() }
+catch (e: Exception) { }
+catch (e: Error) { }
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (try_expression
+    (statements
+      (call_expression
+        (simple_identifier)
+        (call_suffix
+          (value_arguments))))
+    (catch_block
+      (simple_identifier)
+      (user_type
+        (type_identifier)))
+    (catch_block
+      (simple_identifier)
+      (user_type
+        (type_identifier)))))
+
+================================================================================
+Try-catch-finally with finally on new line
+================================================================================
+
+try { foo() }
+catch (e: Exception) { }
+finally { close() }
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (try_expression
+    (statements
+      (call_expression
+        (simple_identifier)
+        (call_suffix
+          (value_arguments))))
+    (catch_block
+      (simple_identifier)
+      (user_type
+        (type_identifier)))
+    (finally_block
+      (statements
+        (call_expression
+          (simple_identifier)
+          (call_suffix
+            (value_arguments)))))))
+
+================================================================================
+Try-catch-finally with line comment before finally
+================================================================================
+
+try { foo() }
+catch (e: Exception) { }
+// comment
+finally { close() }
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (try_expression
+    (statements
+      (call_expression
+        (simple_identifier)
+        (call_suffix
+          (value_arguments))))
+    (catch_block
+      (simple_identifier)
+      (user_type
+        (type_identifier)))
+    (line_comment)
+    (finally_block
+      (statements
+        (call_expression
+          (simple_identifier)
+          (call_suffix
+            (value_arguments)))))))
+
+================================================================================
+Try-catch with line comment before second catch
+================================================================================
+
+try { foo() }
+catch (e: Exception) { }
+// comment
+catch (e: Error) { }
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (try_expression
+    (statements
+      (call_expression
+        (simple_identifier)
+        (call_suffix
+          (value_arguments))))
+    (catch_block
+      (simple_identifier)
+      (user_type
+        (type_identifier)))
+    (line_comment)
+    (catch_block
+      (simple_identifier)
+      (user_type
+        (type_identifier)))))
+
+=========================================================================================
+Block comments between standalone identifiers starting with continuation-keyword letters
+:skip
+=========================================================================================
+
+fun doo() {
+/**/
+e
+/**/
+a
+/**/
+w
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (multiline_comment)
+      (statements
+        (simple_identifier)
+        (multiline_comment)
+        (simple_identifier)
+        (multiline_comment)
+        (simple_identifier)))))

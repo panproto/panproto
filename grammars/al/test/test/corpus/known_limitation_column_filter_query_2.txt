@@ -1,0 +1,48 @@
+================================================================================
+ColumnFilter with comparison expression in query (known limitation)
+================================================================================
+
+query 986 "Time Sheet Line Status Count"
+{
+    elements
+    {
+        dataitem(Time_Sheet_Line; "Time Sheet Line")
+        {
+            column(Time_Sheet_LineInStatus_Count)
+            {
+                Method = Count;
+                // This pattern is not currently supported
+                ColumnFilter = Time_Sheet_LineInStatus_Count = filter(> 0);
+            }
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (query_keyword)
+    (integer)
+    (quoted_identifier)
+    (elements_section
+      (elements_keyword)
+      (query_dataitem
+        (dataitem_keyword)
+        (identifier)
+        (quoted_identifier)
+        (query_column
+          (column_keyword)
+          (identifier)
+          (property
+            (property_name)
+            (identifier))
+          (comment)
+          (property
+            (property_name)
+            (link_value_list
+              (link_value
+                (identifier)
+                (filter_keyword)
+                (filter_value
+                  (integer))))))))))

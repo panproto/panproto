@@ -1,0 +1,920 @@
+================================================================================
+simple string
+================================================================================
+
+let x = "test"
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      (const
+        (string)))))
+
+================================================================================
+verbatim string
+================================================================================
+
+let x = @"\"
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      (const
+        (verbatim_string)))))
+
+================================================================================
+int
+================================================================================
+
+let x = 1
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      (const
+        (int)))))
+
+================================================================================
+int64
+================================================================================
+
+let x = 1L
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      (const
+        (int64
+          (int))))))
+
+================================================================================
+int32
+================================================================================
+
+let x = 1l
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      (const
+        (int32
+          (int))))))
+
+================================================================================
+int16
+================================================================================
+
+let x = 1s
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      (const
+        (int16
+          (int))))))
+
+================================================================================
+sbyte
+================================================================================
+
+let x = 1y
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      (const
+        (sbyte
+          (int))))))
+
+================================================================================
+byte
+================================================================================
+
+let x = 1uy
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      (const
+        (byte
+          (int))))))
+
+================================================================================
+uint16
+================================================================================
+
+let x = 1us
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      (const
+        (uint16
+          (int))))))
+
+================================================================================
+uint32
+================================================================================
+
+let x = 1u
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      (const
+        (uint32
+          (int))))))
+
+================================================================================
+uint32 alternative
+================================================================================
+
+let x = 1ul
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      (const
+        (uint32
+          (int))))))
+
+================================================================================
+uint64
+================================================================================
+
+let x = 1UL
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      (const
+        (uint64
+          (int))))))
+
+================================================================================
+uint64 alternative
+================================================================================
+
+let x = 1uL
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      (const
+        (uint64
+          (int))))))
+
+================================================================================
+nativeint
+================================================================================
+
+do
+  1n
+  0b1n
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (do
+      (sequential_expression
+        (const
+          (nativeint
+            (int)))
+        (const
+          (nativeint
+            (xint)))))))
+
+================================================================================
+xint
+================================================================================
+
+do
+  0x1f
+  0X1f
+
+  0o66
+  0O66
+
+  0b01
+  0B01
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (do
+      (sequential_expression
+        (const
+          (xint))
+        (sequential_expression
+          (const
+            (xint))
+          (sequential_expression
+            (const
+              (xint))
+            (sequential_expression
+              (const
+                (xint))
+              (sequential_expression
+                (const
+                  (xint))
+                (const
+                  (xint))))))))))
+
+================================================================================
+unativeint
+================================================================================
+
+do
+  1un
+  0b1un
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (do
+      (sequential_expression
+        (const
+          (unativeint
+            (int)))
+        (const
+          (unativeint
+            (xint)))))))
+
+================================================================================
+ieee32
+================================================================================
+
+let x = 1.f
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      (const
+        (ieee32
+          (float))))))
+
+================================================================================
+ieee32 alternative
+================================================================================
+
+let x = 0b1lf
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      (const
+        (ieee32
+          (xint))))))
+
+================================================================================
+ieee64
+================================================================================
+
+let x = 0b0LF
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      (const
+        (ieee64
+          (xint))))))
+
+================================================================================
+bignum
+================================================================================
+
+do
+  1Q
+  1R
+  1Z
+  1I
+  1N
+  1G
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (do
+      (sequential_expression
+        (const
+          (bignum
+            (int)))
+        (sequential_expression
+          (const
+            (bignum
+              (int)))
+          (sequential_expression
+            (const
+              (bignum
+                (int)))
+            (sequential_expression
+              (const
+                (bignum
+                  (int)))
+              (sequential_expression
+                (const
+                  (bignum
+                    (int)))
+                (const
+                  (bignum
+                    (int)))))))))))
+
+================================================================================
+decimal
+================================================================================
+
+do
+  1.0M
+  1.M
+  1M
+  1.0m
+  1.m
+  1m
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (do
+      (sequential_expression
+        (const
+          (decimal
+            (float)))
+        (sequential_expression
+          (const
+            (decimal
+              (float)))
+          (sequential_expression
+            (const
+              (decimal
+                (int)))
+            (sequential_expression
+              (const
+                (decimal
+                  (float)))
+              (sequential_expression
+                (const
+                  (decimal
+                    (float)))
+                (const
+                  (decimal
+                    (int)))))))))))
+
+================================================================================
+float
+================================================================================
+
+do
+  1.
+  1.1
+  1e+12
+  1e-12
+  1.2e+12
+  1_000.500_5e+1_0
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (do
+      (sequential_expression
+        (const
+          (float))
+        (sequential_expression
+          (const
+            (float))
+          (sequential_expression
+            (const
+              (float))
+            (sequential_expression
+              (const
+                (float))
+              (sequential_expression
+                (const
+                  (float))
+                (const
+                  (float))))))))))
+
+================================================================================
+string with escaped quote
+================================================================================
+
+let str = "name: \"name\""
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      (const
+        (string)))))
+
+================================================================================
+format string
+================================================================================
+
+let x =
+  $"int: {2 + 2}"
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      (const
+        (string
+          (format_string
+            (format_string_eval
+              (infix_expression
+                (const
+                  (int))
+                (infix_op)
+                (const
+                  (int))))))))))
+
+================================================================================
+triple quoted format string
+================================================================================
+
+let x =
+  $"""int: {2 + 2}"""
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      (const
+        (triple_quoted_string
+          (format_triple_quoted_string
+            (format_string_eval
+              (infix_expression
+                (const
+                  (int))
+                (infix_op)
+                (const
+                  (int))))))))))
+
+================================================================================
+multi-dollar triple quoted format string
+================================================================================
+
+let x =
+  $$"""int: {{2 + 2}}"""
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      (const
+        (triple_quoted_string
+          (format_triple_quoted_string
+            (format_string_eval
+              (infix_expression
+                (const
+                  (int))
+                (infix_op)
+                (const
+                  (int))))))))))
+
+================================================================================
+triple-dollar triple quoted format string
+================================================================================
+
+let x =
+  $$$"""int: {{{2 + 2}}}"""
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      (const
+        (triple_quoted_string
+          (format_triple_quoted_string
+            (format_string_eval
+              (infix_expression
+                (const
+                  (int))
+                (infix_op)
+                (const
+                  (int))))))))))
+
+================================================================================
+underscores in numeric literal
+================================================================================
+
+do
+  1_0
+  10_000
+  10_000_000
+  0xDEAD_BEEF
+  0b1101_1110_1010_1101_1011_1110_1110_1111
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (do
+      (sequential_expression
+        (const
+          (int))
+        (sequential_expression
+          (const
+            (int))
+          (sequential_expression
+            (const
+              (int))
+            (sequential_expression
+              (const
+                (xint))
+              (const
+                (xint)))))))))
+
+================================================================================
+underindented verbatim string
+================================================================================
+
+let johnDoeAsXml = @"<?xml version=""1.0"" encoding=""utf-8""?>
+<Person xmlns:xsi=""http://www.w3.org/2001/XMLSchema-instance"" xmlns:xsd=""http://www.w3.org/2001/XMLSchema"">
+  <FirstName>John</FirstName>
+  <LastName>Doe</LastName>
+  <BirthDate>1990-07-12T00:00:00</BirthDate>
+  <Height>1.85</Height>
+  <Piercings>
+    <string>ear</string>
+    <string>nose</string>
+  </Piercings>
+</Person>"
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      (const
+        (verbatim_string)))))
+
+================================================================================
+number positive parsing
+================================================================================
+
+do
+  1 + 1
+  1+ 1
+  1 +1
+  1+1
+  +1
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (do
+      (sequential_expression
+        (infix_expression
+          (const
+            (int))
+          (infix_op)
+          (const
+            (int)))
+        (sequential_expression
+          (infix_expression
+            (const
+              (int))
+            (infix_op)
+            (const
+              (int)))
+          (sequential_expression
+            (application_expression
+              (const
+                (int))
+              (const
+                (int)))
+            (sequential_expression
+              (infix_expression
+                (const
+                  (int))
+                (infix_op)
+                (const
+                  (int)))
+              (const
+                (int)))))))))
+
+================================================================================
+number negative parsing
+================================================================================
+
+do
+  1 - 1
+  1- 1
+  1 -1
+  1-1
+  -1
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (do
+      (sequential_expression
+        (infix_expression
+          (const
+            (int))
+          (infix_op)
+          (const
+            (int)))
+        (sequential_expression
+          (infix_expression
+            (const
+              (int))
+            (infix_op)
+            (const
+              (int)))
+          (sequential_expression
+            (application_expression
+              (const
+                (int))
+              (const
+                (int)))
+            (sequential_expression
+              (infix_expression
+                (const
+                  (int))
+                (infix_op)
+                (const
+                  (int)))
+              (const
+                (int)))))))))
+
+================================================================================
+chars
+================================================================================
+
+do
+  '''
+  '"'
+  '\\'
+  'a'
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (do
+      (sequential_expression
+        (const
+          (char))
+        (sequential_expression
+          (const
+            (char))
+          (sequential_expression
+            (const
+              (char))
+            (const
+              (char))))))))
+
+================================================================================
+float with measure literal
+================================================================================
+
+let x = 1.0<cm>
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      body: (typed_expression
+        (const
+          (float))
+        (types
+          (simple_type
+            (long_identifier
+              (identifier))))))))
+
+================================================================================
+float with quotient and power measure literal
+================================================================================
+
+let x = 9.81<m/s^2>
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      body: (typed_expression
+        (const
+          (float))
+        (measure
+          (measure_quotient
+            (measure_atom
+              (simple_type
+                (long_identifier
+                  (identifier))))
+            (measure_power
+              (measure_atom
+                (simple_type
+                  (long_identifier
+                    (identifier))))
+              (int))))))))
+
+================================================================================
+float with dimensionless reciprocal measure literal
+================================================================================
+
+let x = 5.0<1/s>
+
+--------------------------------------------------------------------------------
+
+(file
+  (declaration_expression
+    (function_or_value_defn
+      (value_declaration_left
+        (identifier_pattern
+          (long_identifier_or_op
+            (identifier))))
+      body: (typed_expression
+        (const
+          (float))
+        (measure
+          (measure_quotient
+            (measure_atom)
+            (measure_atom
+              (simple_type
+                (long_identifier
+                  (identifier))))))))))
+
+================================================================================
+Trailing dot float before type
+================================================================================
+
+module M =
+
+  let y = f 100. 5000.
+
+  type PsvDelayer = { Queue : int }
+
+--------------------------------------------------------------------------------
+
+(file
+  (module_defn
+    (identifier)
+    (declaration_expression
+      (function_or_value_defn
+        (value_declaration_left
+          (identifier_pattern
+            (long_identifier_or_op
+              (identifier))))
+        (application_expression
+          (application_expression
+            (long_identifier_or_op
+              (identifier))
+            (const
+              (float)))
+          (const
+            (float)))))
+    (type_definition
+      (record_type_defn
+        (type_name
+          (identifier))
+        (record_fields
+          (record_field
+            (identifier)
+            (simple_type
+              (long_identifier
+                (identifier)))))))))

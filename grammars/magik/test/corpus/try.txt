@@ -1,0 +1,24 @@
+================================================================================
+try
+================================================================================
+
+_try
+_when e
+_endtry
+$
+
+_try _with cond
+_when e
+_endtry
+$
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (fragment
+    (try
+      raised_condition: (identifier)))
+  (fragment
+    (try
+      condition: (identifier)
+      raised_condition: (identifier))))

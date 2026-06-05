@@ -1,0 +1,151 @@
+================================================================================
+Report dataitem with DataItemLinkReference property
+================================================================================
+
+report 50100 TestReport
+{
+    dataset
+    {
+        dataitem(Customer; Customer)
+        {
+            DataItemLinkReference = Customer;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (property
+          name: (property_name)
+          value: (identifier))))))
+
+================================================================================
+DataItemLinkReference with quoted identifier
+================================================================================
+
+report 50101 TestReport
+{
+    dataset
+    {
+        dataitem(SalesLine; "Sales Line")
+        {
+            DataItemLinkReference = "Sales Header";
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (quoted_identifier))))))
+
+================================================================================
+DataItemLinkReference case variations
+================================================================================
+
+report 50102 TestReport
+{
+    dataset
+    {
+        dataitem(Item; Item)
+        {
+            dataitemlinkreference = Item;
+        }
+        dataitem(Customer; Customer)
+        {
+            DATAITEMLINKREFERENCE = Customer;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (property
+          name: (property_name)
+          value: (identifier)))
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (identifier)
+        (property
+          name: (property_name)
+          value: (identifier))))))
+
+================================================================================
+DataItemLinkReference with multiple properties
+================================================================================
+
+report 50103 TestReport
+{
+    dataset
+    {
+        dataitem(SalesHeader; "Sales Header")
+        {
+            DataItemTableView = SORTING("No.");
+            DataItemLinkReference = SalesHeader;
+            RequestFilterFields = "No.", "Sell-to Customer No.";
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (report_declaration
+    (report_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (dataset_section
+      (dataset_keyword)
+      (report_dataitem
+        (dataitem_keyword)
+        name: (identifier)
+        table_name: (quoted_identifier)
+        (property
+          name: (property_name)
+          value: (sorting_value
+            (quoted_identifier)))
+        (property
+          name: (property_name)
+          value: (identifier))
+        (property
+          name: (property_name)
+          value: (option_member_list
+            (option_member
+              (quoted_identifier))
+            (option_member
+              (quoted_identifier))))))))

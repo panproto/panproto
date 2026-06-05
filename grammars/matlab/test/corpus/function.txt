@@ -1,0 +1,391 @@
+================================================================================
+Function Declaration: No Args, No Output
+================================================================================
+
+function a
+    1
+end
+
+function a()
+    1
+end
+
+function a() end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    (identifier)
+    (block
+      (number)))
+  (function_definition
+    (identifier)
+    (function_arguments)
+    (block
+      (number)))
+  (function_definition
+    (identifier)
+    (function_arguments)))
+
+================================================================================
+Function Declaration: Args, No Output
+================================================================================
+
+function a(a)
+    1
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    (identifier)
+    (function_arguments
+      (identifier))
+    (block
+      (number))))
+
+================================================================================
+Function Declaration: No Args, Simple Output
+================================================================================
+
+function a = b
+    1
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    (function_output
+      (identifier))
+    (identifier)
+    (block
+      (number))))
+
+================================================================================
+Function Declaration: No Args, Multiple Outputs
+================================================================================
+
+function [a,b] = c
+    1
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    (function_output
+      (multioutput_variable
+        (identifier)
+        (identifier)))
+    (identifier)
+    (block
+      (number))))
+
+================================================================================
+Function Declaration: Args, Multiple Outputs
+================================================================================
+
+function [a, b] = c(a, b)
+    1
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    (function_output
+      (multioutput_variable
+        (identifier)
+        (identifier)))
+    (identifier)
+    (function_arguments
+      (identifier)
+      (identifier))
+    (block
+      (number))))
+
+================================================================================
+Function Declaration: After Script
+================================================================================
+
+1 + a()
+
+function a
+    2
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (binary_operator
+    (number)
+    (function_call
+      (identifier)))
+  (function_definition
+    (identifier)
+    (block
+      (number))))
+
+================================================================================
+Function Declaration: Getter and Setter
+================================================================================
+
+function get.A
+    2
+end
+
+function self = set.B(value)
+    self.B = value
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    (identifier)
+    (block
+      (number)))
+  (function_definition
+    (function_output
+      (identifier))
+    (identifier)
+    (function_arguments
+      (identifier))
+    (block
+      (assignment
+        (field_expression
+          (identifier)
+          (identifier))
+        (identifier)))))
+
+================================================================================
+Function Declaration: Empty Body
+================================================================================
+
+function A
+end
+
+function B
+    % just a coment
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    (identifier))
+  (function_definition
+    (identifier)
+    (comment)))
+
+================================================================================
+Function Declaration: Nested Functions
+================================================================================
+
+function A
+    x = 1
+    B()
+    function B
+        x = x + 1
+    end
+    x = x + 1
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    (identifier)
+    (block
+      (assignment
+        (identifier)
+        (number))
+      (function_call
+        (identifier))
+      (function_definition
+        (identifier)
+        (block
+          (assignment
+            (identifier)
+            (binary_operator
+              (identifier)
+              (number)))))
+      (assignment
+        (identifier)
+        (binary_operator
+          (identifier)
+          (number))))))
+
+================================================================================
+Function Declaration: Nested Functions
+================================================================================
+
+function A
+    function B
+    end
+end
+function C
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    (identifier)
+    (block
+      (function_definition
+        (identifier))))
+  (function_definition
+    (identifier)))
+
+================================================================================
+Function Declaration: argument with property
+================================================================================
+
+function myBar(x,y,propArgs)
+    arguments
+        x (:,:) double
+        y (:,:) double
+        propArgs.?matlab.graphics.chart.primitive.Bar
+        some.propery
+        alpha (1, :) double {mustBeReal}
+        beta  (1, :) double {mustBeReal, myUtils.mustBeSameSize(beta, alpha, "beta", "alpha")}
+    end
+    propertyCell = namedargs2cell(propArgs);
+    bar(x,y,propertyCell{:})
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    (identifier)
+    (function_arguments
+      (identifier)
+      (identifier)
+      (identifier))
+    (arguments_statement
+      (property
+        (identifier)
+        (dimensions
+          (spread_operator)
+          (spread_operator))
+        (identifier))
+      (property
+        (identifier)
+        (dimensions
+          (spread_operator)
+          (spread_operator))
+        (identifier))
+      (class_property
+        (identifier)
+        (identifier)
+        (identifier)
+        (identifier)
+        (identifier)
+        (identifier))
+      (property
+        (property_name
+          (identifier)
+          (identifier)))
+      (property
+        (identifier)
+        (dimensions
+          (number)
+          (spread_operator))
+        (identifier)
+        (validation_functions
+          (identifier)))
+      (property
+        (identifier)
+        (dimensions
+          (number)
+          (spread_operator))
+        (identifier)
+        (validation_functions
+          (identifier)
+          (field_expression
+            (identifier)
+            (function_call
+              (identifier)
+              (arguments
+                (identifier)
+                (identifier)
+                (string
+                  (string_content))
+                (string
+                  (string_content))))))))
+    (block
+      (assignment
+        (identifier)
+        (function_call
+          (identifier)
+          (arguments
+            (identifier))))
+      (function_call
+        (identifier)
+        (arguments
+          (identifier)
+          (identifier)
+          (function_call
+            (identifier)
+            (arguments
+              (spread_operator))))))))
+
+================================================================================
+Function Declaration: Argument validators functions
+================================================================================
+
+function foo(a)
+    arguments
+        a (1,1) double {mustBeNumeric mustBePositive can.be.a.property}
+    end
+end
+
+function foo_38(a)
+    arguments
+        a (1,1) double {mustBeNumeric, ...
+                        mustBePositive}
+    end
+end
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    (identifier)
+    (function_arguments
+      (identifier))
+    (arguments_statement
+      (property
+        (identifier)
+        (dimensions
+          (number)
+          (number))
+        (identifier)
+        (validation_functions
+          (identifier)
+          (identifier)
+          (field_expression
+            (identifier)
+            (identifier)
+            (identifier)
+            (identifier))))))
+  (function_definition
+    (identifier)
+    (function_arguments
+      (identifier))
+    (arguments_statement
+      (property
+        (identifier)
+        (dimensions
+          (number)
+          (number))
+        (identifier)
+        (validation_functions
+          (identifier)
+          (line_continuation)
+          (identifier))))))

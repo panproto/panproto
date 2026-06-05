@@ -1,0 +1,187 @@
+================================================================================
+AccessByPermission property case variations test
+================================================================================
+
+table 50000 "Permission Case Test"
+{
+    fields
+    {
+        field(1; "Test1"; Text[50])
+        {
+            AccessByPermission = SYSTEM "ALLOW EXPORT" = X;
+        }
+        field(2; "Test2"; Text[50])
+        {
+            AccessByPermission = system "allow export" = x;
+        }
+        field(3; "Test3"; Text[50])
+        {
+            AccessByPermission = System "Allow Export" = X;
+        }
+        field(4; "Test4"; Text[50])
+        {
+            AccessByPermission = TABLE Customer = X;
+        }
+        field(5; "Test5"; Text[50])
+        {
+            AccessByPermission = table Customer = x;
+        }
+        field(6; "Test6"; Text[50])
+        {
+            AccessByPermission = Page "Customer Card" = X;
+        }
+        field(7; "Test7"; Text[50])
+        {
+            AccessByPermission = REPORT "Customer List" = X;
+        }
+        field(8; "Test8"; Text[50])
+        {
+            AccessByPermission = codeunit "Sales-Post" = X;
+        }
+        field(9; "Test9"; Text[50])
+        {
+            AccessByPermission = XMLPORT "Export Data" = X;
+        }
+        field(10; "Test10"; Text[50])
+        {
+            AccessByPermission = query "Customer Query" = X;
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (fields_section
+      (fields_keyword)
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (tabledata_permission_list
+            (tabledata_permission
+              table_name: (quoted_identifier)
+              permission: (permission_type)))))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (tabledata_permission_list
+            (tabledata_permission
+              table_name: (quoted_identifier)
+              permission: (permission_type)))))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (tabledata_permission_list
+            (tabledata_permission
+              table_name: (quoted_identifier)
+              permission: (permission_type)))))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (tabledata_permission_list
+            (tabledata_permission
+              (table_keyword)
+              table_name: (identifier)
+              permission: (permission_type)))))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (tabledata_permission_list
+            (tabledata_permission
+              (table_keyword)
+              table_name: (identifier)
+              permission: (permission_type)))))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (tabledata_permission_list
+            (tabledata_permission
+              (page_keyword)
+              table_name: (quoted_identifier)
+              permission: (permission_type)))))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (tabledata_permission_list
+            (tabledata_permission
+              (report_keyword)
+              table_name: (quoted_identifier)
+              permission: (permission_type)))))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (tabledata_permission_list
+            (tabledata_permission
+              (codeunit_keyword)
+              table_name: (quoted_identifier)
+              permission: (permission_type)))))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (tabledata_permission_list
+            (tabledata_permission
+              (xmlport_keyword)
+              table_name: (quoted_identifier)
+              permission: (permission_type)))))
+      (field_declaration
+        id: (integer)
+        name: (quoted_identifier)
+        type: (type_specification
+          (text_type
+            length: (integer)))
+        (property
+          name: (property_name)
+          value: (tabledata_permission_list
+            (tabledata_permission
+              (query_keyword)
+              table_name: (quoted_identifier)
+              permission: (permission_type))))))))

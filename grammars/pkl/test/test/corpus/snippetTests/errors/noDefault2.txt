@@ -1,0 +1,31 @@
+===
+errors/noDefault2.pkl
+===
+
+typealias Foo = *"foo"|"bar"
+
+foo: Foo|"baz"
+
+---
+
+(module
+  (typeAlias
+    (identifier)
+    (unionType
+      (defaultUnionType
+        (stringLiteralType
+          (stringConstant
+            (slStringLiteralPart))))
+      (stringLiteralType
+        (stringConstant
+          (slStringLiteralPart)))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (unionType
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (stringLiteralType
+          (stringConstant
+            (slStringLiteralPart)))))))

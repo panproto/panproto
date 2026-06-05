@@ -1,0 +1,71 @@
+================================================================================
+Preprocessor variant condition if statement
+================================================================================
+
+codeunit 50000 Test
+{
+    procedure TestProc()
+    begin
+#if not CLEAN25
+        if (FunctionNames.Count() = 0) and (Tools.Count = 0) then
+#else
+        if (FunctionNames.Count() = 0) then
+#endif
+            exit(false);
+    end;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (codeunit_declaration
+    (codeunit_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (procedure
+      (procedure_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (preproc_split_if_statement
+          (preproc_if
+            (preproc_open)
+            condition: (preproc_not_expression
+              (identifier)))
+          (if_keyword)
+          condition: (logical_expression
+            left: (parenthesized_expression
+              (comparison_expression
+                left: (call_expression
+                  function: (member_expression
+                    object: (identifier)
+                    member: (identifier))
+                  arguments: (argument_list))
+                operator: (comparison_operator)
+                right: (integer)))
+            right: (parenthesized_expression
+              (comparison_expression
+                left: (member_expression
+                  object: (identifier)
+                  member: (identifier))
+                operator: (comparison_operator)
+                right: (integer))))
+          (then_keyword)
+          (preproc_else)
+          (if_keyword)
+          condition: (parenthesized_expression
+            (comparison_expression
+              left: (call_expression
+                function: (member_expression
+                  object: (identifier)
+                  member: (identifier))
+                arguments: (argument_list))
+              operator: (comparison_operator)
+              right: (integer)))
+          (then_keyword)
+          (preproc_endif
+            (preproc_close))
+          then_branch: (exit_statement
+            (exit_keyword)
+            return_value: (boolean)))
+        (end_keyword)))))

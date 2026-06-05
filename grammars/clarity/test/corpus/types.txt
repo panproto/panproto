@@ -1,0 +1,111 @@
+==================
+Comments (This is not a type though)
+==================
+
+;; Tests start here!
+
+---
+
+(source
+  (comment))
+
+==================
+Booleans
+==================
+
+(define-data-var bool-1 (list 2 bool) (list true false))
+
+---
+
+(source
+      (variable_definition
+        (identifier)
+        (native_type
+          (list_type
+	    (parameter_type
+	      (native_type)
+	    )))
+        (list_lit
+          (list_lit_token)
+          (bool_lit)
+          (bool_lit))))
+
+=====================================
+Numbers
+=====================================
+
+(define-data-var num int 42)
+(var-set num -193)
+(define-data-var num uint u13)
+
+---
+
+(source
+      (variable_definition
+        (identifier)
+        (native_type)
+        (int_lit))
+      (basic_native_form
+        (native_identifier)
+        (identifier)
+        (int_lit))
+      (variable_definition
+        (identifier)
+        (native_type)
+        (uint_lit)))
+
+=====================================
+Principals
+=====================================
+
+(define-constant OWNER 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QS)
+(define-constant SIBLING_CONTRACT 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QS.my-awesome-contract)
+
+---
+
+(source
+  (constant_definition
+        (identifier)
+        (standard_principal_lit))
+      (constant_definition
+        (identifier)
+        (contract_principal_lit
+          (standard_principal_lit)
+          (identifier))))
+
+=====================================
+Buffers
+=====================================
+
+(define-constant BUFF_LIMIT 0xffff3)
+(define-data-var current-buffer (buff 30) 0x68656c6c6f21)
+
+---
+
+(source
+  (constant_definition
+        (identifier)
+        (buffer_lit))
+      (variable_definition
+        (identifier)
+        (native_type
+          (buffer_type))
+        (buffer_lit)))
+
+=====================================
+Strings
+=====================================
+
+(map-set message {author: "John Smith", content: u"And this is an UTF-8 string \u{1f601}"})
+
+---
+
+(source
+      (basic_native_form
+        (native_identifier)
+        (identifier)
+        (tuple_lit
+          (identifier)
+          (ascii_string_lit)
+          (identifier)
+          (utf8_string_lit))))

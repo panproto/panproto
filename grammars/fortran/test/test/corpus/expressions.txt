@@ -1,0 +1,1362 @@
+================================================================================
+Number Literals
+================================================================================
+
+PROGRAM TEST
+    int_val = 1
+    int_val = 1_SZ1
+    int_val = 1_4
+    flt_val = 1.0
+    flt_val = 1.
+    flt_val = .1
+    flt_val = 1.0_SZ1
+    flt_val = 1._SZ1
+    flt_val = 1.E+4
+    flt_val = 1.23E+4
+    flt_val = 1.23E-4
+    flt_val = 1.23E4
+    flt_val = 1.0e+5_SZ1
+    dbl_val = 1.D+4
+    dbl_val = 1.23D+4
+    dbl_val = 1.23D-4
+    dbl_val = 1.23D4
+    dbl_val = 1.23e-4_d
+    bin_val = B'1011'
+    oct_val = O'0158'
+    hex_val = Z'09AF'
+    cpx_val = (1.0, 2.0)
+    cpx_val = (dbl_val, dbl_val)
+    cpx_val = (-1.0, 1.0)
+    cpx_val = (1.0, -1.0)
+    bool_val = .false._c_bool
+END PROGRAM
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (assignment_statement
+      (identifier)
+      (number_literal))
+    (assignment_statement
+      (identifier)
+      (number_literal
+        (identifier)))
+    (assignment_statement
+      (identifier)
+      (number_literal
+        (number_literal)))
+    (assignment_statement
+      (identifier)
+      (number_literal))
+    (assignment_statement
+      (identifier)
+      (number_literal))
+    (assignment_statement
+      (identifier)
+      (number_literal))
+    (assignment_statement
+      (identifier)
+      (number_literal
+        (identifier)))
+    (assignment_statement
+      (identifier)
+      (number_literal
+        (identifier)))
+    (assignment_statement
+      (identifier)
+      (number_literal))
+    (assignment_statement
+      (identifier)
+      (number_literal))
+    (assignment_statement
+      (identifier)
+      (number_literal))
+    (assignment_statement
+      (identifier)
+      (number_literal))
+    (assignment_statement
+      (identifier)
+      (number_literal
+        (identifier)))
+    (assignment_statement
+      (identifier)
+      (number_literal))
+    (assignment_statement
+      (identifier)
+      (number_literal))
+    (assignment_statement
+      (identifier)
+      (number_literal))
+    (assignment_statement
+      (identifier)
+      (number_literal))
+    (assignment_statement
+      (identifier)
+      (number_literal
+        (identifier)))
+    (assignment_statement
+      (identifier)
+      (number_literal))
+    (assignment_statement
+      (identifier)
+      (number_literal))
+    (assignment_statement
+      (identifier)
+      (number_literal))
+    (assignment_statement
+      (identifier)
+      (complex_literal
+        (number_literal)
+        (number_literal)))
+    (assignment_statement
+      (identifier)
+      (complex_literal
+        (identifier)
+        (identifier)))
+    (assignment_statement
+      (identifier)
+      (complex_literal
+        (unary_expression
+          (number_literal))
+        (number_literal)))
+    (assignment_statement
+      (identifier)
+      (complex_literal
+        (number_literal)
+        (unary_expression
+          (number_literal))))
+    (assignment_statement
+      (identifier)
+      (boolean_literal
+        (identifier)))
+    (end_program_statement)))
+
+================================================================================
+String Literals
+================================================================================
+
+PROGRAM TEST
+    sngl_qt = ''
+    sngl_qt = '123456789!<>/?@#$%&"\\"//abcdefgh''ABCDEFGH'
+    dble_qt = ""
+    dble_qt = "123456789!<>/?@#$%&'\\'//abcdefgh""ABCDEFGH"
+    dble_qt = """double double quotes"""
+    sngl_qt = '''double single quotes'''
+    dble_qt = "'single in double quotes'"
+    sngl_qt = '"double in single quotes"'
+
+    val = "one"//'two'//sngl_qt//dble_qt
+
+    with_kind = ck_"string with kind"
+    with_numeral_kind = 4_"string with kind"
+END PROGRAM
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (assignment_statement
+      left: (identifier)
+      right: (string_literal))
+    (assignment_statement
+      left: (identifier)
+      right: (string_literal))
+    (assignment_statement
+      left: (identifier)
+      right: (string_literal))
+    (assignment_statement
+      left: (identifier)
+      right: (string_literal))
+    (assignment_statement
+      left: (identifier)
+      right: (string_literal))
+    (assignment_statement
+      left: (identifier)
+      right: (string_literal))
+    (assignment_statement
+      left: (identifier)
+      right: (string_literal))
+    (assignment_statement
+      left: (identifier)
+      right: (string_literal))
+    (assignment_statement
+      left: (identifier)
+      right: (concatenation_expression
+        left: (string_literal)
+        right: (concatenation_expression
+          left: (string_literal)
+          right: (concatenation_expression
+            left: (identifier)
+            right: (identifier)))))
+    (assignment_statement
+      left: (identifier)
+      right: (string_literal
+        kind: (identifier)))
+    (assignment_statement
+      left: (identifier)
+      right: (string_literal
+        kind: (number_literal)))
+    (end_program_statement)))
+
+================================================================================
+Boolean Literals
+================================================================================
+
+PROGRAM TEST
+    bool_val = .TRUE.
+    bool_val = .FALSE.
+END PROGRAM
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (assignment_statement
+      (identifier)
+      (boolean_literal))
+    (assignment_statement
+      (identifier)
+      (boolean_literal))
+    (end_program_statement)))
+
+================================================================================
+Array Literals
+================================================================================
+
+program test
+  integer :: n(3) = (/ 1, 2, 3  /)
+  real(8) :: x(3) = (/2.0**3, REAL(n(1)), SIN(3.1)/)
+  real(8) :: z(3) = [-1.0, 0.0, 1.0]
+  call append(list, (/ real(1) /))
+end program
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (variable_declaration
+      type: (intrinsic_type)
+      declarator: (init_declarator
+        left: (sized_declarator
+          (identifier)
+          (size
+            (number_literal)))
+        right: (array_literal
+          (number_literal)
+          (number_literal)
+          (number_literal))))
+    (variable_declaration
+      type: (intrinsic_type
+        kind: (kind
+          (number_literal)))
+      declarator: (init_declarator
+        left: (sized_declarator
+          (identifier)
+          (size
+            (number_literal)))
+        right: (array_literal
+          (math_expression
+            left: (number_literal)
+            right: (number_literal))
+          (call_expression
+            (identifier)
+            (argument_list
+              (call_expression
+                (identifier)
+                (argument_list
+                  (number_literal)))))
+          (call_expression
+            (identifier)
+            (argument_list
+              (number_literal))))))
+    (variable_declaration
+      type: (intrinsic_type
+        kind: (kind
+          (number_literal)))
+      declarator: (init_declarator
+        left: (sized_declarator
+          (identifier)
+          (size
+            (number_literal)))
+        right: (array_literal
+          (unary_expression
+            argument: (number_literal))
+          (number_literal)
+          (number_literal))))
+    (subroutine_call
+      subroutine: (identifier)
+      (argument_list
+        (identifier)
+        (array_literal
+          (call_expression
+            (identifier)
+            (argument_list
+              (number_literal))))))
+    (end_program_statement)))
+
+================================================================================
+Array Slicing
+================================================================================
+
+PROGRAM TEST
+    arr(1) = 1
+    arr(:) = 2
+    arr(1:10) = 3
+    arr(1:10:2) = 4
+    arr(::2) = 5
+    arr(INT(x):3*j:j) = 6
+    arr(1, j, INT(SIN(r))) = 5
+    arr(INT(r/3.0):j) = 4
+END PROGRAM
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (assignment_statement
+      (call_expression
+        (identifier)
+        (argument_list
+          (number_literal)))
+      (number_literal))
+    (assignment_statement
+      (call_expression
+        (identifier)
+        (argument_list
+          (extent_specifier)))
+      (number_literal))
+    (assignment_statement
+      (call_expression
+        (identifier)
+        (argument_list
+          (extent_specifier
+            (number_literal)
+            (number_literal))))
+      (number_literal))
+    (assignment_statement
+      (call_expression
+        (identifier)
+        (argument_list
+          (extent_specifier
+            (number_literal)
+            (number_literal)
+            (number_literal))))
+      (number_literal))
+    (assignment_statement
+      (call_expression
+        (identifier)
+        (argument_list
+          (extent_specifier
+            (number_literal))))
+      (number_literal))
+    (assignment_statement
+      (call_expression
+        (identifier)
+        (argument_list
+          (extent_specifier
+            (call_expression
+              (identifier)
+              (argument_list
+                (identifier)))
+            (math_expression
+              (number_literal)
+              (identifier))
+            (identifier))))
+      (number_literal))
+    (assignment_statement
+      (call_expression
+        (identifier)
+        (argument_list
+          (number_literal)
+          (identifier)
+          (call_expression
+            (identifier)
+            (argument_list
+              (call_expression
+                (identifier)
+                (argument_list
+                  (identifier)))))))
+      (number_literal))
+    (assignment_statement
+      (call_expression
+        (identifier)
+        (argument_list
+          (extent_specifier
+            (call_expression
+              (identifier)
+              (argument_list
+                (math_expression
+                  (identifier)
+                  (number_literal))))
+            (identifier))))
+      (number_literal))
+    (end_program_statement)))
+
+================================================================================
+Pointer Assignment
+================================================================================
+
+PROGRAM TEST
+    val => x
+    val(1) => x
+    val%attr => x
+END PROGRAM
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (pointer_association_statement
+      (identifier)
+      (identifier))
+    (pointer_association_statement
+      (call_expression
+        (identifier)
+        (argument_list
+          (number_literal)))
+      (identifier))
+    (pointer_association_statement
+      (derived_type_member_expression
+        (identifier)
+        (type_member))
+      (identifier))
+    (end_program_statement)))
+
+================================================================================
+Derived Type Member Access
+================================================================================
+
+PROGRAM TEST
+  val%attr = x
+  x = val%attr
+  val%attr(1:4) = x
+END PROGRAM
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (assignment_statement
+      (derived_type_member_expression
+        (identifier)
+        (type_member))
+      (identifier))
+    (assignment_statement
+      (identifier)
+      (derived_type_member_expression
+        (identifier)
+        (type_member)))
+    (assignment_statement
+      (call_expression
+        (derived_type_member_expression
+          (identifier)
+          (type_member))
+        (argument_list
+          (extent_specifier
+            (number_literal)
+            (number_literal))))
+      (identifier))
+    (end_program_statement)))
+
+================================================================================
+Mathematical Expressions
+================================================================================
+
+PROGRAM TEST
+    val = x + 1
+    val = x - 1
+    val = x * y
+    val = x / y
+    val = x**y
+    val = -x
+    val = +x
+    val = r**j / k**(-2) * 7
+    val = 14 + (i - j)**3
+    val = -1 ** 2
+END PROGRAM
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (assignment_statement
+      (identifier)
+      (math_expression
+        (identifier)
+        (number_literal)))
+    (assignment_statement
+      (identifier)
+      (math_expression
+        (identifier)
+        (number_literal)))
+    (assignment_statement
+      (identifier)
+      (math_expression
+        (identifier)
+        (identifier)))
+    (assignment_statement
+      (identifier)
+      (math_expression
+        (identifier)
+        (identifier)))
+    (assignment_statement
+      (identifier)
+      (math_expression
+        (identifier)
+        (identifier)))
+    (assignment_statement
+      (identifier)
+      (unary_expression
+        (identifier)))
+    (assignment_statement
+      (identifier)
+      (unary_expression
+        (identifier)))
+    (assignment_statement
+      (identifier)
+      (math_expression
+        (math_expression
+          (math_expression
+            (identifier)
+            (identifier))
+          (math_expression
+            (identifier)
+            (parenthesized_expression
+              (unary_expression
+                (number_literal)))))
+        (number_literal)))
+    (assignment_statement
+      (identifier)
+      (math_expression
+        (number_literal)
+        (math_expression
+          (parenthesized_expression
+            (math_expression
+              (identifier)
+              (identifier)))
+          (number_literal))))
+    (assignment_statement
+      (identifier)
+      (unary_expression
+        (math_expression
+          (number_literal)
+          (number_literal))))
+    (end_program_statement)))
+
+================================================================================
+Logical Expressions
+================================================================================
+
+PROGRAM TEST
+    val = x < y
+    val = x .LT. y
+    val = x > y
+    val = x .gt. y
+    val = x <= y
+    val = x .LE. y
+    val = x >= y
+    val = x .ge. y
+    val = x == y
+    val = x .EQ. y
+    val = x /= y
+    val = x .NE. y
+    val = x .EQV. y
+    val = x .NEQV. y
+    val = x .AND. y
+    val = x .or. y
+    val = .NOT. x
+    val = (.NOT. x == y)
+    val = ((x > y) .AND. (y <= z)) .eqv. .true.
+    val = 1.eq.0
+END PROGRAM
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (assignment_statement
+      left: (identifier)
+      right: (relational_expression
+        left: (identifier)
+        right: (identifier)))
+    (assignment_statement
+      left: (identifier)
+      right: (relational_expression
+        left: (identifier)
+        right: (identifier)))
+    (assignment_statement
+      left: (identifier)
+      right: (relational_expression
+        left: (identifier)
+        right: (identifier)))
+    (assignment_statement
+      left: (identifier)
+      right: (relational_expression
+        left: (identifier)
+        right: (identifier)))
+    (assignment_statement
+      left: (identifier)
+      right: (relational_expression
+        left: (identifier)
+        right: (identifier)))
+    (assignment_statement
+      left: (identifier)
+      right: (relational_expression
+        left: (identifier)
+        right: (identifier)))
+    (assignment_statement
+      left: (identifier)
+      right: (relational_expression
+        left: (identifier)
+        right: (identifier)))
+    (assignment_statement
+      left: (identifier)
+      right: (relational_expression
+        left: (identifier)
+        right: (identifier)))
+    (assignment_statement
+      left: (identifier)
+      right: (relational_expression
+        left: (identifier)
+        right: (identifier)))
+    (assignment_statement
+      left: (identifier)
+      right: (relational_expression
+        left: (identifier)
+        right: (identifier)))
+    (assignment_statement
+      left: (identifier)
+      right: (relational_expression
+        left: (identifier)
+        right: (identifier)))
+    (assignment_statement
+      left: (identifier)
+      right: (relational_expression
+        left: (identifier)
+        right: (identifier)))
+    (assignment_statement
+      left: (identifier)
+      right: (logical_expression
+        left: (identifier)
+        right: (identifier)))
+    (assignment_statement
+      left: (identifier)
+      right: (logical_expression
+        left: (identifier)
+        right: (identifier)))
+    (assignment_statement
+      left: (identifier)
+      right: (logical_expression
+        left: (identifier)
+        right: (identifier)))
+    (assignment_statement
+      left: (identifier)
+      right: (logical_expression
+        left: (identifier)
+        right: (identifier)))
+    (assignment_statement
+      left: (identifier)
+      right: (logical_expression
+        argument: (identifier)))
+    (assignment_statement
+      left: (identifier)
+      right: (parenthesized_expression
+        (logical_expression
+          argument: (relational_expression
+            left: (identifier)
+            right: (identifier)))))
+    (assignment_statement
+      left: (identifier)
+      right: (logical_expression
+        left: (parenthesized_expression
+          (logical_expression
+            left: (parenthesized_expression
+              (relational_expression
+                left: (identifier)
+                right: (identifier)))
+            right: (parenthesized_expression
+              (relational_expression
+                left: (identifier)
+                right: (identifier)))))
+        right: (boolean_literal)))
+    (assignment_statement
+      left: (identifier)
+      right: (relational_expression
+        left: (number_literal)
+        right: (number_literal)))
+    (end_program_statement)))
+
+================================================================================
+Function and Subroutine Call Expressions
+================================================================================
+
+PROGRAM TEST
+    nargs = command_argument_count()
+    x = SIN(1.0 + i + j/k)
+    x = SIN(REAL(j**k, 8) * 100) / 2.0
+    CALL get_command_argument(i, arg)
+    OPEN(7, FILE="output.txt")
+    obj%attr = SIN(rr(1:i))
+    name = adjustl(line(i)(1:pos-1)(0))
+END PROGRAM
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (assignment_statement
+      left: (identifier)
+      right: (call_expression
+        (identifier)
+        (argument_list)))
+    (assignment_statement
+      left: (identifier)
+      right: (call_expression
+        (identifier)
+        (argument_list
+          (math_expression
+            left: (math_expression
+              left: (number_literal)
+              right: (identifier))
+            right: (math_expression
+              left: (identifier)
+              right: (identifier))))))
+    (assignment_statement
+      left: (identifier)
+      right: (math_expression
+        left: (call_expression
+          (identifier)
+          (argument_list
+            (math_expression
+              left: (call_expression
+                (identifier)
+                (argument_list
+                  (math_expression
+                    left: (identifier)
+                    right: (identifier))
+                  (number_literal)))
+              right: (number_literal))))
+        right: (number_literal)))
+    (subroutine_call
+      subroutine: (identifier)
+      (argument_list
+        (identifier)
+        (identifier)))
+    (open_statement
+      (unit_identifier
+        (number_literal))
+      (keyword_argument
+        name: (identifier)
+        value: (string_literal)))
+    (assignment_statement
+      left: (derived_type_member_expression
+        (identifier)
+        (type_member))
+      right: (call_expression
+        (identifier)
+        (argument_list
+          (call_expression
+            (identifier)
+            (argument_list
+              (extent_specifier
+                (number_literal)
+                (identifier)))))))
+    (assignment_statement
+      left: (identifier)
+      right: (call_expression
+        (identifier)
+        (argument_list
+          (call_expression
+            (call_expression
+              (call_expression
+                (identifier)
+                (argument_list
+                  (identifier)))
+              (argument_list
+                (extent_specifier
+                  (number_literal)
+                  (math_expression
+                    left: (identifier)
+                    right: (number_literal)))))
+            (argument_list
+              (number_literal))))))
+    (end_program_statement)))
+
+================================================================================
+Call Type-Bound Procedure
+================================================================================
+
+program use_type_bound_procedures
+  call foo%bar()
+  call foo(n)%bar%quux()
+end program use_type_bound_procedures
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (subroutine_call
+      (derived_type_member_expression
+        (identifier)
+        (type_member))
+      (argument_list))
+    (subroutine_call
+      (derived_type_member_expression
+        (derived_type_member_expression
+          (call_expression
+            (identifier)
+            (argument_list
+              (identifier)))
+          (type_member))
+        (type_member))
+      (argument_list))
+    (end_program_statement
+      (name))))
+
+================================================================================
+Line Continuation
+================================================================================
+
+program test
+    write(*, "('Testing line continuation')", &
+       &  advance='no', &  ! Comment after line continuation
+          iostat=istat, &  ! Comment followed by line continuation
+       &  iomsg=imsg)
+    ! Note trailing whitespace after line continuation on next line
+    error &    
+      stop
+end program
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (write_statement
+      (unit_identifier)
+      (format_identifier
+        (string_literal))
+      (keyword_argument
+        (identifier)
+        (string_literal))
+      (comment)
+      (keyword_argument
+        (identifier)
+        (identifier))
+      (comment)
+      (keyword_argument
+        (identifier)
+        (identifier)))
+    (comment)
+    (stop_statement)
+    (end_program_statement)))
+
+================================================================================
+Line Continuation in String Literal
+================================================================================
+
+program test
+  print*, "hello &
+    & world"
+end program test
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (print_statement
+      (format_identifier)
+      (output_item_list
+        (string_literal)))
+    (end_program_statement
+      (name))))
+
+================================================================================
+Line Continuation in Number Literals
+================================================================================
+
+program test
+  real, parameter :: pi = &
+    &3.14&
+    &1592&
+    &6535&
+    &8979
+  integer, dimension(2) :: foo = [1&
+    , 2]
+  real, dimension(2) :: foo = [1.e0&
+    &, 2.e0]
+end program
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (variable_declaration
+      (intrinsic_type)
+      (type_qualifier)
+      (init_declarator
+        (identifier)
+        (number_literal)))
+    (variable_declaration
+      (intrinsic_type)
+      (type_qualifier
+        (argument_list
+          (number_literal)))
+      (init_declarator
+        (identifier)
+        (array_literal
+          (number_literal)
+          (number_literal))))
+    (variable_declaration
+      (intrinsic_type)
+      (type_qualifier
+        (argument_list
+          (number_literal)))
+      (init_declarator
+        (identifier)
+        (array_literal
+          (number_literal)
+          (number_literal))))
+    (end_program_statement)))
+
+================================================================================
+Array Constructors
+================================================================================
+
+program array_constructors
+  implicit none
+  integer :: i
+  integer, dimension(3) :: array1 = (/ (i, i=1, 3) /), array2 = [(j, integer(kind=8)::j=1,64)]
+  real, dimension(10) :: array2
+
+  array2 = [((real(i - 1) / 10.), i=1, 10)]
+  array2 = [real::]
+
+  print*, sin([real(real64)::1., 2., 3., 4.])
+  print*, sin((/1., 2., 3., 4./))
+  print*, [character(len=3) :: "foo", "fo", "f"]
+end program array_constructors
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (implicit_statement
+      (none))
+    (variable_declaration
+      (intrinsic_type)
+      (identifier))
+    (variable_declaration
+      (intrinsic_type)
+      (type_qualifier
+        (argument_list
+          (number_literal)))
+      (init_declarator
+        (identifier)
+        (array_literal
+          (implied_do_loop_expression
+            (identifier)
+            (loop_control_expression
+              (identifier)
+              (number_literal)
+              (number_literal)))))
+      (init_declarator
+        (identifier)
+        (array_literal
+          (implied_do_loop_expression
+            (identifier)
+            (intrinsic_type
+              (kind
+                (keyword_argument
+                  (identifier)
+                  (number_literal))))
+            (loop_control_expression
+              (identifier)
+              (number_literal)
+              (number_literal))))))
+    (variable_declaration
+      (intrinsic_type)
+      (type_qualifier
+        (argument_list
+          (number_literal)))
+      (identifier))
+    (assignment_statement
+      (identifier)
+      (array_literal
+        (implied_do_loop_expression
+          (parenthesized_expression
+            (math_expression
+              (call_expression
+                (identifier)
+                (argument_list
+                  (math_expression
+                    (identifier)
+                    (number_literal))))
+              (number_literal)))
+          (loop_control_expression
+            (identifier)
+            (number_literal)
+            (number_literal)))))
+    (assignment_statement
+      (identifier)
+      (array_literal
+        (intrinsic_type)))
+    (print_statement
+      (format_identifier)
+      (output_item_list
+        (call_expression
+          (identifier)
+          (argument_list
+            (array_literal
+              (intrinsic_type
+                (kind
+                  (identifier)))
+              (number_literal)
+              (number_literal)
+              (number_literal)
+              (number_literal))))))
+    (print_statement
+      (format_identifier)
+      (output_item_list
+        (call_expression
+          (identifier)
+          (argument_list
+            (array_literal
+              (number_literal)
+              (number_literal)
+              (number_literal)
+              (number_literal))))))
+    (print_statement
+      (format_identifier)
+      (output_item_list
+        (array_literal
+          (intrinsic_type
+            (kind
+              (keyword_argument
+                (identifier)
+                (number_literal))))
+          (string_literal)
+          (string_literal)
+          (string_literal))))
+    (end_program_statement
+      (name))))
+
+================================================================================
+Keywords As Identifiers
+================================================================================
+
+program demo
+   integer :: endif, if, elseif, error, module
+   integer, DIMENSION(2) :: function
+   endif = 3; if = 2
+   error = 1
+   if (endif == 2) then
+      endif = 5
+      elseif = if + endif
+   elseif (endif == 3) then
+      function(if) = endif/elseif
+      print *, endif
+   endif
+   module = 99
+end program
+
+subroutine foo
+  integer :: if(1), elseif, else, format(1)
+  character(len=32) :: format
+  character(len=1) :: width
+  format(7:9) = width//'.'//width
+  if(1) = 5
+end subroutine foo
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (variable_declaration
+      (intrinsic_type)
+      (identifier)
+      (identifier)
+      (identifier)
+      (identifier)
+      (identifier))
+    (variable_declaration
+      (intrinsic_type)
+      (type_qualifier
+        (argument_list
+          (number_literal)))
+      (identifier))
+    (assignment_statement
+      (identifier)
+      (number_literal))
+    (assignment_statement
+      (identifier)
+      (number_literal))
+    (assignment_statement
+      (identifier)
+      (number_literal))
+    (if_statement
+      (parenthesized_expression
+        (relational_expression
+          (identifier)
+          (number_literal)))
+      (assignment_statement
+        (identifier)
+        (number_literal))
+      (assignment_statement
+        (identifier)
+        (math_expression
+          (identifier)
+          (identifier)))
+      (elseif_clause
+        (parenthesized_expression
+          (relational_expression
+            (identifier)
+            (number_literal)))
+        (assignment_statement
+          (call_expression
+            (identifier)
+            (argument_list
+              (identifier)))
+          (math_expression
+            (identifier)
+            (identifier)))
+        (print_statement
+          (format_identifier)
+          (output_item_list
+            (identifier))))
+      (end_if_statement))
+    (assignment_statement
+      (identifier)
+      (number_literal))
+    (end_program_statement))
+  (subroutine
+    (subroutine_statement
+      (name))
+    (variable_declaration
+      (intrinsic_type)
+      (sized_declarator
+        (identifier)
+        (size
+          (number_literal)))
+      (identifier)
+      (identifier)
+      (sized_declarator
+        (identifier)
+        (size
+          (number_literal))))
+    (variable_declaration
+      (intrinsic_type
+        (kind
+          (keyword_argument
+            (identifier)
+            (number_literal))))
+      (identifier))
+    (variable_declaration
+      (intrinsic_type
+        (kind
+          (keyword_argument
+            (identifier)
+            (number_literal))))
+      (identifier))
+    (assignment_statement
+      (call_expression
+        (identifier)
+        (argument_list
+          (extent_specifier
+            (number_literal)
+            (number_literal))))
+      (concatenation_expression
+        (identifier)
+        (concatenation_expression
+          (string_literal)
+          (identifier))))
+    (assignment_statement
+      (call_expression
+        (identifier)
+        (argument_list
+          (number_literal)))
+      (number_literal))
+    (end_subroutine_statement
+      (name))))
+
+================================================================================
+Conditional expressions
+================================================================================
+
+subroutine test(a, b)
+  integer, intent(in) :: a
+  integer, optional, intent(in) :: b
+  a = present(b) ? b : 1
+  call sub(a > 2 ? a : .nil.)
+end subroutine test
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (subroutine
+    (subroutine_statement
+      name: (name)
+      parameters: (parameters
+        (identifier)
+        (identifier)))
+    (variable_declaration
+      type: (intrinsic_type)
+      attribute: (type_qualifier)
+      declarator: (identifier))
+    (variable_declaration
+      type: (intrinsic_type)
+      attribute: (type_qualifier)
+      attribute: (type_qualifier)
+      declarator: (identifier))
+    (assignment_statement
+      left: (identifier)
+      right: (conditional_expression
+        condition: (call_expression
+          (identifier)
+          (argument_list
+            (identifier)))
+        consequence: (identifier)
+        alternative: (number_literal)))
+    (subroutine_call
+      subroutine: (identifier)
+      (argument_list
+        (conditional_expression
+          condition: (relational_expression
+            left: (identifier)
+            right: (number_literal))
+          consequence: (identifier)
+          alternative: (nil_literal))))
+    (end_subroutine_statement
+      (name))))
+
+================================================================================
+Multiple subscripts
+================================================================================
+
+program test
+  b = A(@[3,5])       ! Array element, equivalent to A(3, 5)
+  b = A(6, @[3,5], 1) ! Array element, equivalent to A(6, 3, 5, 1)
+  b = A(@V1, :, @V2)  ! Rank-one array section, the rank of A being
+                      ! SIZE (V1) + 1 + SIZE (V2).
+  b = A(@[3,5]:[9,10]:[2,3]) ! Equivalent to A(3:9:2, 5:10:3)
+  b = A(@[3,5]:[9,10]:2) ! Equivalent to A(3:9:2, 5:10:2)
+  b = A(@[3,5]:[9,10]) ! Equivalent to A(3:9, 5:10)
+end program test
+
+--------------------------------------------------------------------------------
+
+(translation_unit
+  (program
+    (program_statement
+      (name))
+    (assignment_statement
+      (identifier)
+      (call_expression
+        (identifier)
+        (argument_list
+          (multiple_subscript
+            (array_literal
+              (number_literal)
+              (number_literal))))))
+    (comment)
+    (assignment_statement
+      (identifier)
+      (call_expression
+        (identifier)
+        (argument_list
+          (number_literal)
+          (multiple_subscript
+            (array_literal
+              (number_literal)
+              (number_literal)))
+          (number_literal))))
+    (comment)
+    (assignment_statement
+      (identifier)
+      (call_expression
+        (identifier)
+        (argument_list
+          (multiple_subscript
+            (identifier))
+          (extent_specifier)
+          (multiple_subscript
+            (identifier)))))
+    (comment)
+    (comment)
+    (assignment_statement
+      (identifier)
+      (call_expression
+        (identifier)
+        (argument_list
+          (multiple_subscript_triplet
+            (array_literal
+              (number_literal)
+              (number_literal))
+            (array_literal
+              (number_literal)
+              (number_literal))
+            (array_literal
+              (number_literal)
+              (number_literal))))))
+    (comment)
+    (assignment_statement
+      (identifier)
+      (call_expression
+        (identifier)
+        (argument_list
+          (multiple_subscript_triplet
+            (array_literal
+              (number_literal)
+              (number_literal))
+            (array_literal
+              (number_literal)
+              (number_literal))
+            (number_literal)))))
+    (comment)
+    (assignment_statement
+      (identifier)
+      (call_expression
+        (identifier)
+        (argument_list
+          (multiple_subscript_triplet
+            (array_literal
+              (number_literal)
+              (number_literal))
+            (array_literal
+              (number_literal)
+              (number_literal))))))
+    (comment)
+    (end_program_statement
+      (name))))

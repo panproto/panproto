@@ -1,0 +1,1148 @@
+# Copyright (c) 2013-2014 Sandstorm Development Group, Inc. and contributors
+# Licensed under the MIT License:
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+
+
+===========================
+Test a struct with generics
+===========================
+
+struct TestGenerics(Foo, Bar) {
+  foo @0 :Foo;
+  rev @1 :TestGenerics(Bar, Foo);
+
+  union {
+    uv @2:Void;
+    ug :group {
+      ugfoo @3:Int32;
+    }
+  }
+
+  list @4 :List(Inner);
+  # At one time this failed to compile with MSVC due to poor expression SFINAE support.
+
+  struct Inner {
+    foo @0 :Foo;
+    bar @1 :Bar;
+  }
+
+  struct Inner2(Baz) {
+    bar @0 :Bar;
+    baz @1 :Baz;
+    innerBound @2 :Inner;
+    innerUnbound @3 :TestGenerics.Inner;
+
+    struct DeepNest(Qux) {
+      foo @0 :Foo;
+      bar @1 :Bar;
+      baz @2 :Baz;
+      qux @3 :Qux;
+
+      interface DeepNestInterface(Quux) {
+        # At one time this failed to compile.
+        call @0 () -> ();
+      }
+    }
+  }
+
+  interface Interface(Qux) {
+    call @0 Inner2(Text) -> (qux :Qux, gen :TestGenerics(TestAllTypes, TestAnyPointer));
+  }
+
+  annotation ann(struct) :Foo;
+
+  using AliasFoo = Foo;
+  using AliasInner = Inner;
+  using AliasInner2 = Inner2;
+  using AliasInner2Text = Inner2(Text);
+  using AliasRev = TestGenerics(Bar, Foo);
+
+  struct UseAliases {
+    foo @0 :AliasFoo;
+    inner @1 :AliasInner;
+    inner2 @2 :AliasInner2;
+    inner2Bind @3 :AliasInner2(Text);
+    inner2Text @4 :AliasInner2Text;
+    revFoo @5 :AliasRev.AliasFoo;
+  }
+}
+
+---
+
+(message
+  (struct
+    (type_identifier)
+    (generics
+      (generic_parameters
+        (generic_identifier
+          (custom_type
+            (type_identifier)))
+        (generic_identifier
+          (custom_type
+            (type_identifier)))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)
+          (generics
+            (generic_parameters
+              (generic_identifier
+                (custom_type
+                  (type_identifier)))
+              (generic_identifier
+                (custom_type
+                  (type_identifier))))))))
+    (field
+      (union
+        (union_field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (primitive_type)))
+        (union_field
+          (group
+            (type_identifier)
+            (field
+              (field_identifier)
+              (field_version)
+              (field_type
+                (primitive_type)))))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (list_type
+          (field_type
+            (custom_type
+              (type_identifier))))))
+    (comment)
+    (field
+      (nested_struct
+        (struct
+          (type_identifier)
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (custom_type
+                (type_identifier))))
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (custom_type
+                (type_identifier)))))))
+    (field
+      (nested_struct
+        (struct
+          (type_identifier)
+          (generics
+            (generic_parameters
+              (generic_identifier
+                (custom_type
+                  (type_identifier)))))
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (custom_type
+                (type_identifier))))
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (custom_type
+                (type_identifier))))
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (custom_type
+                (type_identifier))))
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (custom_type
+                (type_identifier))))
+          (field
+            (nested_struct
+              (struct
+                (type_identifier)
+                (generics
+                  (generic_parameters
+                    (generic_identifier
+                      (custom_type
+                        (type_identifier)))))
+                (field
+                  (field_identifier)
+                  (field_version)
+                  (field_type
+                    (custom_type
+                      (type_identifier))))
+                (field
+                  (field_identifier)
+                  (field_version)
+                  (field_type
+                    (custom_type
+                      (type_identifier))))
+                (field
+                  (field_identifier)
+                  (field_version)
+                  (field_type
+                    (custom_type
+                      (type_identifier))))
+                (field
+                  (field_identifier)
+                  (field_version)
+                  (field_type
+                    (custom_type
+                      (type_identifier))))
+                (field
+                  (interface
+                    (type_identifier)
+                    (generics
+                      (generic_parameters
+                        (generic_identifier
+                          (custom_type
+                            (type_identifier)))))
+                    (comment)
+                    (method
+                      (method_identifier)
+                      (field_version)
+                      (method_parameters)
+                      (return_type
+                        (named_return_types)))))))))))
+    (field
+      (interface
+        (type_identifier)
+        (generics
+          (generic_parameters
+            (generic_identifier
+              (custom_type
+                (type_identifier)))))
+        (method
+          (method_identifier)
+          (field_version)
+          (type_identifier)
+          (generics
+            (generic_parameters
+              (generic_identifier
+                (primitive_type))))
+          (return_type
+            (named_return_types
+              (named_return_type
+                (return_identifier)
+                (type_identifier)
+                (return_identifier)
+                (type_identifier)
+                (generics
+                  (generic_parameters
+                    (generic_identifier
+                      (custom_type
+                        (type_identifier)))
+                    (generic_identifier
+                      (custom_type
+                        (type_identifier)))))))))))
+    (field
+      (annotation
+        (annotation_definition_identifier)
+        (annotation_targets
+          (annotation_target))
+        (field_type
+          (custom_type
+            (type_identifier)))))
+    (using_directive
+      (replace_using
+        (type_definition)
+        (type_identifier)))
+    (using_directive
+      (replace_using
+        (type_definition)
+        (type_identifier)))
+    (using_directive
+      (replace_using
+        (type_definition)
+        (type_identifier)))
+    (using_directive
+      (replace_using
+        (type_definition)
+        (type_identifier)
+        (generics
+          (generic_parameters
+            (generic_identifier
+              (primitive_type))))))
+    (using_directive
+      (replace_using
+        (type_definition)
+        (type_identifier)
+        (generics
+          (generic_parameters
+            (generic_identifier
+              (custom_type
+                (type_identifier)))
+            (generic_identifier
+              (custom_type
+                (type_identifier)))))))
+    (field
+      (nested_struct
+        (struct
+          (type_identifier)
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (custom_type
+                (type_identifier))))
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (custom_type
+                (type_identifier))))
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (custom_type
+                (type_identifier))))
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (custom_type
+                (type_identifier)
+                (generics
+                  (generic_parameters
+                    (generic_identifier
+                      (primitive_type)))))))
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (custom_type
+                (type_identifier))))
+          (field
+            (field_identifier)
+            (field_version)
+            (field_type
+              (custom_type
+                (type_identifier)))))))))
+
+
+
+====================================
+Test a using directive with generics
+====================================
+
+using BrandedAlias = TestGenerics(BoxedText, Text);
+
+---
+
+(message
+  (using_directive
+    (replace_using
+      (type_definition)
+      (type_identifier)
+      (generics
+        (generic_parameters
+          (generic_identifier
+            (custom_type
+              (type_identifier)))
+          (generic_identifier
+            (primitive_type)))))))
+
+
+
+========================================
+Test a struct with generics as a wrapper
+========================================
+
+struct TestGenericsWrapper(Foo, Bar) {
+  value @0 :TestGenerics(Foo, Bar);
+}
+
+---
+
+(message
+  (struct
+    (type_identifier)
+    (generics
+      (generic_parameters
+        (generic_identifier
+          (custom_type
+            (type_identifier)))
+        (generic_identifier
+          (custom_type
+            (type_identifier)))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)
+          (generics
+            (generic_parameters
+              (generic_identifier
+                (custom_type
+                  (type_identifier)))
+              (generic_identifier
+                (custom_type
+                  (type_identifier))))))))))
+
+
+
+============================================================
+Test a struct with generics not in the struct but in a field
+============================================================
+
+struct TestGenericsWrapper2 {
+  value @0 :TestGenericsWrapper(Text, TestAllTypes);
+}
+
+---
+
+(message
+  (struct
+    (type_identifier)
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)
+          (generics
+            (generic_parameters
+              (generic_identifier
+                (primitive_type))
+              (generic_identifier
+                (custom_type
+                  (type_identifier))))))))))
+
+
+
+=============================================
+Test an interface with implicit method params
+=============================================
+
+interface TestImplicitMethodParams {
+  call @0 [T, U] (foo :T, bar :U) -> TestGenerics(T, U);
+}
+
+---
+
+(message
+  (interface
+    (type_identifier)
+    (method
+      (method_identifier)
+      (field_version)
+      (implicit_generics
+        (implicit_generic_parameters
+          (generic_identifier
+            (custom_type
+              (type_identifier)))
+          (generic_identifier
+            (custom_type
+              (type_identifier)))))
+      (method_parameters
+        (parameters
+          (parameter
+            (param_identifier)
+            (field_type
+              (custom_type
+                (type_identifier))))
+          (parameter
+            (param_identifier)
+            (field_type
+              (custom_type
+                (type_identifier))))))
+      (return_type
+        (unnamed_return_type
+          (type_identifier))
+        (generics
+          (generic_parameters
+            (generic_identifier
+              (custom_type
+                (type_identifier)))
+            (generic_identifier
+              (custom_type
+                (type_identifier)))))))))
+
+
+
+========================================================
+Test an interface with implicit method params in generic
+========================================================
+
+interface TestImplicitMethodParamsInGeneric(V) {
+  call @0 [T, U] (foo :T, bar :U) -> TestGenerics(T, U);
+}
+
+---
+
+(message
+  (interface
+    (type_identifier)
+    (generics
+      (generic_parameters
+        (generic_identifier
+          (custom_type
+            (type_identifier)))))
+    (method
+      (method_identifier)
+      (field_version)
+      (implicit_generics
+        (implicit_generic_parameters
+          (generic_identifier
+            (custom_type
+              (type_identifier)))
+          (generic_identifier
+            (custom_type
+              (type_identifier)))))
+      (method_parameters
+        (parameters
+          (parameter
+            (param_identifier)
+            (field_type
+              (custom_type
+                (type_identifier))))
+          (parameter
+            (param_identifier)
+            (field_type
+              (custom_type
+                (type_identifier))))))
+      (return_type
+        (unnamed_return_type
+          (type_identifier))
+        (generics
+          (generic_parameters
+            (generic_identifier
+              (custom_type
+                (type_identifier)))
+            (generic_identifier
+              (custom_type
+                (type_identifier)))))))))
+
+
+
+==================================================
+Test a struct with a union that has generic fields
+==================================================
+
+struct TestGenericsUnion(Foo, Bar) {
+  # At one point this failed to compile.
+
+  union {
+    foo @0 :Foo;
+    bar @1 :Bar;
+  }
+}
+
+---
+
+(message
+  (struct
+    (type_identifier)
+    (generics
+      (generic_parameters
+        (generic_identifier
+          (custom_type
+            (type_identifier)))
+        (generic_identifier
+          (custom_type
+            (type_identifier)))))
+    (comment)
+    (field
+      (union
+        (union_field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (custom_type
+              (type_identifier))))
+        (union_field
+          (field_identifier)
+          (field_version)
+          (field_type
+            (custom_type
+              (type_identifier))))))))
+
+
+
+========================================
+Test a struct using generics everywhere
+========================================
+
+struct TestUseGenerics $TestGenerics(Text, Data).ann("foo") {
+  basic @0 :TestGenerics(TestAllTypes, TestAnyPointer);
+  inner @1 :TestGenerics(TestAllTypes, TestAnyPointer).Inner;
+  inner2 @2 :TestGenerics(TestAllTypes, TestAnyPointer).Inner2(Text);
+  unspecified @3 :TestGenerics;
+  unspecifiedInner @4 :TestGenerics.Inner2(Text);
+  wrapper @8 :TestGenericsWrapper(TestAllTypes, TestAnyPointer);
+  cap @18 :TestGenerics(TestInterface, Text);
+  genericCap @19 :TestGenerics(TestAllTypes, List(UInt32)).Interface(Data);
+
+  default @5 :TestGenerics(TestAllTypes, Text) =
+      (foo = (int16Field = 123), rev = (foo = "text", rev = (foo = (int16Field = 321))));
+  defaultInner @6 :TestGenerics(TestAllTypes, Text).Inner =
+      (foo = (int16Field = 123), bar = "text");
+  defaultUser @7 :TestUseGenerics = (basic = (foo = (int16Field = 123)));
+  defaultWrapper @9 :TestGenericsWrapper(Text, TestAllTypes) =
+      (value = (foo = "text", rev = (foo = (int16Field = 321))));
+  defaultWrapper2 @10 :TestGenericsWrapper2 =
+      (value = (value = (foo = "text", rev = (foo = (int16Field = 321)))));
+
+  aliasFoo @11 :TestGenerics(TestAllTypes, TestAnyPointer).AliasFoo = (int16Field = 123);
+  aliasInner @12 :TestGenerics(TestAllTypes, TestAnyPointer).AliasInner
+      = (foo = (int16Field = 123));
+  aliasInner2 @13 :TestGenerics(TestAllTypes, TestAnyPointer).AliasInner2
+      = (innerBound = (foo = (int16Field = 123)));
+  aliasInner2Bind @14 :TestGenerics(TestAllTypes, TestAnyPointer).AliasInner2(List(UInt32))
+      = (baz = [12, 34], innerBound = (foo = (int16Field = 123)));
+  aliasInner2Text @15 :TestGenerics(TestAllTypes, TestAnyPointer).AliasInner2Text
+      = (baz = "text", innerBound = (foo = (int16Field = 123)));
+  aliasRev @16 :TestGenerics(TestAnyPointer, Text).AliasRev.AliasFoo = "text";
+
+  useAliases @17 :TestGenerics(TestAllTypes, List(UInt32)).UseAliases = (
+      foo = (int16Field = 123),
+      inner = (foo = (int16Field = 123)),
+      inner2 = (innerBound = (foo = (int16Field = 123))),
+      inner2Bind = (baz = "text", innerBound = (foo = (int16Field = 123))),
+      inner2Text = (baz = "text", innerBound = (foo = (int16Field = 123))),
+      revFoo = [12, 34, 56]);
+}
+
+---
+
+(message
+  (struct
+    (type_identifier)
+    (annotation_identifier)
+    (generics
+      (generic_parameters
+        (generic_identifier
+          (primitive_type))
+        (generic_identifier
+          (primitive_type))))
+    (attribute)
+    (annotation_array
+      (const_value
+        (string
+          (string_fragment))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)
+          (generics
+            (generic_parameters
+              (generic_identifier
+                (custom_type
+                  (type_identifier)))
+              (generic_identifier
+                (custom_type
+                  (type_identifier))))))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)
+          (generics
+            (generic_parameters
+              (generic_identifier
+                (custom_type
+                  (type_identifier)))
+              (generic_identifier
+                (custom_type
+                  (type_identifier)))))
+          (type_identifier))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)
+          (generics
+            (generic_parameters
+              (generic_identifier
+                (custom_type
+                  (type_identifier)))
+              (generic_identifier
+                (custom_type
+                  (type_identifier)))))
+          (type_identifier)
+          (generics
+            (generic_parameters
+              (generic_identifier
+                (primitive_type)))))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)
+          (generics
+            (generic_parameters
+              (generic_identifier
+                (primitive_type)))))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)
+          (generics
+            (generic_parameters
+              (generic_identifier
+                (custom_type
+                  (type_identifier)))
+              (generic_identifier
+                (custom_type
+                  (type_identifier))))))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)
+          (generics
+            (generic_parameters
+              (generic_identifier
+                (custom_type
+                  (type_identifier)))
+              (generic_identifier
+                (primitive_type)))))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)
+          (generics
+            (generic_parameters
+              (generic_identifier
+                (custom_type
+                  (type_identifier)))
+              (generic_identifier
+                (list_type
+                  (field_type
+                    (primitive_type))))))
+          (type_identifier)
+          (generics
+            (generic_parameters
+              (generic_identifier
+                (primitive_type)))))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)
+          (generics
+            (generic_parameters
+              (generic_identifier
+                (custom_type
+                  (type_identifier)))
+              (generic_identifier
+                (primitive_type))))))
+      (const_value
+        (struct_shorthand
+          (property)
+          (const_value
+            (struct_shorthand
+              (property)
+              (const_value
+                (number))))
+          (property)
+          (const_value
+            (struct_shorthand
+              (property)
+              (const_value
+                (string
+                  (string_fragment)))
+              (property)
+              (const_value
+                (struct_shorthand
+                  (property)
+                  (const_value
+                    (struct_shorthand
+                      (property)
+                      (const_value
+                        (number)))))))))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)
+          (generics
+            (generic_parameters
+              (generic_identifier
+                (custom_type
+                  (type_identifier)))
+              (generic_identifier
+                (primitive_type))))
+          (type_identifier)))
+      (const_value
+        (struct_shorthand
+          (property)
+          (const_value
+            (struct_shorthand
+              (property)
+              (const_value
+                (number))))
+          (property)
+          (const_value
+            (string
+              (string_fragment))))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)))
+      (const_value
+        (struct_shorthand
+          (property)
+          (const_value
+            (struct_shorthand
+              (property)
+              (const_value
+                (struct_shorthand
+                  (property)
+                  (const_value
+                    (number)))))))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)
+          (generics
+            (generic_parameters
+              (generic_identifier
+                (primitive_type))
+              (generic_identifier
+                (custom_type
+                  (type_identifier)))))))
+      (const_value
+        (struct_shorthand
+          (property)
+          (const_value
+            (struct_shorthand
+              (property)
+              (const_value
+                (string
+                  (string_fragment)))
+              (property)
+              (const_value
+                (struct_shorthand
+                  (property)
+                  (const_value
+                    (struct_shorthand
+                      (property)
+                      (const_value
+                        (number)))))))))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)))
+      (const_value
+        (struct_shorthand
+          (property)
+          (const_value
+            (struct_shorthand
+              (property)
+              (const_value
+                (struct_shorthand
+                  (property)
+                  (const_value
+                    (string
+                      (string_fragment)))
+                  (property)
+                  (const_value
+                    (struct_shorthand
+                      (property)
+                      (const_value
+                        (struct_shorthand
+                          (property)
+                          (const_value
+                            (number)))))))))))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)
+          (generics
+            (generic_parameters
+              (generic_identifier
+                (custom_type
+                  (type_identifier)))
+              (generic_identifier
+                (custom_type
+                  (type_identifier)))))
+          (type_identifier)))
+      (const_value
+        (struct_shorthand
+          (property)
+          (const_value
+            (number)))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)
+          (generics
+            (generic_parameters
+              (generic_identifier
+                (custom_type
+                  (type_identifier)))
+              (generic_identifier
+                (custom_type
+                  (type_identifier)))))
+          (type_identifier)))
+      (const_value
+        (struct_shorthand
+          (property)
+          (const_value
+            (struct_shorthand
+              (property)
+              (const_value
+                (number)))))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)
+          (generics
+            (generic_parameters
+              (generic_identifier
+                (custom_type
+                  (type_identifier)))
+              (generic_identifier
+                (custom_type
+                  (type_identifier)))))
+          (type_identifier)))
+      (const_value
+        (struct_shorthand
+          (property)
+          (const_value
+            (struct_shorthand
+              (property)
+              (const_value
+                (struct_shorthand
+                  (property)
+                  (const_value
+                    (number)))))))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)
+          (generics
+            (generic_parameters
+              (generic_identifier
+                (custom_type
+                  (type_identifier)))
+              (generic_identifier
+                (custom_type
+                  (type_identifier)))))
+          (type_identifier)
+          (generics
+            (generic_parameters
+              (generic_identifier
+                (list_type
+                  (field_type
+                    (primitive_type))))))))
+      (const_value
+        (struct_shorthand
+          (property)
+          (const_value
+            (const_list
+              (const_value
+                (number))
+              (const_value
+                (number))))
+          (property)
+          (const_value
+            (struct_shorthand
+              (property)
+              (const_value
+                (struct_shorthand
+                  (property)
+                  (const_value
+                    (number)))))))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)
+          (generics
+            (generic_parameters
+              (generic_identifier
+                (custom_type
+                  (type_identifier)))
+              (generic_identifier
+                (custom_type
+                  (type_identifier)))))
+          (type_identifier)))
+      (const_value
+        (struct_shorthand
+          (property)
+          (const_value
+            (string
+              (string_fragment)))
+          (property)
+          (const_value
+            (struct_shorthand
+              (property)
+              (const_value
+                (struct_shorthand
+                  (property)
+                  (const_value
+                    (number)))))))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)
+          (generics
+            (generic_parameters
+              (generic_identifier
+                (custom_type
+                  (type_identifier)))
+              (generic_identifier
+                (primitive_type))))
+          (type_identifier)))
+      (const_value
+        (string
+          (string_fragment))))
+    (field
+      (field_identifier)
+      (field_version)
+      (field_type
+        (custom_type
+          (type_identifier)
+          (generics
+            (generic_parameters
+              (generic_identifier
+                (custom_type
+                  (type_identifier)))
+              (generic_identifier
+                (list_type
+                  (field_type
+                    (primitive_type))))))
+          (type_identifier)))
+      (const_value
+        (struct_shorthand
+          (property)
+          (const_value
+            (struct_shorthand
+              (property)
+              (const_value
+                (number))))
+          (property)
+          (const_value
+            (struct_shorthand
+              (property)
+              (const_value
+                (struct_shorthand
+                  (property)
+                  (const_value
+                    (number))))))
+          (property)
+          (const_value
+            (struct_shorthand
+              (property)
+              (const_value
+                (struct_shorthand
+                  (property)
+                  (const_value
+                    (struct_shorthand
+                      (property)
+                      (const_value
+                        (number))))))))
+          (property)
+          (const_value
+            (struct_shorthand
+              (property)
+              (const_value
+                (string
+                  (string_fragment)))
+              (property)
+              (const_value
+                (struct_shorthand
+                  (property)
+                  (const_value
+                    (struct_shorthand
+                      (property)
+                      (const_value
+                        (number))))))))
+          (property)
+          (const_value
+            (struct_shorthand
+              (property)
+              (const_value
+                (string
+                  (string_fragment)))
+              (property)
+              (const_value
+                (struct_shorthand
+                  (property)
+                  (const_value
+                    (struct_shorthand
+                      (property)
+                      (const_value
+                        (number))))))))
+          (property)
+          (const_value
+            (const_list
+              (const_value
+                (number))
+              (const_value
+                (number))
+              (const_value
+                (number)))))))))

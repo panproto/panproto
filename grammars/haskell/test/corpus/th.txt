@@ -1,0 +1,660 @@
+================================================================================
+th: quasiquotes
+================================================================================
+
+f =
+  [quoter|body|]
+  [quoter|body|with|bars
+and newline|]
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (apply
+          (quasiquote
+            (quoter
+              (variable))
+            (quasiquote_body))
+          (quasiquote
+            (quoter
+              (variable))
+            (quasiquote_body)))))))
+
+================================================================================
+th: top level splice with parens
+================================================================================
+
+$(a ''Aa)
+$(a ''A.Aa)
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (top_splice
+      (splice
+        (parens
+          (apply
+            (variable)
+            (th_quoted_name
+              (name))))))
+    (top_splice
+      (splice
+        (parens
+          (apply
+            (variable)
+            (th_quoted_name
+              (qualified
+                (module
+                  (module_id))
+                (name)))))))))
+
+================================================================================
+th: inline splice variable
+================================================================================
+
+f = $a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (splice
+          (variable))))))
+
+================================================================================
+th: inline splice parens
+================================================================================
+
+f = $(a . a $ a)
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (splice
+          (parens
+            (infix
+              (variable)
+              (operator)
+              (infix
+                (variable)
+                (operator)
+                (variable)))))))))
+
+================================================================================
+th: inline typed splice
+================================================================================
+
+a = $$a
+a = $$(a)
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (splice
+          (variable))))
+    (bind
+      (variable)
+      (match
+        (splice
+          (parens
+            (variable)))))))
+
+================================================================================
+th: inline splice in function application
+================================================================================
+
+a = a $(a)
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (apply
+          (variable)
+          (splice
+            (parens
+              (variable))))))))
+
+================================================================================
+th: top level splice without parens
+================================================================================
+
+derive ''Aa
+derive [''Aa]
+derive $ ''Aa
+derive A a @A
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (top_splice
+      (apply
+        (variable)
+        (th_quoted_name
+          (name))))
+    (top_splice
+      (apply
+        (variable)
+        (list
+          (th_quoted_name
+            (name)))))
+    (top_splice
+      (infix
+        (variable)
+        (operator)
+        (th_quoted_name
+          (name))))
+    (top_splice
+      (apply
+        (apply
+          (apply
+            (variable)
+            (constructor))
+          (variable))
+        (type_application
+          (name))))))
+
+================================================================================
+th: comment in quote body
+================================================================================
+
+a = [q|-- a|]
+a = [q|{- a -}|]
+a = [|{- a -}|]
+a = [q|
+-- a
+a -- a
+    |]
+a = [e|
+-- a
+  a -- a
+    |]
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (quasiquote
+          (quoter
+            (variable))
+          (quasiquote_body))))
+    (bind
+      (variable)
+      (match
+        (quasiquote
+          (quoter
+            (variable))
+          (quasiquote_body))))
+    (bind
+      (variable)
+      (match
+        (quote
+          (comment))))
+    (bind
+      (variable)
+      (match
+        (quasiquote
+          (quoter
+            (variable))
+          (quasiquote_body))))
+    (bind
+      (variable)
+      (match
+        (quote
+          (comment)
+          (quoted_expression
+            (variable))
+          (comment))))))
+
+================================================================================
+th: error: comment in expression quote body ranging over closing bracket
+================================================================================
+
+a = [t|-- a|]
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (quote
+          (comment)
+          (MISSING "|]"))))))
+
+================================================================================
+th: qualified quoter
+================================================================================
+
+a = [A.a|a|]
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (quasiquote
+          (quoter
+            (qualified
+              (module
+                (module_id))
+              (variable)))
+          (quasiquote_body))))))
+
+================================================================================
+th: error: incomplete quote
+================================================================================
+
+a = [a|
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (quasiquote
+          (quoter
+            (variable))
+          (quasiquote_body)
+          (MISSING "|]"))))))
+
+================================================================================
+th: do block top level splice
+================================================================================
+
+do a <- a
+   a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (top_splice
+      (do
+        (bind
+          (variable)
+          (variable))
+        (exp
+          (variable))))))
+
+================================================================================
+th: quoted expression
+================================================================================
+
+a = ⟦a + a⟧
+a = [e|A a ++ [(A, a), "hello"]|]
+a = [|a + a⟧
+a = [e|a + a⟧
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (quote
+          (quoted_expression
+            (infix
+              (variable)
+              (operator)
+              (variable))))))
+    (bind
+      (variable)
+      (match
+        (quote
+          (quoted_expression
+            (infix
+              (apply
+                (constructor)
+                (variable))
+              (operator)
+              (list
+                (tuple
+                  (constructor)
+                  (variable))
+                (literal
+                  (string))))))))
+    (bind
+      (variable)
+      (match
+        (quote
+          (quoted_expression
+            (infix
+              (variable)
+              (operator)
+              (variable))))))
+    (bind
+      (variable)
+      (match
+        (quote
+          (quoted_expression
+            (infix
+              (variable)
+              (operator)
+              (variable))))))))
+
+================================================================================
+th: quoted type
+================================================================================
+
+a = [t|∀ a . A a => a ++ a :: A⟧
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (quote
+          (quoted_type
+            (signature
+              (forall
+                (quantified_variables
+                  (variable))
+                (context
+                  (apply
+                    (name)
+                    (variable))
+                  (infix
+                    (variable)
+                    (operator)
+                    (variable))))
+              (name))))))))
+
+================================================================================
+th: quoted pattern
+================================================================================
+
+a = [p|(a -> A {a = !A})|]
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (quote
+          (quoted_pattern
+            (parens
+              (view_pattern
+                (variable)
+                (record
+                  (constructor)
+                  (field_pattern
+                    (field_name
+                      (variable))
+                    (strict
+                      (constructor))))))))))))
+
+================================================================================
+th: quoted decls
+================================================================================
+
+a = [d|
+  instance A a => A a where
+    a == a = a
+
+  a :: A => a
+
+  type family A a :: A
+        |]
+
+a = [d|{
+a = a
+; a = a
+}|]
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (quote
+          (quoted_decls
+            (instance
+              (context
+                (apply
+                  (name)
+                  (variable)))
+              (name)
+              (type_patterns
+                (variable))
+              (instance_declarations
+                (function
+                  (infix
+                    (variable)
+                    (operator)
+                    (variable))
+                  (match
+                    (variable)))))
+            (signature
+              (variable)
+              (context
+                (name)
+                (variable)))
+            (type_family
+              (name)
+              (type_params
+                (variable))
+              (name))))))
+    (bind
+      (variable)
+      (match
+        (quote
+          (quoted_decls
+            (bind
+              (variable)
+              (match
+                (variable)))
+            (bind
+              (variable)
+              (match
+                (variable)))))))))
+
+================================================================================
+Close nested layouts at closing bracket in decl quote
+================================================================================
+
+a = a
+  where
+    a =
+      [d|instance A where
+          a = a
+          |]
+
+a = a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (variable))
+      (local_binds
+        (bind
+          (variable)
+          (match
+            (quote
+              (quoted_decls
+                (instance
+                  (name)
+                  (instance_declarations
+                    (bind
+                      (variable)
+                      (match
+                        (variable)))))))))))
+    (bind
+      (variable)
+      (match
+        (variable)))))
+
+================================================================================
+th: typed expression quotation
+================================================================================
+
+a = [|| a + a ||]
+
+a = [e|| a + a ||]
+
+a = a
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (typed_quote
+          (quoted_expression
+            (infix
+              (variable)
+              (operator)
+              (variable))))))
+    (bind
+      (variable)
+      (match
+        (typed_quote
+          (quoted_expression
+            (infix
+              (variable)
+              (operator)
+              (variable))))))
+    (bind
+      (variable)
+      (match
+        (variable)))))
+
+================================================================================
+th: quoter with prime
+================================================================================
+
+a = [a'a'|a|]
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (quasiquote
+          (quoter
+            (variable))
+          (quasiquote_body))))))
+
+================================================================================
+th: expression quote as splice expression
+================================================================================
+
+-- Deliberately excluded from splice expressions to avoid parser size explosion
+a = a $⟦a|]
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (comment)
+  (declarations
+    (bind
+      (variable)
+      (match
+        (infix
+          (variable)
+          (operator)
+          (quote
+            (quoted_expression
+              (variable))))))))
+
+================================================================================
+th: nested splice in type
+================================================================================
+
+a :: A -> $(a :: A -> $(a :: A))
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (signature
+      (variable)
+      (function
+        (name)
+        (splice
+          (parens
+            (signature
+              (variable)
+              (function
+                (name)
+                (splice
+                  (parens
+                    (signature
+                      (variable)
+                      (name))))))))))))
+
+================================================================================
+th: quasiquote escape
+================================================================================
+
+a = [a|a\|]
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (bind
+      (variable)
+      (match
+        (quasiquote
+          (quoter
+            (variable))
+          (quasiquote_body))))))
+
+================================================================================
+th: top-level expression splice with negation
+================================================================================
+
+-5
+
+--------------------------------------------------------------------------------
+
+(haskell
+  (declarations
+    (top_splice
+      (negation
+        (literal
+          (integer))))))

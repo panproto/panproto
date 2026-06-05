@@ -1,0 +1,209 @@
+==================
+Ref with string literal
+==================
+
+select * from {{ ref('my_table') }}
+
+---
+
+(source_file 
+  (fn_call
+    (identifier) 
+    (argument_list
+      (lit_string)
+    )
+  )
+)
+
+==================
+Ref with bare words fails
+==================
+
+select * from {{ ref(not_a_string) }}
+
+---
+
+(source_file 
+  (fn_call
+    (identifier)
+    (argument_list
+      (ERROR
+        (identifier)
+      )
+    )
+  )
+)
+
+==================
+Config with one kwarg
+==================
+
+{{ config(key='value') }}
+
+---
+
+(source_file
+  (fn_call
+    (identifier)
+    (argument_list
+      (kwarg
+        (identifier)
+        (lit_string)
+      )
+    )
+  )
+)
+
+==================
+Config with two kwargs
+==================
+
+{{ config(key='value', key2='value2') }}
+
+---
+
+(source_file
+  (fn_call
+    (identifier)
+    (argument_list
+      (kwarg
+        (identifier)
+        (lit_string)
+      )
+      (kwarg
+        (identifier)
+        (lit_string)
+      )
+    )
+  )
+)
+
+==================
+Fn with a kwarg, string lit, list, and dict
+==================
+
+{{ config(
+    key='value',
+    'lit',
+    {'key':'value'},
+    ['a','b']
+) }}
+
+---
+
+(source_file
+  (fn_call
+    (identifier)
+    (argument_list
+      (kwarg
+        (identifier)
+        (lit_string)
+      )
+      (lit_string)
+      (dict
+        (pair
+          (lit_string)
+          (lit_string)
+        )
+      )
+      (list
+        (lit_string)
+        (lit_string)
+      )
+    )
+  )
+)
+
+==================
+parses other fn names
+==================
+
+{{ fn() }}
+
+---
+
+(source_file 
+  (fn_call
+    (identifier) 
+    (argument_list)
+  )
+)
+
+==================
+buried fn names
+==================
+
+select
+  field1,
+  field2,
+  field3
+from {{ ref('x') }}
+join {{ ref('y') }}
+
+---
+
+(source_file
+  (fn_call
+    (identifier)
+    (argument_list
+      (lit_string)
+    )
+  ) 
+  (fn_call 
+    (identifier)
+    (argument_list
+      (lit_string)
+    )
+  )
+)
+
+==================
+bool args
+==================
+
+{{ fn(True) }}
+
+---
+
+(source_file
+  (fn_call 
+    (identifier)
+    (argument_list 
+      (bool)
+    )
+  )
+)
+
+==================
+bool kwargs
+==================
+
+{{ config(bind=False) }}
+
+---
+
+(source_file
+  (fn_call 
+    (identifier)
+    (argument_list 
+      (kwarg
+        (identifier)
+        (bool)
+      )
+    )
+  )
+)
+
+==================
+True is an invalid fn name
+==================
+
+{{ True() }}
+
+---
+
+(source_file
+  (ERROR
+    (bool)
+  )
+)

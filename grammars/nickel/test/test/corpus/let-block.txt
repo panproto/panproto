@@ -1,0 +1,39 @@
+================================================================================
+let block
+================================================================================
+
+let x = 1, y = 2 in x
+
+--------------------------------------------------------------------------------
+
+(term
+  (uni_term
+    (let_expr
+      (let_in_block
+        (let_binding
+          (pattern
+            (ident))
+          (term
+            (uni_term
+              (infix_expr
+                (applicative
+                  (record_operand
+                    (atom
+                      (num_literal))))))))
+        (let_binding
+          (pattern
+            (ident))
+          (term
+            (uni_term
+              (infix_expr
+                (applicative
+                  (record_operand
+                    (atom
+                      (num_literal)))))))))
+      (term
+        (uni_term
+          (infix_expr
+            (applicative
+              (record_operand
+                (atom
+                  (ident))))))))))

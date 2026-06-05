@@ -1,0 +1,285 @@
+==================
+Case with begin/end block branches
+==================
+
+table 50001 "Test Table"
+{
+    trigger OnInsert()
+    begin
+        case MyField of
+            MyField::Option1:
+                begin
+                    X := 1;
+                    Y := 2;
+                end;
+            MyField::Option2:
+                begin
+                    X := 3;
+                    Y := 4;
+                end;
+        end;
+    end;
+}
+
+---
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (case_statement
+          (case_keyword)
+          expression: (identifier)
+          (of_keyword)
+          (case_branch
+            pattern: (qualified_enum_value
+              enum_type: (identifier)
+              value: (identifier))
+            body: (code_block
+              (begin_keyword)
+              (assignment_statement
+                left: (identifier)
+                right: (integer))
+              (assignment_statement
+                left: (identifier)
+                right: (integer))
+              (end_keyword)))
+          (case_branch
+            pattern: (qualified_enum_value
+              enum_type: (identifier)
+              value: (identifier))
+            body: (code_block
+              (begin_keyword)
+              (assignment_statement
+                left: (identifier)
+                right: (integer))
+              (assignment_statement
+                left: (identifier)
+                right: (integer))
+              (end_keyword))))
+        (end_keyword)))))
+
+==================
+Case with string literals
+==================
+
+table 50002 "Test Table"
+{
+    trigger OnInsert()
+    begin
+        case Code of
+            'A':
+                fount := 1;
+            'B':
+                fount := 2;
+        end;
+    end;
+}
+
+---
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (case_statement
+          (case_keyword)
+          expression: (identifier)
+          (of_keyword)
+          (case_branch
+            pattern: (string_literal)
+            body: (assignment_statement
+              left: (identifier)
+              right: (integer)))
+          (case_branch
+            pattern: (string_literal)
+            body: (assignment_statement
+              left: (identifier)
+              right: (integer))))
+        (end_keyword)))))
+
+==================
+Case with multiple patterns per branch
+==================
+
+table 50003 "Test Table"
+{
+    trigger OnInsert()
+    begin
+        case Type of
+            Type::A, Type::B:
+                fount := 1;
+            Type::C, Type::D, Type::E:
+                begin
+                    fount := 2;
+                    Status := 'Multiple';
+                end;
+        end;
+    end;
+}
+
+---
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (case_statement
+          (case_keyword)
+          expression: (identifier)
+          (of_keyword)
+          (case_branch
+            pattern: (qualified_enum_value
+              enum_type: (identifier)
+              value: (identifier))
+            pattern: (qualified_enum_value
+              enum_type: (identifier)
+              value: (identifier))
+            body: (assignment_statement
+              left: (identifier)
+              right: (integer)))
+          (case_branch
+            pattern: (qualified_enum_value
+              enum_type: (identifier)
+              value: (identifier))
+            pattern: (qualified_enum_value
+              enum_type: (identifier)
+              value: (identifier))
+            pattern: (qualified_enum_value
+              enum_type: (identifier)
+              value: (identifier))
+            body: (code_block
+              (begin_keyword)
+              (assignment_statement
+                left: (identifier)
+                right: (integer))
+              (assignment_statement
+                left: (identifier)
+                right: (string_literal))
+              (end_keyword))))
+        (end_keyword)))))
+
+==================
+Case with else clause
+==================
+
+table 50004 "Test Table"
+{
+    trigger OnInsert()
+    begin
+        case MyCode of
+            'A':
+                fount := 1;
+            'B':
+                fount := 2;
+            else
+                fount := 999;
+        end;
+    end;
+}
+
+---
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (case_statement
+          (case_keyword)
+          expression: (identifier)
+          (of_keyword)
+          (case_branch
+            pattern: (string_literal)
+            body: (assignment_statement
+              left: (identifier)
+              right: (integer)))
+          (case_branch
+            pattern: (string_literal)
+            body: (assignment_statement
+              left: (identifier)
+              right: (integer)))
+          (case_else_branch
+            (else_keyword)
+            (assignment_statement
+              left: (identifier)
+              right: (integer))))
+        (end_keyword)))))
+
+==================
+Case with else block
+==================
+
+table 50005 "Test Table"
+{
+    trigger OnInsert()
+    begin
+        case Status of
+            Status::New:
+                fount := 1;
+            else begin
+                fount := 0;
+                Message := 'Unknown';
+            end;
+        end;
+    end;
+}
+
+---
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (code_block
+        (begin_keyword)
+        (case_statement
+          (case_keyword)
+          expression: (identifier)
+          (of_keyword)
+          (case_branch
+            pattern: (qualified_enum_value
+              enum_type: (identifier)
+              value: (identifier))
+            body: (assignment_statement
+              left: (identifier)
+              right: (integer)))
+          (case_else_branch
+            (else_keyword)
+            (code_block
+              (begin_keyword)
+              (assignment_statement
+                left: (identifier)
+                right: (integer))
+              (assignment_statement
+                left: (identifier)
+                right: (string_literal))
+              (end_keyword))))
+        (end_keyword)))))

@@ -1,0 +1,230 @@
+============================================
+Symbol and Keyword
+============================================
+
+syn?
+syn-
+syn*
+syn
+:key
+
+α
+β
+🔥
+🐃
+🐼
+
+:τ
+:🎷
+:❌
+:👻
+
+---
+
+(source_file
+  (symbol)
+  (symbol)
+  (symbol)
+  (symbol)
+  (keyword)
+  (symbol)
+  (symbol)
+  (symbol)
+  (symbol)
+  (symbol)
+  (keyword)
+  (keyword)
+  (keyword)
+  (keyword))
+
+============================================
+Tuple expression
+============================================
+
+(call arg1 arg2)
+(call 10 "str")
+(call :red 10)
+(1 2 3 4 5)
+
+---
+
+(source_file
+  (tuple
+    item: (symbol)
+    item: (symbol)
+    item: (symbol))
+  (tuple
+    item: (symbol)
+    item: (number_literal)
+    item: (str_literal))
+  (tuple
+    item: (symbol)
+    item: (keyword)
+    item: (number_literal))
+  (tuple
+    item: (number_literal)
+    item: (number_literal)
+    item: (number_literal)
+    item: (number_literal)
+    item: (number_literal)))
+
+============================================
+Square Tuple expression
+============================================
+
+[a b 1 2]
+[cd "str"]
+[1 2 3 4 5]
+
+---
+
+(source_file
+  (sqr_tuple
+    item: (symbol)
+    item: (symbol)
+    item: (number_literal)
+    item: (number_literal))
+  (sqr_tuple
+    item: (symbol)
+    item: (str_literal))
+  (sqr_tuple
+    item: (number_literal)
+    item: (number_literal)
+    item: (number_literal)
+    item: (number_literal)
+    item: (number_literal)))
+
+============================================
+Array expression
+============================================
+
+@(a b 1 2)
+@(cd "str")
+@(1 2 3 4 5)
+
+---
+
+(source_file
+  (array
+    item: (symbol)
+    item: (symbol)
+    item: (number_literal)
+    item: (number_literal))
+  (array
+    item: (symbol)
+    item: (str_literal))
+  (array
+    item: (number_literal)
+    item: (number_literal)
+    item: (number_literal)
+    item: (number_literal)
+    item: (number_literal)))
+
+============================================
+Square Array ayexpression
+============================================
+
+@[a b 1 2]
+@[cd "str"]
+@[1 2 3 4 5]
+
+---
+
+(source_file
+  (sqr_array
+    item: (symbol)
+    item: (symbol)
+    item: (number_literal)
+    item: (number_literal))
+  (sqr_array
+    item: (symbol)
+    item: (str_literal))
+  (sqr_array
+    item: (number_literal)
+    item: (number_literal)
+    item: (number_literal)
+    item: (number_literal)
+    item: (number_literal)))
+
+
+============================================
+Struct expression
+============================================
+
+{}
+{:key1 "value1" :key2 :value2 :key3 3}
+{(1 2 3) (4 5 6)}
+{@[] @[]}
+{1 2 3 4 5 6}
+
+---
+
+(source_file
+  (struct)
+  (struct
+    key: (keyword)
+    value: (str_literal)
+    key: (keyword)
+    value: (keyword)
+    key: (keyword)
+    value: (number_literal))
+  (struct
+    key: (tuple
+      item: (number_literal)
+      item: (number_literal)
+      item: (number_literal))
+    value: (tuple
+      item: (number_literal)
+      item: (number_literal)
+      item: (number_literal)))
+  (struct
+    key: (sqr_array)
+    value: (sqr_array))
+  (struct
+    key: (number_literal)
+    value: (number_literal)
+    key: (number_literal)
+    value: (number_literal)
+    key: (number_literal)
+    value: (number_literal)))
+
+============================================
+Tables expression
+============================================
+
+@{}
+@{:key1 "value1" :key2 :value2 :key3 3}
+@{(1 2 3) (4 5 6)}
+@{@[] @[]}
+@{1 2 3 4 5 6}
+
+---
+
+(source_file
+  (table)
+  (table
+    key: (keyword)
+    value: (str_literal)
+    key: (keyword)
+    value: (keyword)
+    key: (keyword)
+    value: (number_literal))
+  (table
+    key: (tuple
+      item: (number_literal)
+      item: (number_literal)
+      item: (number_literal))
+    value: (tuple
+      item: (number_literal)
+      item: (number_literal)
+      item: (number_literal)))
+  (table
+    key: (sqr_array)
+    value: (sqr_array))
+  (table
+    key: (number_literal)
+    value: (number_literal)
+    key: (number_literal)
+    value: (number_literal)
+    key: (number_literal)
+    value: (number_literal)))

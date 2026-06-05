@@ -1,0 +1,227 @@
+================================================================================
+Basic permissionsetextension
+================================================================================
+
+permissionsetextension 20766 "D365 AUTOMATION - APIV2" extends "D365 AUTOMATION"
+{
+    IncludedPermissionSets = "D365 Automation APIV2";
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (permissionsetextension_declaration
+    (permissionsetextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (quoted_identifier))))
+
+================================================================================
+PermissionSetExtension with namespace
+================================================================================
+
+namespace Microsoft.API.V2;
+
+using System.Security.AccessControl;
+
+permissionsetextension 50100 "My Permission Ext" extends "Base Application"
+{
+    IncludedPermissionSets = "My Custom Permissions";
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (namespace_declaration
+    (namespace_keyword)
+    name: (namespace_name
+      (identifier)
+      (identifier)
+      (identifier)))
+  (using_statement
+    (using_keyword)
+    namespace: (namespace_name
+      (identifier)
+      (identifier)
+      (identifier)))
+  (permissionsetextension_declaration
+    (permissionsetextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (quoted_identifier))))
+
+================================================================================
+PermissionSetExtension with multiple included permission sets
+================================================================================
+
+permissionsetextension 50101 "Extended Permissions" extends BasePermissions
+{
+    IncludedPermissionSets = "Permission Set 1", "Permission Set 2", PermissionSet3;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (permissionsetextension_declaration
+    (permissionsetextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (identifier)
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (quoted_identifier))
+        (option_member
+          (quoted_identifier))
+        (option_member
+          (identifier))))))
+
+================================================================================
+PermissionSetExtension with permissions
+================================================================================
+
+permissionsetextension 50102 "Table Access Extension" extends "D365 READ"
+{
+    Permissions = table "My Custom Table" = X,
+                  tabledata "Another Table" = RIMD,
+                  page "My Page" = X,
+                  codeunit "My Codeunit" = X;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (permissionsetextension_declaration
+    (permissionsetextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (tabledata_permission_list
+        (tabledata_permission
+          (table_keyword)
+          table_name: (quoted_identifier)
+          permission: (permission_type))
+        (tabledata_permission
+          table_name: (quoted_identifier)
+          permission: (permission_type))
+        (tabledata_permission
+          (page_keyword)
+          table_name: (quoted_identifier)
+          permission: (permission_type))
+        (tabledata_permission
+          (codeunit_keyword)
+          table_name: (quoted_identifier)
+          permission: (permission_type))))))
+
+================================================================================
+PermissionSetExtension with mixed properties
+================================================================================
+
+permissionsetextension 50103 "Mixed Properties Ext" extends "Base Permissions"
+{
+    Caption = 'Extended Permissions';
+    ObsoleteState = Pending;
+    ObsoleteReason = 'Will be replaced by new permission model';
+    
+    IncludedPermissionSets = "Additional Permissions";
+    
+    Permissions = tabledata Customer = R,
+                  page "Customer List" = X;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (permissionsetextension_declaration
+    (permissionsetextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (quoted_identifier))
+    (property
+      name: (property_name)
+      value: (tabledata_permission_list
+        (tabledata_permission
+          table_name: (identifier)
+          permission: (permission_type))
+        (tabledata_permission
+          (page_keyword)
+          table_name: (quoted_identifier)
+          permission: (permission_type))))))
+
+================================================================================
+PermissionSetExtension case variations
+================================================================================
+
+PERMISSIONSETEXTENSION 50104 MyExtension EXTENDS BaseSet
+{
+    includedpermissionsets = Set1;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (permissionsetextension_declaration
+    (permissionsetextension_keyword)
+    object_id: (integer)
+    object_name: (identifier)
+    (extends_keyword)
+    base_object: (identifier)
+    (property
+      name: (property_name)
+      value: (identifier))))
+
+================================================================================
+PermissionSetExtension with excluded permission sets
+================================================================================
+
+permissionsetextension 50105 "Restricted Extension" extends "Full Access"
+{
+    IncludedPermissionSets = "Basic Access";
+    ExcludedPermissionSets = "Admin Access", "Developer Access";
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (permissionsetextension_declaration
+    (permissionsetextension_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (extends_keyword)
+    base_object: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (quoted_identifier))
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (quoted_identifier))
+        (option_member
+          (quoted_identifier))))))

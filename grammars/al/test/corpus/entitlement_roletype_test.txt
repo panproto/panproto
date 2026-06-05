@@ -1,0 +1,152 @@
+================================================================================
+Entitlement with RoleType property - Delegated
+================================================================================
+
+namespace Microsoft.API.V2;
+
+entitlement "Delegated BC Admin agent - Partner APIV2"
+{
+    Type = Role;
+    RoleType = Delegated;
+    Id = '00000000-0000-0000-0000-000000000010';
+    ObjectEntitlements = "D365 APIV2";
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (namespace_declaration
+    (namespace_keyword)
+    name: (namespace_name
+      (identifier)
+      (identifier)
+      (identifier)))
+  (entitlement_declaration
+    (entitlement_keyword)
+    object_name: (quoted_identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (quoted_identifier))))
+
+================================================================================
+Entitlement with RoleType property - case variations
+================================================================================
+
+entitlement TestEntitlement
+{
+    Type = ApplicationScope;
+    roletype = local;
+    Id = '12345678-1234-1234-1234-123456789012';
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (entitlement_declaration
+    (entitlement_keyword)
+    object_name: (identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (local_keyword))))
+    (property
+      name: (property_name)
+      value: (string_literal))))
+
+================================================================================
+Complete entitlement with all properties
+================================================================================
+
+entitlement CompleteEntitlement
+{
+    Caption = 'Complete Entitlement';
+    Description = 'A complete entitlement example';
+    ObsoleteReason = 'Use the new entitlement instead';
+    ObsoleteState = Pending;
+    ObsoleteTag = '1.0';
+    
+    Type = PerUserServicePlan;
+    RoleType = Delegated;
+    Id = 'abcdefgh-ijkl-mnop-qrst-uvwxyz012345';
+    ObjectEntitlements = "Permission Set 1", "Permission Set 2", "Permission Set 3";
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (entitlement_declaration
+    (entitlement_keyword)
+    object_name: (identifier)
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))
+    (property
+      name: (property_name)
+      value: (option_member_list
+        (option_member
+          (quoted_identifier))
+        (option_member
+          (quoted_identifier))
+        (option_member
+          (quoted_identifier))))))
+
+================================================================================
+Entitlement with custom RoleType identifier
+================================================================================
+
+entitlement CustomRoleType
+{
+    Type = Role;
+    RoleType = CustomRole;
+    Id = 'custom-role-id';
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (entitlement_declaration
+    (entitlement_keyword)
+    object_name: (identifier)
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (identifier))
+    (property
+      name: (property_name)
+      value: (string_literal))))

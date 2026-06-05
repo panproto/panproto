@@ -1,0 +1,14 @@
+===
+errors/invalidGlobRead3.pkl
+===
+
+res = read*("https://www.google.com/**.pkl")
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (readExpr
+      (slStringLiteralExpr
+        (slStringLiteralPart)))))

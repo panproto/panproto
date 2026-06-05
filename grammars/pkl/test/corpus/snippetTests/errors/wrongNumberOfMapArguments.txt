@@ -1,0 +1,16 @@
+===
+errors/wrongNumberOfMapArguments.pkl
+===
+
+res1 = Map(1, 2, 3)
+---
+
+(module
+  (classProperty
+    (identifier)
+    (unqualifiedAccessExpr
+      (identifier)
+      (argumentList
+        (intLiteralExpr)
+        (intLiteralExpr)
+        (intLiteralExpr)))))

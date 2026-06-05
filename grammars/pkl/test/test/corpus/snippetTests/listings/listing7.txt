@@ -1,0 +1,71 @@
+===
+listings/listing7.pkl
+===
+
+listing = new Listing { trace(1) }
+
+listing2: Listing<Int> = listing
+
+listing3 = new Listing {
+  new Listing { trace(2) }
+}
+
+listing4: Listing<Listing<Int>> = listing3
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectElement
+          (traceExpr
+            (intLiteralExpr))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))))
+    (unqualifiedAccessExpr
+      (identifier)))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectElement
+          (newExpr
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (objectBody
+              (objectElement
+                (traceExpr
+                  (intLiteralExpr)))))))))
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (declaredType
+        (qualifiedIdentifier
+          (identifier))
+        (typeArgumentList
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))
+            (typeArgumentList
+              (declaredType
+                (qualifiedIdentifier
+                  (identifier))))))))
+    (unqualifiedAccessExpr
+      (identifier))))

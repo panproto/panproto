@@ -1,0 +1,60 @@
+===========
+Nesting Tables
+===========
+
+[cols="1,2a"]
+|===
+| Col 1 | Col 2
+
+| Cell 1.1
+| Cell 1.2
+
+| Cell 2.1
+| Cell 2.2
+
+[cols="2,1"]
+!===
+! Col1 ! Col2
+
+! C11
+! C12
+
+!===
+
+|===
+
+-----
+
+(document
+  (block_element
+    (section_block
+      (element_attr
+        (element_attr_marker)
+        (attr_value)
+        (element_attr_marker))
+      (table_block
+        (table_block_marker)
+        (table_cell
+          (table_cell_content))
+        (table_cell
+          (table_cell_content))
+        (table_cell
+          (table_cell_content))
+        (table_cell
+          (table_cell_content))
+        (table_cell
+          (table_cell_content))
+        (table_cell
+          (table_cell_content))
+        (ntable_block
+          (element_attr
+            (element_attr_marker)
+            (attr_value)
+            (element_attr_marker))
+          (ntable_block_marker)
+          (ntable_cell)
+          (ntable_cell)
+          (ntable_cell)
+          (ntable_cell)
+          (ntable_block_marker))
+        (table_block_marker)))))

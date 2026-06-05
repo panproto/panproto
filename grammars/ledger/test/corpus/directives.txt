@@ -1,0 +1,417 @@
+================================================================================
+import
+================================================================================
+
+include other.journal
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (directive
+      (word_directive
+        (filename)))))
+
+================================================================================
+account declaration
+================================================================================
+
+account Assets:Bank Account
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (directive
+      (account_directive
+        (account)))))
+
+================================================================================
+account with notes
+================================================================================
+
+account Assets:Bank
+  note My Bank account
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (directive
+      (account_directive
+        (account)
+        (account_subdirective
+          (note_subdirective))))))
+
+================================================================================
+account with comment
+================================================================================
+
+account Assets:Bank
+  ; this is my bank account
+  note My Bank account
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (directive
+      (account_directive
+        (account)
+        (comment)
+        (account_subdirective
+          (note_subdirective))))))
+
+================================================================================
+account with all subdirectives
+================================================================================
+
+account Expenses:Food
+    note This account is all about the chicken!
+    alias food
+    payee ^(KFC|Popeyes)$
+    check commodity == "$"
+    assert commodity == "$"
+    eval print("Hello!")
+    default
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (directive
+      (account_directive
+        (account)
+        (account_subdirective
+          (note_subdirective))
+        (account_subdirective
+          (alias_subdirective))
+        (account_subdirective)
+        (account_subdirective
+          (check_subdirective))
+        (account_subdirective
+          (assert_subdirective))
+        (account_subdirective)
+        (account_subdirective
+          (default_subdirective))))))
+
+================================================================================
+commodity with format
+================================================================================
+
+commodity CHF
+  format 1,000.00 CHF
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (directive
+      (commodity_directive
+        (commodity)
+        (commodity_subdirective
+          (format_subdirective
+            (amount
+              (quantity)
+              (commodity))))))))
+
+================================================================================
+commodity with comment
+================================================================================
+
+commodity $
+  ; dolla bills
+  alias USD
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (directive
+      (commodity_directive
+        (commodity)
+        (comment)
+        (commodity_subdirective
+          (alias_subdirective))))))
+
+================================================================================
+commodity with all subdirectives
+================================================================================
+
+commodity $
+   note American Dollars
+   format $1,000.00
+   nomarket
+   alias USD
+   default
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (directive
+      (commodity_directive
+        (commodity)
+        (commodity_subdirective
+          (note_subdirective))
+        (commodity_subdirective
+          (format_subdirective
+            (amount
+              (commodity)
+              (quantity))))
+        (commodity_subdirective)
+        (commodity_subdirective
+          (alias_subdirective))
+        (commodity_subdirective
+          (default_subdirective))))))
+
+================================================================================
+payee with subdirectives
+================================================================================
+
+payee KFC
+    alias KENTUCKY FRIED CHICKEN
+    ; comment
+    uuid 2a2e21d434356f886c84371eebac6e44f1337fda
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (directive
+      (payee_directive
+        (payee)
+        (payee_subdirective
+          (alias_subdirective))
+        (comment)
+        (payee_subdirective)))))
+
+================================================================================
+alias declaration
+================================================================================
+
+alias NewName=Assets:Bank Account
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (directive
+      (word_directive))))
+
+================================================================================
+single line tags
+================================================================================
+
+tag Receipt
+tag CSV
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (directive
+      (tag_directive)))
+  (journal_item
+    (directive
+      (tag_directive))))
+
+================================================================================
+multiple lines tag
+================================================================================
+
+tag Receipt
+  check value =~ /pattern/
+  assert value != "foobar"
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (directive
+      (tag_directive
+        (check_subdirective)
+        (assert_subdirective)))))
+
+================================================================================
+multiple directives
+================================================================================
+
+include foo.journal
+include bar.ledger
+alias NewName=Assets:Bank Account
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (directive
+      (word_directive
+        (filename))))
+  (journal_item
+    (directive
+      (word_directive
+        (filename))))
+  (journal_item
+    (directive
+      (word_directive))))
+
+================================================================================
+time directives
+================================================================================
+
+i 2013/03/28 22:13:00 Some:Account
+o 2013/03/29 03:39:00
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (directive
+      (char_directive
+        (check_in
+          (date)
+          (time)
+          (account)))))
+  (journal_item
+    (directive
+      (char_directive
+        (check_out
+          (date)
+          (time))))))
+
+================================================================================
+time directives with payee
+================================================================================
+
+I 2013/03/28 22:13:00 Some:Account  A Payee
+O 2013/03/29 03:39:00
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (directive
+      (char_directive
+        (check_in
+          (date)
+          (time)
+          (account)
+          (payee)))))
+  (journal_item
+    (directive
+      (char_directive
+        (check_out
+          (date)
+          (time))))))
+
+================================================================================
+year directives
+================================================================================
+
+Y 2021
+year 2021
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (directive
+      (char_directive)))
+  (journal_item
+    (directive
+      (word_directive))))
+
+================================================================================
+bucket directives
+================================================================================
+
+A Some:Account
+bucket Some:Account
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (directive
+      (char_directive
+        (account))))
+  (journal_item
+    (directive
+      (word_directive
+        (account)))))
+
+================================================================================
+ignore pricing directive
+================================================================================
+
+N EUR
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (directive
+      (char_directive
+        (commodity)))))
+
+================================================================================
+default commodity directive
+================================================================================
+
+D 1.000 EUR
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (directive
+      (char_directive
+        (amount
+          (quantity)
+          (commodity))))))
+
+================================================================================
+commodity conversion directive
+================================================================================
+
+C EUR = 1.20 USD
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (directive
+      (char_directive
+        (commodity)
+        (amount
+          (quantity)
+          (commodity))))))
+
+================================================================================
+pricing directive
+================================================================================
+
+P 2021-02-03 EUR 1.20 USD
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (journal_item
+    (directive
+      (char_directive
+        (date)
+        (commodity)
+        (amount
+          (quantity)
+          (commodity))))))
+
+================================================================================
+invalid directive, because it's indented
+================================================================================
+    A Account
+--------------------------------------------------------------------------------
+
+(source_file
+  (ERROR
+    (char_directive (account))))

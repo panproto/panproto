@@ -1,0 +1,53 @@
+===
+objectGenerator
+===
+
+foo {
+  for (bar in baz) {
+    bar
+  }
+
+  for (foo, bar in baz) {
+    bar
+  }
+
+  when (corge == null) {
+    qux = 15
+  }
+}
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (objectBody
+      (forGenerator
+        (typedIdentifier
+          (identifier))
+        (unqualifiedAccessExpr
+          (identifier))
+        (objectBody
+          (objectElement
+            (unqualifiedAccessExpr
+              (identifier)))))
+      (forGenerator
+        (typedIdentifier
+          (identifier))
+        (typedIdentifier
+          (identifier))
+        (unqualifiedAccessExpr
+          (identifier))
+        (objectBody
+          (objectElement
+            (unqualifiedAccessExpr
+              (identifier)))))
+      (whenGenerator
+        (equalityExpr
+          (unqualifiedAccessExpr
+            (identifier))
+          (nullLiteralExpr))
+        (objectBody
+          (objectProperty
+            (identifier)
+            (intLiteralExpr)))))))

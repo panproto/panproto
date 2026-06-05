@@ -1,0 +1,85 @@
+===
+classes/unionTypesErrorString2.pkl
+===
+
+class X {
+  a: "aaaaaaaaaaaaaaa"
+     | "bbbbbbbbbbbbb"
+     | "ccccccccccccc"
+     | "ddddddddddddd"
+     | "eeeeeeeeeeeee"
+     | "fffffffffffff"
+     | "ggggggggggggg"
+     | "hhhhhhhhhhhhh"
+     | "iiiiiiiiiiiii"
+     | "jjjjjjjjjjjjj"
+     | "kkkkkkkkkkkkk"
+}
+
+res1 = new X {
+  a = "other"
+}
+
+---
+
+(module
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (unionType
+            (unionType
+              (unionType
+                (unionType
+                  (unionType
+                    (unionType
+                      (unionType
+                        (unionType
+                          (unionType
+                            (unionType
+                              (stringLiteralType
+                                (stringConstant
+                                  (slStringLiteralPart)))
+                              (stringLiteralType
+                                (stringConstant
+                                  (slStringLiteralPart))))
+                            (stringLiteralType
+                              (stringConstant
+                                (slStringLiteralPart))))
+                          (stringLiteralType
+                            (stringConstant
+                              (slStringLiteralPart))))
+                        (stringLiteralType
+                          (stringConstant
+                            (slStringLiteralPart))))
+                      (stringLiteralType
+                        (stringConstant
+                          (slStringLiteralPart))))
+                    (stringLiteralType
+                      (stringConstant
+                        (slStringLiteralPart))))
+                  (stringLiteralType
+                    (stringConstant
+                      (slStringLiteralPart))))
+                (stringLiteralType
+                  (stringConstant
+                    (slStringLiteralPart))))
+              (stringLiteralType
+                (stringConstant
+                  (slStringLiteralPart))))
+            (stringLiteralType
+              (stringConstant
+                (slStringLiteralPart))))))))
+  (classProperty
+    (identifier)
+    (newExpr
+      (declaredType
+        (qualifiedIdentifier
+          (identifier)))
+      (objectBody
+        (objectProperty
+          (identifier)
+          (slStringLiteralExpr
+            (slStringLiteralPart)))))))

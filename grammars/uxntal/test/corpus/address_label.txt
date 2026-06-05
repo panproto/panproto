@@ -1,0 +1,49 @@
+===============
+Address Labels
+===============
+
+|0000
+
+.Console
+
+.Console/write DEO
+
+,label
+.label
+;meta
+
+_label
+-label
+=label
+
+---
+
+(program
+  (memory_execution
+    (absolute_pad_operation
+      (number))
+    (rune
+      (rune_char)
+      (identifier))
+    (rune
+      (rune_char)
+      (sublabel_reference
+        (identifier)
+        (identifier)))
+    (opcode)
+    (rune
+      (rune_char)
+      (identifier))
+    (rune
+      (rune_char)
+      (identifier))
+    (rune
+      (rune_char)
+      (identifier))
+    (identifier)
+    (rune
+      (rune_char)
+      (identifier))
+    (rune
+      (rune_char)
+      (identifier))))

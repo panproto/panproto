@@ -1,0 +1,87 @@
+===
+errors/constraintDetails3.pkl
+===
+
+foo: Listing(toList().every((it: Listing<Bird>) -> it[0].name == "Bob")) = new {
+  new Listing {
+    new Bird { name = "Eagle" }
+    new Bird { name = "Quail" }
+  }
+}
+
+class Bird { name: String }
+
+---
+
+(module
+  (classProperty
+    (identifier)
+    (typeAnnotation
+      (constrainedType
+        (declaredType
+          (qualifiedIdentifier
+            (identifier)))
+        (qualifiedAccessExpr
+          (unqualifiedAccessExpr
+            (identifier)
+            (argumentList))
+          (identifier)
+          (argumentList
+            (functionLiteralExpr
+              (parameterList
+                (typedIdentifier
+                  (identifier)
+                  (typeAnnotation
+                    (declaredType
+                      (qualifiedIdentifier
+                        (identifier))
+                      (typeArgumentList
+                        (declaredType
+                          (qualifiedIdentifier
+                            (identifier))))))))
+              (equalityExpr
+                (qualifiedAccessExpr
+                  (subscriptExpr
+                    (unqualifiedAccessExpr
+                      (identifier))
+                    (intLiteralExpr))
+                  (identifier))
+                (slStringLiteralExpr
+                  (slStringLiteralPart))))))))
+    (newExpr
+      (objectBody
+        (objectElement
+          (newExpr
+            (declaredType
+              (qualifiedIdentifier
+                (identifier)))
+            (objectBody
+              (objectElement
+                (newExpr
+                  (declaredType
+                    (qualifiedIdentifier
+                      (identifier)))
+                  (objectBody
+                    (objectProperty
+                      (identifier)
+                      (slStringLiteralExpr
+                        (slStringLiteralPart))))))
+              (objectElement
+                (newExpr
+                  (declaredType
+                    (qualifiedIdentifier
+                      (identifier)))
+                  (objectBody
+                    (objectProperty
+                      (identifier)
+                      (slStringLiteralExpr
+                        (slStringLiteralPart))))))))))))
+  (clazz
+    (identifier)
+    (classBody
+      (classProperty
+        (identifier)
+        (typeAnnotation
+          (declaredType
+            (qualifiedIdentifier
+              (identifier))))))))

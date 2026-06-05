@@ -1,0 +1,251 @@
+==================
+Multi-dimensional array assignment
+==================
+
+table 50020 "Test Table"
+{
+    trigger OnInsert()
+    var
+        TempResultWord: array[10, 2] of Text;
+        NoOfCaptions: Integer;
+        StartWord: Text;
+        EndWord: Text;
+    begin
+        NoOfCaptions := NoOfCaptions + 1;
+        TempResultWord[NoOfCaptions, 1] := StartWord;
+        TempResultWord[NoOfCaptions, 2] := EndWord;
+    end;
+}
+
+---
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (array_type
+              sizes: (integer)
+              sizes: (integer)
+              element_type: (type_specification
+                (text_type)))))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type)))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (text_type)))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (text_type))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (identifier)
+          right: (additive_expression
+            left: (identifier)
+            right: (integer)))
+        (assignment_statement
+          left: (subscript_expression
+            object: (identifier)
+            index: (identifier)
+            (integer))
+          right: (identifier))
+        (assignment_statement
+          left: (subscript_expression
+            object: (identifier)
+            index: (identifier)
+            (integer))
+          right: (identifier))
+        (end_keyword)))))
+
+==================
+Multi-dimensional array access in expressions
+==================
+
+table 50021 "Test Table"
+{
+    trigger OnValidate()
+    var
+        Matrix: array[5, 3] of Integer;
+        Result: Integer;
+    begin
+        Result := Matrix[1, 2] + Matrix[3, 1];
+        if Matrix[2, 3] > 0 then
+            Message('Positive');
+    end;
+}
+
+---
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (array_type
+              sizes: (integer)
+              sizes: (integer)
+              element_type: (type_specification
+                (basic_type)))))
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (identifier)
+          right: (additive_expression
+            left: (subscript_expression
+              object: (identifier)
+              index: (integer)
+              (integer))
+            right: (subscript_expression
+              object: (identifier)
+              index: (integer)
+              (integer))))
+        (if_statement
+          (if_keyword)
+          condition: (comparison_expression
+            left: (subscript_expression
+              object: (identifier)
+              index: (integer)
+              (integer))
+            operator: (comparison_operator)
+            right: (integer))
+          (then_keyword)
+          then_branch: (call_expression
+            function: (identifier)
+            arguments: (argument_list
+              (string_literal))))
+        (end_keyword)))))
+
+==================
+Three-dimensional array access
+==================
+
+table 50022 "Test Table"
+{
+    trigger OnInsert()
+    var
+        Cube: array[2, 3, 4] of Decimal;
+    begin
+        Cube[1, 2, 3] := 42.5;
+    end;
+}
+
+---
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (array_type
+              sizes: (integer)
+              sizes: (integer)
+              sizes: (integer)
+              element_type: (type_specification
+                (basic_type))))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (subscript_expression
+            object: (identifier)
+            index: (integer)
+            (integer)
+            (integer))
+          right: (decimal))
+        (end_keyword)))))
+
+==================
+Array access with variable indices
+==================
+
+table 50023 "Test Table"
+{
+    trigger OnInsert()
+    var
+        Data: array[10, 5] of Text;
+        i, j: Integer;
+    begin
+        Data[i, j] := 'Test';
+        Data[i + 1, j - 1] := Data[i, j];
+    end;
+}
+
+---
+
+(source_file
+  (table_declaration
+    (table_keyword)
+    object_id: (integer)
+    object_name: (quoted_identifier)
+    (trigger_declaration
+      (trigger_keyword)
+      name: (identifier)
+      (var_section
+        (var_keyword)
+        (variable_declaration
+          name: (identifier)
+          type: (type_specification
+            (array_type
+              sizes: (integer)
+              sizes: (integer)
+              element_type: (type_specification
+                (text_type)))))
+        (variable_declaration
+          name: (identifier)
+          name: (identifier)
+          type: (type_specification
+            (basic_type))))
+      (code_block
+        (begin_keyword)
+        (assignment_statement
+          left: (subscript_expression
+            object: (identifier)
+            index: (identifier)
+            (identifier))
+          right: (string_literal))
+        (assignment_statement
+          left: (subscript_expression
+            object: (identifier)
+            index: (additive_expression
+              left: (identifier)
+              right: (integer))
+            (additive_expression
+              left: (identifier)
+              right: (integer)))
+          right: (subscript_expression
+            object: (identifier)
+            index: (identifier)
+            (identifier)))
+        (end_keyword)))))

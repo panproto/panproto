@@ -1,0 +1,46 @@
+=====
+Class extensions
+=====
++SinOsc{
+	someMethod{}
+}
+---
+(source_file
+  (class_def
+    (class )
+    body: (class_def_body
+      (instance_method_name )
+      (function_block ))))
+
+====
+Multiple class definitions
+====
+SinOsc{
+	someMethod{}
+}
+
+SinOsc{
+	someMethod{}
+}
+
+
++SinOsc{
+	someMethod{}
+}
+---
+(source_file
+  (class_def
+    (class )
+    body: (class_def_body
+      (instance_method_name )
+      (function_block )))
+  (class_def
+    (class )
+    body: (class_def_body
+      (instance_method_name )
+      (function_block )))
+  (class_def
+    (class )
+    body: (class_def_body
+      (instance_method_name )
+      (function_block ))))
