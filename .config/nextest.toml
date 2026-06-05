@@ -1,0 +1,14 @@
+# cargo-nextest configuration.
+#
+# The `ci` profile is used by the per-PR `Tests` job in
+# `.github/workflows/ci.yml`. It skips the two multi-minute full-corpus emit
+# gates, which round-trip every vendored grammar's entire upstream
+# `test/corpus/` and take ~30 minutes combined. Running them on every PR is
+# wasteful: the emitter code they exercise is stable, and they still run
+#
+#   * by default for local runs (`cargo nextest run`), and
+#   * on a schedule (and on demand) in the `corpus-gate` workflow,
+#
+# so the emit-verification guarantee stays enforced without blocking PR CI.
+[profile.ci]
+default-filter = 'not test(/corpus_verified_protocols_round_trip_full_corpus|strip_complement_canonical_section_is_structurally_faithful/)'

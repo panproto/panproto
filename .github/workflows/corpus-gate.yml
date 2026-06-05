@@ -1,0 +1,37 @@
+name: Corpus Gate
+
+# The full emit corpus gates (every vendored grammar's entire upstream
+# test/corpus round-tripped under the strict oracle) take ~30 minutes, so they
+# are excluded from per-PR CI (see the `ci` nextest profile in
+# `.config/nextest.toml`) and run here instead: nightly, and on demand.
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  corpus-gate:
+    name: Full emit corpus gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          df -h /
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: corpus-gate
+      - uses: taiki-e/install-action@nextest
+      - name: Run the full-corpus emit gates
+        run: |
+          cargo nextest run -p panproto-parse --all-features \
+            -E 'test(/corpus_verified_protocols_round_trip_full_corpus|strip_complement_canonical_section_is_structurally_faithful/)'
