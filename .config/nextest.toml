@@ -11,4 +11,4 @@
 #
 # so the emit-verification guarantee stays enforced without blocking PR CI.
 [profile.ci]
-default-filter = 'not test(/corpus_verified_protocols_round_trip_full_corpus|strip_complement_canonical_section_is_structurally_faithful/)'
+default-filter = 'not test(/corpus_verified_protocols_round_trip_full_corpus|strip_complement_canonical_section_is_structurally_faithful|long_tail_emit_is_verified/)'

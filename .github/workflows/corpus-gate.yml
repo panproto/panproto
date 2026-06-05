@@ -34,4 +34,4 @@ jobs:
       - name: Run the full-corpus emit gates
         run: |
           cargo nextest run -p panproto-parse --all-features \
-            -E 'test(/corpus_verified_protocols_round_trip_full_corpus|strip_complement_canonical_section_is_structurally_faithful/)'
+            -E 'test(/corpus_verified_protocols_round_trip_full_corpus|strip_complement_canonical_section_is_structurally_faithful|long_tail_emit_is_verified/)'
