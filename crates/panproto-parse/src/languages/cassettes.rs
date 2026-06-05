@@ -94,7 +94,7 @@ pub trait GrammarCassette: Send + Sync {
     /// Returns `true` when an external scanner token must abut its
     /// predecessor with NO intervening whitespace. This is the
     /// per-language analogue of the generic `_immediate*` / `_concat`
-    /// convention ([`crate::emit_pretty::is_no_space_external`]) for
+    /// convention (`is_no_space_external`) for
     /// externals whose names do not follow that convention but whose
     /// scanner nonetheless requires immediate adjacency. C#'s interpolated
     /// string delimiters are the motivating case: the opening quote of

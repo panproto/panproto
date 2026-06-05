@@ -108,7 +108,7 @@ impl ProtocolCodec for crate::unified_codec::UnifiedCodec {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// let mut registry = ProtocolRegistry::new();
 /// // register protocol codecs...
 ///

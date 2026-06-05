@@ -20,7 +20,7 @@ use panproto_expr::Expr;
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// let schema = SchemaBuilder::new(&protocol)
 ///     .vertex("post", "record", Some("app.bsky.feed.post"))?
 ///     .vertex("post:body", "object", None)?

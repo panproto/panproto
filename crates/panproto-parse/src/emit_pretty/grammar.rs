@@ -522,7 +522,7 @@ pub struct Grammar {
     /// space (e.g. INI's `setting_value = PATTERN ".+"`). A layout space
     /// emitted *before* such a terminal would fold into its captured text
     /// on re-parse and accrete one space per emit, so the emitter hugs them
-    /// to their predecessor. See [`pattern_absorbs_leading_space`].
+    /// to their predecessor. See `pattern_absorbs_leading_space`.
     #[serde(skip)]
     pub leading_space_terminals: std::collections::HashSet<String>,
     /// Named terminal kinds whose underlying `PATTERN` runs to the end of
@@ -530,7 +530,7 @@ pub struct Grammar {
     /// `hash_bang_line = #!.*`). Like a line comment, such a token absorbs
     /// any text that follows it on the same line, so the layout pass emits a
     /// newline after it: otherwise the next sibling re-parses as part of the
-    /// token. See [`is_rest_of_line_pattern`].
+    /// token. See `is_rest_of_line_pattern`.
     #[serde(skip)]
     pub line_rest_kinds: std::collections::HashSet<String>,
     /// Named alias values whose ALIAS content reduces to an `IMMEDIATE_TOKEN`
@@ -2736,7 +2736,7 @@ pub(crate) fn classify_synthetic_indent_rules(grammar: &mut Grammar) {
 }
 
 /// Collect named terminal kinds whose underlying `PATTERN` can match a
-/// leading space (see [`pattern_absorbs_leading_space`]). Two shapes
+/// leading space (see `pattern_absorbs_leading_space`). Two shapes
 /// produce such a kind on the schema:
 ///
 /// - `ALIAS { content: PATTERN p, named: true, value: K }` — the pattern is

@@ -4,7 +4,7 @@
 //! tree-sitter grammar.
 //!
 //! The legacy [`TabularCodec`](crate::tabular_codec::TabularCodec) routes these
-//! formats through a `HashMap`-backed [`FInstance`], which reorders columns,
+//! formats through a `HashMap`-backed `FInstance`, which reorders columns,
 //! assumes a header row, drops `_` sentinels, and canonicalizes line endings on
 //! emit. None of those formats actually have a header, and all of them lose
 //! their original bytes on a `parse → emit` round-trip.
@@ -12,7 +12,7 @@
 //! This codec mirrors the CST-complement strategy used for CSV/TSV
 //! (`extract_tabular_cst`/`inject_tabular_cst`): parsing records the *exact*
 //! original layout (every line's raw bytes, its split into fields, the delimiter
-//! and line-ending bytes) as a [`ByteTabularComplement`]. Emission replays the
+//! and line-ending bytes) as a `ByteTabularComplement`. Emission replays the
 //! recorded layout verbatim, splicing in only the field values that the instance
 //! actually changed. An unmodified round-trip is therefore byte-identical, and a
 //! single-cell edit re-emits exactly that cell while leaving the rest of the file
@@ -94,7 +94,7 @@ impl ByteTabularCodec {
         }
     }
 
-    /// Parse raw bytes into an [`FInstance`] plus the byte-faithful complement.
+    /// Parse raw bytes into an `FInstance` plus the byte-faithful complement.
     ///
     /// The instance's `table_vertex` table has one row per content line, with
     /// cells addressed positionally (`col_0`, `col_1`, ...). The complement

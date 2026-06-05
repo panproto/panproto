@@ -130,7 +130,7 @@ pub use traits::{InstanceEmitter, InstanceParser, NativeRepr};
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// let registry = panproto_io::default_registry();
 /// let instance = registry.parse_wtype("openapi", &schema, &bytes)?;
 /// ```

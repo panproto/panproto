@@ -23,10 +23,10 @@
 //!
 //! 1. **Variant-tag fibre** (Prism / coproduct). Which `CHOICE`
 //!    alternative the parser took, recorded as the ordered production
-//!    [`trace`](VertexComplement::trace). Each slot is either a
+//!    `trace`. Each slot is either a
 //!    [`TraceSlot::Child`] (a named child → a schema edge, i.e. the
 //!    variant tag the review consumes) or a [`TraceSlot::Token`] (an
-//!    anonymous grammar literal → layout). [`pre_alias`] refines the
+//!    anonymous grammar literal → layout). `pre_alias` refines the
 //!    tag when two source rules alias to one surface kind.
 //! 2. **Layout fibre** (Lens / product, the dropped component). The
 //!    interstitial whitespace between tokens, plus byte span, indent
@@ -35,7 +35,7 @@
 //! 3. **External-text fibre** (Lens-dropped, *language-specific*).
 //!    Scanner-managed token text that is *not* in the grammar
 //!    (heredoc bodies, string contents, regex bodies) plus terminal
-//!    [`literal`] text and anonymous [`field_tokens`]. This is the
+//!    `literal` text and anonymous `field_tokens`. This is the
 //!    cassette's domain.
 //!
 //! ## Serialized form
@@ -139,7 +139,7 @@ pub struct VertexComplement {
     pub pre_alias: Option<String>,
     /// Lossy legacy projections of the variant-tag fibre kept for the
     /// transition: the trimmed literal fingerprint and the named-child
-    /// kind sequence. The canonical witness is [`trace`]; these are
+    /// kind sequence. The canonical witness is `trace`; these are
     /// retired once the review reads the trace everywhere.
     pub chose_alt_fingerprint: Option<String>,
     /// Named-child kind sequence (`chose-alt-child-kinds`).
