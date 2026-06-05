@@ -24,6 +24,17 @@ If a property is in this list, the implementation enforces it. If you can constr
 | Expression arithmetic overflow check | Runtime, on every arithmetic op | `ExprError::Overflow` | `panproto-expr/src/builtin.rs` |
 | Expression division by zero check | Runtime, on `Div`/`Mod` | `ExprError::DivisionByZero` | `panproto-expr/src/builtin.rs` |
 
+## Source-code emit coverage
+
+The source-code emitter (`emit_pretty`) is verified against the full upstream `test/corpus/` of **255 of the 261** vendored tree-sitter grammars: every corpus entry round-trips under the strict oracle described in the row above. The remaining six are blocked upstream, not by the emitter:
+
+- **`comment`, `todotxt`, `wolfram`** model their content as opaque free-text spans, so the grammar gives the emitter no structure to reconstruct and the captured text is dropped on emit (a corruption the char-multiset detector flags).
+- **`less`** is compiled against an older tree-sitter ABI than the 0.26 runtime loads, so its parser yields only error nodes; there is nothing to round-trip until the grammar is re-vendored.
+- **`move`** has no `let`-binding production in the vendored grammar, so real source already parses to an error tree on the way in; this is a parse-layer defect, not an emit one.
+- **`test`** parses tree-sitter's own corpus format, whose `===` and `---` delimiters collide with the corpus reader, so it cannot be exercised inside the harness.
+
+The six are the irreducible residual under the current grammars and runtime; closing any of them needs an upstream grammar fix, an ABI re-vendor, or a harness change rather than emitter work.
+
 ## What is *not* verified
 
 The following properties are *not* mechanically checked and should not be assumed:
