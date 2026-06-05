@@ -13,7 +13,7 @@ inkwell-jit = ["dep:inkwell"]
 
 [dependencies]
 panproto-expr = { workspace = true }
-inkwell = { version = "0.8", features = ["llvm20-1"], optional = true }
+inkwell = { version = "0.9", features = ["llvm20-1"], optional = true }
 thiserror = { workspace = true }
 miette = { workspace = true }
 
