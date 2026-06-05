@@ -47,7 +47,7 @@ The emitter's correctness varies by grammar; [`ParserRegistry::emit_verification
 
 | Tier | Meaning | Currently |
 |---|---|---|
-| `Verified` | Every entry of the grammar author's own `test/corpus/` round-trips under the strict `emit_corpus_audit` oracle (byte fixed point plus vertex-kind and edge-shape multiset preservation), or the protocol is pinned by a quivers backend test | the 186 names in `VERIFIED_EMIT_PROTOCOLS` |
+| `Verified` | Every entry of the grammar author's own `test/corpus/` round-trips under the strict `emit_corpus_audit` oracle (byte fixed point plus vertex-kind and edge-shape multiset preservation), or the protocol is pinned by a quivers backend test | the 255 names in `VERIFIED_EMIT_PROTOCOLS` |
 | `Generic` | Registered grammar; emit uses the generic dispatch + universal cassette path; no test asserts correctness | the remaining vendored grammars not yet in the verified set |
 | `Unsupported` | No `grammar.json` vendored, or protocol not registered | grammars whose upstream did not ship `grammar.json` |
 

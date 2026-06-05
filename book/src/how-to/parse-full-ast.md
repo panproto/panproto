@@ -120,7 +120,7 @@ match reg.emit_verification_status("python") {
 # Ok(()) }
 ```
 
-The 186 protocols currently in the `Verified` set are listed in [`crates/panproto-parse/src/registry.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-parse/src/registry.rs) under `VERIFIED_EMIT_PROTOCOLS`. A protocol earns the tier by round-tripping its grammar author's full `test/corpus/` under the strict `emit_corpus_audit` oracle (`emit(parse(emit(s))) == emit(s)` plus vertex-kind and edge-shape multiset preservation on every entry), or by being pinned to a quivers transpile backend test.
+The 255 protocols currently in the `Verified` set are listed in [`crates/panproto-parse/src/registry.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-parse/src/registry.rs) under `VERIFIED_EMIT_PROTOCOLS`. A protocol earns the tier by round-tripping its grammar author's full `test/corpus/` under the strict `emit_corpus_audit` oracle (`emit(parse(emit(s))) == emit(s)` plus vertex-kind and edge-shape multiset preservation on every entry), or by being pinned to a quivers transpile backend test.
 
 ## Verification
 
