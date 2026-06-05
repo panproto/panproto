@@ -87,9 +87,8 @@ fn dispatches_to<'g>(
     // SEQ-member non-traversal safe — so a default value `= 5` whose
     // `expression` field reaches `integer_literal` only through `literal` is
     // no longer dropped.
-    let is_dispatch = name.starts_with('_')
-        || grammar.supertypes.contains(name)
-        || is_pure_choice_dispatch(rule);
+    let is_dispatch =
+        name.starts_with('_') || grammar.supertypes.contains(name) || is_pure_choice_dispatch(rule);
     if !is_dispatch {
         return false;
     }
@@ -436,9 +435,7 @@ fn consumes_without_reentry<'g>(
             // Concrete / external symbols: identical to `match_demand`.
             match_demand(grammar, prod, demand, labels, pos, field_ctx, visited)
         }
-        Production::Field { name, content } => {
-            recur(content, pos, Some(name.as_str()), visited)
-        }
+        Production::Field { name, content } => recur(content, pos, Some(name.as_str()), visited),
         Production::Token { content }
         | Production::ImmediateToken { content }
         | Production::Prec { content, .. }

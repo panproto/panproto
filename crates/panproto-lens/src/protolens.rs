@@ -3790,7 +3790,11 @@ mod tests {
         let mut between: HashMap<(GatName, GatName), smallvec::SmallVec<SchemaEdge, 2>> =
             HashMap::new();
 
-        for (id, kind) in [(root, "object"), (intermediate, "object"), (leaf, leaf_kind)] {
+        for (id, kind) in [
+            (root, "object"),
+            (intermediate, "object"),
+            (leaf, leaf_kind),
+        ] {
             vertices.insert(
                 GatName::from(id),
                 Vertex {
@@ -3904,8 +3908,7 @@ mod tests {
             .instantiate(&source, &protocol)
             .expect("hoist chain instantiate");
 
-        let input: serde_json::Value =
-            serde_json::json!({"profile": {"name": "Alice"}});
+        let input: serde_json::Value = serde_json::json!({"profile": {"name": "Alice"}});
         let instance = parse_json(&source, "user", &input).expect("parse input");
 
         let (view, complement) = asymmetric::get(&lens, &instance).expect("get");

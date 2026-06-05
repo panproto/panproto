@@ -33,14 +33,14 @@ use super::{
     current_field_context, first_unconsumed_target_fingerprint, has_field_in,
     has_relevant_constraint, has_repeat_in, is_blank_line_rule, is_connector_punctuation,
     is_immediate_token, is_newline_alt, is_newline_like_pattern, is_no_space_external,
-    is_whitespace_external,
-    is_whitespace_only_pattern, is_word_like, leaf_terminal_role, left_recursive_alts,
-    literal_strings, literal_value, mandatory_field_names, member_has_leading_bracket,
-    pattern_absorbs_leading_space, placeholder_for_pattern, pre_alias_symbol, prec_value,
-    push_field_context, reconstruct_subtree_bytes, reduces_to_immediate_token, referenced_symbols,
-    repeat_body_is_whole_vertex_item, repeat_has_bracket_keyed_member, seq_bracket_triggers_indent,
-    seq_open_bracket_index, unbounded_negated_class, unwrap_prec, unwrap_to_string,
-    vertex_has_byte_span, vertex_id_kind, yield_of_production,
+    is_whitespace_external, is_whitespace_only_pattern, is_word_like, leaf_terminal_role,
+    left_recursive_alts, literal_strings, literal_value, mandatory_field_names,
+    member_has_leading_bracket, pattern_absorbs_leading_space, placeholder_for_pattern,
+    pre_alias_symbol, prec_value, push_field_context, reconstruct_subtree_bytes,
+    reduces_to_immediate_token, referenced_symbols, repeat_body_is_whole_vertex_item,
+    repeat_has_bracket_keyed_member, seq_bracket_triggers_indent, seq_open_bracket_index,
+    unbounded_negated_class, unwrap_prec, unwrap_to_string, vertex_has_byte_span, vertex_id_kind,
+    yield_of_production,
 };
 
 pub(crate) fn collect_roots(schema: &Schema) -> Vec<&panproto_gat::Name> {
@@ -184,9 +184,11 @@ fn rule_min_required_children(grammar: &Grammar, rule: &Production) -> usize {
             }
             Production::Field { content, .. } => eval(grammar, content, min),
             Production::Seq { members } => members.iter().map(|m| eval(grammar, m, min)).sum(),
-            Production::Choice { members } => {
-                members.iter().map(|m| eval(grammar, m, min)).min().unwrap_or(0)
-            }
+            Production::Choice { members } => members
+                .iter()
+                .map(|m| eval(grammar, m, min))
+                .min()
+                .unwrap_or(0),
             Production::Repeat1 { content } => eval(grammar, content, min),
             Production::Token { content }
             | Production::ImmediateToken { content }

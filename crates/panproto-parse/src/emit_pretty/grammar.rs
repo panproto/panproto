@@ -2056,7 +2056,11 @@ pub(crate) fn classify_trailing_break_markers(grammar: &Grammar) -> (Vec<String>
                 // Resolve hidden break-marker symbols (`_whitespace_ge_2`)
                 // one level, cycle-guarded. A concrete named rule is line
                 // content in its own right, never a bare break marker.
-                if let Some(r) = grammar.rules.get(name).filter(|_| seen.insert(name.clone())) {
+                if let Some(r) = grammar
+                    .rules
+                    .get(name)
+                    .filter(|_| seen.insert(name.clone()))
+                {
                     collect_marker_alts(grammar, r, lits, ws, seen);
                 }
             }
@@ -2267,12 +2271,9 @@ pub(crate) fn classify_top_level_text_admits_newline(grammar: &Grammar) -> bool 
         }
     }
 
-    kinds.iter().any(|k| {
-        grammar
-            .rules
-            .get(k)
-            .is_some_and(body_admits_newline_text)
-    })
+    kinds
+        .iter()
+        .any(|k| grammar.rules.get(k).is_some_and(body_admits_newline_text))
 }
 
 // ═══════════════════════════════════════════════════════════════════

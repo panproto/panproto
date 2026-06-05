@@ -690,8 +690,7 @@ mod tests {
         )
         .unwrap();
         assert!(!is_blank_line_rule(&seq));
-        let text: Production =
-            serde_json::from_str(r#"{"type":"PATTERN","value":".+"}"#).unwrap();
+        let text: Production = serde_json::from_str(r#"{"type":"PATTERN","value":".+"}"#).unwrap();
         assert!(!is_blank_line_rule(&text));
     }
 

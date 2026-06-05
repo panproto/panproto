@@ -1144,11 +1144,16 @@ fn corpus_audit_all_fails() {
                     let Ok(s2) = reg.parse_with_protocol(proto, &e1, &file) else {
                         eprintln!(
                             "FAIL[{proto}/{name}] REPARSE-ERR e1={:?}",
-                            String::from_utf8_lossy(&e1).chars().take(120).collect::<String>()
+                            String::from_utf8_lossy(&e1)
+                                .chars()
+                                .take(120)
+                                .collect::<String>()
                         );
                         continue;
                     };
-                    let e2 = reg.emit_pretty_with_protocol(proto, &s2).unwrap_or_default();
+                    let e2 = reg
+                        .emit_pretty_with_protocol(proto, &s2)
+                        .unwrap_or_default();
                     let km = kind_multiset(&s1) == kind_multiset(&s2);
                     let em = edge_multiset(&s1) == edge_multiset(&s2);
                     if e1 == e2 && km && em {
@@ -1179,8 +1184,21 @@ fn corpus_audit_all_fails() {
                         }
                         eprintln!(
                             "FAIL[{proto}/{name}] {why}{kdelta}\n  SRC={:?}\n  E1(tail)={:?}",
-                            src.chars().rev().take(80).collect::<String>().chars().rev().collect::<String>(),
-                            String::from_utf8_lossy(&e1).chars().rev().take(80).collect::<String>().chars().rev().collect::<String>(),
+                            src.chars()
+                                .rev()
+                                .take(80)
+                                .collect::<String>()
+                                .chars()
+                                .rev()
+                                .collect::<String>(),
+                            String::from_utf8_lossy(&e1)
+                                .chars()
+                                .rev()
+                                .take(80)
+                                .collect::<String>()
+                                .chars()
+                                .rev()
+                                .collect::<String>(),
                         );
                     }
                 }

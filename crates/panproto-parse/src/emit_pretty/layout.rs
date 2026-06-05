@@ -597,11 +597,7 @@ pub(crate) fn layout(
 /// grammar's break idiom admits it, trailing whitespace. Appending the
 /// customary end-of-output newline after such a tail would manufacture a
 /// phantom line-break node on re-parse, so the caller suppresses it.
-fn ends_with_trailing_break_marker(
-    bytes: &[u8],
-    markers: &[String],
-    on_whitespace: bool,
-) -> bool {
+fn ends_with_trailing_break_marker(bytes: &[u8], markers: &[String], on_whitespace: bool) -> bool {
     if markers.is_empty() && !on_whitespace {
         return false;
     }
