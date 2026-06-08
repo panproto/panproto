@@ -2,6 +2,17 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [0.52.1] - 2026-06-08
+
+### Fixed
+
+- **By-construction emit no longer drops content that rides the layout fibre** (`panproto-parse`): three rust de-novo (`forget_layout`) emit gaps and one julia gap are closed. The bar for these is AST round-trip (the emitted source re-parses to the same kind/edge multiset), not byte parity. Closes #185 and #187.
+  - *Line comments no longer absorb the items that follow them.* The grammar's line-comment prefix is registered when the comment rule's body is a `CHOICE`/`SEQ` whose branches run to end of line (rust's `line_comment` is `SEQ[STRING "//", CHOICE[…]]`, where the doc-comment branch routes through an external scanner). `seq_member_is_line_rest` now recurses through `CHOICE`/`SEQ`, so the layout pass breaks the line after the comment leaf instead of collapsing the whole file onto the comment line.
+  - *An opaque token tree emits verbatim.* A childless vertex carrying a whole captured token run as a non-empty bracket-pair `literal-value` (`(clippy::module_inception)`, whose `::` has no CST vertex) now emits that literal instead of rule-walking to a bare `()`. The bracket-pair leaf-shortcut carve-out is narrowed to *empty* pairs in both `emit_vertex` and `emit_aliased_child`.
+  - *`blank-lines-before` is layout.* It is now an `is_layout_sort` member, so `forget_layout` strips it: the abstract surface no longer advertises a sort the emitter does not consume.
+  - *The julia paren-form macro call keeps its arguments by construction.* `@trace(dist, :addr)` parses as `_closed_macrocall_expression` (aliased to `macrocall_expression`); abstract emit walked the own space-form rule and dropped the `argument_list`. `select_walk_rule` now confirms the loose subtype-closure admit count with the strict ordered `match_demand` consumption the emit walk itself uses, so it switches to the alias source that can place the children in order.
+- **`panproto._native` type stub matched to the runtime** (`panproto-py`): `diff_and_classify` takes a third `protocol` argument; `ProtolensChain.instantiate` takes `(schema, protocol)`; `Instance.root` / `node_count` / `arc_count` are read-only `int` properties (not methods); `Instance.validate()` returns the list of validation errors; and `Instance.from_json` is a `@staticmethod`. Code written against the stub no longer raises `TypeError` at runtime. Closes #186.
+
 ## [0.52.0] - 2026-06-05
 
 ### Added

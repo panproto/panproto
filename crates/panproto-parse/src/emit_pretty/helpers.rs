@@ -558,6 +558,17 @@ fn seq_member_is_line_rest(prod: &Production) -> bool {
         | Production::PrecDynamic { content, .. }
         | Production::Optional { content }
         | Production::Reserved { content, .. } => seq_member_is_line_rest(content),
+        // A CHOICE or nested SEQ is a line-rest when any branch runs to
+        // end of line. This is the shape of a line comment whose body
+        // forks the doc-comment case from the plain-comment case: the rust
+        // `line_comment` body is CHOICE[ SEQ[IMMEDIATE_TOKEN, PATTERN ".*"],
+        // <doc branch via an external scanner>, IMMEDIATE_TOKEN(".*") ]. The
+        // `.*` tail of the non-doc branches proves the token consumes the
+        // rest of the line even though the doc branch is opaque to pattern
+        // inspection.
+        Production::Choice { members } | Production::Seq { members } => {
+            members.iter().any(seq_member_is_line_rest)
+        }
         _ => false,
     }
 }
@@ -1891,6 +1902,73 @@ mod line_comment_prefix_tests {
                     name: "_block_comment_rest".to_string(),
                 },
             ],
+        };
+        assert_eq!(extract_line_comment_prefix(&rule), None);
+    }
+
+    #[test]
+    fn rust_line_comment_prefix_through_choice_body() {
+        // rust: SEQ[STRING "//", CHOICE[ SEQ[IMMEDIATE_TOKEN, PATTERN ".*"],
+        // <doc branch>, IMMEDIATE_TOKEN(".*") ]]. The prefix is the leading
+        // STRING; the CHOICE body proves line-rest via the `.*` branches
+        // even though the doc branch routes through external-scanner SYMBOLs
+        // that pattern inspection cannot see into.
+        let immediate = |inner: Production| Production::ImmediateToken {
+            content: Box::new(inner),
+        };
+        let sym = |n: &str| Production::Symbol {
+            name: n.to_string(),
+        };
+        let non_doc = Production::Seq {
+            members: vec![immediate(pat(r"\/\/")), pat(".*")],
+        };
+        let doc = Production::Seq {
+            members: vec![sym("_line_doc_comment_marker"), sym("_line_doc_content")],
+        };
+        let plain = immediate(pat(".*"));
+        let rule = Production::Seq {
+            members: vec![
+                string("//"),
+                Production::Choice {
+                    members: vec![non_doc, doc, plain],
+                },
+            ],
+        };
+        assert_eq!(extract_line_comment_prefix(&rule), Some("//".to_string()));
+    }
+
+    #[test]
+    fn rust_block_comment_choice_body_yields_no_prefix() {
+        // rust: SEQ[STRING "/*", CHOICE[.. external/BLANK ..], STRING "*/"].
+        // The body routes through external scanners and BLANK, never a
+        // rest-of-line PATTERN, so the broadened CHOICE/SEQ recursion must
+        // still refuse `/*`: a block comment is not a line comment and must
+        // not trigger the trailing-newline guard.
+        let content = Production::Symbol {
+            name: "_block_comment_content".to_string(),
+        };
+        let body = Production::Choice {
+            members: vec![
+                Production::Choice {
+                    members: vec![
+                        Production::Seq {
+                            members: vec![
+                                Production::Symbol {
+                                    name: "_block_doc_comment_marker".to_string(),
+                                },
+                                Production::Choice {
+                                    members: vec![content.clone(), Production::Blank],
+                                },
+                            ],
+                        },
+                        content,
+                    ],
+                },
+                Production::Blank,
+            ],
+        };
+        let rule = Production::Seq {
+            members: vec![string("/*"), body, string("*/")],
         };
         assert_eq!(extract_line_comment_prefix(&rule), None);
     }
