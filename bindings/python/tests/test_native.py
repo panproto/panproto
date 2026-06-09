@@ -267,6 +267,70 @@ class TestDiffAndClassify:
 
 
 # ---------------------------------------------------------------------------
+# Instance accessors
+# ---------------------------------------------------------------------------
+
+
+class TestInstance:
+    """Pins the runtime shape of `Instance` accessors.
+
+    `root`, `node_count`, and `arc_count` are read-only int properties:
+    `root` is the root node id, the counts are node/arc tallies.
+    `validate()` returns the list of validation error strings (empty
+    when valid). These tests fix that contract so the type stub and the
+    runtime cannot drift apart unnoticed.
+    """
+
+    @pytest.fixture
+    def instance(self) -> panproto.Instance:
+        proto = panproto.get_builtin_protocol("atproto")
+        b = proto.schema()
+        b.vertex("post", "record", "app.bsky.feed.post")
+        schema = b.build()
+        return panproto.Instance.from_json(schema, "post", "{}")
+
+    def test_root_is_int_property(self, instance: panproto.Instance) -> None:
+        # A property, not a method: accessed without a call it yields an
+        # int (the root node id), not a record dict.
+        assert isinstance(instance.root, int)
+
+    def test_counts_are_int_properties(self, instance: panproto.Instance) -> None:
+        assert isinstance(instance.node_count, int)
+        assert isinstance(instance.arc_count, int)
+        assert instance.node_count == len(instance)
+
+    def test_validate_returns_error_list(self, instance: panproto.Instance) -> None:
+        errors = instance.validate()
+        assert isinstance(errors, list)
+        assert all(isinstance(e, str) for e in errors)
+
+    def test_to_json_is_str(self, instance: panproto.Instance) -> None:
+        assert isinstance(instance.to_json(), str)
+
+
+# ---------------------------------------------------------------------------
+# ProtolensChain
+# ---------------------------------------------------------------------------
+
+
+class TestProtolensChain:
+    """Pins `ProtolensChain.instantiate`'s arity.
+
+    `instantiate` takes `(schema, protocol)` and returns a `Lens`. This
+    exercises that form so the type stub and the runtime cannot drift
+    apart unnoticed."""
+
+    def test_instantiate_takes_schema_and_protocol(self) -> None:
+        proto = panproto.get_builtin_protocol("atproto")
+        b = proto.schema()
+        b.vertex("t", "object")
+        schema = b.build()
+        chain = panproto.ProtolensChain.auto_generate(schema, schema, proto)
+        lens = chain.instantiate(schema, proto)
+        assert lens is not None
+
+
+# ---------------------------------------------------------------------------
 # Migration
 # ---------------------------------------------------------------------------
 

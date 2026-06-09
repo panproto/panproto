@@ -142,6 +142,25 @@ fn rule_admits_count(grammar: &Grammar, rule: &Production, demand: &[&str]) -> u
         .count()
 }
 
+/// How many of the vertex's ORDERED child kinds the production `rule` can
+/// place when walked left-to-right, using the same strict dispatch-only
+/// satisfaction the emit walk itself uses ([`match_demand`]/`sat`). Unlike
+/// [`rule_admits_count`] (an unordered count over the rule's subtype closure
+/// that over-approximates), this respects SEQ order and CHOICE/REPEAT
+/// structure: a child kind reachable only inside an already-consumed earlier
+/// member is not credited at a later position, and an alias-valued kind is
+/// placed only where the grammar actually aliases to it (not merely where a
+/// REPEAT slot's subtype closure happens to reach it). The result is the
+/// furthest demand index reached from the start — the count the parser's rule
+/// would consume in sequence.
+fn ordered_consumption(grammar: &Grammar, rule: &Production, demand: &[&str]) -> usize {
+    let mut visited = Vec::new();
+    super::match_demand(grammar, rule, demand, &[], 0, None, &mut visited)
+        .into_iter()
+        .max()
+        .unwrap_or(0)
+}
+
 /// Lower bound on the number of NAMED-symbol child slots a rule's body
 /// mandates: SEQ sums its members, REPEAT1 contributes its body once (it
 /// must iterate at least once), REPEAT/OPTIONAL/CHOICE/BLANK contribute the
@@ -306,6 +325,43 @@ fn select_walk_rule<'g>(
     }
     let own_admits = rule_admits_count(grammar, own_rule, &demand);
     if own_admits == demand.len() {
+        // `rule_admits_count` is the LOOSE measure: it counts a child kind as
+        // admitted when the rule's symbol closure reaches it ANYWHERE,
+        // unordered, and through the subtype relation. That over-approximates
+        // when a kind is reachable only deep inside an earlier member (julia
+        // `macrocall_expression = SEQ[_macro_head, CHOICE[macro_argument_list,
+        // BLANK]]`: an `argument_list` is reachable through `_macro_head`'s
+        // qualified-head expression dispatch, so the loose count says the rule
+        // admits both `macro_identifier` and `argument_list` — yet the rule
+        // cannot place `argument_list` as the SECOND child after consuming
+        // `macro_identifier`, because the `macro_argument_list` slot is a
+        // REPEAT, not a dispatch position the alias-valued `argument_list`
+        // satisfies). The strict, ORDERED `match_demand` measure (the same one
+        // the emit walk uses, via `sat`) catches this: if the own rule cannot
+        // consume the whole demand in sequence but an alias source can, the
+        // source is the rule the parser actually used (the paren-form
+        // `_closed_macrocall_expression`), so walk it instead.
+        if ordered_consumption(grammar, own_rule, &demand) < demand.len() {
+            let recorded_src = pre_alias_symbol(schema, vertex_id);
+            let mut fit: Option<(&str, &Production)> = None;
+            for src in sources {
+                if src == kind {
+                    continue;
+                }
+                let Some(src_rule) = grammar.rules.get(src) else {
+                    continue;
+                };
+                if ordered_consumption(grammar, src_rule, &demand) == demand.len() {
+                    if recorded_src == Some(src.as_str()) {
+                        return (src.as_str(), src_rule);
+                    }
+                    fit.get_or_insert((src.as_str(), src_rule));
+                }
+            }
+            if let Some(found) = fit {
+                return found;
+            }
+        }
         // The own rule has a slot for every child. Normally that settles it.
         // BUT a rule can ADMIT the demand yet still MANDATE more children than
         // the vertex carries: vhdl's `simple_expression = SEQ[_expr,
@@ -452,21 +508,29 @@ pub(crate) fn emit_vertex(
     // `literal-value` even on by-construction schemas.
     if let Some(literal) = literal_value(schema, vertex_id) {
         if children_for(schema, vertex_id).is_empty() {
-            // Skip leaf shortcut for bracket-pair literals like "()"
-            // when the vertex has an alias-resolved rule. The rule-based
-            // path correctly emits them as separate BracketOpen/Close
-            // tokens with proper spacing.
+            // Skip leaf shortcut for an EMPTY bracket-pair literal (`()`,
+            // `[]`, `{}`) when the vertex has an alias-resolved rule: the
+            // rule-based path emits the pair as separate BracketOpen/Close
+            // tokens with proper spacing, and there is no content to lose.
+            // A NON-empty bracket-pair literal (a token tree captured whole,
+            // rust `(clippy::module_inception)`) carries text the rule walk
+            // cannot reproduce from a childless vertex — the walk would emit
+            // bare `()` and drop the run, including any anonymous punctuation
+            // (`::`) that has no CST vertex. Such a literal must take the leaf
+            // shortcut and emit verbatim, so by-construction schemas can
+            // encode an opaque token tree as a single literal-value leaf.
             let is_bracket_pair = literal.len() >= 2
                 && matches!(
                     (literal.as_bytes().first(), literal.as_bytes().last()),
                     (Some(b'('), Some(b')')) | (Some(b'['), Some(b']')) | (Some(b'{'), Some(b'}'))
                 );
+            let is_empty_bracket_pair = is_bracket_pair && literal.len() == 2;
             let vkind = vertex.kind.as_ref();
             let has_alias_rule = grammar
                 .named_alias_map
                 .get(vkind)
                 .is_some_and(|src| grammar.rules.contains_key(src));
-            if !(is_bracket_pair && has_alias_rule) {
+            if !(is_empty_bracket_pair && has_alias_rule) {
                 // An empty bracket-pair literal (`()`, `[]`, `{}` captured
                 // as one token, e.g. empty parameters) hugs its callee on
                 // the left (`f()`) but still spaces after a keyword
@@ -2203,7 +2267,14 @@ pub(crate) fn emit_aliased_child(
                     (literal.as_bytes().first(), literal.as_bytes().last()),
                     (Some(b'('), Some(b')')) | (Some(b'['), Some(b']')) | (Some(b'{'), Some(b'}'))
                 );
-            if !is_bracket_pair {
+            // Only an EMPTY bracket-pair literal (`()`, `[]`, `{}`) rule-walks
+            // to recover its open/close roles. A non-empty bracket-pair literal
+            // (an opaque token tree captured whole, `(clippy::module_inception)`)
+            // carries content the childless rule walk cannot reproduce — it
+            // would emit bare `()` and drop the run — so it emits verbatim, like
+            // the matching guard in `emit_vertex`.
+            let is_empty_bracket_pair = is_bracket_pair && literal.len() == 2;
+            if !is_empty_bracket_pair {
                 // See the matching guard in `emit_vertex`: a captured leading
                 // whitespace is the separator, so suppress the redundant layout
                 // space to keep the fixed point (INI's `setting_value`); keep
@@ -2216,7 +2287,14 @@ pub(crate) fn emit_aliased_child(
                 if grammar.immediate_token_alias_kinds.contains(kind) {
                     out.no_space();
                 }
-                out.token_with_role(literal, Some(leaf_terminal_role(grammar, kind)));
+                // A whole bracket pair hugs its callee on the left like a call
+                // (`allow(…)`); a plain leaf keeps its terminal role.
+                let role = if is_bracket_pair {
+                    TokenRole::BracketClose
+                } else {
+                    leaf_terminal_role(grammar, kind)
+                };
+                out.token_with_role(literal, Some(role));
                 // Symmetric trailing-space suppression (see `emit_vertex`): a
                 // captured trailing whitespace is the separator, so suppress
                 // the redundant following layout space to keep the fixed point.

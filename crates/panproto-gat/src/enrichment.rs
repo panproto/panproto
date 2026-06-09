@@ -50,10 +50,17 @@ impl EnrichmentKind {
 
 /// Predicate identifying the constraint sorts that make up the
 /// layout enrichment fibre.
+///
+/// `blank-lines-before` records how many blank lines preceded a vertex in
+/// the source. It is pure layout — blank lines carry no AST structure — so
+/// it belongs to this fibre and is stripped by `forget_layout`: the abstract
+/// surface must not advertise a sort the emitter does not consume.
 #[must_use]
 pub fn is_layout_sort(sort: &str) -> bool {
-    matches!(sort, "start-byte" | "end-byte" | "doc-prefix")
-        || sort.starts_with("chose-alt-")
+    matches!(
+        sort,
+        "start-byte" | "end-byte" | "doc-prefix" | "blank-lines-before"
+    ) || sort.starts_with("chose-alt-")
         || sort.starts_with("interstitial-")
         || sort.starts_with("ptrace-")
 }
@@ -246,6 +253,8 @@ mod tests {
         assert!(is_layout_sort("chose-alt-child-kinds"));
         assert!(is_layout_sort("interstitial-0"));
         assert!(is_layout_sort("interstitial-12-start-byte"));
+        assert!(is_layout_sort("ptrace-0"));
+        assert!(is_layout_sort("blank-lines-before"));
         assert!(!is_layout_sort("literal-value"));
         assert!(!is_layout_sort("field:op"));
     }
