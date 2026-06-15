@@ -27,6 +27,10 @@ module Panproto.Json
     , decodeCborValue
     , encodeJsonValue
 
+      -- * Streaming codecs
+    , encodeValue
+    , valueDecoder
+
       -- * Aeson re-exports
     , Value (..)
     , encode

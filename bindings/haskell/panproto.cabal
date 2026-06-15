@@ -183,14 +183,16 @@ test-suite panproto-test
         Spec.Errors
         Spec.NativeProtocol
         Spec.SchemaRoundtrip
+        Spec.StructuredSchema
     build-depends:
         base,
         bytestring,
         cborg,
         containers,
         panproto,
-        tasty             >=1.4  && <1.6,
-        tasty-hunit       >=0.10 && <0.11
+        tasty                >=1.4  && <1.6,
+        tasty-hunit          >=0.10 && <0.11,
+        unordered-containers
 
     if flag(rust) && !flag(native-only)
         cpp-options:    -DPANPROTO_RUST_BACKEND

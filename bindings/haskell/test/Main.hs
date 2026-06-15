@@ -8,6 +8,7 @@ import Test.Tasty (TestTree, defaultMain, testGroup)
 import Spec.CanonicalRoundtrip qualified
 import Spec.Errors qualified
 import Spec.NativeProtocol qualified
+import Spec.StructuredSchema qualified
 
 #ifdef PANPROTO_RUST_BACKEND
 import Spec.RustRoundtrip qualified
@@ -24,6 +25,7 @@ tests =
         [ Spec.CanonicalRoundtrip.tests
         , Spec.Errors.tests
         , Spec.NativeProtocol.tests
+        , Spec.StructuredSchema.tests
 #ifdef PANPROTO_RUST_BACKEND
         , Spec.RustRoundtrip.tests
         , Spec.SchemaRoundtrip.tests

@@ -22,10 +22,13 @@ module Panproto.Class
     , SchemaValidate (..)
     ) where
 
+import Control.Exception (throwIO)
 import Data.Kind (Type)
 import Data.Proxy (Proxy)
 import Data.Text (Text)
 import Panproto.Canonical (CanonicalProtocol, CanonicalSchema)
+import Panproto.Errors (SchemaValidationError (..), PpStatus (StatusSerialization))
+import Panproto.Schema (Schema, decodeSchema, encodeSchema)
 
 -- | Phantom tag for the pure Haskell backend.
 data Native
@@ -89,6 +92,32 @@ class SchemaBackend back where
     -- | Release any resources held by the representation. As with
     -- 'releaseProtocol', this is idempotent at the slab level.
     releaseSchema :: SchemaRep back -> IO ()
+
+    -- | Ingest a structured 'Schema' into the backend.
+    --
+    -- The default encodes the schema to its 'CanonicalSchema' CBOR
+    -- form and ingests that, so backends that implement only the
+    -- canonical bridge get the structured surface for free.
+    fromSchema :: Proxy back -> Schema -> IO (SchemaRep back)
+    fromSchema p s = fromCanonicalSchema p (encodeSchema s)
+
+    -- | Materialize the backend-specific representation as a structured
+    -- 'Schema'.
+    --
+    -- The default serializes to 'CanonicalSchema' and decodes it,
+    -- throwing 'SchemaValidationError' (status 'StatusSerialization')
+    -- when the bytes do not parse into a well-formed schema.
+    toSchema :: SchemaRep back -> IO Schema
+    toSchema rep = do
+        canonical <- toCanonicalSchema rep
+        case decodeSchema canonical of
+            Right s -> pure s
+            Left _ ->
+                throwIO
+                    SchemaValidationError
+                        { code = StatusSerialization
+                        , envelope = Nothing
+                        }
 
 -- | Refinement: backends that can validate a schema against a
 -- protocol. Returns the list of human-readable validation messages.
