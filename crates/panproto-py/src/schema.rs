@@ -720,6 +720,27 @@ impl PySchema {
         })
     }
 
+    /// Parse an `ATProto` lexicon document into a schema.
+    ///
+    /// Convenience classmethod equivalent to the module-level
+    /// :func:`parse_atproto_lexicon`. Accepts the lexicon as a parsed
+    /// dict or a raw JSON string.
+    #[staticmethod]
+    fn from_atproto_lexicon(doc: &Bound<'_, PyAny>) -> PyResult<Self> {
+        crate::lexicon::parse_atproto_lexicon(doc)
+    }
+
+    /// Extract the GAT theory this schema instantiates.
+    ///
+    /// One sort per vertex, one unary operation per edge; vertices whose
+    /// kind names a primitive value kind carry that kind on the sort.
+    /// Equivalent to the module-level :func:`theory_of`. See it for the
+    /// distinctions that live on the schema rather than the theory.
+    #[pyo3(signature = (name=None))]
+    fn theory(&self, name: Option<&str>) -> crate::gat::PyTheory {
+        crate::lexicon::schema_theory(self, name)
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "Schema(protocol={:?}, vertices={}, edges={})",

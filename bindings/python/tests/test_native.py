@@ -934,3 +934,133 @@ class TestVertexEdgeConstraint:
     def test_constraint_repr(self, schema: panproto.Schema) -> None:
         c = schema.constraints_for("c")[0]
         assert "format" in repr(c)
+
+
+# ---------------------------------------------------------------------------
+# Lexicon parsing + schema-to-theory
+# ---------------------------------------------------------------------------
+
+# A minimal `pub.layers.*`-style record lexicon exercising value-kind
+# fields (string / integer / boolean), a refined string (`format`), an
+# array, and a reference to a sibling def.
+LEXICON = {
+    "lexicon": 1,
+    "id": "pub.layers.example",
+    "defs": {
+        "main": {
+            "type": "record",
+            "key": "tid",
+            "record": {
+                "type": "object",
+                "required": ["title", "count"],
+                "properties": {
+                    "title": {"type": "string", "maxLength": 100},
+                    "count": {"type": "integer"},
+                    "enabled": {"type": "boolean"},
+                    "createdAt": {"type": "string", "format": "datetime"},
+                    "tags": {"type": "array", "items": {"type": "string"}},
+                    "author": {"type": "ref", "ref": "#profile"},
+                },
+            },
+        },
+        "profile": {
+            "type": "object",
+            "required": ["handle"],
+            "properties": {"handle": {"type": "string"}},
+        },
+    },
+}
+
+
+class TestLexiconParsing:
+    """Tests for `parse_atproto_lexicon`, `parse_schema_document`, and the
+    schema-to-theory bridge (`theory_of` / `Schema.theory`)."""
+
+    @pytest.fixture
+    def schema(self) -> panproto.Schema:
+        return panproto.parse_atproto_lexicon(LEXICON)
+
+    def test_parse_from_dict(self, schema: panproto.Schema) -> None:
+        assert schema.protocol == "atproto"
+        assert schema.vertex_count > 0
+        assert schema.edge_count > 0
+
+    def test_parse_from_str_matches_dict(self, schema: panproto.Schema) -> None:
+        from_str = panproto.parse_atproto_lexicon(json.dumps(LEXICON))
+        assert from_str.vertex_count == schema.vertex_count
+        assert from_str.edge_count == schema.edge_count
+
+    def test_parsed_schema_validates_against_builtin(
+        self, schema: panproto.Schema
+    ) -> None:
+        # The issue's acceptance criterion: a parsed lexicon Schema
+        # validates against the builtin atproto protocol.
+        proto = panproto.get_builtin_protocol("atproto")
+        assert schema.validate(proto) == []
+
+    def test_invalid_json_string_raises_value_error(self) -> None:
+        with pytest.raises(ValueError, match="not valid JSON"):
+            panproto.parse_atproto_lexicon("{ not json")
+
+    def test_missing_defs_raises_schema_validation_error(self) -> None:
+        with pytest.raises(panproto.SchemaValidationError):
+            panproto.parse_atproto_lexicon({"lexicon": 1, "id": "x"})
+
+    def test_schema_classmethod_matches_function(
+        self, schema: panproto.Schema
+    ) -> None:
+        via_classmethod = panproto.Schema.from_atproto_lexicon(LEXICON)
+        assert via_classmethod.vertex_count == schema.vertex_count
+
+    def test_parse_schema_document_dispatch(self, schema: panproto.Schema) -> None:
+        via_generic = panproto.parse_schema_document("atproto", LEXICON)
+        assert via_generic.vertex_count == schema.vertex_count
+
+    def test_parse_schema_document_unknown_protocol_raises(self) -> None:
+        with pytest.raises(ValueError, match="no document parser"):
+            panproto.parse_schema_document("nonexistent", LEXICON)
+
+    def test_theory_shape_mirrors_schema(self, schema: panproto.Schema) -> None:
+        theory = panproto.theory_of(schema)
+        assert theory.sort_count == schema.vertex_count
+        assert theory.op_count == schema.edge_count
+
+    def test_theory_default_name_is_protocol(self, schema: panproto.Schema) -> None:
+        assert panproto.theory_of(schema).name == "atproto"
+
+    def test_theory_custom_name(self, schema: panproto.Schema) -> None:
+        assert schema.theory("MyRecord").name == "MyRecord"
+
+    def test_theory_of_matches_method(self, schema: panproto.Schema) -> None:
+        assert panproto.theory_of(schema).sort_count == schema.theory().sort_count
+
+    def test_theory_preserves_value_kinds(self, schema: panproto.Schema) -> None:
+        # Vertices whose kind names a primitive value kind carry that kind
+        # onto the theory sort, using the existing SortKind::Val vocabulary.
+        kinds = [sort["kind"] for sort in schema.theory().sorts]
+        assert {"Val": "Str"} in kinds
+        assert {"Val": "Int"} in kinds
+        assert {"Val": "Bool"} in kinds
+
+    def test_refined_scalar_lives_on_schema_constraint(
+        self, schema: panproto.Schema
+    ) -> None:
+        # The theory vocabulary cannot distinguish `datetime` from a plain
+        # string, so the refinement rides the schema's `format` constraint
+        # (which `parse_atproto_lexicon` populates) rather than the theory.
+        formats = [
+            c.value
+            for v in schema.vertices
+            for c in schema.constraints_for(v.id)
+            if c.sort == "format"
+        ]
+        assert "datetime" in formats
+
+    def test_reference_edge_distinguished_on_schema(
+        self, schema: panproto.Schema
+    ) -> None:
+        # Reference-versus-containment lives on `Edge.kind`: the `author`
+        # ref produces a `ref` edge, distinct from the `prop` edges.
+        edge_kinds = {e.kind for e in schema.edges}
+        assert "ref" in edge_kinds
+        assert "prop" in edge_kinds

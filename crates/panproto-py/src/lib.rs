@@ -27,6 +27,7 @@ mod hom;
 mod inst;
 mod io;
 mod lens;
+mod lexicon;
 mod mig;
 mod parse;
 mod project;
@@ -70,6 +71,10 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // GAT: Theory, Model, create_theory, colimit, check_morphism, migrate_model
     gat::register(m)?;
+
+    // Lexicon parsing + schema-to-theory: parse_atproto_lexicon,
+    // parse_schema_document, theory_of
+    lexicon::register(m)?;
 
     // Expressions: Expr, parse_expr, eval_with_instance
     expr::register(m)?;

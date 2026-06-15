@@ -88,6 +88,46 @@ schema2 = panproto.Schema.from_json(json_str)   # round-trip
 d = schema.to_dict()                    # Python dict (via serde)
 ```
 
+## Parsing ATProto lexicons
+
+An [ATProto lexicon](https://atproto.com/specs/lexicon) document (the
+`lexicon` / `id` / `defs` JSON shape) parses straight into a schema under
+the builtin `atproto` protocol. The document can be a parsed dict or a raw
+JSON string:
+
+```python
+schema = panproto.parse_atproto_lexicon(lexicon_dict)       # dict or JSON str
+# or the protocol-dispatching entry point:
+schema = panproto.parse_schema_document("atproto", lexicon_dict)
+# or the classmethod:
+schema = panproto.Schema.from_atproto_lexicon(lexicon_dict)
+
+schema.validate(panproto.get_builtin_protocol("atproto"))   # []
+```
+
+Each type definition becomes a vertex; properties, array items, union
+variants, and references become edges. Refinements such as `format`,
+`maxLength`, and `knownValues` are recorded as constraints on the relevant
+vertex (read them with `schema.constraints_for(vertex_id)`).
+
+## Schema to theory
+
+Recover the generalized algebraic theory a schema instantiates: one sort
+per vertex, one unary operation per edge.
+
+```python
+theory = schema.theory()                # or panproto.theory_of(schema)
+theory = schema.theory("MyRecord")      # override the theory name
+```
+
+Vertices whose kind names a primitive value kind (`string`, `integer`,
+`boolean`, ...) carry that kind on the sort, so a string field and an
+integer field stay distinct. The theory vocabulary stops there: refined
+value types (datetime, decimal, uuid), per-field defaults and
+descriptions, and the reference-versus-containment edge distinction are
+not part of it. Those ride the schema instead, on constraints and
+`Edge.kind`, and are read from the schema directly.
+
 ## Custom protocols
 
 ```python
