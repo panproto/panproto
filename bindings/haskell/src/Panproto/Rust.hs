@@ -21,10 +21,14 @@ module Panproto.Rust
     ( -- * Protocol backend
       RustProtocol (..)
     , withRustProtocol
+    , protocolRepHandle
+    , mkProtocolRep
 
       -- * Schema backend
     , RustSchema (..)
     , withRustSchema
+    , schemaRepHandle
+    , mkSchemaRep
     ) where
 
 import Control.Exception (bracket, throwIO)
@@ -124,6 +128,34 @@ instance SchemaValidate Rust where
         case decodeMessages bs of
             Right msgs -> pure msgs
             Left err -> throwIO $ hostDecodeError "pp_schema_validate" err
+
+-- | The raw slab handle backing a @SchemaRep Rust@.
+--
+-- Sibling Rust backend modules (the instance, migration, lens, … domains)
+-- anchor their operations to a schema handle but cannot pattern-match the
+-- 'RustSchemaRep' data-family constructor without it being in scope. This
+-- accessor gives those modules the @Word32@ they pass to @pp_*@ entry
+-- points, without forcing a round trip through 'toCanonicalSchema'.
+schemaRepHandle :: SchemaRep Rust -> Word32
+schemaRepHandle (RustSchemaRep (RustSchema h)) = h
+
+-- | Wrap a raw slab handle returned by an engine @pp_*@ entry point as a
+-- @SchemaRep Rust@. The caller takes ownership of the slot (release it via
+-- 'releaseSchema' or 'withRustSchema'-style brackets). Sibling Rust
+-- backend modules use this to rewrap a freshly-allocated schema handle
+-- without a round trip through 'fromCanonicalSchema'.
+mkSchemaRep :: Word32 -> SchemaRep Rust
+mkSchemaRep = RustSchemaRep . RustSchema
+
+-- | The raw slab handle backing a @ProtocolRep Rust@. The protocol
+-- counterpart of 'schemaRepHandle'.
+protocolRepHandle :: ProtocolRep Rust -> Word32
+protocolRepHandle (RustProtocolRep (RustProtocol h)) = h
+
+-- | Wrap a raw slab handle as a @ProtocolRep Rust@. The protocol
+-- counterpart of 'mkSchemaRep'.
+mkProtocolRep :: Word32 -> ProtocolRep Rust
+mkProtocolRep = RustProtocolRep . RustProtocol
 
 -- | Bracket a 'RustSchema' so its slot is released even when the
 -- inner action throws.

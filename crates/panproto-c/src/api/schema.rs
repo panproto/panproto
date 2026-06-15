@@ -15,9 +15,12 @@
 
 use std::sync::Arc;
 
-use panproto_core::schema::{Schema, validate};
+use panproto_core::protocols;
+use panproto_core::schema::{self, Schema, validate};
 use safer_ffi::prelude::*;
+use serde::Serialize;
 
+use crate::api::helpers::{self, BuildOp};
 use crate::error::{FfiError, PpStatus};
 use crate::handle::{self, Resource};
 use crate::panic::guard;
@@ -99,17 +102,46 @@ pub fn pp_schema_validate(
 ///
 /// `proto` is a [`Resource::Protocol`] handle. `ops` is a CBOR-encoded
 /// `Vec<BuildOp>` (see [`crate::api::helpers::BuildOp`]). On success,
-/// `out_handle` receives a fresh [`Resource::Schema`] handle. The
-/// eventual implementation will run the ops through
-/// [`crate::api::helpers::build_schema_from_ops`].
-///
-/// Stub: returns [`PpStatus::Operation`] until implemented in the
-/// engine-wiring pass.
+/// `out_handle` receives a fresh [`Resource::Schema`] handle. The ops
+/// are run through [`crate::api::helpers::build_schema_from_ops`].
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_schema_build(proto: u32, ops: c_slice::Ref<'_, u8>, out_handle: &mut u32) -> i32 {
-    let _ = (proto, ops, out_handle);
-    guard(|| Err(FfiError::Operation("unimplemented: pp_schema_build".into())))
+    guard(|| {
+        let protocol = handle::with_resource(proto, |r| Ok(r.as_protocol()?.clone()))?;
+        let operations: Vec<BuildOp> = crate::canonical::decode(ops.as_slice())?;
+        let built = helpers::build_schema_from_ops(&protocol, operations)?;
+        *out_handle = handle::alloc(Resource::Schema(Arc::new(built)));
+        Ok(PpStatus::Ok)
+    })
+}
+
+/// Schema metadata payload (`{ protocol, vertices, edges }`).
+///
+/// Mirrors the WASM `schema_metadata` shape so the same Haskell decoder
+/// works against either backend.
+#[derive(Serialize)]
+struct SchemaMeta {
+    protocol: String,
+    vertices: Vec<VertexMeta>,
+    edges: Vec<EdgeMeta>,
+}
+
+/// A single vertex entry in [`SchemaMeta`].
+#[derive(Serialize)]
+struct VertexMeta {
+    id: String,
+    kind: String,
+    nsid: Option<String>,
+}
+
+/// A single edge entry in [`SchemaMeta`].
+#[derive(Serialize)]
+struct EdgeMeta {
+    src: String,
+    tgt: String,
+    kind: String,
+    name: Option<String>,
 }
 
 /// Extract schema metadata (protocol name, vertices, edges) as CBOR.
@@ -117,17 +149,44 @@ pub fn pp_schema_build(proto: u32, ops: c_slice::Ref<'_, u8>, out_handle: &mut u
 /// `schema_handle` is a [`Resource::Schema`] handle. On success, `out`
 /// receives a CBOR-encoded metadata record mirroring the WASM
 /// `schema_metadata` payload (`{ protocol, vertices, edges }`).
-///
-/// Stub: returns [`PpStatus::Operation`] until implemented in the
-/// engine-wiring pass.
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_schema_metadata(schema_handle: u32, out: &mut repr_c::Vec<u8>) -> i32 {
-    let _ = (schema_handle, out);
     guard(|| {
-        Err(FfiError::Operation(
-            "unimplemented: pp_schema_metadata".into(),
-        ))
+        let bytes = handle::with_resource(schema_handle, |r| {
+            let schema = r.as_schema()?;
+
+            let vertices: Vec<VertexMeta> = schema
+                .vertices
+                .values()
+                .map(|v| VertexMeta {
+                    id: v.id.to_string(),
+                    kind: v.kind.to_string(),
+                    nsid: v.nsid.as_deref().map(str::to_owned),
+                })
+                .collect();
+
+            let edges: Vec<EdgeMeta> = schema
+                .edges
+                .keys()
+                .map(|e| EdgeMeta {
+                    src: e.src.to_string(),
+                    tgt: e.tgt.to_string(),
+                    kind: e.kind.to_string(),
+                    name: e.name.as_deref().map(str::to_owned),
+                })
+                .collect();
+
+            let meta = SchemaMeta {
+                protocol: schema.protocol.clone(),
+                vertices,
+                edges,
+            };
+
+            crate::canonical::encode(&meta)
+        })?;
+        *out = bytes.into();
+        Ok(PpStatus::Ok)
     })
 }
 
@@ -135,19 +194,15 @@ pub fn pp_schema_metadata(schema_handle: u32, out: &mut repr_c::Vec<u8>) -> i32 
 ///
 /// `schema_handle` is a [`Resource::Schema`] handle. On success,
 /// `out_handle` receives a fresh [`Resource::Schema`] handle for the
-/// normalized schema. The eventual implementation will call
-/// `panproto_core::schema::normalize`.
-///
-/// Stub: returns [`PpStatus::Operation`] until implemented in the
-/// engine-wiring pass.
+/// normalized schema. Calls `panproto_core::schema::normalize`.
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_schema_normalize(schema_handle: u32, out_handle: &mut u32) -> i32 {
-    let _ = (schema_handle, out_handle);
     guard(|| {
-        Err(FfiError::Operation(
-            "unimplemented: pp_schema_normalize".into(),
-        ))
+        let original = handle::with_resource(schema_handle, |r| Ok(r.as_schema()?.clone()))?;
+        let normalized = schema::normalize(&original);
+        *out_handle = handle::alloc(Resource::Schema(Arc::new(normalized)));
+        Ok(PpStatus::Ok)
     })
 }
 
@@ -155,19 +210,17 @@ pub fn pp_schema_normalize(schema_handle: u32, out_handle: &mut u32) -> i32 {
 ///
 /// `json` is raw JSON bytes (decoded with `serde_json`, not CBOR). On
 /// success, `out_handle` receives a fresh [`Resource::Schema`] handle.
-/// The eventual implementation will call
-/// `panproto_core::protocols::atproto::parse_lexicon`.
-///
-/// Stub: returns [`PpStatus::Operation`] until implemented in the
-/// engine-wiring pass.
+/// Calls `panproto_core::protocols::atproto::parse_lexicon`.
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_schema_parse_atproto_lexicon(json: c_slice::Ref<'_, u8>, out_handle: &mut u32) -> i32 {
-    let _ = (json, out_handle);
     guard(|| {
-        Err(FfiError::Operation(
-            "unimplemented: pp_schema_parse_atproto_lexicon".into(),
-        ))
+        let value: serde_json::Value = serde_json::from_slice(json.as_slice())
+            .map_err(|e| FfiError::Serialization(e.to_string()))?;
+        let schema = protocols::atproto::parse_lexicon(&value)
+            .map_err(|e| FfiError::Operation(format!("parse_atproto_lexicon: {e}")))?;
+        *out_handle = handle::alloc(Resource::Schema(Arc::new(schema)));
+        Ok(PpStatus::Ok)
     })
 }
 
@@ -371,5 +424,196 @@ mod tests {
         assert_eq!(status, PpStatus::InvalidHandle as i32);
         pp_buf_free(out);
         assert_eq!(pp_handle_free(proto_h), PpStatus::Ok as i32);
+    }
+
+    /// Deserialize shadow for [`SchemaMeta`] (the struct itself is
+    /// serialize-only).
+    #[derive(serde::Deserialize)]
+    struct SchemaMetaOut {
+        protocol: String,
+        vertices: Vec<VertexMetaOut>,
+        edges: Vec<EdgeMetaOut>,
+    }
+    #[derive(serde::Deserialize)]
+    struct VertexMetaOut {
+        id: String,
+        kind: String,
+        #[allow(dead_code)]
+        nsid: Option<String>,
+    }
+    #[derive(serde::Deserialize)]
+    struct EdgeMetaOut {
+        src: String,
+        tgt: String,
+        #[allow(dead_code)]
+        kind: String,
+        #[allow(dead_code)]
+        name: Option<String>,
+    }
+
+    fn build_ops_handle(proto_h: u32, ops: &[BuildOp]) -> u32 {
+        let bytes = encode(&ops).unwrap();
+        let slice: c_slice::Box<u8> = bytes.into_boxed_slice().into();
+        let mut handle: u32 = u32::MAX;
+        let status = pp_schema_build(proto_h, slice.as_ref(), &mut handle);
+        assert_eq!(status, PpStatus::Ok as i32);
+        handle
+    }
+
+    #[test]
+    fn build_then_metadata_round_trips_vertices_and_edges() {
+        // A protocol that recognizes "object" vertices and a "prop" edge
+        // between them.
+        use panproto_core::schema::EdgeRule;
+        let proto = Protocol {
+            name: "build-test".into(),
+            schema_theory: "ThGraph".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: vec![EdgeRule {
+                edge_kind: "prop".into(),
+                src_kinds: vec!["object".into()],
+                tgt_kinds: vec!["object".into()],
+            }],
+            obj_kinds: vec!["object".into()],
+            constraint_sorts: vec![],
+            ..Protocol::default()
+        };
+        let proto_h = define_protocol_handle(&proto);
+
+        let ops = vec![
+            BuildOp::Vertex {
+                id: "user".into(),
+                kind: "object".into(),
+                nsid: None,
+            },
+            BuildOp::Vertex {
+                id: "post".into(),
+                kind: "object".into(),
+                nsid: None,
+            },
+            BuildOp::Edge {
+                src: "user".into(),
+                tgt: "post".into(),
+                kind: "prop".into(),
+                name: Some("authored".into()),
+            },
+        ];
+        let schema_h = build_ops_handle(proto_h, &ops);
+
+        let mut out: repr_c::Vec<u8> = Vec::new().into();
+        assert_eq!(pp_schema_metadata(schema_h, &mut out), PpStatus::Ok as i32);
+        let meta: SchemaMetaOut = decode(&out).unwrap();
+        pp_buf_free(out);
+
+        assert_eq!(meta.protocol, "build-test");
+        let mut kinds: Vec<(String, String)> = meta
+            .vertices
+            .iter()
+            .map(|v| (v.id.clone(), v.kind.clone()))
+            .collect();
+        kinds.sort();
+        assert_eq!(
+            kinds,
+            vec![
+                ("post".to_string(), "object".to_string()),
+                ("user".to_string(), "object".to_string()),
+            ]
+        );
+        assert_eq!(meta.edges.len(), 1);
+        assert_eq!(meta.edges[0].src, "user");
+        assert_eq!(meta.edges[0].tgt, "post");
+
+        assert_eq!(pp_handle_free(schema_h), PpStatus::Ok as i32);
+        assert_eq!(pp_handle_free(proto_h), PpStatus::Ok as i32);
+    }
+
+    #[test]
+    fn build_with_invalid_proto_handle_errors() {
+        let ops: Vec<BuildOp> = vec![];
+        let bytes = encode(&ops).unwrap();
+        let slice: c_slice::Box<u8> = bytes.into_boxed_slice().into();
+        let mut handle: u32 = u32::MAX;
+        let status = pp_schema_build(u32::MAX - 1, slice.as_ref(), &mut handle);
+        assert_eq!(status, PpStatus::InvalidHandle as i32);
+    }
+
+    #[test]
+    fn metadata_on_protocol_handle_yields_type_mismatch() {
+        let proto_h = define_protocol_handle(&protocol_fixture());
+        let mut out: repr_c::Vec<u8> = Vec::new().into();
+        let status = pp_schema_metadata(proto_h, &mut out);
+        assert_eq!(status, PpStatus::TypeMismatch as i32);
+        pp_buf_free(out);
+        assert_eq!(pp_handle_free(proto_h), PpStatus::Ok as i32);
+    }
+
+    #[test]
+    fn normalize_yields_a_fresh_schema_handle() {
+        let h = allocate_schema_handle(&schema_fixture());
+
+        let mut norm_h: u32 = u32::MAX;
+        assert_eq!(pp_schema_normalize(h, &mut norm_h), PpStatus::Ok as i32);
+        assert_ne!(norm_h, u32::MAX);
+
+        // The normalized handle is a real Schema (round-trips to CBOR).
+        let mut out: repr_c::Vec<u8> = Vec::new().into();
+        assert_eq!(pp_schema_to_cbor(norm_h, &mut out), PpStatus::Ok as i32);
+        let restored: Schema = decode(&out).unwrap();
+        assert_eq!(restored.protocol, "schema-test");
+        pp_buf_free(out);
+
+        assert_eq!(pp_handle_free(h), PpStatus::Ok as i32);
+        assert_eq!(pp_handle_free(norm_h), PpStatus::Ok as i32);
+    }
+
+    #[test]
+    fn parse_atproto_lexicon_builds_schema() {
+        let lexicon = serde_json::json!({
+            "lexicon": 1,
+            "id": "app.test.post",
+            "defs": {
+                "main": {
+                    "type": "record",
+                    "record": {
+                        "type": "object",
+                        "required": ["text"],
+                        "properties": {
+                            "text": { "type": "string" }
+                        }
+                    }
+                }
+            }
+        });
+        let json_bytes = serde_json::to_vec(&lexicon).unwrap();
+        let slice: c_slice::Box<u8> = json_bytes.into_boxed_slice().into();
+
+        let mut handle: u32 = u32::MAX;
+        let status = pp_schema_parse_atproto_lexicon(slice.as_ref(), &mut handle);
+        assert_eq!(status, PpStatus::Ok as i32);
+        assert_ne!(handle, u32::MAX);
+
+        let mut out: repr_c::Vec<u8> = Vec::new().into();
+        assert_eq!(pp_schema_metadata(handle, &mut out), PpStatus::Ok as i32);
+        let meta: SchemaMetaOut = decode(&out).unwrap();
+        pp_buf_free(out);
+        assert_eq!(meta.protocol, "atproto");
+        // The main record vertex (named for the lexicon id) must exist.
+        assert!(
+            meta.vertices.iter().any(|v| v.id == "app.test.post"),
+            "vertices: {:?}",
+            meta.vertices.iter().map(|v| &v.id).collect::<Vec<_>>()
+        );
+
+        assert_eq!(pp_handle_free(handle), PpStatus::Ok as i32);
+    }
+
+    #[test]
+    fn parse_atproto_lexicon_rejects_non_json() {
+        let bad: Box<[u8]> = vec![0xFFu8, 0x00, 0x01].into_boxed_slice();
+        let slice: c_slice::Box<u8> = bad.into();
+        let mut handle: u32 = u32::MAX;
+        let status = pp_schema_parse_atproto_lexicon(slice.as_ref(), &mut handle);
+        assert_eq!(status, PpStatus::Serialization as i32);
+        assert_eq!(handle, u32::MAX);
     }
 }
