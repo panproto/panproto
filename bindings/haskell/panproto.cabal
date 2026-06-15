@@ -237,6 +237,7 @@ test-suite panproto-test
     other-modules:
         Spec.CanonicalRoundtrip
         Spec.Errors
+        Spec.InstanceRoundtrip
         Spec.NativeProtocol
         Spec.SchemaRoundtrip
         Spec.StructuredSchema
