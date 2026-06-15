@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE ForeignFunctionInterface #-}
 
 -- | Raw @foreign import@ declarations for @libpanproto_c@.
@@ -8,17 +9,24 @@
 -- based glue layer in @cbits\/panproto_glue.c@.
 --
 -- The glue layer exists because GHC\'s @CApiFFI@ does not reliably
--- pass structs by value across all platforms. The glue functions
--- ('pp_protocol_define_at', 'pp_buf_free_at') accept pointers and
--- forward to the by-value Rust API.
+-- pass structs by value across all platforms. Every panproto-c entry
+-- point that takes one or more borrowed @slice_ref_uint8_t@ inputs is
+-- imported through its @*_at@ glue wrapper, which accepts the
+-- equivalent @(Ptr Word8, CSize)@ pair(s) in the same positional
+-- order. Entry points whose arguments are only handles, handle
+-- out-params, byte-buffer out-params, scalar out-params, or a scalar
+-- @uint8_t@ are imported directly with no wrapper.
 --
 -- All entrypoints are imported as @safe@: panproto-c calls may
--- allocate, release, or take non-trivial CPU time, so suppressing
--- the GHC RTS\'s safe-call shim would risk preventing GC during the
--- call. The exceptions are 'pp_handle_free' and 'pp_buf_free_at',
--- which are short and side-effecting; they remain @safe@ for
--- uniformity and because the cost is negligible at the rates these
--- are called.
+-- allocate, release, or take non-trivial CPU time, so suppressing the
+-- GHC RTS\'s safe-call shim would risk preventing GC during the call.
+-- The lifecycle helpers ('pp_handle_free', 'pp_buf_free_at') are short
+-- and side-effecting but remain @safe@ for uniformity.
+--
+-- The @parse@ \/ @project@ \/ @git@ groups reference symbols absent
+-- from the default-feature @panproto.h@; they are CPP-excluded unless
+-- the corresponding @PANPROTO_PARSE@ \/ @PANPROTO_PROJECT@ \/
+-- @PANPROTO_GIT@ macro is defined by the cabal flag.
 module Panproto.Rust.FFI
     ( -- * Storable types
       VecU8 (..)
@@ -39,10 +47,149 @@ module Panproto.Rust.FFI
     , pp_schema_from_cbor_at
     , pp_schema_to_cbor
     , pp_schema_validate
+    , pp_schema_build_at
+    , pp_schema_metadata
+    , pp_schema_normalize
+    , pp_schema_parse_atproto_lexicon_at
+
+      -- * Check
+    , pp_check_diff_simple
+    , pp_check_diff_full
+    , pp_check_classify_at
+    , pp_check_report_text_at
+    , pp_check_report_json_at
+
+      -- * Migration
+    , pp_mig_check_existence_at
+    , pp_mig_compile_at
+    , pp_mig_lift_record_at
+    , pp_mig_compose
+    , pp_mig_invert_at
+    , pp_mig_coverage_at
+    , pp_mig_lift_json_at
+
+      -- * Hom search
+    , pp_hom_find_morphisms_at
+    , pp_hom_find_best_morphism_at
+    , pp_hom_morphism_to_migration_at
+    , pp_hom_induce_schema_morphism_at
+    , pp_hom_induce_migration_from_theory_at
+
+      -- * Instance
+    , pp_inst_validate_at
+    , pp_inst_to_json_at
+    , pp_inst_json_to_instance_at
+    , pp_inst_element_count_at
+
+      -- * Registry / I-O
+    , pp_io_register_protocols
+    , pp_io_list_protocols
+    , pp_io_parse_instance_at
+    , pp_io_emit_instance_at
+    , pp_registry_list_builtin
+    , pp_registry_get_builtin_at
+
+      -- * Lens
+    , pp_lens_auto_generate_protolens_at
+    , pp_lens_auto_generate_candidates_at
+    , pp_lens_check_laws_at
+    , pp_lens_check_get_put_at
+    , pp_lens_check_put_get_at
+    , pp_lens_get_record_at
+    , pp_lens_put_record_at
+    , pp_lens_compose
+    , pp_protolens_instantiate
+    , pp_protolens_complement_spec_at
+    , pp_protolens_from_diff_at
+    , pp_protolens_compose
+    , pp_protolens_chain_to_json
+    , pp_protolens_from_json_at
+    , pp_protolens_fuse
+    , pp_lens_symmetric_from_schemas
+    , pp_lens_symmetric_sync_at
+    , pp_lens_compile_document_at
+
+      -- * GAT
+    , pp_gat_create_theory_at
+    , pp_gat_colimit
+    , pp_gat_check_morphism_at
+    , pp_gat_migrate_model_at
+
+      -- * Expression / query
+    , pp_expr_parse_at
+    , pp_expr_eval_func_at
+    , pp_expr_eval_gat_at
+    , pp_expr_check_at
+    , pp_query_execute_at
+
+      -- * Enriched
+    , pp_schema_add_coercion_at
+    , pp_schema_add_default_at
+    , pp_schema_add_merger_at
+    , pp_schema_add_policy_at
+    , pp_enriched_refinement_subsort_at
+
+      -- * VCS
+    , pp_vcs_init_at
+    , pp_vcs_add
+    , pp_vcs_commit_at
+    , pp_vcs_log
+    , pp_vcs_status
+    , pp_vcs_diff
+    , pp_vcs_branch_at
+    , pp_vcs_checkout_at
+    , pp_vcs_merge_at
+    , pp_vcs_stash
+    , pp_vcs_stash_pop
+    , pp_vcs_blame_at
+
+      -- * Data
+    , pp_data_store_dataset_at
+    , pp_data_get_dataset
+    , pp_data_migrate_forward
+    , pp_data_migrate_backward_at
+    , pp_data_check_staleness_at
+    , pp_data_get_migration_complement_at
+
+      -- * Graph
+    , pp_graph_fiber_at_at
+    , pp_graph_fiber_decomposition_at
+    , pp_graph_poly_hom_at
+    , pp_graph_preferred_path_at
+    , pp_graph_conversion_distance_at
+
+#ifdef PANPROTO_PARSE
+      -- * Parse (feature @full-parse@)
+    , pp_parse_registry_new
+    , pp_parse_file_at
+    , pp_parse_with_protocol_at
+    , pp_parse_detect_language_at
+    , pp_parse_emit_at
+    , pp_parse_emit_pretty_at
+    , pp_parse_protocol_names
+    , pp_parse_available_grammars
+    , pp_parse_check_emit_parse_at
+    , pp_parse_check_parse_emit_at
+#endif
+
+#ifdef PANPROTO_PROJECT
+      -- * Project (feature @project@)
+    , pp_project_builder_new
+    , pp_project_add_file_at
+    , pp_project_add_directory_at
+    , pp_project_build
+    , pp_project_schema_get
+    , pp_project_protocol_map
+#endif
+
+#ifdef PANPROTO_GIT
+      -- * Git (feature @git@)
+    , pp_git_import_at
+#endif
     ) where
 
 import Data.Word (Word32, Word8)
-import Foreign.C.Types (CInt (..), CSize (..))
+import Foreign.C.Types (CDouble (..), CInt (..), CSize (..))
 import Foreign.Ptr (Ptr)
 import Foreign.Storable (Storable (..))
 
@@ -72,6 +219,9 @@ instance Storable VecU8 where
         (#poke Vec_uint8_t, len) p vecLen
         (#poke Vec_uint8_t, cap) p vecCap
 
+-- ---------------------------------------------------------------------------
+-- Lifecycle
+
 -- | Initialize the panproto-c runtime. Always returns @PpStatus::Ok@.
 foreign import ccall safe "pp_init"
     pp_init :: IO CInt
@@ -87,10 +237,16 @@ foreign import ccall safe "pp_handle_free"
 foreign import ccall safe "pp_buf_free_at"
     pp_buf_free_at :: Ptr VecU8 -> IO ()
 
+-- ---------------------------------------------------------------------------
+-- Errors
+
 -- | Take the last error envelope as CBOR bytes. On success, the
 -- 'VecU8' out-param is populated and must be freed via 'pp_buf_free_at'.
 foreign import ccall safe "pp_last_error_take"
     pp_last_error_take :: Ptr VecU8 -> IO CInt
+
+-- ---------------------------------------------------------------------------
+-- Protocol
 
 -- | Ingest a CBOR-encoded @Protocol@ specification via a pointer-and-
 -- length pair (no by-value struct on the FFI signature).
@@ -101,9 +257,10 @@ foreign import ccall safe "pp_protocol_define_at"
 foreign import ccall safe "pp_protocol_serialize"
     pp_protocol_serialize :: Word32 -> Ptr VecU8 -> IO CInt
 
+-- ---------------------------------------------------------------------------
+-- Schema
+
 -- | Deserialize a CBOR-encoded @Schema@ into a fresh slab handle.
--- Routed through the pointer-based glue so Haskell does not pass a
--- by-value @slice_ref_uint8_t@.
 foreign import ccall safe "pp_schema_from_cbor_at"
     pp_schema_from_cbor_at :: Ptr Word8 -> CSize -> Ptr Word32 -> IO CInt
 
@@ -112,11 +269,547 @@ foreign import ccall safe "pp_schema_to_cbor"
     pp_schema_to_cbor :: Word32 -> Ptr VecU8 -> IO CInt
 
 -- | Validate a schema against a protocol. Writes a CBOR-encoded
--- @Vec\<String\>@ of validation messages to @out_messages@. An empty
+-- @Vec\<String\>@ of validation messages to the out-param. An empty
 -- list means the schema is valid.
 foreign import ccall safe "pp_schema_validate"
-    pp_schema_validate
-        :: Word32  -- ^ schema handle
-        -> Word32  -- ^ protocol handle
+    pp_schema_validate :: Word32 -> Word32 -> Ptr VecU8 -> IO CInt
+
+-- | Build a schema from a CBOR @Vec\<BuildOp\>@ under the given
+-- protocol handle.
+foreign import ccall safe "pp_schema_build_at"
+    pp_schema_build_at :: Word32 -> Ptr Word8 -> CSize -> Ptr Word32 -> IO CInt
+
+-- | CBOR @{ protocol, vertices, edges }@ metadata for a schema.
+foreign import ccall safe "pp_schema_metadata"
+    pp_schema_metadata :: Word32 -> Ptr VecU8 -> IO CInt
+
+-- | Normalize a schema, returning a fresh handle.
+foreign import ccall safe "pp_schema_normalize"
+    pp_schema_normalize :: Word32 -> Ptr Word32 -> IO CInt
+
+-- | Parse a raw-JSON atproto lexicon into a fresh schema handle.
+foreign import ccall safe "pp_schema_parse_atproto_lexicon_at"
+    pp_schema_parse_atproto_lexicon_at :: Ptr Word8 -> CSize -> Ptr Word32 -> IO CInt
+
+-- ---------------------------------------------------------------------------
+-- Check
+
+-- | Simple structural diff between two schema handles.
+foreign import ccall safe "pp_check_diff_simple"
+    pp_check_diff_simple :: Word32 -> Word32 -> Ptr VecU8 -> IO CInt
+
+-- | Full diff between two schema handles.
+foreign import ccall safe "pp_check_diff_full"
+    pp_check_diff_full :: Word32 -> Word32 -> Ptr VecU8 -> IO CInt
+
+-- | Classify a CBOR diff against a protocol into a compatibility report.
+foreign import ccall safe "pp_check_classify_at"
+    pp_check_classify_at :: Word32 -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | Render a CBOR compatibility report as UTF-8 text.
+foreign import ccall safe "pp_check_report_text_at"
+    pp_check_report_text_at :: Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | Render a CBOR compatibility report as JSON.
+foreign import ccall safe "pp_check_report_json_at"
+    pp_check_report_json_at :: Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- ---------------------------------------------------------------------------
+-- Migration
+
+-- | Check whether a CBOR migration mapping is a valid migration.
+foreign import ccall safe "pp_mig_check_existence_at"
+    pp_mig_check_existence_at
+        :: Word32 -> Word32 -> Word32 -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | Compile a CBOR migration mapping into a fresh migration handle.
+foreign import ccall safe "pp_mig_compile_at"
+    pp_mig_compile_at
+        :: Word32 -> Word32 -> Ptr Word8 -> CSize -> Ptr Word32 -> IO CInt
+
+-- | Lift a CBOR record through a compiled migration.
+foreign import ccall safe "pp_mig_lift_record_at"
+    pp_mig_lift_record_at :: Word32 -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | Compose two compiled migrations into a fresh handle.
+foreign import ccall safe "pp_mig_compose"
+    pp_mig_compose :: Word32 -> Word32 -> Ptr Word32 -> IO CInt
+
+-- | Invert a CBOR migration mapping.
+foreign import ccall safe "pp_mig_invert_at"
+    pp_mig_invert_at
+        :: Ptr Word8 -> CSize -> Word32 -> Word32 -> Ptr VecU8 -> IO CInt
+
+-- | Coverage report for a migration over a CBOR @Vec\<WInstance\>@.
+foreign import ccall safe "pp_mig_coverage_at"
+    pp_mig_coverage_at
+        :: Word32 -> Word32 -> Word32 -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | Lift raw-JSON data through a migration, given a UTF-8 root vertex.
+foreign import ccall safe "pp_mig_lift_json_at"
+    pp_mig_lift_json_at
+        :: Word32 -> Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- ---------------------------------------------------------------------------
+-- Hom search
+
+-- | Find candidate schema morphisms (CBOR @SearchOptions@ in).
+foreign import ccall safe "pp_hom_find_morphisms_at"
+    pp_hom_find_morphisms_at
+        :: Word32 -> Word32 -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | Find the single best schema morphism.
+foreign import ccall safe "pp_hom_find_best_morphism_at"
+    pp_hom_find_best_morphism_at
+        :: Word32 -> Word32 -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | Convert a CBOR found-morphism into a fresh migration handle.
+foreign import ccall safe "pp_hom_morphism_to_migration_at"
+    pp_hom_morphism_to_migration_at :: Ptr Word8 -> CSize -> Ptr Word32 -> IO CInt
+
+-- | Induce a schema morphism from a CBOR theory morphism.
+foreign import ccall safe "pp_hom_induce_schema_morphism_at"
+    pp_hom_induce_schema_morphism_at :: Ptr Word8 -> CSize -> Word32 -> Ptr VecU8 -> IO CInt
+
+-- | Induce a migration from a CBOR theory morphism, returning both the
+-- CBOR schema morphism and a fresh migration handle.
+foreign import ccall safe "pp_hom_induce_migration_from_theory_at"
+    pp_hom_induce_migration_from_theory_at
+        :: Ptr Word8 -> CSize -> Word32 -> Word32 -> Ptr VecU8 -> Ptr Word32 -> IO CInt
+
+-- ---------------------------------------------------------------------------
+-- Instance
+
+-- | Validate a CBOR instance against a schema handle.
+foreign import ccall safe "pp_inst_validate_at"
+    pp_inst_validate_at :: Word32 -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | Render a CBOR instance as JSON.
+foreign import ccall safe "pp_inst_to_json_at"
+    pp_inst_to_json_at :: Word32 -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | Parse raw JSON into a CBOR instance, given a UTF-8 root vertex.
+foreign import ccall safe "pp_inst_json_to_instance_at"
+    pp_inst_json_to_instance_at
+        :: Word32 -> Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | Count the nodes in a CBOR instance.
+foreign import ccall safe "pp_inst_element_count_at"
+    pp_inst_element_count_at :: Ptr Word8 -> CSize -> Ptr Word32 -> IO CInt
+
+-- ---------------------------------------------------------------------------
+-- Registry / I-O
+
+-- | Create the default protocol registry handle.
+foreign import ccall safe "pp_io_register_protocols"
+    pp_io_register_protocols :: Ptr Word32 -> IO CInt
+
+-- | CBOR @Vec\<String\>@ of registered protocol names.
+foreign import ccall safe "pp_io_list_protocols"
+    pp_io_list_protocols :: Word32 -> Ptr VecU8 -> IO CInt
+
+-- | Parse raw-format input into a CBOR instance using a named protocol.
+foreign import ccall safe "pp_io_parse_instance_at"
+    pp_io_parse_instance_at
+        :: Word32 -> Ptr Word8 -> CSize -> Word32 -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | Emit a CBOR instance to its raw format using a named protocol.
+foreign import ccall safe "pp_io_emit_instance_at"
+    pp_io_emit_instance_at
+        :: Word32 -> Ptr Word8 -> CSize -> Word32 -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | CBOR @Vec\<String\>@ of built-in protocol names.
+foreign import ccall safe "pp_registry_list_builtin"
+    pp_registry_list_builtin :: Ptr VecU8 -> IO CInt
+
+-- | Look up a built-in protocol by UTF-8 name, returning CBOR @Protocol@.
+foreign import ccall safe "pp_registry_get_builtin_at"
+    pp_registry_get_builtin_at :: Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- ---------------------------------------------------------------------------
+-- Lens
+
+-- | Auto-generate a protolens chain between two schemas.
+foreign import ccall safe "pp_lens_auto_generate_protolens_at"
+    pp_lens_auto_generate_protolens_at
+        :: Word32 -> Word32 -> Ptr Word8 -> CSize -> Ptr Word32 -> IO CInt
+
+-- | Auto-generate candidate protolenses with scores.
+foreign import ccall safe "pp_lens_auto_generate_candidates_at"
+    pp_lens_auto_generate_candidates_at
+        :: Word32 -> Word32 -> Word32 -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | Check both lens laws over a CBOR instance.
+foreign import ccall safe "pp_lens_check_laws_at"
+    pp_lens_check_laws_at :: Word32 -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | Check the get-put law over a CBOR instance.
+foreign import ccall safe "pp_lens_check_get_put_at"
+    pp_lens_check_get_put_at :: Word32 -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | Check the put-get law over a CBOR instance.
+foreign import ccall safe "pp_lens_check_put_get_at"
+    pp_lens_check_put_get_at :: Word32 -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | Run @get@ on a CBOR record, returning CBOR @{ view, complement }@.
+foreign import ccall safe "pp_lens_get_record_at"
+    pp_lens_get_record_at :: Word32 -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | Run @put@ on a CBOR view plus complement, returning a CBOR record.
+foreign import ccall safe "pp_lens_put_record_at"
+    pp_lens_put_record_at
+        :: Word32 -> Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | Compose two compiled lenses into a fresh migration-with-schemas handle.
+foreign import ccall safe "pp_lens_compose"
+    pp_lens_compose :: Word32 -> Word32 -> Ptr Word32 -> IO CInt
+
+-- | Instantiate a protolens chain at a schema, returning a fresh handle.
+foreign import ccall safe "pp_protolens_instantiate"
+    pp_protolens_instantiate :: Word32 -> Word32 -> Ptr Word32 -> IO CInt
+
+-- | CBOR complement spec for a protolens chain at a schema.
+foreign import ccall safe "pp_protolens_complement_spec_at"
+    pp_protolens_complement_spec_at :: Word32 -> Word32 -> Ptr VecU8 -> IO CInt
+
+-- | Build a protolens chain from a CBOR diff spec between two schemas.
+foreign import ccall safe "pp_protolens_from_diff_at"
+    pp_protolens_from_diff_at
+        :: Ptr Word8 -> CSize -> Word32 -> Word32 -> Ptr Word32 -> IO CInt
+
+-- | Concatenate two protolens chains into a fresh handle.
+foreign import ccall safe "pp_protolens_compose"
+    pp_protolens_compose :: Word32 -> Word32 -> Ptr Word32 -> IO CInt
+
+-- | Render a protolens chain as JSON.
+foreign import ccall safe "pp_protolens_chain_to_json"
+    pp_protolens_chain_to_json :: Word32 -> Ptr VecU8 -> IO CInt
+
+-- | Build a protolens chain from raw JSON.
+foreign import ccall safe "pp_protolens_from_json_at"
+    pp_protolens_from_json_at :: Ptr Word8 -> CSize -> Ptr Word32 -> IO CInt
+
+-- | Fuse a protolens chain's steps into a fresh handle.
+foreign import ccall safe "pp_protolens_fuse"
+    pp_protolens_fuse :: Word32 -> Ptr Word32 -> IO CInt
+
+-- | Auto-derive a symmetric lens between two schemas.
+foreign import ccall safe "pp_lens_symmetric_from_schemas"
+    pp_lens_symmetric_from_schemas :: Word32 -> Word32 -> Ptr Word32 -> IO CInt
+
+-- | Sync through a symmetric lens. @direction@ is @0@ (left to right)
+-- or @1@ (right to left).
+foreign import ccall safe "pp_lens_symmetric_sync_at"
+    pp_lens_symmetric_sync_at
+        :: Word32 -> Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Word8 -> Ptr VecU8 -> IO CInt
+
+-- | Compile a UTF-8 lens-DSL document into a fresh protolens chain.
+foreign import ccall safe "pp_lens_compile_document_at"
+    pp_lens_compile_document_at
+        :: Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Ptr Word32 -> IO CInt
+
+-- ---------------------------------------------------------------------------
+-- GAT
+
+-- | Create a theory from a CBOR spec, returning a fresh handle.
+foreign import ccall safe "pp_gat_create_theory_at"
+    pp_gat_create_theory_at :: Ptr Word8 -> CSize -> Ptr Word32 -> IO CInt
+
+-- | Colimit (pushout) of two theory handles over a shared handle.
+foreign import ccall safe "pp_gat_colimit"
+    pp_gat_colimit :: Word32 -> Word32 -> Word32 -> Ptr Word32 -> IO CInt
+
+-- | Check a CBOR theory morphism between two theory handles.
+foreign import ccall safe "pp_gat_check_morphism_at"
+    pp_gat_check_morphism_at :: Ptr Word8 -> CSize -> Word32 -> Word32 -> Ptr VecU8 -> IO CInt
+
+-- | Reindex a CBOR model along a CBOR theory morphism.
+foreign import ccall safe "pp_gat_migrate_model_at"
+    pp_gat_migrate_model_at
+        :: Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- ---------------------------------------------------------------------------
+-- Expression / query
+
+-- | Parse UTF-8 expression source into a CBOR @Expr@.
+foreign import ccall safe "pp_expr_parse_at"
+    pp_expr_parse_at :: Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | Evaluate a CBOR @Expr@ in a CBOR environment.
+foreign import ccall safe "pp_expr_eval_func_at"
+    pp_expr_eval_func_at
+        :: Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | Evaluate a CBOR @Term@ in a CBOR environment against a theory handle.
+foreign import ccall safe "pp_expr_eval_gat_at"
+    pp_expr_eval_gat_at
+        :: Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Word32 -> Ptr VecU8 -> IO CInt
+
+-- | Typecheck a CBOR @Term@ against a theory handle and CBOR context.
+foreign import ccall safe "pp_expr_check_at"
+    pp_expr_check_at
+        :: Ptr Word8 -> CSize -> Word32 -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | Execute a CBOR query over a CBOR instance against a schema handle.
+foreign import ccall safe "pp_query_execute_at"
+    pp_query_execute_at
+        :: Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Word32 -> Ptr VecU8 -> IO CInt
+
+-- ---------------------------------------------------------------------------
+-- Enriched
+
+-- | Attach a coercion (UTF-8 kinds plus CBOR expr) to a schema,
+-- returning a fresh handle.
+foreign import ccall safe "pp_schema_add_coercion_at"
+    pp_schema_add_coercion_at
+        :: Word32
+        -> Ptr Word8 -> CSize
+        -> Ptr Word8 -> CSize
+        -> Ptr Word8 -> CSize
+        -> Ptr Word32
+        -> IO CInt
+
+-- | Attach a default value expression to a schema vertex.
+foreign import ccall safe "pp_schema_add_default_at"
+    pp_schema_add_default_at
+        :: Word32 -> Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Ptr Word32 -> IO CInt
+
+-- | Attach a merger spec to a schema vertex.
+foreign import ccall safe "pp_schema_add_merger_at"
+    pp_schema_add_merger_at
+        :: Word32 -> Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Ptr Word32 -> IO CInt
+
+-- | Attach a conflict-resolution policy to a schema vertex.
+foreign import ccall safe "pp_schema_add_policy_at"
+    pp_schema_add_policy_at
+        :: Word32 -> Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Ptr Word32 -> IO CInt
+
+-- | Decide whether one refinement sort is a subsort of another.
+-- Writes @1@ or @0@ to the out-param.
+foreign import ccall safe "pp_enriched_refinement_subsort_at"
+    pp_enriched_refinement_subsort_at
+        :: Ptr Word8 -> CSize
+        -> Ptr Word8 -> CSize
+        -> Ptr Word8 -> CSize
+        -> Ptr Word32
+        -> IO CInt
+
+-- ---------------------------------------------------------------------------
+-- VCS
+
+-- | Initialize a VCS repository for a UTF-8 protocol name.
+foreign import ccall safe "pp_vcs_init_at"
+    pp_vcs_init_at :: Ptr Word8 -> CSize -> Ptr Word32 -> IO CInt
+
+-- | Stage a schema into the repository, returning a CBOR add result.
+foreign import ccall safe "pp_vcs_add"
+    pp_vcs_add :: Word32 -> Word32 -> Ptr VecU8 -> IO CInt
+
+-- | Commit with a UTF-8 message and author, returning a CBOR commit id.
+foreign import ccall safe "pp_vcs_commit_at"
+    pp_vcs_commit_at
+        :: Word32 -> Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | CBOR @Vec\<VcsLogEntry\>@ for up to @count@ commits.
+foreign import ccall safe "pp_vcs_log"
+    pp_vcs_log :: Word32 -> Word32 -> Ptr VecU8 -> IO CInt
+
+-- | CBOR status result for the repository.
+foreign import ccall safe "pp_vcs_status"
+    pp_vcs_status :: Word32 -> Ptr VecU8 -> IO CInt
+
+-- | CBOR diff result for the repository.
+foreign import ccall safe "pp_vcs_diff"
+    pp_vcs_diff :: Word32 -> Ptr VecU8 -> IO CInt
+
+-- | Create a branch by UTF-8 name, returning a CBOR op result.
+foreign import ccall safe "pp_vcs_branch_at"
+    pp_vcs_branch_at :: Word32 -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | Check out a UTF-8 target, returning a CBOR op result.
+foreign import ccall safe "pp_vcs_checkout_at"
+    pp_vcs_checkout_at :: Word32 -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | Merge a UTF-8 branch, returning a CBOR op result.
+foreign import ccall safe "pp_vcs_merge_at"
+    pp_vcs_merge_at :: Word32 -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | CBOR op result listing stashes.
+foreign import ccall safe "pp_vcs_stash"
+    pp_vcs_stash :: Word32 -> Ptr VecU8 -> IO CInt
+
+-- | Pop a stash, returning a CBOR op result.
+foreign import ccall safe "pp_vcs_stash_pop"
+    pp_vcs_stash_pop :: Word32 -> Ptr VecU8 -> IO CInt
+
+-- | Blame a UTF-8 vertex id, returning a CBOR blame result.
+foreign import ccall safe "pp_vcs_blame_at"
+    pp_vcs_blame_at :: Word32 -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- ---------------------------------------------------------------------------
+-- Data
+
+-- | Store a raw-JSON dataset against a schema, returning a fresh handle.
+foreign import ccall safe "pp_data_store_dataset_at"
+    pp_data_store_dataset_at :: Word32 -> Ptr Word8 -> CSize -> Ptr Word32 -> IO CInt
+
+-- | CBOR @Vec\<WInstance\>@ for a dataset handle.
+foreign import ccall safe "pp_data_get_dataset"
+    pp_data_get_dataset :: Word32 -> Ptr VecU8 -> IO CInt
+
+-- | Migrate a dataset forward, returning fresh data and complement handles.
+foreign import ccall safe "pp_data_migrate_forward"
+    pp_data_migrate_forward
+        :: Word32 -> Word32 -> Word32 -> Ptr Word32 -> Ptr Word32 -> IO CInt
+
+-- | Migrate a dataset backward through a CBOR complement, returning a
+-- fresh handle.
+foreign import ccall safe "pp_data_migrate_backward_at"
+    pp_data_migrate_backward_at
+        :: Word32 -> Ptr Word8 -> CSize -> Word32 -> Word32 -> Ptr Word32 -> IO CInt
+
+-- | CBOR staleness report for a dataset against a schema.
+foreign import ccall safe "pp_data_check_staleness_at"
+    pp_data_check_staleness_at :: Word32 -> Word32 -> Ptr VecU8 -> IO CInt
+
+-- | Round-trip a CBOR @Vec\<Complement\>@ for validation.
+foreign import ccall safe "pp_data_get_migration_complement_at"
+    pp_data_get_migration_complement_at :: Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- ---------------------------------------------------------------------------
+-- Graph
+
+-- | CBOR @Vec\<u32\>@ fiber of a CBOR instance at a UTF-8 anchor.
+foreign import ccall safe "pp_graph_fiber_at_at"
+    pp_graph_fiber_at_at
+        :: Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | CBOR @HashMap\<String, Vec\<u32\>\>@ fiber decomposition.
+foreign import ccall safe "pp_graph_fiber_decomposition_at"
+    pp_graph_fiber_decomposition_at
+        :: Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | CBOR hom schema between two CBOR schemas.
+foreign import ccall safe "pp_graph_poly_hom_at"
+    pp_graph_poly_hom_at
+        :: Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | CBOR @{ cost, steps }@ preferred path through a CBOR lens graph.
+foreign import ccall safe "pp_graph_preferred_path_at"
+    pp_graph_preferred_path_at
+        :: Ptr Word8 -> CSize
+        -> Ptr Word8 -> CSize
+        -> Ptr Word8 -> CSize
         -> Ptr VecU8
         -> IO CInt
+
+-- | @f64@ conversion distance through a CBOR lens graph (INF if
+-- unreachable).
+foreign import ccall safe "pp_graph_conversion_distance_at"
+    pp_graph_conversion_distance_at
+        :: Ptr Word8 -> CSize
+        -> Ptr Word8 -> CSize
+        -> Ptr Word8 -> CSize
+        -> Ptr CDouble
+        -> IO CInt
+
+-- ---------------------------------------------------------------------------
+-- Parse (feature @full-parse@)
+
+#ifdef PANPROTO_PARSE
+
+-- | Create a parser registry handle.
+foreign import ccall safe "pp_parse_registry_new"
+    pp_parse_registry_new :: Ptr Word32 -> IO CInt
+
+-- | Parse UTF-8 path plus source content into a fresh schema handle.
+foreign import ccall safe "pp_parse_file_at"
+    pp_parse_file_at
+        :: Word32 -> Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Ptr Word32 -> IO CInt
+
+-- | Parse content under a named UTF-8 protocol into a fresh schema handle.
+foreign import ccall safe "pp_parse_with_protocol_at"
+    pp_parse_with_protocol_at
+        :: Word32
+        -> Ptr Word8 -> CSize
+        -> Ptr Word8 -> CSize
+        -> Ptr Word8 -> CSize
+        -> Ptr Word32
+        -> IO CInt
+
+-- | Detect the protocol for a UTF-8 path; empty out-buffer if none.
+foreign import ccall safe "pp_parse_detect_language_at"
+    pp_parse_detect_language_at :: Word32 -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | Emit a schema under a named protocol as source bytes.
+foreign import ccall safe "pp_parse_emit_at"
+    pp_parse_emit_at :: Word32 -> Ptr Word8 -> CSize -> Word32 -> Ptr VecU8 -> IO CInt
+
+-- | Pretty-emit a schema under a named protocol as source bytes.
+foreign import ccall safe "pp_parse_emit_pretty_at"
+    pp_parse_emit_pretty_at :: Word32 -> Ptr Word8 -> CSize -> Word32 -> Ptr VecU8 -> IO CInt
+
+-- | CBOR @Vec\<String\>@ of registry protocol names.
+foreign import ccall safe "pp_parse_protocol_names"
+    pp_parse_protocol_names :: Word32 -> Ptr VecU8 -> IO CInt
+
+-- | CBOR @Vec\<String\>@ of available grammar names.
+foreign import ccall safe "pp_parse_available_grammars"
+    pp_parse_available_grammars :: Ptr VecU8 -> IO CInt
+
+-- | Empty out-buffer if the emit-parse law holds, else divergence text.
+foreign import ccall safe "pp_parse_check_emit_parse_at"
+    pp_parse_check_emit_parse_at
+        :: Word32 -> Ptr Word8 -> CSize -> Word32 -> Ptr VecU8 -> IO CInt
+
+-- | Empty out-buffer if the parse-emit law holds, else divergence text.
+foreign import ccall safe "pp_parse_check_parse_emit_at"
+    pp_parse_check_parse_emit_at
+        :: Word32 -> Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+#endif /* PANPROTO_PARSE */
+
+-- ---------------------------------------------------------------------------
+-- Project (feature @project@)
+
+#ifdef PANPROTO_PROJECT
+
+-- | Create a project builder handle.
+foreign import ccall safe "pp_project_builder_new"
+    pp_project_builder_new :: Ptr Word32 -> IO CInt
+
+-- | Add a UTF-8 path plus content to the builder in place.
+foreign import ccall safe "pp_project_add_file_at"
+    pp_project_add_file_at
+        :: Word32 -> Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> IO CInt
+
+-- | Add a UTF-8 directory path to the builder in place.
+foreign import ccall safe "pp_project_add_directory_at"
+    pp_project_add_directory_at :: Word32 -> Ptr Word8 -> CSize -> IO CInt
+
+-- | Build the project, returning a fresh project-schema handle.
+foreign import ccall safe "pp_project_build"
+    pp_project_build :: Word32 -> Ptr Word32 -> IO CInt
+
+-- | Get the coproduct schema handle for a project.
+foreign import ccall safe "pp_project_schema_get"
+    pp_project_schema_get :: Word32 -> Ptr Word32 -> IO CInt
+
+-- | CBOR @HashMap\<String, String\>@ path-to-protocol map for a project.
+foreign import ccall safe "pp_project_protocol_map"
+    pp_project_protocol_map :: Word32 -> Ptr VecU8 -> IO CInt
+
+#endif /* PANPROTO_PROJECT */
+
+-- ---------------------------------------------------------------------------
+-- Git (feature @git@)
+
+#ifdef PANPROTO_GIT
+
+-- | Import a git repository at a UTF-8 path and revspec, returning a
+-- fresh VCS repo handle plus a CBOR summary.
+foreign import ccall safe "pp_git_import_at"
+    pp_git_import_at
+        :: Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Ptr Word32 -> Ptr VecU8 -> IO CInt
+
+#endif /* PANPROTO_GIT */
