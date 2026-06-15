@@ -2,7 +2,8 @@
 //!
 //! Available only under the `full-parse` feature. Frozen-signature
 //! scaffold; every entry point currently returns
-//! [`PpStatus::Operation`]. The engine-wiring pass fills in the bodies
+//! [`PpStatus::Operation`](crate::error::PpStatus::Operation). The
+//! engine-wiring pass fills in the bodies
 //! against `panproto_core::parse` (`ParserRegistry`, `ParseEmitLens`),
 //! storing the registry as a
 //! [`Resource::AstRegistry`](crate::handle::Resource).

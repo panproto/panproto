@@ -2,7 +2,8 @@
 //!
 //! Available only under the `project` feature. Frozen-signature
 //! scaffold; every entry point currently returns
-//! [`PpStatus::Operation`]. The engine-wiring pass fills in the bodies
+//! [`PpStatus::Operation`](crate::error::PpStatus::Operation). The
+//! engine-wiring pass fills in the bodies
 //! against `panproto_core::project` (`ProjectBuilder`, `ProjectSchema`),
 //! stored as
 //! [`Resource::ProjectBuilder`](crate::handle::Resource) and

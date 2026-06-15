@@ -88,12 +88,14 @@ typedef struct slice_ref_uint8 {
  *  compatibility report.
  *
  *  `proto` is a [`Resource::Protocol`](crate::handle::Resource) handle.
- *  `diff` is a CBOR-encoded `panproto_core::check::SchemaDiff`. On
- *  success, `out` receives a CBOR-encoded `check::CompatReport`. Will
- *  call `check::classify`.
+ *  `diff` is a CBOR-encoded `panproto_core::check::SchemaDiff` (as
+ *  emitted by [`pp_check_diff_full`]). On success, `out` receives a
+ *  CBOR-encoded `check::CompatReport` from `check::classify`.
  *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  Common failure modes are [`PpStatus::InvalidHandle`],
+ *  [`PpStatus::TypeMismatch`] (when `proto` does not point at a
+ *  `Protocol`), and [`PpStatus::Serialization`] (when `diff` is not a
+ *  valid CBOR `check::SchemaDiff`).
  */
 int32_t
 pp_check_classify (
@@ -107,10 +109,12 @@ pp_check_classify (
  *
  *  `s1` and `s2` are [`Resource::Schema`](crate::handle::Resource)
  *  handles. On success, `out` receives a CBOR-encoded
- *  `panproto_core::check::SchemaDiff`. Will call `check::diff`.
+ *  `panproto_core::check::SchemaDiff` produced by `check::diff`, with
+ *  constraints, hyper-edges, variants, recursion points, usage modes,
+ *  spans, and nominal-identity changes.
  *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  Common failure modes are [`PpStatus::InvalidHandle`] and
+ *  [`PpStatus::TypeMismatch`].
  */
 int32_t
 pp_check_diff_full (
@@ -123,11 +127,12 @@ pp_check_diff_full (
  *
  *  `s1` and `s2` are [`Resource::Schema`](crate::handle::Resource)
  *  handles. On success, `out` receives a CBOR-encoded
- *  [`SchemaDiff`](crate::api::helpers::SchemaDiff) (vertex/edge level).
- *  Will call [`crate::api::helpers::compute_diff`].
+ *  [`SchemaDiff`](crate::api::helpers::SchemaDiff) (vertex/edge level)
+ *  computed by [`crate::api::helpers::compute_diff`].
  *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  Common failure modes are [`PpStatus::InvalidHandle`] and
+ *  [`PpStatus::TypeMismatch`] (when either handle does not point at a
+ *  `Schema`).
  */
 int32_t
 pp_check_diff_simple (
@@ -139,10 +144,12 @@ pp_check_diff_simple (
  *  Render a compatibility report as a JSON document.
  *
  *  `report` is a CBOR-encoded `check::CompatReport`. On success, `out`
- *  receives the rendered JSON bytes. Will call `check::report_json`.
+ *  receives the UTF-8 JSON bytes serialized from the
+ *  [`serde_json::Value`] produced by `check::report_json`.
  *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  Returns [`PpStatus::Serialization`] when `report` is not a valid
+ *  CBOR `check::CompatReport` or when the rendered JSON value cannot be
+ *  serialized.
  */
 int32_t
 pp_check_report_json (
@@ -153,11 +160,10 @@ pp_check_report_json (
  *  Render a compatibility report as human-readable text.
  *
  *  `report` is a CBOR-encoded `check::CompatReport`. On success, `out`
- *  receives the rendered UTF-8 text bytes. Will call
- *  `check::report_text`.
+ *  receives the UTF-8 text bytes produced by `check::report_text`.
  *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  Returns [`PpStatus::Serialization`] when `report` is not a valid
+ *  CBOR `check::CompatReport`.
  */
 int32_t
 pp_check_report_text (
@@ -170,10 +176,9 @@ pp_check_report_text (
  *  `dataset_handle` is a data set handle; `schema_handle` is a
  *  [`Resource::Schema`](crate::handle::Resource) handle. On success,
  *  `out` receives a CBOR-encoded record (`stale`, `data_schema_id`,
- *  `target_schema_id`). Will compare `vcs::hash::hash_schema` outputs.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  `target_schema_id`) by comparing `vcs::hash::hash_schema` outputs:
+ *  the data set is stale when its stored schema id differs from the
+ *  hash of the supplied schema.
  */
 int32_t
 pp_data_check_staleness (
@@ -184,12 +189,11 @@ pp_data_check_staleness (
 /** \brief
  *  Retrieve a data set as CBOR-encoded instances.
  *
- *  `dataset_handle` is a
- *  [`Resource::DataSet`](crate::handle::Resource) handle. On success,
- *  `out` receives the CBOR-encoded `Vec<WInstance>`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  `dataset_handle` is a [`Resource::DataSet`](crate::handle::Resource)
+ *  handle. On success, `out` receives the CBOR-encoded
+ *  `Vec<WInstance>`. The stored payload is decoded and re-encoded so a
+ *  corrupt carrier surfaces as a serialization error rather than
+ *  returning opaque bytes.
  */
 int32_t
 pp_data_get_dataset (
@@ -200,11 +204,9 @@ pp_data_get_dataset (
  *  Round-trip and return a forward-migration complement carrier.
  *
  *  `complement` is the CBOR-encoded `Vec<Complement>` produced by a
- *  forward migration. On success, `out` receives the re-encoded
- *  complement bytes (validating the payload).
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  forward migration. The payload is decoded and re-encoded so a
+ *  malformed carrier surfaces as a serialization error; on success,
+ *  `out` receives the re-encoded complement bytes.
  */
 int32_t
 pp_data_get_migration_complement (
@@ -214,15 +216,15 @@ pp_data_get_migration_complement (
 /** \brief
  *  Migrate a data set backward using a stored complement.
  *
- *  `dataset_handle` is the migrated data set handle; `complement` is
- *  the CBOR-encoded `Vec<Complement>`; `src_schema` and `tgt_schema`
- *  are [`Resource::Schema`](crate::handle::Resource) handles. On
- *  success, `out_handle` receives a fresh
- *  [`Resource::DataSet`](crate::handle::Resource) handle. Will call
- *  `lens::auto_generate` and `lens::put`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  `dataset_handle` is the migrated (forward) data set handle;
+ *  `complement` is the CBOR-encoded `Vec<Complement>` produced by the
+ *  forward migration; `src_schema` and `tgt_schema` are
+ *  [`Resource::Schema`](crate::handle::Resource) handles (the same
+ *  pair, in the same order, as the forward migration). Auto-generates
+ *  the lens and applies `lens::put` per record, pairing each migrated
+ *  view with its complement. On success, `out_handle` receives a fresh
+ *  [`Resource::DataSet`](crate::handle::Resource) handle re-anchored to
+ *  the source schema.
  */
 int32_t
 pp_data_migrate_backward (
@@ -236,15 +238,15 @@ pp_data_migrate_backward (
  *  Migrate a data set forward between two schemas.
  *
  *  `dataset_handle` is a data set handle; `src_schema` and `tgt_schema`
- *  are [`Resource::Schema`](crate::handle::Resource) handles. Auto-
- *  generates a lens, applies `get` per record, and stores both the
- *  migrated data set and the complement carrier as new
+ *  are [`Resource::Schema`](crate::handle::Resource) handles.
+ *  Auto-generates a lens via `lens::auto_generate`, applies `lens::get`
+ *  per record, and stores both the migrated data set and the
+ *  complement carrier as new
  *  [`Resource::DataSet`](crate::handle::Resource) handles, returned via
- *  `out_data_handle` and `out_complement_handle`. Will call
- *  `lens::auto_generate` and `lens::get`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  `out_data_handle` and `out_complement_handle`. The migrated data
+ *  set is hashed against the target schema; the complement carrier
+ *  keeps the source schema id and holds the CBOR-encoded
+ *  `Vec<Complement>` in its `data` field.
  */
 int32_t
 pp_data_migrate_forward (
@@ -259,13 +261,12 @@ pp_data_migrate_forward (
  *
  *  `schema_handle` is a [`Resource::Schema`](crate::handle::Resource)
  *  handle; `data_json` is raw JSON bytes (an array of records, decoded
- *  with `serde_json`). On success, `out_handle` receives a fresh
- *  [`Resource::DataSet`](crate::handle::Resource) handle. Will parse
- *  each record via `inst::parse_json` and hash the schema via
- *  `vcs::hash::hash_schema`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  with `serde_json`; a bare object is treated as a one-element array).
+ *  Each record is parsed via `inst::parse_json` against the schema's
+ *  inferred root vertex, the instances are CBOR-encoded into a fresh
+ *  `vcs::DataSetObject`, and the schema is hashed via
+ *  `vcs::hash::hash_schema`. On success, `out_handle` receives a fresh
+ *  [`Resource::DataSet`](crate::handle::Resource) handle.
  */
 int32_t
 pp_data_store_dataset (
@@ -280,10 +281,8 @@ pp_data_store_dataset (
  *  and `super_constraints` are CBOR-encoded `Vec<(String, String)>`
  *  of `(sort, value)` pairs. On success, `out_is_subsort` receives `1`
  *  when the sub-refinement refines at least as much as the
- *  super-refinement, else `0`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  super-refinement (it carries every constraint the super-refinement
+ *  does), else `0`.
  */
 int32_t
 pp_enriched_refinement_subsort (
@@ -295,15 +294,16 @@ pp_enriched_refinement_subsort (
 /** \brief
  *  Type-check a GAT term against a theory and a typing context.
  *
- *  `expr` is a CBOR-encoded `gat::Term`; `theory` is a
+ *  `expr` is a CBOR-encoded [`gat::Term`]; `theory` is a
  *  [`Resource::Theory`](crate::handle::Resource) handle; `context` is a
  *  CBOR-encoded `Vec<(String, String)>` mapping variable names to sort
- *  names. On success, `out` receives a CBOR-encoded record
- *  (`well_formed`, `output_sort`, `error`). Will call
- *  `gat::typecheck_term`.
+ *  names. On success, `out` receives a CBOR-encoded `CheckOutput`
+ *  record (`well_formed`, `output_sort`, `error`).
  *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  The result itself encodes well-formedness, so the entry point returns
+ *  [`PpStatus::Ok`] for both a well-formed and an ill-formed term; only a
+ *  malformed payload or a bad handle yields a non-`Ok` status. Calls
+ *  [`gat::typecheck_term`].
  */
 int32_t
 pp_expr_check (
@@ -315,13 +315,11 @@ pp_expr_check (
 /** \brief
  *  Evaluate a functional expression against an environment.
  *
- *  `expr` is a CBOR-encoded `panproto_expr::Expr`; `env` is a
+ *  `expr` is a CBOR-encoded [`panproto_expr::Expr`]; `env` is a
  *  CBOR-encoded `Vec<(String, panproto_expr::Literal)>`. On success,
- *  `out` receives the CBOR-encoded `panproto_expr::Literal` result.
- *  Will call `panproto_expr::eval`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  `out` receives the CBOR-encoded [`panproto_expr::Literal`] result.
+ *  Calls [`panproto_expr::eval`] with the default
+ *  [`panproto_expr::EvalConfig`] (step and depth limits).
  */
 int32_t
 pp_expr_eval_func (
@@ -332,13 +330,16 @@ pp_expr_eval_func (
 /** \brief
  *  Evaluate a GAT term against a theory and a variable environment.
  *
- *  `expr` is a CBOR-encoded `panproto_core::gat::Term`; `env` is a
- *  CBOR-encoded `Vec<(String, gat::ModelValue)>`; `theory` is a
+ *  `expr` is a CBOR-encoded [`gat::Term`]; `env` is a CBOR-encoded
+ *  `Vec<(String, gat::ModelValue)>`; `theory` is a
  *  [`Resource::Theory`](crate::handle::Resource) handle. On success,
- *  `out` receives the CBOR-encoded `gat::ModelValue` result.
+ *  `out` receives the CBOR-encoded [`gat::ModelValue`] result.
  *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  The recursive evaluator mirrors `eval_term_recursive` in the WASM
+ *  helpers: variables resolve against the environment, applications
+ *  evaluate their arguments and consult the theory's operation table,
+ *  nullary constants reduce to their name as a string, and other
+ *  applications produce a structured `{ op, args, output_sort }` map.
  */
 int32_t
 pp_expr_eval_gat (
@@ -351,11 +352,10 @@ pp_expr_eval_gat (
  *  Parse expression source text into a `panproto-expr` AST.
  *
  *  `source` is the UTF-8 source bytes. On success, `out` receives the
- *  CBOR-encoded `panproto_expr::Expr`. Will call
- *  `panproto_expr_parser::{tokenize, parse}`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  CBOR-encoded [`panproto_expr::Expr`]. Tokenizes via
+ *  [`panproto_expr_parser::tokenize`] then parses via
+ *  [`panproto_expr_parser::parse`]; either failure maps to
+ *  [`FfiError::Operation`].
  */
 int32_t
 pp_expr_parse (
@@ -365,15 +365,12 @@ pp_expr_parse (
 /** \brief
  *  Check the validity of a theory morphism.
  *
- *  `morphism` is a CBOR-encoded `panproto_core::gat::TheoryMorphism`;
- *  `domain` and `codomain` are
- *  [`Resource::Theory`](crate::handle::Resource) handles. On success,
- *  `out` receives a CBOR-encoded
- *  [`MorphismCheckResult`](crate::api::helpers::MorphismCheckResult).
- *  Will call `gat::check_morphism`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  `morphism` is a CBOR-encoded [`gat::TheoryMorphism`]; `domain` and
+ *  `codomain` are [`Resource::Theory`] handles. On success, `out`
+ *  receives a CBOR-encoded [`MorphismCheckResult`]. The result itself
+ *  encodes validity, so the entry point returns [`PpStatus::Ok`] for
+ *  both a valid and an invalid morphism; only a malformed payload or a
+ *  bad handle yields a non-`Ok` status. Calls `gat::check_morphism`.
  */
 int32_t
 pp_gat_check_morphism (
@@ -385,14 +382,13 @@ pp_gat_check_morphism (
 /** \brief
  *  Compute the colimit of two theories over a shared base.
  *
- *  `t1`, `t2`, and `shared` are
- *  [`Resource::Theory`](crate::handle::Resource) handles. On success,
- *  `out_handle` receives a fresh
- *  [`Resource::Theory`](crate::handle::Resource) handle. Will call
- *  `gat::colimit_by_name`.
+ *  `t1`, `t2`, and `shared` are [`Resource::Theory`] handles. On
+ *  success, `out_handle` receives a fresh [`Resource::Theory`] handle
+ *  holding `gat::colimit_by_name(t1, t2, shared)`.
  *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  Returns [`PpStatus::InvalidHandle`] / [`PpStatus::TypeMismatch`] if a
+ *  handle is invalid or not a theory, and [`PpStatus::Operation`] if the
+ *  colimit fails.
  */
 int32_t
 pp_gat_colimit (
@@ -404,12 +400,10 @@ pp_gat_colimit (
 /** \brief
  *  Create a GAT theory from a CBOR spec.
  *
- *  `spec` is a CBOR-encoded `panproto_core::gat::Theory`. On success,
- *  `out_handle` receives a fresh
- *  [`Resource::Theory`](crate::handle::Resource) handle.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  `spec` is a CBOR-encoded [`gat::Theory`]. On success, `out_handle`
+ *  receives a fresh [`Resource::Theory`] handle and [`PpStatus::Ok`] is
+ *  returned. On CBOR decode failure, [`PpStatus::Serialization`] is
+ *  returned and `out_handle` is left untouched.
  */
 int32_t
 pp_gat_create_theory (
@@ -420,13 +414,17 @@ pp_gat_create_theory (
  *  Migrate a model through a theory morphism.
  *
  *  `model` is a CBOR-encoded sort-interpretation map
- *  (`HashMap<String, Vec<ModelValue>>`; operation interpretations
- *  cannot cross the boundary); `morphism` is a CBOR-encoded
- *  `gat::TheoryMorphism`. On success, `out` receives the CBOR-encoded
+ *  (`HashMap<String, Vec<ModelValue>>`); `morphism` is a CBOR-encoded
+ *  [`gat::TheoryMorphism`]. On success, `out` receives the CBOR-encoded
  *  reindexed sort interpretations.
  *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  Only sort interpretations cross the boundary. A [`gat::Model`] also
+ *  carries operation interpretations as closures (`Arc<dyn Fn(...)>`),
+ *  which cannot be serialized; reindexing those is the host's
+ *  responsibility once the sorts have moved. The reindex mirrors
+ *  `panproto_wasm::api::gat::migrate_model`: for each `(domain_sort,
+ *  codomain_sort)` entry in the morphism's `sort_map`, the codomain
+ *  sort's carrier is copied to the domain sort name.
  */
 int32_t
 pp_gat_migrate_model (
@@ -439,11 +437,8 @@ pp_gat_migrate_model (
  *
  *  `graph` is a CBOR-encoded `Vec<GraphEdge>`; `source_schema` and
  *  `target_schema` are UTF-8 schema names. On success, `out_distance`
- *  receives the distance (`f64::INFINITY` when unreachable). Will call
- *  `LensGraph::distance`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  receives the distance ([`f64::INFINITY`] when unreachable, the schemas
+ *  are unknown, or no path exists). Calls `LensGraph::distance`.
  */
 int32_t
 pp_graph_conversion_distance (
@@ -455,13 +450,11 @@ pp_graph_conversion_distance (
 /** \brief
  *  Compute the fiber of a compiled migration at a target anchor.
  *
- *  `instance` and `migration` are CBOR-encoded `WInstance` and
- *  `CompiledMigration`; `target_anchor` is the UTF-8 anchor name. On
- *  success, `out` receives a CBOR-encoded `Vec<u32>` of source node
- *  IDs. Will call `inst::fiber_at_anchor`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  `instance` and `migration` are CBOR-encoded [`WInstance`] and
+ *  [`CompiledMigration`];
+ *  `target_anchor` is the UTF-8 anchor name. On success, `out` receives a
+ *  CBOR-encoded `Vec<u32>` of source node IDs whose remapped anchor equals
+ *  `target_anchor`. Calls `inst::fiber_at_anchor`.
  */
 int32_t
 pp_graph_fiber_at (
@@ -475,11 +468,9 @@ pp_graph_fiber_at (
  *
  *  `instance` and `migration` are CBOR-encoded `WInstance` and
  *  `CompiledMigration`. On success, `out` receives a CBOR-encoded
- *  `HashMap<String, Vec<u32>>` partitioning the source nodes. Will call
+ *  `HashMap<String, Vec<u32>>` partitioning the source nodes (every
+ *  source node appears in exactly one fiber). Calls
  *  `inst::fiber_decomposition`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
  */
 int32_t
 pp_graph_fiber_decomposition (
@@ -490,12 +481,11 @@ pp_graph_fiber_decomposition (
 /** \brief
  *  Construct the internal hom schema `[S, T]`.
  *
- *  `source_schema` and `target_schema` are CBOR-encoded `Schema`
- *  values. On success, `out` receives the CBOR-encoded hom `Schema`.
- *  Will call `inst::hom_schema`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  `source_schema` and `target_schema` are CBOR-encoded
+ *  [`Schema`](panproto_core::schema::Schema) values. For each source
+ *  vertex in `S`, the hom schema contains choice and backward vertices
+ *  encoding all structure-preserving maps from `S` to `T`. On success,
+ *  `out` receives the CBOR-encoded hom `Schema`. Calls `inst::hom_schema`.
  */
 int32_t
 pp_graph_poly_hom (
@@ -509,11 +499,10 @@ pp_graph_poly_hom (
  *  `graph` is a CBOR-encoded `Vec<GraphEdge>` (each with `source`,
  *  `target`, and a CBOR-encoded `ProtolensChain`); `source_schema` and
  *  `target_schema` are UTF-8 schema names. On success, `out` receives a
- *  CBOR-encoded `{ cost, steps }` record. Will call
- *  `LensGraph::preferred_path`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  CBOR-encoded `{ cost, steps }` record giving the total cost and the
+ *  protolens step names along the shortest path. Calls
+ *  `LensGraph::preferred_path`; returns [`PpStatus::Operation`] when no
+ *  path exists.
  */
 int32_t
 pp_graph_preferred_path (
@@ -534,12 +523,9 @@ pp_handle_free (
 /** \brief
  *  Find the single best-quality morphism between two schemas.
  *
- *  Arguments match [`pp_hom_find_morphisms`] except the search is capped
- *  at one result. On success, `out` receives a CBOR-encoded
- *  `Option<FoundMorphism>`. Will call `hom_search::find_best_morphism`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  Arguments match [`pp_hom_find_morphisms`]. On success, `out`
+ *  receives a CBOR-encoded `Option<FoundMorphismWire>`. Calls
+ *  `hom_search::find_best_morphism`.
  */
 int32_t
 pp_hom_find_best_morphism (
@@ -552,15 +538,11 @@ pp_hom_find_best_morphism (
  *  Find structure-preserving morphisms between two schemas.
  *
  *  `src` and `tgt` are [`Resource::Schema`](crate::handle::Resource)
- *  handles. `opts` is a CBOR-encoded search-options record (anchors,
- *  `monic`/`epic`/`iso` flags, `max_results`,
- *  `relax_edge_name_pruning`) mirroring
+ *  handles. `opts` is a CBOR-encoded `SearchOptionsWire` mirroring
  *  `panproto_core::mig::hom_search::SearchOptions`. On success, `out`
- *  receives a CBOR-encoded `Vec<FoundMorphism>` (each with `vertex_map`
- *  and `quality`). Will call `hom_search::find_morphisms`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  receives a CBOR-encoded `Vec<FoundMorphismWire>` (each with
+ *  `vertex_map`, `edge_map`, and `quality`), already ranked by
+ *  descending quality. Calls `hom_search::find_morphisms`.
  */
 int32_t
 pp_hom_find_morphisms (
@@ -576,11 +558,9 @@ pp_hom_find_morphisms (
  *  `tgt` are [`Resource::Schema`](crate::handle::Resource) handles. On
  *  success, `out` receives the CBOR-encoded induced `SchemaMorphism`
  *  and `out_handle` receives a fresh
- *  [`Resource::MigrationWithSchemas`](crate::handle::Resource) handle.
- *  Will call `mig::cascade::induce_migration_from_theory`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  [`Resource::MigrationWithSchemas`](crate::handle::Resource) handle
+ *  (the compiled `Delta_F` pullback bundled with its anchoring schemas).
+ *  Calls `mig::cascade::induce_migration_from_theory`.
  */
 int32_t
 pp_hom_induce_migration_from_theory (
@@ -597,10 +577,7 @@ pp_hom_induce_migration_from_theory (
  *  `panproto_core::gat::TheoryMorphism`. `src` is a
  *  [`Resource::Schema`](crate::handle::Resource) handle. On success,
  *  `out` receives a CBOR-encoded `panproto_core::schema::SchemaMorphism`.
- *  Will call `mig::cascade::induce_schema_morphism`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  Calls `mig::cascade::induce_schema_morphism`.
  */
 int32_t
 pp_hom_induce_schema_morphism (
@@ -611,13 +588,12 @@ pp_hom_induce_schema_morphism (
 /** \brief
  *  Convert a found morphism into a compiled migration.
  *
- *  `morphism` is a CBOR-encoded `FoundMorphism`. On success,
- *  `out_handle` receives a fresh
- *  [`Resource::Migration`](crate::handle::Resource) handle. Will call
- *  `hom_search::morphism_to_migration`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  `morphism` is a CBOR-encoded `FoundMorphismWire`. The found
+ *  morphism is lowered to a `mig::Migration` via
+ *  `hom_search::morphism_to_migration`, then compiled against the
+ *  minimal schemas implied by its surviving vertex and edge sets. On
+ *  success, `out_handle` receives a fresh
+ *  [`Resource::Migration`](crate::handle::Resource) handle.
  */
 int32_t
 pp_hom_morphism_to_migration (
@@ -649,10 +625,7 @@ pp_init (void);
  *  Count the nodes in a W-type instance.
  *
  *  `instance` is a CBOR-encoded `WInstance`. On success, `out_count`
- *  receives the node count. Will call `WInstance::node_count`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  receives the node count. Calls `WInstance::node_count`.
  */
 int32_t
 pp_inst_element_count (
@@ -664,12 +637,17 @@ pp_inst_element_count (
  *
  *  `schema_handle` is a [`Resource::Schema`](crate::handle::Resource)
  *  handle. `json` is raw JSON bytes (decoded with `serde_json`, not
- *  CBOR). `root_vertex` selects the root vertex (empty infers it). On
- *  success, `out` receives a CBOR-encoded `WInstance`. Will call
- *  `inst::parse_json`.
+ *  CBOR). `root_vertex` is a UTF-8 string selecting the root vertex
+ *  (empty infers it). On success, `out` receives a CBOR-encoded
+ *  `WInstance`. Calls `inst::parse_json`.
  *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  Root-vertex precedence mirrors the WASM boundary's
+ *  `json_to_instance_with_root`:
+ *  1. the explicit caller-supplied vertex if it exists in the schema;
+ *  2. `schema.protocol` (some builders use the protocol name as the
+ *  top-level vertex id);
+ *  3. the schema's declared primary entry (the pointed-schema
+ *  basepoint).
  */
 int32_t
 pp_inst_json_to_instance (
@@ -683,10 +661,7 @@ pp_inst_json_to_instance (
  *
  *  `schema_handle` is a [`Resource::Schema`](crate::handle::Resource)
  *  handle. `instance` is a CBOR-encoded `WInstance`. On success, `out`
- *  receives the JSON bytes. Will call `inst::to_json`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  receives the JSON bytes (not CBOR). Calls `inst::to_json`.
  */
 int32_t
 pp_inst_to_json (
@@ -701,10 +676,13 @@ pp_inst_to_json (
  *  handle. `instance` is a CBOR-encoded
  *  `panproto_core::inst::WInstance`. On success, `out` receives a
  *  CBOR-encoded `Vec<String>` of validation messages (empty means
- *  valid). Will call `inst::validate_wtype`.
+ *  valid). Calls `inst::validate_wtype`.
  *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  The validation pass always returns [`PpStatus::Ok`] when it can run
+ *  to completion: individual violations are reported as message
+ *  strings, not as a failing status. A non-`Ok` status is reserved for
+ *  inputs that prevent validation from running at all (an invalid
+ *  handle, a non-`Schema` resource, or undecodable instance bytes).
  */
 int32_t
 pp_inst_validate (
@@ -716,12 +694,16 @@ pp_inst_validate (
  *  Emit an instance to raw format bytes using a protocol codec.
  *
  *  `registry` is an I/O registry handle; `proto_name` is the UTF-8
- *  protocol name bytes; `schema_handle` is a schema handle; `instance`
- *  is the CBOR-encoded instance. On success, `out` receives the raw
- *  format bytes. Will dispatch on `ProtocolRegistry::native_repr`.
+ *  protocol name bytes; `schema_handle` is a schema handle; `instance` is
+ *  the CBOR-encoded instance (`WInstance` or `FInstance`). On success,
+ *  `out` receives the raw format bytes (not CBOR). Dispatches on
+ *  `ProtocolRegistry::native_repr`, mirroring the WASM boundary's
+ *  `emit_instance`.
  *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  Returns [`PpStatus::InvalidHandle`] / [`PpStatus::TypeMismatch`] for a
+ *  bad handle, [`PpStatus::Serialization`] if the instance bytes do not
+ *  decode, and [`PpStatus::Operation`] if the protocol is unknown or the
+ *  emit fails.
  */
 int32_t
 pp_io_emit_instance (
@@ -735,11 +717,11 @@ pp_io_emit_instance (
  *  List all protocol names registered in an I/O registry.
  *
  *  `registry` is a [`Resource::IoRegistry`](crate::handle::Resource)
- *  handle. On success, `out` receives a CBOR-encoded `Vec<String>`.
- *  Will call `ProtocolRegistry::protocol_names`.
+ *  handle. On success, `out` receives a CBOR-encoded `Vec<String>`. Calls
+ *  `ProtocolRegistry::protocol_names`.
  *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  Returns [`PpStatus::InvalidHandle`] / [`PpStatus::TypeMismatch`] if the
+ *  handle is invalid or not an I/O registry.
  */
 int32_t
 pp_io_list_protocols (
@@ -752,12 +734,14 @@ pp_io_list_protocols (
  *  `registry` is an I/O registry handle; `proto_name` is the UTF-8
  *  protocol name bytes; `schema_handle` is a
  *  [`Resource::Schema`](crate::handle::Resource) handle; `input` is the
- *  raw format bytes. On success, `out` receives the CBOR-encoded
- *  instance (W-type or functor, per the protocol's native
- *  representation). Will dispatch on `ProtocolRegistry::native_repr`.
+ *  raw format bytes. On success, `out` receives the CBOR-encoded instance
+ *  (`WInstance` or `FInstance`, per the protocol's native representation).
+ *  Dispatches on `ProtocolRegistry::native_repr`, mirroring the WASM
+ *  boundary's `parse_instance`.
  *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  Returns [`PpStatus::InvalidHandle`] / [`PpStatus::TypeMismatch`] for a
+ *  bad handle, and [`PpStatus::Operation`] if the protocol is unknown or
+ *  the parse fails.
  */
 int32_t
 pp_io_parse_instance (
@@ -771,11 +755,8 @@ pp_io_parse_instance (
  *  Create an I/O protocol registry with all built-in protocol codecs.
  *
  *  On success, `out_handle` receives a fresh
- *  [`Resource::IoRegistry`](crate::handle::Resource) handle. Will call
- *  `io::default_registry`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  [`Resource::IoRegistry`](crate::handle::Resource) handle holding
+ *  `io::default_registry()` and [`PpStatus::Ok`] is returned.
  */
 int32_t
 pp_io_register_protocols (
@@ -798,11 +779,8 @@ pp_last_error_take (
  *
  *  `schema1` and `schema2` are schema handles; `stringency` is the
  *  UTF-8 tier name. On success, `out` receives a CBOR-encoded
- *  `{ candidates, coerce_proposals }` record. Will call
+ *  `{ candidates, coerce_proposals }` record. Calls
  *  `lens::auto_generate_candidates`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
  */
 int32_t
 pp_lens_auto_generate_candidates (
@@ -819,11 +797,8 @@ pp_lens_auto_generate_candidates (
  *  [`Resource::Schema`](crate::handle::Resource) handles; `stringency`
  *  is the UTF-8 tier name (`strict`/`balanced`/`lenient`/`exploratory`,
  *  empty for default). On success, `out_handle` receives a fresh
- *  [`Resource::ProtolensChain`](crate::handle::Resource) handle. Will
- *  call `lens::auto_generate`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  [`Resource::ProtolensChain`](crate::handle::Resource) handle. Calls
+ *  `lens::auto_generate`.
  */
 int32_t
 pp_lens_auto_generate_protolens (
@@ -835,11 +810,8 @@ pp_lens_auto_generate_protolens (
 /** \brief
  *  Check the `GetPut` lens law on a test instance.
  *
- *  Arguments and payload match [`pp_lens_check_laws`]. Will call
+ *  Arguments and payload match [`pp_lens_check_laws`]. Calls
  *  `lens::check_get_put`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
  */
 int32_t
 pp_lens_check_get_put (
@@ -852,11 +824,7 @@ pp_lens_check_get_put (
  *
  *  `migration` is a migration/lens handle; `instance` is a CBOR-encoded
  *  `WInstance`. On success, `out` receives a CBOR-encoded
- *  [`LawCheckResult`](crate::api::helpers::LawCheckResult). Will call
- *  `lens::check_laws`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  [`LawCheckResult`]. Calls `lens::check_laws`.
  */
 int32_t
 pp_lens_check_laws (
@@ -867,11 +835,8 @@ pp_lens_check_laws (
 /** \brief
  *  Check the `PutGet` lens law on a test instance.
  *
- *  Arguments and payload match [`pp_lens_check_laws`]. Will call
+ *  Arguments and payload match [`pp_lens_check_laws`]. Calls
  *  `lens::check_put_get`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
  */
 int32_t
 pp_lens_check_put_get (
@@ -885,11 +850,12 @@ pp_lens_check_put_get (
  *  `source` is UTF-8 DSL source; `format` is the UTF-8 format name
  *  (`json` or `yaml`); `body_vertex` is the UTF-8 parent vertex id for
  *  field-level steps. On success, `out_handle` receives a fresh
- *  [`Resource::ProtolensChain`](crate::handle::Resource) handle. Will
- *  call `panproto_lens_dsl::{eval, compile}`.
+ *  [`Resource::ProtolensChain`](crate::handle::Resource) handle. Calls
+ *  `panproto_lens_dsl::{eval, compile}`.
  *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  Nickel (`ncl`) is intentionally unsupported here, matching the WASM
+ *  boundary: Nickel evaluation requires a filesystem for its contract
+ *  imports, so callers precompile Nickel to JSON on the host.
  */
 int32_t
 pp_lens_compile_document (
@@ -904,10 +870,7 @@ pp_lens_compile_document (
  *  `l1` and `l2` are migration/lens handles. On success, `out_handle`
  *  receives a fresh
  *  [`Resource::MigrationWithSchemas`](crate::handle::Resource) handle.
- *  Will call `lens::compose`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  Calls `lens::compose`.
  */
 int32_t
 pp_lens_compose (
@@ -920,10 +883,7 @@ pp_lens_compose (
  *
  *  `migration` is a migration/lens handle; `record` is a CBOR-encoded
  *  `WInstance`. On success, `out` receives a CBOR-encoded
- *  `{ view: WInstance, complement: Vec<u8> }`. Will call `lens::get`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  `{ view: WInstance, complement: Complement }`. Calls `lens::get`.
  */
 int32_t
 pp_lens_get_record (
@@ -936,11 +896,7 @@ pp_lens_get_record (
  *
  *  `migration` is a migration/lens handle; `view` and `complement` are
  *  CBOR-encoded `WInstance` and `Complement`. On success, `out`
- *  receives the CBOR-encoded restored `WInstance`. Will call
- *  `lens::put`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  receives the CBOR-encoded restored `WInstance`. Calls `lens::put`.
  */
 int32_t
 pp_lens_put_record (
@@ -956,10 +912,7 @@ pp_lens_put_record (
  *  [`Resource::Schema`](crate::handle::Resource) handles. On success,
  *  `out_handle` receives a fresh
  *  [`Resource::SymmetricLensHandle`](crate::handle::Resource) handle.
- *  Will call `SymmetricLens::auto_symmetric`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  Calls `SymmetricLens::auto_symmetric`.
  */
 int32_t
 pp_lens_symmetric_from_schemas (
@@ -973,11 +926,8 @@ pp_lens_symmetric_from_schemas (
  *  `sym_lens` is a symmetric-lens handle; `view` and `complement` are
  *  CBOR-encoded `WInstance` and `Complement`; `direction` is `0`
  *  (left-to-right) or `1` (right-to-left). On success, `out` receives
- *  the CBOR-encoded synced `WInstance`. Will call
+ *  the CBOR-encoded synced `WInstance`. Calls
  *  `SymmetricLens::sync_left_to_right` / `sync_right_to_left`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
  */
 int32_t
 pp_lens_symmetric_sync (
@@ -995,12 +945,17 @@ pp_lens_symmetric_sync (
  *  `src` and `tgt` are [`Resource::Schema`](crate::handle::Resource)
  *  handles. `mapping` is a CBOR-encoded `panproto_core::mig::Migration`.
  *  On success, `out` receives a CBOR-encoded `mig::ExistenceReport`
- *  (the report itself encodes validity). Will call `mig::check_existence`
+ *  (the report itself encodes validity). Calls `mig::check_existence`
  *  with a theory registry from
  *  [`crate::api::helpers::build_theory_registry`].
  *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  Like `pp_inst_validate`, the check returns [`PpStatus::Ok`] whenever
+ *  it can run to completion: a migration that fails the existence
+ *  conditions is reported as `valid: false` inside the report, not as a
+ *  failing status. A non-`Ok` status is reserved for inputs that
+ *  prevent the check from running (an invalid handle, a non-`Protocol`
+ *  or non-`Schema` resource, undecodable mapping bytes, or an
+ *  unrecognized protocol whose theory registry cannot be built).
  */
 int32_t
 pp_mig_check_existence (
@@ -1017,10 +972,7 @@ pp_mig_check_existence (
  *  handles. `mapping` is a CBOR-encoded `mig::Migration`. On success,
  *  `out_handle` receives a fresh
  *  [`Resource::MigrationWithSchemas`](crate::handle::Resource) handle.
- *  Will call `mig::compile`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  Calls `mig::compile`.
  */
 int32_t
 pp_mig_compile (
@@ -1032,13 +984,11 @@ pp_mig_compile (
 /** \brief
  *  Compose two compiled migrations into a single migration.
  *
- *  `m1` and `m2` are [`Resource::Migration`](crate::handle::Resource)
- *  handles. On success, `out_handle` receives a fresh
- *  [`Resource::Migration`](crate::handle::Resource) handle. Will call
+ *  `m1` and `m2` are migration handles (either
+ *  [`Resource::Migration`](crate::handle::Resource) or
+ *  `MigrationWithSchemas`). On success, `out_handle` receives a fresh
+ *  [`Resource::Migration`](crate::handle::Resource) handle. Calls
  *  [`crate::api::helpers::compose_compiled`].
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
  */
 int32_t
 pp_mig_compose (
@@ -1053,10 +1003,8 @@ pp_mig_compose (
  *  [`Resource::Schema`](crate::handle::Resource) handles. `instances`
  *  is a CBOR-encoded `Vec<WInstance>`. On success, `out` receives a
  *  CBOR-encoded coverage report (`total`, `succeeded`, `failed`,
- *  `coverage_percent`, `errors`). Will call `mig::lift_wtype` per record.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  `coverage_percent`, `errors`, plus source and target vertex counts).
+ *  Calls `mig::lift_wtype` per record.
  */
 int32_t
 pp_mig_coverage (
@@ -1071,13 +1019,9 @@ pp_mig_coverage (
  *
  *  `mapping` is a CBOR-encoded `mig::Migration`; `src` and `tgt` are
  *  [`Resource::Schema`](crate::handle::Resource) handles. On success,
- *  `out` receives the CBOR-encoded inverse `mig::Migration`. Will call
- *  `mig::invert` and fail with
- *  [`PpStatus::Operation`](crate::error::PpStatus::Operation) when the
+ *  `out` receives the CBOR-encoded inverse `mig::Migration`. Calls
+ *  `mig::invert` and fails with [`PpStatus::Operation`] when the
  *  migration is not invertible.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
  */
 int32_t
 pp_mig_invert (
@@ -1092,11 +1036,12 @@ pp_mig_invert (
  *  `migration` is a migration handle. `json` is raw JSON bytes (decoded
  *  with `serde_json`, not CBOR). `root_vertex` is the source schema
  *  vertex the JSON object maps to (empty auto-detects). On success,
- *  `out` receives the migrated record as JSON bytes. Will call
+ *  `out` receives the migrated record as JSON bytes. Calls
  *  `inst::parse_json`, `mig::lift_wtype`, then `inst::to_json`.
  *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  Root-vertex resolution mirrors `pp_inst_json_to_instance`: the
+ *  explicit vertex when present, then the source schema's protocol name
+ *  when it names a vertex, then the schema's declared primary entry.
  */
 int32_t
 pp_mig_lift_json (
@@ -1111,16 +1056,32 @@ pp_mig_lift_json (
  *  `migration` is a [`Resource::Migration`](crate::handle::Resource)
  *  (or `MigrationWithSchemas`) handle. `record` is a CBOR-encoded
  *  `panproto_core::inst::WInstance`. On success, `out` receives the
- *  CBOR-encoded migrated instance. Will call `mig::lift_wtype` via
+ *  CBOR-encoded migrated instance. Calls `mig::lift_wtype` via
  *  [`crate::api::helpers::extract_migration_ref`].
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
  */
 int32_t
 pp_mig_lift_record (
     uint32_t migration,
     slice_ref_uint8_t record,
+    Vec_uint8_t * out);
+
+/** \brief
+ *  Serialize a compiled migration to CBOR.
+ *
+ *  `mig_handle` is a [`Resource::Migration`](crate::handle::Resource)
+ *  or [`Resource::MigrationWithSchemas`](crate::handle::Resource)
+ *  handle. On success, `out` receives the CBOR-encoded
+ *  `panproto_core::inst::CompiledMigration` (the `compiled` payload, not
+ *  the anchoring schemas). This is the byte form the graph domain
+ *  consumes: `pp_graph_fiber_at` and `pp_graph_fiber_decomposition`
+ *  take their `migration` argument as exactly these bytes.
+ *
+ *  Fails with [`PpStatus::InvalidHandle`] or [`PpStatus::TypeMismatch`]
+ *  when the handle does not resolve to a migration.
+ */
+int32_t
+pp_mig_serialize_compiled (
+    uint32_t mig_handle,
     Vec_uint8_t * out);
 
 /** \brief
@@ -1154,10 +1115,7 @@ pp_protocol_serialize (
  *
  *  `chain` is a protolens chain handle. On success, `out` receives JSON
  *  bytes describing each step (name, endofunctors, lossless flag) per
- *  [`ProtolensStepInfo`](crate::api::helpers::ProtolensStepInfo).
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  [`ProtolensStepInfo`].
  */
 int32_t
 pp_protolens_chain_to_json (
@@ -1169,11 +1127,8 @@ pp_protolens_chain_to_json (
  *
  *  `chain` is a protolens chain handle; `schema` is a schema handle. On
  *  success, `out` receives a CBOR-encoded
- *  `panproto_core::lens::ComplementSpec`. Will call
+ *  `panproto_core::lens::ComplementSpec`. Calls
  *  `lens::chain_complement_spec`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
  */
 int32_t
 pp_protolens_complement_spec (
@@ -1186,10 +1141,8 @@ pp_protolens_complement_spec (
  *
  *  `chain1` and `chain2` are protolens chain handles. On success,
  *  `out_handle` receives a fresh
- *  [`Resource::ProtolensChain`](crate::handle::Resource) handle.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  [`Resource::ProtolensChain`](crate::handle::Resource) handle holding
+ *  the concatenated steps.
  */
 int32_t
 pp_protolens_compose (
@@ -1203,10 +1156,7 @@ pp_protolens_compose (
  *  `diff` is a CBOR-encoded `panproto_core::lens::DiffSpec`; `schema1`
  *  and `schema2` are schema handles. On success, `out_handle` receives
  *  a fresh [`Resource::ProtolensChain`](crate::handle::Resource)
- *  handle. Will call `lens::diff_to_protolens`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  handle. Calls `lens::diff_to_protolens`.
  */
 int32_t
 pp_protolens_from_diff (
@@ -1219,11 +1169,8 @@ pp_protolens_from_diff (
  *  Deserialize a protolens chain from JSON.
  *
  *  `json` is raw JSON bytes. On success, `out_handle` receives a fresh
- *  [`Resource::ProtolensChain`](crate::handle::Resource) handle. Will
- *  call `ProtolensChain::from_json`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  [`Resource::ProtolensChain`](crate::handle::Resource) handle. Calls
+ *  `ProtolensChain::from_json`.
  */
 int32_t
 pp_protolens_from_json (
@@ -1236,10 +1183,7 @@ pp_protolens_from_json (
  *  `chain` is a protolens chain handle. On success, `out_handle`
  *  receives a fresh
  *  [`Resource::ProtolensChain`](crate::handle::Resource) handle holding
- *  the fused step. Will call `ProtolensChain::fuse`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  the fused step. Calls `ProtolensChain::fuse`.
  */
 int32_t
 pp_protolens_fuse (
@@ -1253,10 +1197,7 @@ pp_protolens_fuse (
  *  handle; `schema` is a [`Resource::Schema`](crate::handle::Resource)
  *  handle. On success, `out_handle` receives a fresh
  *  [`Resource::MigrationWithSchemas`](crate::handle::Resource) handle.
- *  Will call `ProtolensChain::instantiate`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  Calls `ProtolensChain::instantiate`.
  */
 int32_t
 pp_protolens_instantiate (
@@ -1267,14 +1208,18 @@ pp_protolens_instantiate (
 /** \brief
  *  Execute a declarative query against a W-type instance.
  *
- *  `query` is a CBOR-encoded `panproto_core::inst::InstanceQuery`;
- *  `instance` is a CBOR-encoded `WInstance`; `schema_handle` is a
- *  [`Resource::Schema`](crate::handle::Resource) handle (a minimal
- *  placeholder schema is used when invalid). On success, `out` receives
- *  a CBOR-encoded list of match records. Will call `inst::execute_query`.
+ *  `query` is a CBOR-encoded [`inst::InstanceQuery`]; `instance` is a
+ *  CBOR-encoded [`WInstance`]; `schema_handle` is a
+ *  [`Resource::Schema`](crate::handle::Resource) handle. On success,
+ *  `out` receives a CBOR-encoded list of match records, each a map with
+ *  `node_id`, `anchor`, `value`, and `fields`. Calls
+ *  [`inst::execute_query`].
  *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  When `schema_handle` does not resolve to a schema (invalid handle or
+ *  wrong resource type), a minimal placeholder schema (one `record`
+ *  vertex named `_`) is used: this matches the WASM reference, where an
+ *  empty schema payload triggers the same fallback, and is sufficient
+ *  for queries that do not require schema-aware navigation.
  */
 int32_t
 pp_query_execute (
@@ -1287,11 +1232,11 @@ pp_query_execute (
  *  Get a built-in protocol specification by name.
  *
  *  `name` is the UTF-8 protocol name bytes. On success, `out` receives
- *  the CBOR-encoded `panproto_core::schema::Protocol`. Will call
+ *  the CBOR-encoded `panproto_core::schema::Protocol`. Calls
  *  [`crate::api::helpers::lookup_builtin_protocol`].
  *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  Returns [`PpStatus::Operation`] if the name is not a recognized
+ *  built-in protocol.
  */
 int32_t
 pp_registry_get_builtin (
@@ -1301,11 +1246,8 @@ pp_registry_get_builtin (
 /** \brief
  *  List all built-in semantic protocol names.
  *
- *  On success, `out` receives a CBOR-encoded `Vec<String>`. Will call
+ *  On success, `out` receives a CBOR-encoded `Vec<String>`. Calls
  *  [`crate::api::helpers::builtin_protocol_names`].
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
  */
 int32_t
 pp_registry_list_builtin (
@@ -1319,10 +1261,8 @@ pp_registry_list_builtin (
  *  kind names; `expr` is a CBOR-encoded `panproto_expr::Expr` coercion
  *  expression. On success, `out_handle` receives a fresh
  *  [`Resource::Schema`](crate::handle::Resource) handle with the
- *  coercion installed.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  coercion installed (as a `CoercionClass::Opaque` coercion with no
+ *  inverse), keyed by the `(from_kind, to_kind)` pair.
  */
 int32_t
 pp_schema_add_coercion (
@@ -1337,11 +1277,9 @@ pp_schema_add_coercion (
  *
  *  `schema_handle` is a schema handle; `vertex_name` is the UTF-8 vertex
  *  name; `expr` is a CBOR-encoded `panproto_core::inst::value::Value`.
- *  On success, `out_handle` receives a fresh
+ *  The default is recorded as a `default` constraint annotation on the
+ *  vertex. On success, `out_handle` receives a fresh
  *  [`Resource::Schema`](crate::handle::Resource) handle.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
  */
 int32_t
 pp_schema_add_default (
@@ -1354,12 +1292,10 @@ pp_schema_add_default (
  *  Add a merger annotation to a schema vertex.
  *
  *  `schema_handle` is a schema handle; `vertex_name` is the UTF-8 vertex
- *  name; `spec` is a CBOR-encoded `{ strategy, args }` record. On
- *  success, `out_handle` receives a fresh
+ *  name; `spec` is a CBOR-encoded `{ strategy, args }` record. The
+ *  merger is recorded as a `merger` constraint annotation. On success,
+ *  `out_handle` receives a fresh
  *  [`Resource::Schema`](crate::handle::Resource) handle.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
  */
 int32_t
 pp_schema_add_merger (
@@ -1372,12 +1308,10 @@ pp_schema_add_merger (
  *  Add a conflict policy annotation to a schema vertex.
  *
  *  `schema_handle` is a schema handle; `vertex_name` is the UTF-8 vertex
- *  name; `spec` is a CBOR-encoded `{ policy }` record. On success,
+ *  name; `spec` is a CBOR-encoded `{ policy }` record. The policy is
+ *  recorded as a `conflict_policy` constraint annotation. On success,
  *  `out_handle` receives a fresh
  *  [`Resource::Schema`](crate::handle::Resource) handle.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
  */
 int32_t
 pp_schema_add_policy (
@@ -1392,12 +1326,8 @@ pp_schema_add_policy (
  *
  *  `proto` is a [`Resource::Protocol`] handle. `ops` is a CBOR-encoded
  *  `Vec<BuildOp>` (see [`crate::api::helpers::BuildOp`]). On success,
- *  `out_handle` receives a fresh [`Resource::Schema`] handle. The
- *  eventual implementation will run the ops through
- *  [`crate::api::helpers::build_schema_from_ops`].
- *
- *  Stub: returns [`PpStatus::Operation`] until implemented in the
- *  engine-wiring pass.
+ *  `out_handle` receives a fresh [`Resource::Schema`] handle. The ops
+ *  are run through [`crate::api::helpers::build_schema_from_ops`].
  */
 int32_t
 pp_schema_build (
@@ -1424,9 +1354,6 @@ pp_schema_from_cbor (
  *  `schema_handle` is a [`Resource::Schema`] handle. On success, `out`
  *  receives a CBOR-encoded metadata record mirroring the WASM
  *  `schema_metadata` payload (`{ protocol, vertices, edges }`).
- *
- *  Stub: returns [`PpStatus::Operation`] until implemented in the
- *  engine-wiring pass.
  */
 int32_t
 pp_schema_metadata (
@@ -1438,11 +1365,7 @@ pp_schema_metadata (
  *
  *  `schema_handle` is a [`Resource::Schema`] handle. On success,
  *  `out_handle` receives a fresh [`Resource::Schema`] handle for the
- *  normalized schema. The eventual implementation will call
- *  `panproto_core::schema::normalize`.
- *
- *  Stub: returns [`PpStatus::Operation`] until implemented in the
- *  engine-wiring pass.
+ *  normalized schema. Calls `panproto_core::schema::normalize`.
  */
 int32_t
 pp_schema_normalize (
@@ -1454,11 +1377,7 @@ pp_schema_normalize (
  *
  *  `json` is raw JSON bytes (decoded with `serde_json`, not CBOR). On
  *  success, `out_handle` receives a fresh [`Resource::Schema`] handle.
- *  The eventual implementation will call
- *  `panproto_core::protocols::atproto::parse_lexicon`.
- *
- *  Stub: returns [`PpStatus::Operation`] until implemented in the
- *  engine-wiring pass.
+ *  Calls `panproto_core::protocols::atproto::parse_lexicon`.
  */
 int32_t
 pp_schema_parse_atproto_lexicon (
@@ -1505,11 +1424,8 @@ pp_schema_validate (
  *  `repo` is a VCS repo handle; `schema` is a
  *  [`Resource::Schema`](crate::handle::Resource) handle. On success,
  *  `out` receives a CBOR-encoded
- *  [`VcsAddResult`](crate::api::helpers::VcsAddResult). Will call
- *  `vcs::tree::store_schema_as_tree`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  [`VcsAddResult`] carrying the
+ *  staged schema's object id. Calls `vcs::tree::store_schema_as_tree`.
  */
 int32_t
 pp_vcs_add (
@@ -1520,13 +1436,9 @@ pp_vcs_add (
 /** \brief
  *  Blame a vertex: find the commit that introduced it.
  *
- *  `repo` is a VCS repo handle; `vertex` is the UTF-8 vertex ID. On
- *  success, `out` receives a CBOR-encoded
- *  [`VcsBlameResult`](crate::api::helpers::VcsBlameResult). Will call
- *  `vcs::blame::blame_vertex`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  `repo` is a VCS repo handle; `vertex` is the UTF-8 vertex ID. Calls
+ *  `vcs::blame::blame_vertex` from HEAD. On success, `out` receives a
+ *  CBOR-encoded blame record.
  */
 int32_t
 pp_vcs_blame (
@@ -1537,13 +1449,10 @@ pp_vcs_blame (
 /** \brief
  *  Create a new branch from HEAD.
  *
- *  `repo` is a VCS repo handle; `name` is the UTF-8 branch name. On
- *  success, `out` receives a CBOR-encoded
- *  [`VcsOpResult`](crate::api::helpers::VcsOpResult). Will call
- *  `vcs::refs::create_branch`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  `repo` is a VCS repo handle; `name` is the UTF-8 branch name. Calls
+ *  `vcs::refs::create_branch` against the current HEAD commit, then
+ *  returns the full branch listing as a CBOR-encoded branch result so
+ *  the caller sees the new branch in context.
  */
 int32_t
 pp_vcs_branch (
@@ -1555,12 +1464,8 @@ pp_vcs_branch (
  *  Checkout a branch or commit.
  *
  *  `repo` is a VCS repo handle; `target` is the UTF-8 branch/commit
- *  reference. On success, `out` receives a CBOR-encoded
- *  [`VcsOpResult`](crate::api::helpers::VcsOpResult). Will call
- *  `vcs::refs::checkout_branch`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  reference. Calls `vcs::refs::checkout_branch`, then reports the
+ *  resulting HEAD state as a CBOR-encoded op result.
  */
 int32_t
 pp_vcs_checkout (
@@ -1572,10 +1477,14 @@ pp_vcs_checkout (
  *  Commit the staged schema in a VCS repository.
  *
  *  `repo` is a VCS repo handle; `message` and `author` are UTF-8 bytes.
- *  On success, `out` receives a CBOR-encoded commit ID string.
  *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  In-memory repositories carry no staging *index* (that lives in the
+ *  filesystem-backed `Repository`, not the `Store` trait `MemStore`
+ *  implements), so there is nothing for `MemStore` to commit. This
+ *  mirrors the WASM reference exactly: HEAD is resolved to confirm the
+ *  repo is well-formed, then an [`FfiError::Operation`] is returned
+ *  describing the limitation, echoing the message, author, and current
+ *  HEAD. The status is therefore [`PpStatus::Operation`].
  */
 int32_t
 pp_vcs_commit (
@@ -1585,15 +1494,13 @@ pp_vcs_commit (
     Vec_uint8_t * out);
 
 /** \brief
- *  List branches and the commit each points at.
+ *  Structural diff for the repository.
  *
- *  `repo` is a VCS repo handle. On success, `out` receives a
- *  CBOR-encoded
- *  [`VcsDiffResult`](crate::api::helpers::VcsDiffResult). Will call
- *  `vcs::refs::list_branches`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  `repo` is a VCS repo handle. The in-memory store holds no staged
+ *  change to diff against HEAD, so the diff reports zero structural
+ *  counts and renders the branch listing as informational change lines,
+ *  surfacing the same state the WASM reference does. On success, `out`
+ *  receives a CBOR-encoded diff record.
  */
 int32_t
 pp_vcs_diff (
@@ -1603,13 +1510,12 @@ pp_vcs_diff (
 /** \brief
  *  Initialize an in-memory VCS repository.
  *
- *  `protocol_name` is the UTF-8 protocol name bytes. On success,
- *  `out_handle` receives a fresh
- *  [`Resource::VcsRepo`](crate::handle::Resource) handle. Will call
- *  `vcs::MemStore::new`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  `protocol_name` is the UTF-8 protocol name bytes (currently advisory:
+ *  the in-memory store tracks the protocol per commit, not per repo, so
+ *  this argument is accepted for parity with the WASM and Python
+ *  surfaces and validated as UTF-8). On success, `out_handle` receives a
+ *  fresh [`Resource::VcsRepo`](crate::handle::Resource) handle wrapping a
+ *  `vcs::MemStore` whose HEAD points at `main`.
  */
 int32_t
 pp_vcs_init (
@@ -1619,13 +1525,12 @@ pp_vcs_init (
 /** \brief
  *  Walk the commit log from HEAD.
  *
- *  `repo` is a VCS repo handle; `count` caps the walk length. On
- *  success, `out` receives a CBOR-encoded vector of
- *  [`VcsLogEntry`](crate::api::helpers::VcsLogEntry) records. Will call
- *  `vcs::dag::log_walk`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  `repo` is a VCS repo handle; `count` caps the walk length. On success,
+ *  `out` receives a CBOR-encoded log result (a map with an `entries`
+ *  list, newest first). Calls `vcs::dag::log_walk`. Each entry's
+ *  `commit_id` is recomputed from the commit object via
+ *  `vcs::hash::hash_commit` (the `CommitObject` does not carry its own
+ *  id). An empty repository yields an empty entry list.
  */
 int32_t
 pp_vcs_log (
@@ -1636,12 +1541,12 @@ pp_vcs_log (
 /** \brief
  *  Merge a branch into the current branch.
  *
- *  `repo` is a VCS repo handle; `branch` is the UTF-8 branch name. On
- *  success, `out` receives a CBOR-encoded
- *  [`VcsOpResult`](crate::api::helpers::VcsOpResult).
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  `repo` is a VCS repo handle; `branch` is the UTF-8 branch name. The
+ *  merge target is resolved via `vcs::refs::resolve_ref`; a full
+ *  three-way merge requires the index-backed `Repository`, so for the
+ *  in-memory store this reports the resolved target as a conflict-free
+ *  summary rather than fabricating a merge commit. On success, `out`
+ *  receives a CBOR-encoded merge result.
  */
 int32_t
 pp_vcs_merge (
@@ -1652,12 +1557,11 @@ pp_vcs_merge (
 /** \brief
  *  Stash the current working state.
  *
- *  `repo` is a VCS repo handle. On success, `out` receives a
- *  CBOR-encoded [`VcsOpResult`](crate::api::helpers::VcsOpResult). Will
- *  call `vcs::stash::stash_list`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  `repo` is a VCS repo handle. Reads the stash stack via
+ *  `vcs::stash::stash_list`. The in-memory store has no working tree to
+ *  stash, so this reports the existing stack with the most-recent entry
+ *  echoed as `stashed` (or a neutral entry when the stack is empty). On
+ *  success, `out` receives a CBOR-encoded stash result.
  */
 int32_t
 pp_vcs_stash (
@@ -1667,12 +1571,9 @@ pp_vcs_stash (
 /** \brief
  *  Pop the most recent stash entry.
  *
- *  `repo` is a VCS repo handle. On success, `out` receives a
- *  CBOR-encoded [`VcsOpResult`](crate::api::helpers::VcsOpResult). Will
- *  call `vcs::stash::stash_pop`.
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  `repo` is a VCS repo handle. Calls `vcs::stash::stash_pop`, restoring
+ *  the schema staged in the popped stash, then reports the restored
+ *  schema id and the remaining stack as a CBOR-encoded stash-pop result.
  */
 int32_t
 pp_vcs_stash_pop (
@@ -1683,11 +1584,9 @@ pp_vcs_stash_pop (
  *  Get repository status (branch and HEAD).
  *
  *  `repo` is a VCS repo handle. On success, `out` receives a
- *  CBOR-encoded
- *  [`VcsStatusResult`](crate::api::helpers::VcsStatusResult).
- *
- *  Stub: returns [`PpStatus::Operation`](crate::error::PpStatus::Operation)
- *  until implemented in the engine-wiring pass.
+ *  CBOR-encoded status record: HEAD state, the resolved HEAD commit
+ *  (absent for an empty repo), and `has_staged` / `working_dirty`
+ *  booleans (both `false` for an in-memory store with no index).
  */
 int32_t
 pp_vcs_status (

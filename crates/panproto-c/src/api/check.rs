@@ -35,10 +35,9 @@ use crate::panic::guard;
 /// [`SchemaDiff`](crate::api::helpers::SchemaDiff) (vertex/edge level)
 /// computed by [`crate::api::helpers::compute_diff`].
 ///
-/// Common failure modes are
-/// [`PpStatus::InvalidHandle`](crate::error::PpStatus::InvalidHandle)
-/// and [`PpStatus::TypeMismatch`](crate::error::PpStatus::TypeMismatch)
-/// (when either handle does not point at a `Schema`).
+/// Common failure modes are [`PpStatus::InvalidHandle`] and
+/// [`PpStatus::TypeMismatch`] (when either handle does not point at a
+/// `Schema`).
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_check_diff_simple(s1: u32, s2: u32, out: &mut repr_c::Vec<u8>) -> i32 {
@@ -63,9 +62,8 @@ pub fn pp_check_diff_simple(s1: u32, s2: u32, out: &mut repr_c::Vec<u8>) -> i32 
 /// constraints, hyper-edges, variants, recursion points, usage modes,
 /// spans, and nominal-identity changes.
 ///
-/// Common failure modes are
-/// [`PpStatus::InvalidHandle`](crate::error::PpStatus::InvalidHandle)
-/// and [`PpStatus::TypeMismatch`](crate::error::PpStatus::TypeMismatch).
+/// Common failure modes are [`PpStatus::InvalidHandle`] and
+/// [`PpStatus::TypeMismatch`].
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_check_diff_full(s1: u32, s2: u32, out: &mut repr_c::Vec<u8>) -> i32 {
@@ -89,12 +87,10 @@ pub fn pp_check_diff_full(s1: u32, s2: u32, out: &mut repr_c::Vec<u8>) -> i32 {
 /// emitted by [`pp_check_diff_full`]). On success, `out` receives a
 /// CBOR-encoded `check::CompatReport` from `check::classify`.
 ///
-/// Common failure modes are
-/// [`PpStatus::InvalidHandle`](crate::error::PpStatus::InvalidHandle),
-/// [`PpStatus::TypeMismatch`](crate::error::PpStatus::TypeMismatch)
-/// (when `proto` does not point at a `Protocol`), and
-/// [`PpStatus::Serialization`](crate::error::PpStatus::Serialization)
-/// (when `diff` is not a valid CBOR `check::SchemaDiff`).
+/// Common failure modes are [`PpStatus::InvalidHandle`],
+/// [`PpStatus::TypeMismatch`] (when `proto` does not point at a
+/// `Protocol`), and [`PpStatus::Serialization`] (when `diff` is not a
+/// valid CBOR `check::SchemaDiff`).
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_check_classify(proto: u32, diff: c_slice::Ref<'_, u8>, out: &mut repr_c::Vec<u8>) -> i32 {
@@ -115,9 +111,8 @@ pub fn pp_check_classify(proto: u32, diff: c_slice::Ref<'_, u8>, out: &mut repr_
 /// `report` is a CBOR-encoded `check::CompatReport`. On success, `out`
 /// receives the UTF-8 text bytes produced by `check::report_text`.
 ///
-/// Returns
-/// [`PpStatus::Serialization`](crate::error::PpStatus::Serialization)
-/// when `report` is not a valid CBOR `check::CompatReport`.
+/// Returns [`PpStatus::Serialization`] when `report` is not a valid
+/// CBOR `check::CompatReport`.
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_check_report_text(report: c_slice::Ref<'_, u8>, out: &mut repr_c::Vec<u8>) -> i32 {
@@ -135,10 +130,9 @@ pub fn pp_check_report_text(report: c_slice::Ref<'_, u8>, out: &mut repr_c::Vec<
 /// receives the UTF-8 JSON bytes serialized from the
 /// [`serde_json::Value`] produced by `check::report_json`.
 ///
-/// Returns
-/// [`PpStatus::Serialization`](crate::error::PpStatus::Serialization)
-/// when `report` is not a valid CBOR `check::CompatReport` or when the
-/// rendered JSON value cannot be serialized.
+/// Returns [`PpStatus::Serialization`] when `report` is not a valid
+/// CBOR `check::CompatReport` or when the rendered JSON value cannot be
+/// serialized.
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_check_report_json(report: c_slice::Ref<'_, u8>, out: &mut repr_c::Vec<u8>) -> i32 {

@@ -102,6 +102,16 @@ module Panproto.Gat
     , sortInterpKeys
     , encodeModelSortInterp
     , decodeModelSortInterp
+    , encodeModelValue
+    , decodeModelValue
+
+      -- * GAT term evaluation and typechecking
+    , encodeTermBytes
+    , decodeTermBytes
+    , encodeTermEnv
+    , decodeModelValueBytes
+    , encodeSortContext
+    , decodeTypecheckResult
 
       -- * Builder
     , TheoryBuilderM
@@ -587,8 +597,11 @@ eq e = modify' $ \t -> t {theoryEqs = t.theoryEqs <> [e]}
 data TypecheckResult = TypecheckResult
     { wellFormed :: !Bool
     -- ^ Whether the term is well-formed in the theory.
-    , outputSort :: !(Maybe SortExpr)
-    -- ^ The inferred output sort, if the term is well-formed.
+    , outputSort :: !(Maybe Text)
+    -- ^ The inferred output sort, if the term is well-formed. The engine
+    -- emits @SortExpr::to_string()@ (e.g. @"Vertex"@, @"Hom(a, b)"@), not
+    -- a structured 'SortExpr', so this field carries that rendered form
+    -- verbatim.
     , typecheckError :: !(Maybe Text)
     -- ^ Human-readable description of the failure, if any.
     }
@@ -747,6 +760,35 @@ encodeModelSortInterp :: Model -> LBS.ByteString
 encodeModelSortInterp m =
     CBOR.toLazyByteString $
         encodeTextMap (encodeList encodeModelValue) m.sortInterp
+
+-- | Encode a 'Term' to the top-level CBOR shape @pp_expr_eval_gat@ and
+-- @pp_expr_check@ consume as their @expr@ argument.
+encodeTermBytes :: Term -> LBS.ByteString
+encodeTermBytes = CBOR.toLazyByteString . encodeTerm
+
+-- | Decode a top-level CBOR 'Term'.
+decodeTermBytes :: LBS.ByteString -> Either String Term
+decodeTermBytes = runDecoder decodeTerm "term"
+
+-- | Encode a variable environment for @pp_expr_eval_gat@: the
+-- @Vec<(String, ModelValue)>@ the @env@ argument expects. @serde@
+-- serializes a @Vec@ of pairs as a CBOR array of two-element
+-- @[name, value]@ arrays.
+encodeTermEnv :: [(Text, ModelValue)] -> LBS.ByteString
+encodeTermEnv = CBOR.toLazyByteString . encodeNamedPairs encodeModelValue
+
+-- | Encode a typing context for @pp_expr_check@: the
+-- @Vec<(String, String)>@ the @context@ argument expects (variable name
+-- to sort name). Like 'encodeTermEnv', a CBOR array of two-element
+-- @[name, sort]@ arrays.
+encodeSortContext :: [(Text, Text)] -> LBS.ByteString
+encodeSortContext = CBOR.toLazyByteString . encodeNamedPairs Enc.encodeString
+
+-- | Encode a @Vec@ of @(name, value)@ pairs as a CBOR array of
+-- two-element arrays, matching @serde@'s tuple encoding.
+encodeNamedPairs :: (v -> Encoding) -> [(Text, v)] -> Encoding
+encodeNamedPairs enc =
+    encodeList (\(k, v) -> Enc.encodeListLen 2 <> Enc.encodeString k <> enc v)
 
 encodeSort :: Sort -> Encoding
 encodeSort s =
@@ -938,6 +980,16 @@ decodeModelSortInterp theoryName' =
   where
     modelFor si = Model {theory = theoryName', sortInterp = si}
 
+-- | Decode a top-level CBOR 'ModelValue' (the @pp_expr_eval_gat@ output
+-- shape).
+decodeModelValueBytes :: LBS.ByteString -> Either String ModelValue
+decodeModelValueBytes = runDecoder decodeModelValue "model value"
+
+-- | Decode CBOR @CheckOutput@ bytes (the @pp_expr_check@ output shape:
+-- @{ well_formed, output_sort, error }@) into a 'TypecheckResult'.
+decodeTypecheckResult :: LBS.ByteString -> Either String TypecheckResult
+decodeTypecheckResult = runDecoder typecheckResultDecoder "typecheck result"
+
 runDecoder :: (forall s. Decoder s a) -> String -> LBS.ByteString -> Either String a
 runDecoder dec what bs =
     case CBOR.deserialiseFromBytes dec bs of
@@ -983,6 +1035,16 @@ morphismCheckResultDecoder = decodeFields (False, Nothing) build handler
     handler acc@(v, e) key = case key of
         "valid" -> (\x -> (x, e)) <$> Dec.decodeBool
         "error" -> (\x -> (v, x)) <$> decodeMaybeText
+        _ -> skipTerm >> pure acc
+
+typecheckResultDecoder :: Decoder s TypecheckResult
+typecheckResultDecoder = decodeFields (False, Nothing, Nothing) build handler
+  where
+    build (wf, os, e) = TypecheckResult wf os e
+    handler acc@(wf, os, e) key = case key of
+        "well_formed" -> (\x -> (x, os, e)) <$> Dec.decodeBool
+        "output_sort" -> (\x -> (wf, x, e)) <$> decodeMaybeText
+        "error" -> (\x -> (wf, os, x)) <$> decodeMaybeText
         _ -> skipTerm >> pure acc
 
 sortInterpDecoder :: Decoder s (HashMap Text [ModelValue])

@@ -34,14 +34,13 @@
 --   'Model' carries operation closures that cannot serialize). They
 --   throw 'PanprotoError' with 'StatusOperation'.
 --
--- * 'evalGatTerm' and 'typecheckTerm' map to @pp_expr_eval_gat@ \/
---   @pp_expr_check@, which live in the @expr@ domain
---   (@crates\/panproto-c\/src\/api\/expr.rs@), not @gat@. That module is
---   wired separately; until it is, these throw 'PanprotoError' with
---   'StatusOperation' rather than dispatch into an unimplemented symbol.
---   The FFI declarations (@pp_expr_eval_gat_at@, @pp_expr_check_at@)
---   already exist, so wiring them is a localized follow-up that does not
---   touch the @gat@ surface.
+-- 'evalGatTerm' and 'typecheckTerm' map to @pp_expr_eval_gat@ \/
+-- @pp_expr_check@, which live in the @expr@ domain
+-- (@crates\/panproto-c\/src\/api\/expr.rs@), not @gat@. Both take the
+-- 'TheoryRep' slab handle alongside a CBOR 'Term' and a CBOR environment
+-- \/ context: 'evalGatTerm' encodes the env as @Vec<(String, ModelValue)>@
+-- and decodes a 'ModelValue'; 'typecheckTerm' encodes the context as
+-- @Vec<(String, String)>@ and decodes a 'TypecheckResult'.
 --
 -- A 'ModelRep' for the Rust backend never holds a slab handle: no @gat@
 -- entry point produces a model handle. 'migrateModel' is pure CBOR-in \/
@@ -67,17 +66,27 @@ import Panproto.Errors
 import Panproto.Gat
     ( GatBackend (..)
     , Model
+    , ModelValue
     , MorphismCheckResult
+    , Term
     , Theory
     , TheoryMorphism (..)
+    , TypecheckResult
     , decodeModelSortInterp
+    , decodeModelValueBytes
     , decodeMorphismCheckResult
+    , decodeTypecheckResult
     , encodeModelSortInterp
     , encodeMorphism
+    , encodeSortContext
+    , encodeTermBytes
+    , encodeTermEnv
     , encodeTheory
     )
 import Panproto.Rust.FFI
-    ( pp_gat_check_morphism_at
+    ( pp_expr_check_at
+    , pp_expr_eval_gat_at
+    , pp_gat_check_morphism_at
     , pp_gat_colimit
     , pp_gat_create_theory_at
     , pp_gat_migrate_model_at
@@ -147,9 +156,12 @@ instance GatBackend Rust where
     sortInterpKeysIO _ = unsupportedModelOp "sortInterpKeysIO" "a model handle"
     releaseModel RustModelUnsupported = pure ()
 
-    -- Wired in the @expr@ domain, not @gat@ (see module header).
-    evalGatTerm _ _ _ = unsupportedExprOp "evalGatTerm" "pp_expr_eval_gat"
-    typecheckTerm _ _ _ = unsupportedExprOp "typecheckTerm" "pp_expr_check"
+    -- Served by the @expr@ domain against a theory handle (see module
+    -- header): @pp_expr_eval_gat@ \/ @pp_expr_check@.
+    evalGatTerm (RustTheoryRep (RustTheory th) _) term env =
+        evalRustGatTerm th term env
+    typecheckTerm (RustTheoryRep (RustTheory th) _) term ctx =
+        typecheckRustTerm th term ctx
 
 -- ---------------------------------------------------------------------------
 -- Theory lifecycle
@@ -189,6 +201,41 @@ migrateRustModel morph model = do
         Left err -> throwIO (hostDecodeError "pp_gat_migrate_model" err)
 
 -- ---------------------------------------------------------------------------
+-- Term evaluation and typechecking (expr domain, theory-aware)
+
+-- | Evaluate a GAT 'Term' to a 'ModelValue' under a variable environment
+-- and a theory handle. Wraps @pp_expr_eval_gat@: the term and the
+-- @Vec<(String, ModelValue)>@ environment go in as borrowed CBOR slices,
+-- the theory as a slab handle, and the result 'ModelValue' comes back as
+-- CBOR.
+evalRustGatTerm :: Word32 -> Term -> [(Text, ModelValue)] -> IO ModelValue
+evalRustGatTerm th term env = do
+    bs <-
+        withSliceIn (encodeTermBytes term) $ \termPtr termLen ->
+            withSliceIn (encodeTermEnv env) $ \envPtr envLen ->
+                callVecOut (pp_expr_eval_gat_at termPtr termLen envPtr envLen th)
+    case decodeModelValueBytes bs of
+        Right v -> pure v
+        Left err -> throwIO (hostDecodeError "pp_expr_eval_gat" err)
+
+-- | Typecheck a GAT 'Term' against a theory handle under a typing context
+-- (variable name to sort name). Wraps @pp_expr_check@: the term and the
+-- @Vec<(String, String)>@ context go in as borrowed CBOR slices, the
+-- theory as a slab handle, and the @{ well_formed, output_sort, error }@
+-- verdict comes back as a CBOR 'TypecheckResult'. The engine returns
+-- 'StatusOk' for both well-formed and ill-formed terms, so a 'False'
+-- 'Panproto.Gat.wellFormed' is a normal result, not an exception.
+typecheckRustTerm :: Word32 -> Term -> [(Text, Text)] -> IO TypecheckResult
+typecheckRustTerm th term ctx = do
+    bs <-
+        withSliceIn (encodeTermBytes term) $ \termPtr termLen ->
+            withSliceIn (encodeSortContext ctx) $ \ctxPtr ctxLen ->
+                callVecOut (pp_expr_check_at termPtr termLen th ctxPtr ctxLen)
+    case decodeTypecheckResult bs of
+        Right r -> pure r
+        Left err -> throwIO (hostDecodeError "pp_expr_check" err)
+
+-- ---------------------------------------------------------------------------
 -- Errors
 
 -- | 'reifyTheory' on an engine-produced handle (e.g. a colimit result),
@@ -215,12 +262,6 @@ reifyUnavailableError =
 unsupportedModelOp :: Text -> Text -> IO a
 unsupportedModelOp method backing =
     throwIO (unsupportedError method backing "the gat C ABI exposes no model handle")
-
--- | Throw for a term operation served by the @expr@ domain rather than
--- @gat@. The @expr@ surface is wired separately.
-unsupportedExprOp :: Text -> Text -> IO a
-unsupportedExprOp method backing =
-    throwIO (unsupportedError method backing "wired in the expr domain (api/expr.rs)")
 
 unsupportedError :: Text -> Text -> Text -> PanprotoError
 unsupportedError method backing reason =

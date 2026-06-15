@@ -15,16 +15,14 @@
 use std::sync::Arc;
 
 use panproto_core::{
-    inst::{self, WInstance},
+    inst::{self, CompiledMigration, WInstance},
     mig::{self, Migration},
     schema,
 };
 use safer_ffi::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::api::helpers::{
-    build_theory_registry, compose_compiled, extract_migration_ref,
-};
+use crate::api::helpers::{build_theory_registry, compose_compiled, extract_migration_ref};
 use crate::error::{FfiError, PpStatus};
 use crate::handle::{self, Resource};
 use crate::panic::guard;
@@ -137,6 +135,31 @@ pub fn pp_mig_compile(
     })
 }
 
+/// Serialize a compiled migration to CBOR.
+///
+/// `mig_handle` is a [`Resource::Migration`](crate::handle::Resource)
+/// or [`Resource::MigrationWithSchemas`](crate::handle::Resource)
+/// handle. On success, `out` receives the CBOR-encoded
+/// `panproto_core::inst::CompiledMigration` (the `compiled` payload, not
+/// the anchoring schemas). This is the byte form the graph domain
+/// consumes: `pp_graph_fiber_at` and `pp_graph_fiber_decomposition`
+/// take their `migration` argument as exactly these bytes.
+///
+/// Fails with [`PpStatus::InvalidHandle`] or [`PpStatus::TypeMismatch`]
+/// when the handle does not resolve to a migration.
+#[must_use = "FFI status codes should not be discarded"]
+#[ffi_export]
+pub fn pp_mig_serialize_compiled(mig_handle: u32, out: &mut repr_c::Vec<u8>) -> i32 {
+    guard(|| {
+        let bytes = handle::with_resource(mig_handle, |r| {
+            let compiled: &CompiledMigration = r.as_migration()?;
+            crate::canonical::encode(compiled)
+        })?;
+        *out = bytes.into();
+        Ok(PpStatus::Ok)
+    })
+}
+
 /// Apply a compiled migration to a single W-type record.
 ///
 /// `migration` is a [`Resource::Migration`](crate::handle::Resource)
@@ -193,8 +216,7 @@ pub fn pp_mig_compose(m1: u32, m2: u32, out_handle: &mut u32) -> i32 {
 /// `mapping` is a CBOR-encoded `mig::Migration`; `src` and `tgt` are
 /// [`Resource::Schema`](crate::handle::Resource) handles. On success,
 /// `out` receives the CBOR-encoded inverse `mig::Migration`. Calls
-/// `mig::invert` and fails with
-/// [`PpStatus::Operation`](crate::error::PpStatus::Operation) when the
+/// `mig::invert` and fails with [`PpStatus::Operation`] when the
 /// migration is not invertible.
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
@@ -225,7 +247,7 @@ pub fn pp_mig_invert(
 /// `migration` is a migration handle; `src` and `tgt` are
 /// [`Resource::Schema`](crate::handle::Resource) handles. `instances`
 /// is a CBOR-encoded `Vec<WInstance>`. On success, `out` receives a
-/// CBOR-encoded [`CoverageReport`] (`total`, `succeeded`, `failed`,
+/// CBOR-encoded coverage report (`total`, `succeeded`, `failed`,
 /// `coverage_percent`, `errors`, plus source and target vertex counts).
 /// Calls `mig::lift_wtype` per record.
 #[must_use = "FFI status codes should not be discarded"]
@@ -480,7 +502,8 @@ mod tests {
         let mapping = encode(&migration).unwrap();
         let mapping_slice = slice(&mapping);
         let mut out: repr_c::Vec<u8> = Vec::new().into();
-        let status = pp_mig_check_existence(proto_h, src_h, tgt_h, mapping_slice.as_ref(), &mut out);
+        let status =
+            pp_mig_check_existence(proto_h, src_h, tgt_h, mapping_slice.as_ref(), &mut out);
         assert_eq!(status, PpStatus::Ok as i32);
         let report: ExistenceReport = decode(&out).unwrap();
         assert!(report.valid, "report errors: {:?}", report.errors);
@@ -507,7 +530,8 @@ mod tests {
         let mapping = encode(&migration).unwrap();
         let mapping_slice = slice(&mapping);
         let mut out: repr_c::Vec<u8> = Vec::new().into();
-        let status = pp_mig_check_existence(proto_h, src_h, tgt_h, mapping_slice.as_ref(), &mut out);
+        let status =
+            pp_mig_check_existence(proto_h, src_h, tgt_h, mapping_slice.as_ref(), &mut out);
         assert_eq!(status, PpStatus::Operation as i32);
         pp_buf_free(out);
 
@@ -535,6 +559,39 @@ mod tests {
         assert_eq!(pp_handle_free(mig_h), PpStatus::Ok as i32);
         assert_eq!(pp_handle_free(src_h), PpStatus::Ok as i32);
         assert_eq!(pp_handle_free(tgt_h), PpStatus::Ok as i32);
+    }
+
+    #[test]
+    fn serialize_compiled_decodes_as_compiled_migration() {
+        let (mig_h, src_h, tgt_h) = compile_rename();
+
+        let mut out: repr_c::Vec<u8> = Vec::new().into();
+        let status = pp_mig_serialize_compiled(mig_h, &mut out);
+        assert_eq!(status, PpStatus::Ok as i32);
+
+        // The bytes decode as the same `CompiledMigration` the graph
+        // domain consumes; the rename remaps `post` onto `note`.
+        let compiled: CompiledMigration = decode(&out).unwrap();
+        assert_eq!(
+            compiled.vertex_remap.get(&Name::from("post")),
+            Some(&Name::from("note"))
+        );
+        pp_buf_free(out);
+
+        assert_eq!(pp_handle_free(mig_h), PpStatus::Ok as i32);
+        assert_eq!(pp_handle_free(src_h), PpStatus::Ok as i32);
+        assert_eq!(pp_handle_free(tgt_h), PpStatus::Ok as i32);
+    }
+
+    #[test]
+    fn serialize_compiled_rejects_non_migration_handle() {
+        let src_h = alloc_schema(&source_schema());
+
+        let mut out: repr_c::Vec<u8> = Vec::new().into();
+        let status = pp_mig_serialize_compiled(src_h, &mut out);
+        assert_eq!(status, PpStatus::TypeMismatch as i32);
+
+        assert_eq!(pp_handle_free(src_h), PpStatus::Ok as i32);
     }
 
     #[test]
@@ -647,8 +704,12 @@ mod tests {
         let mapping = encode(&migration).unwrap();
         let mapping_slice = slice(&mapping);
         let mut mig_h: u32 = u32::MAX;
-        let status =
-            pp_mig_compile(u32::MAX - 1, u32::MAX - 2, mapping_slice.as_ref(), &mut mig_h);
+        let status = pp_mig_compile(
+            u32::MAX - 1,
+            u32::MAX - 2,
+            mapping_slice.as_ref(),
+            &mut mig_h,
+        );
         assert_eq!(status, PpStatus::InvalidHandle as i32);
     }
 

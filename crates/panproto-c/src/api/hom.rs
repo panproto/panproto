@@ -288,13 +288,17 @@ pub fn pp_hom_induce_migration_from_theory(
         let (schema_morph, compiled) =
             cascade::induce_migration_from_theory(&theory_morph, &src_schema, &tgt_schema);
 
+        // Encode the schema morphism (the only fallible step) before
+        // allocating the handle, so a serialization failure cannot leak a
+        // slab slot the caller never learns about.
+        let bytes = crate::canonical::encode(&schema_morph)?;
+
         *out_handle = handle::alloc(Resource::MigrationWithSchemas {
             compiled: Box::new(compiled),
             src_schema: Arc::new(src_schema),
             tgt_schema: Arc::new(tgt_schema),
         });
 
-        let bytes = crate::canonical::encode(&schema_morph)?;
         *out = bytes.into();
         Ok(PpStatus::Ok)
     })

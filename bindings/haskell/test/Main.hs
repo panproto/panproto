@@ -14,6 +14,7 @@ import Spec.StructuredSchema qualified
 #ifdef PANPROTO_RUST_BACKEND
 import Spec.RustRoundtrip qualified
 import Spec.SchemaRoundtrip qualified
+import Spec.Wave2Roundtrip qualified
 #endif
 
 main :: IO ()
@@ -31,5 +32,6 @@ tests =
 #ifdef PANPROTO_RUST_BACKEND
         , Spec.RustRoundtrip.tests
         , Spec.SchemaRoundtrip.tests
+        , Spec.Wave2Roundtrip.tests
 #endif
         ]

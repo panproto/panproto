@@ -21,7 +21,7 @@
 //! (`{"Branch": "main"}` / `{"Detached": "<hex>"}`). The local result
 //! types below own that wire shape; the helpers struct is reused
 //! verbatim where its field set already matches
-//! ([`VcsAddResult`](crate::api::helpers::VcsAddResult)).
+//! ([`VcsAddResult`]).
 //!
 //! # The `pp_vcs_commit` caveat
 //!
@@ -231,7 +231,7 @@ pub fn pp_vcs_init(protocol_name: c_slice::Ref<'_, u8>, out_handle: &mut u32) ->
 /// `repo` is a VCS repo handle; `schema` is a
 /// [`Resource::Schema`](crate::handle::Resource) handle. On success,
 /// `out` receives a CBOR-encoded
-/// [`VcsAddResult`](crate::api::helpers::VcsAddResult) carrying the
+/// [`VcsAddResult`] carrying the
 /// staged schema's object id. Calls `vcs::tree::store_schema_as_tree`.
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]

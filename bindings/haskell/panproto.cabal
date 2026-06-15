@@ -241,7 +241,6 @@ test-suite panproto-test
         Spec.Errors
         Spec.InstanceRoundtrip
         Spec.NativeProtocol
-        Spec.SchemaRoundtrip
         Spec.StructuredSchema
     build-depends:
         base,
@@ -251,10 +250,20 @@ test-suite panproto-test
         panproto,
         tasty                >=1.4  && <1.6,
         tasty-hunit          >=0.10 && <0.11,
+        text,
         unordered-containers
 
+    -- The Rust-dependent specs import "Panproto.Rust", which only exists
+    -- under the FFI backend, so they are gated alongside the
+    -- @PANPROTO_RUST_BACKEND@ define that @test/Main.hs@ keys on.
+    -- @Spec.SchemaRoundtrip@ and @Spec.Wave2Roundtrip@ both link the
+    -- backend, so they live here, not in the unconditional list above
+    -- (otherwise @-f native-only@ would try to compile a module that
+    -- imports the absent "Panproto.Rust").
     if flag(rust) && !flag(native-only)
         cpp-options:    -DPANPROTO_RUST_BACKEND
         other-modules:
             Spec.RustRoundtrip
+            Spec.SchemaRoundtrip
+            Spec.Wave2Roundtrip
         extra-libraries: panproto_c

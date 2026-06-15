@@ -148,6 +148,9 @@ pub fn pp_data_migrate_forward(
         let tgt_schema_id = vcs::hash::hash_schema(&tgt)
             .map_err(|e| FfiError::Operation(format!("hash schema: {e}")))?;
 
+        // Build both carrier objects (the fallible encodes) before
+        // allocating either handle, so a serialization failure on the
+        // second carrier cannot leak the slab slot of the first.
         #[allow(clippy::cast_possible_truncation)]
         let migrated_count = migrated.len() as u64;
         let new_ds = DataSetObject {
@@ -155,7 +158,6 @@ pub fn pp_data_migrate_forward(
             data: crate::canonical::encode(&migrated)?,
             record_count: migrated_count,
         };
-        let data_handle = handle::alloc(Resource::DataSet(Box::new(new_ds)));
 
         // The complement carrier rides in a DataSet resource whose `data`
         // field is the CBOR-encoded `Vec<Complement>`. It keeps the source
@@ -167,10 +169,10 @@ pub fn pp_data_migrate_forward(
             data: crate::canonical::encode(&complements)?,
             record_count: complement_count,
         };
-        let complement_handle = handle::alloc(Resource::DataSet(Box::new(comp_ds)));
 
-        *out_data_handle = data_handle;
-        *out_complement_handle = complement_handle;
+        // Both encodes succeeded; the allocations below are infallible.
+        *out_data_handle = handle::alloc(Resource::DataSet(Box::new(new_ds)));
+        *out_complement_handle = handle::alloc(Resource::DataSet(Box::new(comp_ds)));
         Ok(PpStatus::Ok)
     })
 }
