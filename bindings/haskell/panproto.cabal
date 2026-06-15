@@ -53,6 +53,39 @@ flag native-only
     default:     False
     manual:      True
 
+flag parse
+    description: Enable the tree-sitter parse surface (links the
+                 @full-parse@-gated panproto-c entry points).
+    default:     False
+    manual:      True
+
+flag project
+    description: Enable the multi-file project surface (links the
+                 @project@-gated panproto-c entry points).
+    default:     False
+    manual:      True
+
+flag git
+    description: Enable the git-import surface (links the @git@-gated
+                 panproto-c entry point).
+    default:     False
+    manual:      True
+
+flag optics-adaptors
+    description: Expose @optics-core@ adaptors for the lens surface.
+    default:     False
+    manual:      True
+
+flag lens-adaptors
+    description: Expose @lens@ (van Laarhoven) adaptors for the lens surface.
+    default:     False
+    manual:      True
+
+flag effectful
+    description: Expose an @effectful@ effect for panproto operations.
+    default:     False
+    manual:      True
+
 common common-options
     default-language: GHC2024
     default-extensions:
@@ -77,16 +110,38 @@ library
         Panproto
         Panproto.Canonical
         Panproto.Class
+        Panproto.Effect
         Panproto.Errors
         Panproto.Native.Protocol
         Panproto.Native.Schema
+        Panproto.Protocol
+        Panproto.Schema
+    other-modules:
+        Panproto.Json
     build-depends:
-        base               >=4.21 && <5,
-        bytestring         >=0.12 && <0.13,
-        cborg              >=0.2  && <0.3,
-        containers         >=0.7  && <0.9,
-        deepseq            >=1.5  && <1.7,
-        text               >=2.1  && <2.3
+        aeson                >=2.1  && <2.3,
+        base                 >=4.21 && <5,
+        bytestring           >=0.12 && <0.13,
+        cborg                >=0.2  && <0.3,
+        containers           >=0.7  && <0.9,
+        deepseq              >=1.5  && <1.7,
+        hashable             >=1.4  && <1.6,
+        mtl                  >=2.3  && <2.4,
+        scientific           >=0.3  && <0.4,
+        text                 >=2.1  && <2.3,
+        transformers         >=0.6  && <0.7,
+        unordered-containers >=0.2  && <0.3,
+        vector               >=0.13 && <0.14
+
+    if flag(effectful)
+        cpp-options:    -DPANPROTO_EFFECTFUL
+        build-depends:  effectful-core >=2.3 && <2.6
+
+    if flag(optics-adaptors)
+        build-depends:  optics-core >=0.4 && <0.5
+
+    if flag(lens-adaptors)
+        build-depends:  lens >=5.2 && <5.4
 
     if flag(rust) && !flag(native-only)
         cpp-options:        -DPANPROTO_RUST_BACKEND
