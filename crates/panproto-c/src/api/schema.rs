@@ -18,7 +18,7 @@ use std::sync::Arc;
 use panproto_core::schema::{Schema, validate};
 use safer_ffi::prelude::*;
 
-use crate::error::PpStatus;
+use crate::error::{FfiError, PpStatus};
 use crate::handle::{self, Resource};
 use crate::panic::guard;
 
@@ -91,6 +91,83 @@ pub fn pp_schema_validate(
         let bytes = crate::canonical::encode(&messages)?;
         *out_messages = bytes.into();
         Ok(PpStatus::Ok)
+    })
+}
+
+/// Build a schema from a protocol handle and a CBOR-encoded list of
+/// builder operations.
+///
+/// `proto` is a [`Resource::Protocol`] handle. `ops` is a CBOR-encoded
+/// `Vec<BuildOp>` (see [`crate::api::helpers::BuildOp`]). On success,
+/// `out_handle` receives a fresh [`Resource::Schema`] handle. The
+/// eventual implementation will run the ops through
+/// [`crate::api::helpers::build_schema_from_ops`].
+///
+/// Stub: returns [`PpStatus::Operation`] until implemented in the
+/// engine-wiring pass.
+#[must_use = "FFI status codes should not be discarded"]
+#[ffi_export]
+pub fn pp_schema_build(proto: u32, ops: c_slice::Ref<'_, u8>, out_handle: &mut u32) -> i32 {
+    let _ = (proto, ops, out_handle);
+    guard(|| Err(FfiError::Operation("unimplemented: pp_schema_build".into())))
+}
+
+/// Extract schema metadata (protocol name, vertices, edges) as CBOR.
+///
+/// `schema_handle` is a [`Resource::Schema`] handle. On success, `out`
+/// receives a CBOR-encoded metadata record mirroring the WASM
+/// `schema_metadata` payload (`{ protocol, vertices, edges }`).
+///
+/// Stub: returns [`PpStatus::Operation`] until implemented in the
+/// engine-wiring pass.
+#[must_use = "FFI status codes should not be discarded"]
+#[ffi_export]
+pub fn pp_schema_metadata(schema_handle: u32, out: &mut repr_c::Vec<u8>) -> i32 {
+    let _ = (schema_handle, out);
+    guard(|| {
+        Err(FfiError::Operation(
+            "unimplemented: pp_schema_metadata".into(),
+        ))
+    })
+}
+
+/// Normalize a schema by collapsing reference chains.
+///
+/// `schema_handle` is a [`Resource::Schema`] handle. On success,
+/// `out_handle` receives a fresh [`Resource::Schema`] handle for the
+/// normalized schema. The eventual implementation will call
+/// `panproto_core::schema::normalize`.
+///
+/// Stub: returns [`PpStatus::Operation`] until implemented in the
+/// engine-wiring pass.
+#[must_use = "FFI status codes should not be discarded"]
+#[ffi_export]
+pub fn pp_schema_normalize(schema_handle: u32, out_handle: &mut u32) -> i32 {
+    let _ = (schema_handle, out_handle);
+    guard(|| {
+        Err(FfiError::Operation(
+            "unimplemented: pp_schema_normalize".into(),
+        ))
+    })
+}
+
+/// Parse an `ATProto` lexicon JSON document into a schema.
+///
+/// `json` is raw JSON bytes (decoded with `serde_json`, not CBOR). On
+/// success, `out_handle` receives a fresh [`Resource::Schema`] handle.
+/// The eventual implementation will call
+/// `panproto_core::protocols::atproto::parse_lexicon`.
+///
+/// Stub: returns [`PpStatus::Operation`] until implemented in the
+/// engine-wiring pass.
+#[must_use = "FFI status codes should not be discarded"]
+#[ffi_export]
+pub fn pp_schema_parse_atproto_lexicon(json: c_slice::Ref<'_, u8>, out_handle: &mut u32) -> i32 {
+    let _ = (json, out_handle);
+    guard(|| {
+        Err(FfiError::Operation(
+            "unimplemented: pp_schema_parse_atproto_lexicon".into(),
+        ))
     })
 }
 

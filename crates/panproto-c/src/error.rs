@@ -29,6 +29,7 @@ pub enum PpStatus {
     TypeMismatch = 4,
     Serialization = 5,
     Internal = 6,
+    Operation = 7,
 }
 
 impl From<PpStatus> for i32 {
@@ -55,6 +56,7 @@ impl TryFrom<i32> for PpStatus {
             4 => Ok(Self::TypeMismatch),
             5 => Ok(Self::Serialization),
             6 => Ok(Self::Internal),
+            7 => Ok(Self::Operation),
             other => Err(other),
         }
     }
@@ -94,6 +96,16 @@ pub enum FfiError {
     /// Any other internal error from panproto-core.
     #[error("internal error: {0}")]
     Internal(String),
+
+    /// A domain operation failed (migration, lens, VCS, parse, and so on).
+    ///
+    /// This is the coarse catch-all that every engine-level failure
+    /// funnels into. Unlike the WASM boundary, which carries a ~20-variant
+    /// taxonomy, the C ABI keeps a single descriptive-message variant so
+    /// the host has one error shape to decode; the detail string names the
+    /// failing operation and underlying cause.
+    #[error("operation error: {0}")]
+    Operation(String),
 }
 
 impl FfiError {
@@ -106,6 +118,7 @@ impl FfiError {
             Self::Serialization(_) => PpStatus::Serialization,
             Self::Panic(_) => PpStatus::Panic,
             Self::Internal(_) => PpStatus::Internal,
+            Self::Operation(_) => PpStatus::Operation,
         }
     }
 }
@@ -129,6 +142,7 @@ impl From<&FfiError> for ErrorEnvelope {
             FfiError::Serialization(_) => "serialization",
             FfiError::Panic(_) => "panic",
             FfiError::Internal(_) => "internal",
+            FfiError::Operation(_) => "operation",
         };
         Self {
             status: err.status() as i32,
@@ -167,6 +181,7 @@ mod tests {
             PpStatus::TypeMismatch,
             PpStatus::Serialization,
             PpStatus::Internal,
+            PpStatus::Operation,
         ] {
             let n: i32 = status.into();
             assert_eq!(n, status as i32, "status {status:?} mismatched i32");
@@ -258,6 +273,7 @@ mod tests {
             ErrorEnvelope::from(&FfiError::Serialization("s".into())),
             ErrorEnvelope::from(&FfiError::Panic("p".into())),
             ErrorEnvelope::from(&FfiError::Internal("i".into())),
+            ErrorEnvelope::from(&FfiError::Operation("o".into())),
         ];
         let tags: Vec<&str> = envs.iter().map(|e| e.tag.as_str()).collect();
         let unique: std::collections::HashSet<&str> = tags.iter().copied().collect();

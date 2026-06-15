@@ -18,11 +18,50 @@
 //!   CBOR bytes.
 //! - [`pp_buf_free`]: free a `Vec<u8>` returned by panproto-c.
 
+pub mod check;
+pub mod data;
+pub mod enriched;
+pub mod expr;
+pub mod gat;
+pub mod graph;
+pub mod helpers;
+pub mod hom;
+pub mod instance;
+pub mod lens;
+pub mod mig;
 pub mod protocol;
+pub mod registry;
 pub mod schema;
+pub mod vcs;
 
+#[cfg(feature = "git")]
+pub mod git;
+#[cfg(feature = "full-parse")]
+pub mod parse;
+#[cfg(feature = "project")]
+pub mod project;
+
+pub use check::*;
+pub use data::*;
+pub use enriched::*;
+pub use expr::*;
+pub use gat::*;
+pub use graph::*;
+pub use hom::*;
+pub use instance::*;
+pub use lens::*;
+pub use mig::*;
 pub use protocol::*;
+pub use registry::*;
 pub use schema::*;
+pub use vcs::*;
+
+#[cfg(feature = "git")]
+pub use git::*;
+#[cfg(feature = "full-parse")]
+pub use parse::*;
+#[cfg(feature = "project")]
+pub use project::*;
 
 use safer_ffi::prelude::*;
 

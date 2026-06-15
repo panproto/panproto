@@ -2000,6 +2000,8 @@ dependencies = [
  "panproto-core",
  "safer-ffi",
  "serde",
+ "serde_json",
+ "smallvec 2.0.0-alpha.12",
  "thiserror",
 ]
 

@@ -15,7 +15,9 @@ panproto-core = { workspace = true }
 safer-ffi = { workspace = true }
 ciborium = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
+smallvec = { workspace = true }
 
 [features]
 default = []
@@ -25,6 +27,16 @@ headers = ["safer-ffi/headers"]
 # safety end-to-end. Off by default; the symbol is always available
 # under `cfg(test)` for in-crate tests.
 panic-test = []
+# Full-AST tree-sitter parsing (261 grammars). Adds C compilation deps.
+full-parse = ["panproto-core/full-parse"]
+# Multi-file project assembly via coproduct.
+project = ["panproto-core/project"]
+# Git bridge for bidirectional git <-> panproto-vcs translation.
+git = ["panproto-core/git"]
+# Tree-sitter-based format-preserving instance parse/emit.
+format-preserving = ["panproto-core/tree-sitter"]
+# Convenience feature enabling every cold-path domain.
+full = ["full-parse", "project", "git", "format-preserving"]
 
 [lints]
 workspace = true
