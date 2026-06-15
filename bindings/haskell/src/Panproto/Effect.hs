@@ -1,4 +1,6 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 -- | Effect-system adaptors for panproto operations.
 --
@@ -37,6 +39,7 @@ import Effectful.Dispatch.Static
     ( SideEffects (WithSideEffects)
     , StaticRep
     , evalStaticRep
+    , getStaticRep
     , unsafeEff_
     )
 #endif
@@ -85,7 +88,13 @@ data instance StaticRep Panproto = Panproto
 runPanproto :: IOE :> es => Eff (Panproto : es) a -> Eff es a
 runPanproto = evalStaticRep Panproto
 
-instance Panproto :> es => MonadPanproto (Eff es) where
-    liftPanproto = unsafeEff_
+instance (IOE :> es, Panproto :> es) => MonadPanproto (Eff es) where
+    liftPanproto io = do
+        -- Consult the effect's (unit) representation so the
+        -- @Panproto :> es@ constraint is load-bearing: the instance is
+        -- usable only once 'runPanproto' has brought the effect into
+        -- scope, not in any @IOE@-carrying stack.
+        Panproto <- getStaticRep
+        unsafeEff_ io
 
 #endif
