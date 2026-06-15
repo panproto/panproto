@@ -59,6 +59,7 @@ import Panproto.Gat
     , sortCount
     , theoryName
     )
+import Panproto.Graph (GraphBackend (..))
 import Panproto.Hom (FoundMorphism (..), HomBackend (..), defaultFindOpts)
 import Panproto.Instance (InstanceBackend (..), nodeCount)
 import Panproto.Io (IoBackend (..))
@@ -83,6 +84,7 @@ import Panproto.Rust.Check ()
 import Panproto.Rust.Data ()
 import Panproto.Rust.Expr ()
 import Panproto.Rust.Gat ()
+import Panproto.Rust.Graph ()
 import Panproto.Rust.Hom ()
 import Panproto.Rust.Instance ()
 import Panproto.Rust.Io ()
@@ -111,6 +113,7 @@ tests =
         , testCase "expr: parse + eval arithmetic" exprParseEval
         , testCase "vcs: init + add + commit + log" vcsInitAddLog
         , testCase "hom: find morphisms between equal schemas" homFindMorphisms
+        , testCase "graph: fiber over a compiled migration anchor" graphFiberAt
         , testCase "data: store + get a JSON dataset" dataStoreGet
         ]
 
@@ -205,6 +208,26 @@ migrationCompileLift =
             assertBool
                 ("lifted JSON should preserve the text value, got " <> T.unpack lifted)
                 ("hello" `isInfixOf` T.unpack lifted)
+
+-- ---------------------------------------------------------------------------
+-- Graph
+
+-- | Compile an identity migration, parse a record instance, then ask for
+-- the fiber over the @post@ anchor. Exercises the full fiber path: the
+-- compiled-migration handle is serialized to CBOR via
+-- @pp_mig_serialize_compiled@ and shuttled into @pp_graph_fiber_at@. The
+-- fiber must be non-empty (the @post@ node maps to the @post@ anchor).
+graphFiberAt :: IO ()
+graphFiberAt =
+    withSchema postSchema $ \src ->
+        withSchema postSchema $ \tgt -> do
+            let mig = buildMigration $ do
+                    mapVertex "post" "post"
+                    mapVertex "text" "text"
+            compiled <- compile mig src tgt
+            bracket (jsonToInstance src "post" "{\"text\": \"hello\"}") releaseInstance $ \inst -> do
+                fiber <- fiberAt inst compiled "post"
+                assertBool "the fiber over the post anchor should be non-empty" (not (null fiber))
 
 -- ---------------------------------------------------------------------------
 -- Instance

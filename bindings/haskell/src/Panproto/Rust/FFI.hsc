@@ -67,6 +67,7 @@ module Panproto.Rust.FFI
     , pp_mig_invert_at
     , pp_mig_coverage_at
     , pp_mig_lift_json_at
+    , pp_mig_serialize_compiled
 
       -- * Hom search
     , pp_hom_find_morphisms_at
@@ -334,6 +335,11 @@ foreign import ccall safe "pp_mig_lift_record_at"
 -- | Compose two compiled migrations into a fresh handle.
 foreign import ccall safe "pp_mig_compose"
     pp_mig_compose :: Word32 -> Word32 -> Ptr Word32 -> IO CInt
+
+-- | Serialize a compiled-migration handle to CBOR @CompiledMigration@
+-- bytes (consumed by the graph fiber entry points).
+foreign import ccall safe "pp_mig_serialize_compiled"
+    pp_mig_serialize_compiled :: Word32 -> Ptr VecU8 -> IO CInt
 
 -- | Invert a CBOR migration mapping.
 foreign import ccall safe "pp_mig_invert_at"

@@ -91,13 +91,20 @@ import Panproto.Errors
     )
 import Panproto.Graph
     ( GraphBackend (..)
+    , decodeFiber
+    , decodeFiberDecomposition
     , decodePathResult
     , encodeGraph
     )
+import Panproto.Instance (encodeInstance, reifyInstance)
+import Panproto.Migration (CompiledRep)
 import Panproto.Rust.FFI
     ( pp_graph_conversion_distance_at
+    , pp_graph_fiber_at_at
+    , pp_graph_fiber_decomposition_at
     , pp_graph_poly_hom_at
     , pp_graph_preferred_path_at
+    , pp_mig_serialize_compiled
     )
 import Panproto.Rust.Handle
     ( callScalarOut
@@ -105,16 +112,44 @@ import Panproto.Rust.Handle
     , withSliceIn
     )
 import Panproto.Rust.Instance ()
-import Panproto.Rust.Migration ()
+import Panproto.Rust.Migration (RustCompiled (RustCompiled), rustCompiled)
 
 instance GraphBackend Rust where
-    -- The compiled migration must cross the boundary as a CBOR
-    -- @CompiledMigration@ value, but the C ABI offers no way to serialize
-    -- the @CompiledRep Rust@ slab handle to those bytes. See the module
-    -- header for the full reasoning.
-    fiberAt _ _ _ = throwIO (unsupportedFiber "fiberAt")
+    -- The compiled migration crosses the boundary as a CBOR
+    -- @CompiledMigration@ value: 'serializeCompiled' lowers the
+    -- @CompiledRep Rust@ slab handle to those bytes via
+    -- @pp_mig_serialize_compiled@, and the instance is serialized through
+    -- 'reifyInstance' + 'encodeInstance'.
+    fiberAt instRep migRep anchor = do
+        instBytes <- encodeInstance <$> reifyInstance instRep
+        migBytes <- serializeCompiled migRep
+        bs <-
+            withSliceIn instBytes $ \instPtr instLen ->
+                withSliceIn migBytes $ \migPtr migLen ->
+                    withSliceIn (utf8 anchor) $ \anchorPtr anchorLen ->
+                        callVecOut
+                            ( pp_graph_fiber_at_at
+                                instPtr
+                                instLen
+                                migPtr
+                                migLen
+                                anchorPtr
+                                anchorLen
+                            )
+        case decodeFiber bs of
+            Right xs -> pure xs
+            Left err -> throwIO (hostDecodeError "pp_graph_fiber_at" err)
 
-    fiberDecomposition _ _ = throwIO (unsupportedFiber "fiberDecomposition")
+    fiberDecomposition instRep migRep = do
+        instBytes <- encodeInstance <$> reifyInstance instRep
+        migBytes <- serializeCompiled migRep
+        bs <-
+            withSliceIn instBytes $ \instPtr instLen ->
+                withSliceIn migBytes $ \migPtr migLen ->
+                    callVecOut (pp_graph_fiber_decomposition_at instPtr instLen migPtr migLen)
+        case decodeFiberDecomposition bs of
+            Right m -> pure m
+            Left err -> throwIO (hostDecodeError "pp_graph_fiber_decomposition" err)
 
     homSchema source target = do
         srcBytes <- canonicalBytes source
@@ -177,34 +212,13 @@ canonicalBytes rep = canonicalSchemaBytes <$> toCanonicalSchema rep
 utf8 :: Text -> ByteString
 utf8 = LBS.fromStrict . TE.encodeUtf8
 
--- | The 'PanprotoError' raised by the two fiber methods, naming the
--- missing compiled-migration serializer so the failure is actionable
--- rather than a bare status code.
-unsupportedFiber :: String -> PanprotoError
-unsupportedFiber method =
-    PanprotoError
-        { code = StatusOperation
-        , envelope =
-            Just
-                ErrorEnvelope
-                    { status = statusToInt StatusOperation
-                    , tag = "unsupported"
-                    , message =
-                        "Panproto.Rust.Graph."
-                            <> T.pack method
-                            <> ": pp_graph_"
-                            <> T.pack (fiberEntryPoint method)
-                            <> " takes the compiled migration as a CBOR CompiledMigration"
-                            <> " value, but the C ABI exposes no entry point to serialize a"
-                            <> " CompiledRep Rust slab handle to those bytes. This becomes"
-                            <> " available once panproto-c gains a compiled-migration"
-                            <> " serializer; the other graph operations (homSchema,"
-                            <> " preferredPath, conversionDistance) are fully implemented."
-                    }
-        }
-  where
-    fiberEntryPoint "fiberAt" = "fiber_at"
-    fiberEntryPoint _ = "fiber_decomposition"
+-- | Serialize a @'Panproto.Migration.CompiledRep' 'Rust'@ to its CBOR
+-- @CompiledMigration@ bytes via @pp_mig_serialize_compiled@, the byte form
+-- the fiber entry points consume as a value (rather than a slab handle).
+serializeCompiled :: CompiledRep Rust -> IO ByteString
+serializeCompiled migRep =
+    let RustCompiled h = rustCompiled migRep
+     in callVecOut (pp_mig_serialize_compiled h)
 
 -- | A 'PanprotoError' tagged @host_decode@ for when the engine result
 -- does not decode into the expected shape. Matches the @host_decode@
