@@ -12,12 +12,28 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 panproto-core = { workspace = true }
+panproto-expr = { workspace = true }
+panproto-expr-parser = { workspace = true }
+panproto-lens-dsl = { workspace = true }
 safer-ffi = { workspace = true }
 ciborium = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 smallvec = { workspace = true }
+rustc-hash = { workspace = true }
+# Only pulled in under the `git` feature: opening the on-disk repository
+# is done here, with the import driven by `panproto_core::git`. Vendored
+# libgit2/openssl match the Python surface so the bridge builds without
+# system git libraries.
+git2 = { version = "0.20", optional = true, default-features = false, features = [
+    "vendored-libgit2",
+    "vendored-openssl",
+] }
+
+[dev-dependencies]
+# Builds throwaway on-disk git repositories for the `git`-feature tests.
+tempfile = "3"
 
 [features]
 default = []
@@ -32,7 +48,7 @@ full-parse = ["panproto-core/full-parse"]
 # Multi-file project assembly via coproduct.
 project = ["panproto-core/project"]
 # Git bridge for bidirectional git <-> panproto-vcs translation.
-git = ["panproto-core/git"]
+git = ["panproto-core/git", "dep:git2"]
 # Tree-sitter-based format-preserving instance parse/emit.
 format-preserving = ["panproto-core/tree-sitter"]
 # Convenience feature enabling every cold-path domain.

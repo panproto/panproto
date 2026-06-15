@@ -44,6 +44,8 @@ module Panproto.Rust.Vcs
       RustRepo (..)
     , repoToRust
     , rustRepository
+    , mkRepoRep
+    , repoRepHandle
 
       -- * Opening repositories
     , openRustRepo
@@ -153,6 +155,22 @@ repoToRust r = RustRepo r.handle
 -- backend. The inverse of 'repoToRust' for a known backend.
 rustRepository :: RepoBackend -> RustRepo -> Repository
 rustRepository back (RustRepo h) = Repository {handle = h, backend = back}
+
+-- | Wrap a raw slab handle returned by an engine @pp_*@ entry point as a
+-- @RepoRep Rust@. The caller takes ownership of the slot (release it via
+-- 'releaseRepo' or a 'withRustRepo'-style bracket). Sibling Rust backend
+-- modules that allocate a @VcsRepo@ handle outside 'vcsInitB' (e.g. the
+-- @git@ import surface in "Panproto.Rust.Git") use this to rewrap the
+-- freshly-allocated handle, mirroring 'Panproto.Rust.mkSchemaRep'. This
+-- is the only sanctioned constructor for @RepoRep Rust@ outside this
+-- module, since the associated-family constructor is not exported.
+mkRepoRep :: Word32 -> RepoRep Rust
+mkRepoRep = RustRepoRep . RustRepo
+
+-- | The raw slab handle backing a @RepoRep Rust@. The repository
+-- counterpart of 'Panproto.Rust.schemaRepHandle'.
+repoRepHandle :: RepoRep Rust -> Word32
+repoRepHandle (RustRepoRep (RustRepo h)) = h
 
 -- ---------------------------------------------------------------------------
 -- VcsBackend Rust instance
