@@ -1997,11 +1997,17 @@ name = "panproto-c"
 version = "0.52.1"
 dependencies = [
  "ciborium",
+ "git2",
  "panproto-core",
+ "panproto-expr",
+ "panproto-expr-parser",
+ "panproto-lens-dsl",
+ "rustc-hash",
  "safer-ffi",
  "serde",
  "serde_json",
  "smallvec 2.0.0-alpha.12",
+ "tempfile",
  "thiserror",
 ]
 
