@@ -104,6 +104,8 @@ module Panproto.Gat
     , decodeModelSortInterp
     , encodeModelValue
     , decodeModelValue
+    , encodeModelValueList
+    , decodeModelSortInterpMap
 
       -- * GAT term evaluation and typechecking
     , encodeTermBytes
@@ -533,16 +535,20 @@ data ModelValue
     deriving stock (Eq, Show, Generic)
     deriving anyclass (NFData, ToJSON, FromJSON)
 
--- | A model (interpretation) of a theory, carrying only the
--- serializable portion. Mirrors the FFI-visible slice of
+-- | A structured model (interpretation) of a theory: its theory name and
+-- its full carrier. Mirrors the data half of
 -- @panproto_gat::model::Model@.
 --
 -- The Rust @Model@ maps each sort to a carrier set of 'ModelValue's
 -- (@sort_interp@) and each operation to a closure (@op_interp@). The
--- closures (@Arc\<dyn Fn(...)\>@) cannot serialize and never cross the
--- FFI boundary, so this type carries only the theory name and the
--- sort-interpretation map. @pp_gat_migrate_model@ likewise marshals and
--- reindexes the sort-interp map alone (see
+-- closures (@Arc\<dyn Fn(...)\>@) stay in-process and are not data, so a
+-- structured 'Model' carries the theory name and the full
+-- sort-interpretation map (the model's carrier). The operations remain
+-- evaluable across the FFI boundary through 'GatBackend.evalInModel'
+-- (which runs a closure in-process and returns its result), and the
+-- carrier is extractable through 'GatBackend.modelSortInterp'; a model
+-- handle reifies to this structured value via 'GatBackend.reifyModel'.
+-- @pp_gat_migrate_model@ marshals and reindexes the sort-interp map (see
 -- @crates\/panproto-c\/CONTRACT.md@), and 'migrateModel' mirrors that.
 data Model = Model
     { theory :: !Text
@@ -631,11 +637,14 @@ class GatBackend back where
     -- around the value.
     data TheoryRep back :: Type
 
-    -- | Backend-specific representation of a 'Model'. Models are not
-    -- serializable in full (operation interpretations are closures), so
-    -- this is always an opaque, non-reifiable handle; introspection
-    -- goes through 'modelTheoryNameIO' \/ 'sortInterpKeysIO' and
-    -- 'checkModel'.
+    -- | Backend-specific representation of a 'Model'. A model's operation
+    -- interpretations are closures held in-process, but the model is
+    -- fully evaluable across the boundary ('evalInModel' runs an
+    -- operation and returns its 'ModelValue') and its carrier is
+    -- extractable ('modelSortInterp' returns the full sort-interpretation
+    -- map). A model handle reifies to a structured 'Model' via
+    -- 'reifyModel'; 'modelTheoryNameIO' \/ 'sortInterpKeysIO' and
+    -- 'checkModel' offer lighter-weight introspection.
     data ModelRep back :: Type
 
     -- | Ingest a structured 'Theory' into the backend. Wraps
@@ -719,6 +728,32 @@ class GatBackend back where
     -- 'sortInterpKeys'.
     sortInterpKeysIO :: ModelRep back -> IO [Text]
 
+    -- | Evaluate an operation in a model: run the operation's
+    -- interpretation on the given arguments and return its 'ModelValue'.
+    -- The closure stays in-process; only its inputs and output cross the
+    -- boundary, so a model handle is fully evaluable. Wraps
+    -- @pp_gat_eval_in_model@ (@gat::Model::eval@).
+    evalInModel
+        :: ModelRep back
+        -> Text
+        -> [ModelValue]
+        -- ^ Model, operation name, argument values.
+        -> IO ModelValue
+
+    -- | Extract a model's full carrier: its sort-interpretation map, each
+    -- sort name mapped to its carrier set. Wraps
+    -- @pp_gat_model_sort_interp@.
+    modelSortInterp :: ModelRep back -> IO (HashMap Text [ModelValue])
+
+    -- | Reify a model handle to a structured 'Model': its theory name and
+    -- its full sort interpretation (read via 'modelSortInterp'). Because
+    -- every model here is the deterministic 'freeModel' of a theory under
+    -- a config, re-running 'freeModel' on the same theory and config
+    -- reconstructs an identical model, so a model serializes losslessly
+    -- as its recipe (theory + config) and this structured value records
+    -- the resulting carrier.
+    reifyModel :: ModelRep back -> IO Model
+
     -- | Release any resources held by the model representation.
     releaseModel :: ModelRep back -> IO ()
 
@@ -764,6 +799,12 @@ encodeModelSortInterp :: Model -> LBS.ByteString
 encodeModelSortInterp m =
     CBOR.toLazyByteString $
         encodeTextMap (encodeList encodeModelValue) m.sortInterp
+
+-- | Encode a list of 'ModelValue' arguments as the top-level CBOR
+-- @Vec\<ModelValue\>@ shape @pp_gat_eval_in_model@ consumes as its @args@
+-- argument.
+encodeModelValueList :: [ModelValue] -> LBS.ByteString
+encodeModelValueList = CBOR.toLazyByteString . encodeList encodeModelValue
 
 -- | Encode a 'Term' to the top-level CBOR shape @pp_expr_eval_gat@ and
 -- @pp_expr_check@ consume as their @expr@ argument.
@@ -997,6 +1038,11 @@ decodeModelSortInterp theoryName' =
     runDecoder (modelFor <$> sortInterpDecoder) "model sort interpretations"
   where
     modelFor si = Model {theory = theoryName', sortInterp = si}
+
+-- | Decode CBOR @HashMap\<String, Vec\<ModelValue\>\>@ bytes (the
+-- @pp_gat_model_sort_interp@ output shape) into the raw carrier map.
+decodeModelSortInterpMap :: LBS.ByteString -> Either String (HashMap Text [ModelValue])
+decodeModelSortInterpMap = runDecoder sortInterpDecoder "model sort interpretation map"
 
 -- | Decode a top-level CBOR 'ModelValue' (the @pp_expr_eval_gat@ output
 -- shape).

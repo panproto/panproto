@@ -364,6 +364,15 @@ int32_t pp_gat_free_model_at(
     uint32_t *out_handle
 );
 
+int32_t pp_gat_eval_in_model_at(
+    uint32_t model,
+    const uint8_t *op_name_ptr,
+    size_t op_name_len,
+    const uint8_t *args_ptr,
+    size_t args_len,
+    Vec_uint8_t *out
+);
+
 /* ---------- expr ---------- */
 
 int32_t pp_expr_parse_at(
@@ -492,6 +501,17 @@ int32_t pp_vcs_merge_at(
     uint32_t repo,
     const uint8_t *branch_ptr,
     size_t branch_len,
+    const uint8_t *author_ptr,
+    size_t author_len,
+    Vec_uint8_t *out
+);
+
+int32_t pp_vcs_diff_at(
+    uint32_t repo,
+    const uint8_t *from_ptr,
+    size_t from_len,
+    const uint8_t *to_ptr,
+    size_t to_len,
     Vec_uint8_t *out
 );
 

@@ -432,12 +432,35 @@ pp_gat_create_theory (
     uint32_t * out_handle);
 
 /** \brief
+ *  Evaluate an operation in a model and return the resulting value.
+ *
+ *  `model` is a [`Resource::Model`] handle; `op_name` is the UTF-8
+ *  operation name; `args` is a CBOR-encoded `Vec<ModelValue>` of
+ *  arguments. On success, `out` receives the CBOR-encoded
+ *  [`gat::ModelValue`] the operation produced. The operation's
+ *  interpretation (a closure held in the model) is run in-process; only
+ *  its inputs and output cross the boundary, so a handle-held model is
+ *  fully evaluable from the host. Calls [`gat::Model::eval`].
+ *
+ *  Returns [`PpStatus::Serialization`] on a malformed argument payload,
+ *  [`PpStatus::InvalidHandle`] / [`PpStatus::TypeMismatch`] for a bad
+ *  model handle, and [`PpStatus::Operation`] when the operation is not in
+ *  the model or its interpretation fails.
+ */
+int32_t
+pp_gat_eval_in_model (
+    uint32_t model,
+    slice_ref_uint8_t op_name,
+    slice_ref_uint8_t args,
+    Vec_uint8_t * out);
+
+/** \brief
  *  Construct a bounded approximation of the free (initial) model of a
  *  theory.
  *
  *  `theory` is a [`Resource::Theory`] handle; `config` is an optional
- *  CBOR-encoded [`FreeModelConfigSpec`] (`{max_depth, max_terms_per_sort}`).
- *  An empty slice selects the engine defaults. On success, `out_handle`
+ *  CBOR-encoded free-model config (`{max_depth, max_terms_per_sort}`); an
+ *  empty slice selects the engine defaults. On success, `out_handle`
  *  receives a fresh [`Resource::Model`] handle holding the constructed
  *  model.
  *
@@ -477,6 +500,24 @@ int32_t
 pp_gat_migrate_model (
     slice_ref_uint8_t model,
     slice_ref_uint8_t morphism,
+    Vec_uint8_t * out);
+
+/** \brief
+ *  Emit a model's full carrier: its sort-interpretation map.
+ *
+ *  `model` is a [`Resource::Model`] handle. On success, `out` receives
+ *  the CBOR-encoded `HashMap<String, Vec<ModelValue>>` of the model's
+ *  `sort_interp`: each sort name mapped to its carrier set. This is the
+ *  extractable data half of a model (the operation interpretations stay
+ *  in-process); paired with [`pp_gat_eval_in_model`], a handle-held model
+ *  is both evaluable and its carrier serializable.
+ *
+ *  Returns [`PpStatus::InvalidHandle`] / [`PpStatus::TypeMismatch`] for a
+ *  bad model handle.
+ */
+int32_t
+pp_gat_model_sort_interp (
+    uint32_t model,
     Vec_uint8_t * out);
 
 /** \brief
@@ -1286,9 +1327,10 @@ pp_protolens_instantiate (
  *  `node_id`, `anchor`, `value`, and `fields`. Calls
  *  [`inst::execute_query`].
  *
- *  The schema handle must resolve to a [`Resource::Schema`]; a bad
- *  handle yields [`PpStatus::InvalidHandle`] and a wrong resource type
- *  yields [`PpStatus::TypeMismatch`].
+ *  The schema handle must resolve to a
+ *  [`Resource::Schema`](crate::handle::Resource); a bad handle yields
+ *  [`PpStatus::InvalidHandle`] and a wrong resource type yields
+ *  [`PpStatus::TypeMismatch`].
  */
 int32_t
 pp_query_execute (
@@ -1563,20 +1605,27 @@ pp_vcs_commit (
     Vec_uint8_t * out);
 
 /** \brief
- *  Structural diff of the most recent schema change at HEAD.
+ *  Structural diff between two refs, or of the most recent schema change
+ *  at HEAD.
  *
- *  `repo` is a VCS repo handle. The HEAD commit's schema is diffed
- *  against its first parent's schema via `panproto_check::diff`,
- *  surfacing the change the latest commit introduced. A root commit (no
- *  parent) is diffed against the empty schema, so every element reads as
- *  added; an empty repository (unborn HEAD) yields a zero-change record.
- *  On success, `out` receives a CBOR-encoded diff record carrying the
- *  added / removed / modified counts and the human-readable change
- *  descriptions.
+ *  `repo` is a VCS repo handle; `from` and `to` are UTF-8 refs (a branch
+ *  name, tag name, or full hex commit id). When both are empty, the HEAD
+ *  commit's schema is diffed against its first parent's schema via
+ *  `panproto_check::diff`, surfacing the change the latest commit
+ *  introduced (a root commit is diffed against the empty schema, so every
+ *  element reads as added; an empty repository yields a zero-change
+ *  record). When at least one ref is non-empty, each is resolved through
+ *  `vcs::refs::resolve_ref` to a commit and its schema is assembled; an
+ *  empty ref on either side resolves to the empty schema, so a single ref
+ *  diffs that revision against nothing. On success, `out` receives a
+ *  CBOR-encoded diff record carrying the added / removed / modified counts
+ *  and the human-readable change descriptions.
  */
 int32_t
 pp_vcs_diff (
     uint32_t repo,
+    slice_ref_uint8_t from,
+    slice_ref_uint8_t to,
     Vec_uint8_t * out);
 
 /** \brief
@@ -1614,19 +1663,19 @@ pp_vcs_log (
 /** \brief
  *  Merge a branch into the current branch.
  *
- *  `repo` is a VCS repo handle; `branch` is the UTF-8 branch name. Calls
+ *  `repo` is a VCS repo handle; `branch` is the UTF-8 branch name;
+ *  `author` is the UTF-8 author the merge commit is attributed to. Calls
  *  `Repository::merge`, a real three-way merge that fast-forwards or
  *  creates a merge commit as appropriate. The merge commit (when one is
- *  created) is attributed to the `"merge"` author, since the frozen C
- *  signature carries no author argument. On success, `out` receives a
- *  CBOR-encoded merge result carrying the fast-forward flag, the
- *  resulting HEAD commit, and the conflict descriptions (empty on a
- *  clean merge).
+ *  created) records `author`. On success, `out` receives a CBOR-encoded
+ *  merge result carrying the fast-forward flag, the resulting HEAD
+ *  commit, and the conflict descriptions (empty on a clean merge).
  */
 int32_t
 pp_vcs_merge (
     uint32_t repo,
     slice_ref_uint8_t branch,
+    slice_ref_uint8_t author,
     Vec_uint8_t * out);
 
 /** \brief

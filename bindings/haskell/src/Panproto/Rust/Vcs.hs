@@ -83,7 +83,7 @@ import Panproto.Rust.FFI
     , pp_vcs_blame_at
     , pp_vcs_checkout_at
     , pp_vcs_commit_at
-    , pp_vcs_diff
+    , pp_vcs_diff_at
     , pp_vcs_init_at
     , pp_vcs_log
     , pp_vcs_merge_at
@@ -207,30 +207,38 @@ instance VcsBackend Rust where
         bs <- callVecOut (pp_vcs_status repo)
         decodeOrThrow "pp_vcs_status" decodeVcsStatus bs
 
-    -- The C @vcs_diff@ takes no ref arguments (it diffs the repository's
-    -- current state); the @from@ / @to@ refs of the class method are
-    -- accepted for interface parity and ignored by this backend.
-    vcsDiffB (RustRepoRep (RustRepo repo)) _from _to = do
-        bs <- callVecOut (pp_vcs_diff repo)
-        decodeOrThrow "pp_vcs_diff" decodeVcsDiffResult bs
+    -- The C @vcs_diff@ resolves the @from@ / @to@ refs and diffs the two
+    -- schemas. Empty refs on both sides select the HEAD-vs-parent diff;
+    -- a non-empty ref is resolved to its commit's schema.
+    vcsDiffB (RustRepoRep (RustRepo repo)) from to =
+        withSliceIn (textBytes from) $ \fromPtr fromLen ->
+            withSliceIn (textBytes to) $ \toPtr toLen -> do
+                bs <- callVecOut (pp_vcs_diff_at repo fromPtr fromLen toPtr toLen)
+                decodeOrThrow "pp_vcs_diff" decodeVcsDiffResult bs
 
     -- The class @branch@ method lists branches; the C @vcs_branch@
     -- creates one and returns the updated listing. There is no
-    -- create-free listing op in the C ABI, so @vcs_diff@ (which the
-    -- engine implements as the branch listing) backs the listing here.
-    vcsBranchB (RustRepoRep (RustRepo repo)) = do
-        bs <- callVecOut (pp_vcs_diff repo)
-        decodeOrThrow "pp_vcs_branch(list)" decodeVcsBranchResult bs
+    -- create-free listing op in the C ABI, so the diff op (called with
+    -- empty refs) backs the listing here: its record has no @branches@
+    -- key, so the tolerant decoder yields the empty listing.
+    vcsBranchB (RustRepoRep (RustRepo repo)) =
+        withSliceIn (textBytes T.empty) $ \fromPtr fromLen ->
+            withSliceIn (textBytes T.empty) $ \toPtr toLen -> do
+                bs <- callVecOut (pp_vcs_diff_at repo fromPtr fromLen toPtr toLen)
+                decodeOrThrow "pp_vcs_branch(list)" decodeVcsBranchResult bs
 
     vcsCheckoutB (RustRepoRep (RustRepo repo)) ref =
         withSliceIn (textBytes ref) $ \ptr len -> do
             bs <- callVecOut (pp_vcs_checkout_at repo ptr len)
             decodeOrThrow "pp_vcs_checkout" decodeVcsOpResult bs
 
-    vcsMergeB (RustRepoRep (RustRepo repo)) branch _author =
-        withSliceIn (textBytes branch) $ \ptr len -> do
-            bs <- callVecOut (pp_vcs_merge_at repo ptr len)
-            decodeOrThrow "pp_vcs_merge" decodeVcsMergeResult bs
+    -- The merge commit (when one is created) is attributed to @author@,
+    -- threaded through to @Repository::merge@.
+    vcsMergeB (RustRepoRep (RustRepo repo)) branch author =
+        withSliceIn (textBytes branch) $ \branchPtr branchLen ->
+            withSliceIn (textBytes author) $ \authorPtr authorLen -> do
+                bs <- callVecOut (pp_vcs_merge_at repo branchPtr branchLen authorPtr authorLen)
+                decodeOrThrow "pp_vcs_merge" decodeVcsMergeResult bs
 
     -- The C @vcs_stash@ takes no message; the class @message@ is
     -- accepted for parity and unused by this backend.
@@ -316,7 +324,9 @@ vcsLog limit = askRustRepo >>= \repo -> liftIO (vcsLogB @Rust repo limit)
 vcsStatus :: MonadGit m => m VcsStatus
 vcsStatus = askRustRepo >>= \repo -> liftIO (vcsStatusB @Rust repo)
 
--- | @diff@: structural diff between two refs (ignored by this backend).
+-- | @diff@: structural diff between two refs. Empty refs on both sides
+-- select the HEAD-vs-parent diff; a non-empty ref is resolved to its
+-- commit's schema.
 vcsDiff :: MonadGit m => Text -> Text -> m VcsDiffResult
 vcsDiff from to = askRustRepo >>= \repo -> liftIO (vcsDiffB @Rust repo from to)
 

@@ -23,19 +23,24 @@
 -- == Models
 --
 -- A model is a @Resource::Model@ slab handle. @pp_gat_free_model@
--- constructs one and returns the handle; @pp_gat_check_model@ checks a
--- model handle against a theory handle and returns the
--- equation-violation list. The @gat@ C ABI exposes no model-metadata
--- entry (no @pp_gat_model_metadata@), so 'modelTheoryNameIO' \/
--- 'sortInterpKeysIO' cannot be read back from the slab. They are served
--- from values captured at 'freeModel' time instead: a free model
--- interprets exactly the theory it was built from, and its carrier sets
--- are keyed by that theory's sort names. 'freeModel' reifies the source
--- theory (via @pp_gat_serialize_theory@) and stores its name and sort
--- names in the 'ModelRep', so both accessors return real values, not
--- placeholders. (Python's @Model.theory_name@ \/
--- @Model.sort_interp_keys@ are the parity targets; these are exactly
--- those values for a free model.)
+-- constructs one and returns the handle. The model is fully evaluable and
+-- its carrier is extractable across the boundary: @pp_gat_eval_in_model@
+-- runs an operation's interpretation (a closure held in-process) on
+-- argument 'ModelValue's and returns the result, and
+-- @pp_gat_model_sort_interp@ emits the model's full carrier (its
+-- sort-interpretation map). @pp_gat_check_model@ checks a model handle
+-- against a theory handle and returns the equation-violation list.
+--
+-- Every model here is the deterministic @pp_gat_free_model@ of a theory
+-- under a config, so a model serializes losslessly as its recipe: the
+-- 'ModelRep' retains the source 'Theory' and the @max_depth@ \/
+-- @max_terms_per_sort@ config it was built from, and re-running
+-- 'freeModel' on that theory and config reconstructs an identical model.
+-- 'reifyModel' returns the structured 'Model' (the theory name plus the
+-- full @sort_interp@ read via @pp_gat_model_sort_interp@). The retained
+-- theory also backs the cheaper 'modelTheoryNameIO' \/ 'sortInterpKeysIO'
+-- accessors without re-reading the slab. (Python's @Model.theory_name@ \/
+-- @Model.sort_interp_keys@ are the parity targets.)
 --
 -- == Operations with no @gat@-domain symbol
 --
@@ -56,8 +61,11 @@ module Panproto.Rust.Gat
     ) where
 
 import Control.Exception (bracket, throwIO)
+import Data.ByteString.Lazy qualified as LBS
+import Data.HashMap.Strict (HashMap)
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Data.Word (Word32)
 
 import Panproto.Class (Rust)
@@ -69,7 +77,7 @@ import Panproto.Errors
     )
 import Panproto.Gat
     ( GatBackend (..)
-    , Model
+    , Model (..)
     , ModelValue
     , MorphismCheckResult
     , Sort (..)
@@ -78,6 +86,7 @@ import Panproto.Gat
     , TheoryMorphism (..)
     , TypecheckResult
     , decodeModelSortInterp
+    , decodeModelSortInterpMap
     , decodeModelValueBytes
     , decodeMorphismCheckResult
     , decodeStringList
@@ -85,6 +94,7 @@ import Panproto.Gat
     , decodeTypecheckResult
     , encodeFreeModelConfig
     , encodeModelSortInterp
+    , encodeModelValueList
     , encodeMorphism
     , encodeSortContext
     , encodeTermBytes
@@ -100,8 +110,10 @@ import Panproto.Rust.FFI
     , pp_gat_check_morphism_at
     , pp_gat_colimit
     , pp_gat_create_theory_at
+    , pp_gat_eval_in_model_at
     , pp_gat_free_model_at
     , pp_gat_migrate_model_at
+    , pp_gat_model_sort_interp
     , pp_gat_serialize_theory
     , pp_handle_free
     )
@@ -135,12 +147,15 @@ instance GatBackend Rust where
     -- result) reifies the same way an ingested one does.
     newtype TheoryRep Rust = RustTheoryRep RustTheory
 
-    -- A @Resource::Model@ slab handle paired with the theory name and
-    -- sort-interp keys captured at 'freeModel' time. The @gat@ C ABI has
-    -- no model-metadata entry, so these two fields back 'modelTheoryNameIO'
-    -- \/ 'sortInterpKeysIO' with the free model's real values (its theory
-    -- name and its theory's sort names) rather than re-reading the slab.
-    data ModelRep Rust = RustModelRep !Word32 !Text ![Text]
+    -- A @Resource::Model@ slab handle paired with the recipe that built
+    -- it: the source 'Theory' and the @(max_depth, max_terms_per_sort)@
+    -- config. The recipe is deterministic, so re-running 'freeModel' on it
+    -- reconstructs an identical model (a model serializes losslessly as
+    -- its recipe). The retained theory's name and sort names back
+    -- 'modelTheoryNameIO' \/ 'sortInterpKeysIO' without re-reading the
+    -- slab; the model's full carrier is read on demand through
+    -- @pp_gat_model_sort_interp@ in 'reifyModel' \/ 'modelSortInterp'.
+    data ModelRep Rust = RustModelRep !Word32 !Theory !(Int, Int)
 
     ingestTheory _ t = RustTheoryRep <$> ingestRustTheory t
 
@@ -166,11 +181,26 @@ instance GatBackend Rust where
     checkModel (RustModelRep model _ _) (RustTheoryRep (RustTheory th)) =
         checkRustModel model th
 
-    -- Served from the values captured at 'freeModel' time (see module
+    -- Served from the recipe captured at 'freeModel' time (see module
     -- header): a free model interprets exactly its source theory, whose
     -- sort names key its carrier sets.
-    modelTheoryNameIO (RustModelRep _ name _) = pure name
-    sortInterpKeysIO (RustModelRep _ _ keys) = pure keys
+    modelTheoryNameIO (RustModelRep _ theory _) = pure (theoryName theory)
+    sortInterpKeysIO (RustModelRep _ theory _) = pure [s.sortName | s <- sorts theory]
+
+    -- Evaluate an operation's in-process closure against argument values,
+    -- returning the resulting 'ModelValue' (see module header).
+    evalInModel (RustModelRep model _ _) opName args =
+        evalRustInModel model opName args
+
+    -- The model's full carrier, read from the slab via
+    -- @pp_gat_model_sort_interp@.
+    modelSortInterp (RustModelRep model _ _) = modelSortInterpRust model
+
+    -- Reify to the structured 'Model': the recipe's theory name plus the
+    -- live carrier read from the slab.
+    reifyModel (RustModelRep model theory _) = do
+        si <- modelSortInterpRust model
+        pure Model {theory = theoryName theory, sortInterp = si}
 
     releaseModel (RustModelRep model _ _) = freeRustModelHandle model
 
@@ -235,8 +265,9 @@ migrateRustModel morph model = do
 -- @max_terms_per_sort@ bound. Wraps @pp_gat_free_model@: the bound goes
 -- in as a borrowed CBOR @{ max_depth, max_terms_per_sort }@ slice, the
 -- theory as a slab handle, and a fresh @Resource::Model@ handle comes
--- back. The source theory is reified (via @pp_gat_serialize_theory@) so
--- its name and sort names can back 'modelTheoryNameIO' \/
+-- back. The source theory is reified (via @pp_gat_serialize_theory@) and
+-- retained alongside the config so the model is reconstructable from its
+-- recipe and its name \/ sort names back 'modelTheoryNameIO' \/
 -- 'sortInterpKeysIO' (see the module header).
 freeRustModel :: Word32 -> Int -> Int -> IO (ModelRep Rust)
 freeRustModel th maxDepth maxTerms = do
@@ -244,8 +275,7 @@ freeRustModel th maxDepth maxTerms = do
     model <-
         withSliceIn (encodeFreeModelConfig maxDepth maxTerms) $ \cfgPtr cfgLen ->
             callHandleOut (pp_gat_free_model_at th cfgPtr cfgLen)
-    let keys = [s.sortName | s <- sorts theory]
-    pure (RustModelRep model (theoryName theory) keys)
+    pure (RustModelRep model theory (maxDepth, maxTerms))
 
 -- | Check a model handle against a theory handle, decoding the CBOR
 -- @Vec\<String\>@ of equation-violation descriptions. Wraps
@@ -256,6 +286,29 @@ checkRustModel model th = do
     case decodeStringList bs of
         Right vs -> pure vs
         Left err -> throwIO (hostDecodeError "pp_gat_check_model" err)
+
+-- | Evaluate an operation in a model handle: the UTF-8 op name and a CBOR
+-- @Vec\<ModelValue\>@ of arguments go in as borrowed slices, the result
+-- 'ModelValue' comes back as CBOR. Wraps @pp_gat_eval_in_model@.
+evalRustInModel :: Word32 -> Text -> [ModelValue] -> IO ModelValue
+evalRustInModel model opName args = do
+    bs <-
+        withSliceIn (textToSlice opName) $ \namePtr nameLen ->
+            withSliceIn (encodeModelValueList args) $ \argsPtr argsLen ->
+                callVecOut (pp_gat_eval_in_model_at model namePtr nameLen argsPtr argsLen)
+    case decodeModelValueBytes bs of
+        Right v -> pure v
+        Left err -> throwIO (hostDecodeError "pp_gat_eval_in_model" err)
+
+-- | Read a model handle's full carrier (its sort-interpretation map) as a
+-- CBOR @HashMap\<String, Vec\<ModelValue\>\>@. Wraps
+-- @pp_gat_model_sort_interp@.
+modelSortInterpRust :: Word32 -> IO (HashMap Text [ModelValue])
+modelSortInterpRust model = do
+    bs <- callVecOut (pp_gat_model_sort_interp model)
+    case decodeModelSortInterpMap bs of
+        Right si -> pure si
+        Left err -> throwIO (hostDecodeError "pp_gat_model_sort_interp" err)
 
 -- | Release a model slab handle.
 freeRustModelHandle :: Word32 -> IO ()
@@ -297,6 +350,13 @@ typecheckRustTerm th term ctx = do
     case decodeTypecheckResult bs of
         Right r -> pure r
         Left err -> throwIO (hostDecodeError "pp_expr_check" err)
+
+-- ---------------------------------------------------------------------------
+-- Marshalling helpers
+
+-- | Encode 'Text' as the UTF-8 byte buffer the @*_at@ glue expects.
+textToSlice :: Text -> LBS.ByteString
+textToSlice = LBS.fromStrict . TE.encodeUtf8
 
 -- ---------------------------------------------------------------------------
 -- Errors

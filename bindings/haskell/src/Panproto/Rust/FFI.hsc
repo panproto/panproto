@@ -117,6 +117,8 @@ module Panproto.Rust.FFI
     , pp_gat_migrate_model_at
     , pp_gat_free_model_at
     , pp_gat_check_model
+    , pp_gat_eval_in_model_at
+    , pp_gat_model_sort_interp
     , pp_gat_serialize_theory
 
       -- * Expression / query
@@ -139,7 +141,7 @@ module Panproto.Rust.FFI
     , pp_vcs_commit_at
     , pp_vcs_log
     , pp_vcs_status
-    , pp_vcs_diff
+    , pp_vcs_diff_at
     , pp_vcs_branch_at
     , pp_vcs_checkout_at
     , pp_vcs_merge_at
@@ -547,6 +549,18 @@ foreign import ccall safe "pp_gat_free_model_at"
 foreign import ccall safe "pp_gat_check_model"
     pp_gat_check_model :: Word32 -> Word32 -> Ptr VecU8 -> IO CInt
 
+-- | Evaluate an operation in a model handle: the UTF-8 op name and a CBOR
+-- @Vec\<ModelValue\>@ of arguments go in, the resulting CBOR 'ModelValue'
+-- comes back.
+foreign import ccall safe "pp_gat_eval_in_model_at"
+    pp_gat_eval_in_model_at
+        :: Word32 -> Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | Emit a model handle's full carrier as a CBOR
+-- @HashMap\<String, Vec\<ModelValue\>\>@ (its @sort_interp@).
+foreign import ccall safe "pp_gat_model_sort_interp"
+    pp_gat_model_sort_interp :: Word32 -> Ptr VecU8 -> IO CInt
+
 -- | Serialize the theory behind a handle to its CBOR @Theory@ shape.
 foreign import ccall safe "pp_gat_serialize_theory"
     pp_gat_serialize_theory :: Word32 -> Ptr VecU8 -> IO CInt
@@ -641,9 +655,12 @@ foreign import ccall safe "pp_vcs_log"
 foreign import ccall safe "pp_vcs_status"
     pp_vcs_status :: Word32 -> Ptr VecU8 -> IO CInt
 
--- | CBOR diff result for the repository.
-foreign import ccall safe "pp_vcs_diff"
-    pp_vcs_diff :: Word32 -> Ptr VecU8 -> IO CInt
+-- | CBOR diff result for the repository between two UTF-8 refs. Empty
+-- @from@ and @to@ slices select the HEAD-vs-parent diff; otherwise each
+-- ref is resolved and its schema diffed.
+foreign import ccall safe "pp_vcs_diff_at"
+    pp_vcs_diff_at
+        :: Word32 -> Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
 
 -- | Create a branch by UTF-8 name, returning a CBOR op result.
 foreign import ccall safe "pp_vcs_branch_at"
@@ -653,9 +670,11 @@ foreign import ccall safe "pp_vcs_branch_at"
 foreign import ccall safe "pp_vcs_checkout_at"
     pp_vcs_checkout_at :: Word32 -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
 
--- | Merge a UTF-8 branch, returning a CBOR op result.
+-- | Merge a UTF-8 branch under a UTF-8 author, returning a CBOR merge
+-- result. The author is recorded on the merge commit when one is created.
 foreign import ccall safe "pp_vcs_merge_at"
-    pp_vcs_merge_at :: Word32 -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+    pp_vcs_merge_at
+        :: Word32 -> Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
 
 -- | CBOR op result listing stashes.
 foreign import ccall safe "pp_vcs_stash"

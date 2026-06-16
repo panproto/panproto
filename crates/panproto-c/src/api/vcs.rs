@@ -407,49 +407,74 @@ pub fn pp_vcs_status(repo: u32, out: &mut repr_c::Vec<u8>) -> i32 {
     })
 }
 
-/// Structural diff of the most recent schema change at HEAD.
+/// Structural diff between two refs, or of the most recent schema change
+/// at HEAD.
 ///
-/// `repo` is a VCS repo handle. The HEAD commit's schema is diffed
-/// against its first parent's schema via `panproto_check::diff`,
-/// surfacing the change the latest commit introduced. A root commit (no
-/// parent) is diffed against the empty schema, so every element reads as
-/// added; an empty repository (unborn HEAD) yields a zero-change record.
-/// On success, `out` receives a CBOR-encoded diff record carrying the
-/// added / removed / modified counts and the human-readable change
-/// descriptions.
+/// `repo` is a VCS repo handle; `from` and `to` are UTF-8 refs (a branch
+/// name, tag name, or full hex commit id). When both are empty, the HEAD
+/// commit's schema is diffed against its first parent's schema via
+/// `panproto_check::diff`, surfacing the change the latest commit
+/// introduced (a root commit is diffed against the empty schema, so every
+/// element reads as added; an empty repository yields a zero-change
+/// record). When at least one ref is non-empty, each is resolved through
+/// `vcs::refs::resolve_ref` to a commit and its schema is assembled; an
+/// empty ref on either side resolves to the empty schema, so a single ref
+/// diffs that revision against nothing. On success, `out` receives a
+/// CBOR-encoded diff record carrying the added / removed / modified counts
+/// and the human-readable change descriptions.
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
-pub fn pp_vcs_diff(repo: u32, out: &mut repr_c::Vec<u8>) -> i32 {
+pub fn pp_vcs_diff(
+    repo: u32,
+    from: c_slice::Ref<'_, u8>,
+    to: c_slice::Ref<'_, u8>,
+    out: &mut repr_c::Vec<u8>,
+) -> i32 {
     guard(|| {
+        let from_ref = std::str::from_utf8(from.as_slice())
+            .map_err(|e| FfiError::Operation(format!("invalid from ref: {e}")))?;
+        let to_ref = std::str::from_utf8(to.as_slice())
+            .map_err(|e| FfiError::Operation(format!("invalid to ref: {e}")))?;
+
         let result = handle::with_resource(repo, |r| {
             let repository = r.as_vcs_repo()?;
             let store = repository.store();
 
-            let head_id =
-                vcs::store::resolve_head(store).map_err(|e| FfiError::Operation(e.to_string()))?;
-            let Some(head_id) = head_id else {
-                // Unborn HEAD: nothing to diff.
-                return Ok(DiffResultRecord {
-                    added: 0,
-                    removed: 0,
-                    modified: 0,
-                    changes: Vec::new(),
-                });
-            };
+            if from_ref.is_empty() && to_ref.is_empty() {
+                // No refs given: diff HEAD against its first parent.
+                let head_id = vcs::store::resolve_head(store)
+                    .map_err(|e| FfiError::Operation(e.to_string()))?;
+                let Some(head_id) = head_id else {
+                    // Unborn HEAD: nothing to diff.
+                    return Ok(DiffResultRecord {
+                        added: 0,
+                        removed: 0,
+                        modified: 0,
+                        changes: Vec::new(),
+                    });
+                };
 
-            let head_commit = load_commit(store, head_id)?;
-            let to_schema = assemble_schema(store, head_commit.schema_id)?;
+                let head_commit = load_commit(store, head_id)?;
+                let to_schema = assemble_schema(store, head_commit.schema_id)?;
 
-            // Diff against the first parent's schema (the prior revision),
-            // or the empty schema for a root commit.
-            let from_schema = match head_commit.parents.first() {
-                Some(parent_id) => {
-                    let parent = load_commit(store, *parent_id)?;
-                    assemble_schema(store, parent.schema_id)?
-                }
-                None => empty_diff_baseline(),
-            };
+                // Diff against the first parent's schema (the prior
+                // revision), or the empty schema for a root commit.
+                let from_schema = match head_commit.parents.first() {
+                    Some(parent_id) => {
+                        let parent = load_commit(store, *parent_id)?;
+                        assemble_schema(store, parent.schema_id)?
+                    }
+                    None => empty_diff_baseline(),
+                };
 
+                let diff = panproto_core::check::diff(&from_schema, &to_schema);
+                return Ok(diff_record(&diff));
+            }
+
+            // At least one ref given: resolve each to a schema (an empty
+            // ref is the empty schema baseline) and diff them.
+            let from_schema = schema_at_ref(store, from_ref)?;
+            let to_schema = schema_at_ref(store, to_ref)?;
             let diff = panproto_core::check::diff(&from_schema, &to_schema);
             Ok(diff_record(&diff))
         })?;
@@ -457,6 +482,22 @@ pub fn pp_vcs_diff(repo: u32, out: &mut repr_c::Vec<u8>) -> i32 {
         *out = crate::canonical::encode(&result)?.into();
         Ok(PpStatus::Ok)
     })
+}
+
+/// Resolve a ref to its commit's assembled schema. An empty ref is the
+/// empty-schema baseline (so a single-sided diff reads every element of
+/// the other side as added or removed).
+fn schema_at_ref(
+    store: &vcs::FsStore,
+    reference: &str,
+) -> Result<panproto_core::schema::Schema, FfiError> {
+    if reference.is_empty() {
+        return Ok(empty_diff_baseline());
+    }
+    let commit_id =
+        vcs::refs::resolve_ref(store, reference).map_err(|e| FfiError::Operation(e.to_string()))?;
+    let commit = load_commit(store, commit_id)?;
+    assemble_schema(store, commit.schema_id)
 }
 
 /// Summarize a `SchemaDiff` into the wire diff record: counts of added /
@@ -619,21 +660,26 @@ pub fn pp_vcs_checkout(repo: u32, target: c_slice::Ref<'_, u8>, out: &mut repr_c
 
 /// Merge a branch into the current branch.
 ///
-/// `repo` is a VCS repo handle; `branch` is the UTF-8 branch name. Calls
+/// `repo` is a VCS repo handle; `branch` is the UTF-8 branch name;
+/// `author` is the UTF-8 author the merge commit is attributed to. Calls
 /// `Repository::merge`, a real three-way merge that fast-forwards or
 /// creates a merge commit as appropriate. The merge commit (when one is
-/// created) is attributed to the `"merge"` author, since the frozen C
-/// signature carries no author argument. On success, `out` receives a
-/// CBOR-encoded merge result carrying the fast-forward flag, the
-/// resulting HEAD commit, and the conflict descriptions (empty on a
-/// clean merge).
+/// created) records `author`. On success, `out` receives a CBOR-encoded
+/// merge result carrying the fast-forward flag, the resulting HEAD
+/// commit, and the conflict descriptions (empty on a clean merge).
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
-pub fn pp_vcs_merge(repo: u32, branch: c_slice::Ref<'_, u8>, out: &mut repr_c::Vec<u8>) -> i32 {
+pub fn pp_vcs_merge(
+    repo: u32,
+    branch: c_slice::Ref<'_, u8>,
+    author: c_slice::Ref<'_, u8>,
+    out: &mut repr_c::Vec<u8>,
+) -> i32 {
     guard(|| {
         let branch_name = std::str::from_utf8(branch.as_slice())
             .map_err(|e| FfiError::Operation(format!("invalid branch name: {e}")))?;
-        let author_str = "merge";
+        let author_str = std::str::from_utf8(author.as_slice())
+            .map_err(|e| FfiError::Operation(format!("invalid author: {e}")))?;
 
         let result = handle::with_resource_mut(repo, |r| {
             let repository = r.as_vcs_repo_mut()?;
@@ -1071,7 +1117,15 @@ mod tests {
         // The HEAD commit added vertex `b` over its parent, so the diff
         // records exactly one added element.
         let mut out: repr_c::Vec<u8> = Vec::new().into();
-        assert_eq!(pp_vcs_diff(repo, &mut out), PpStatus::Ok as i32);
+        assert_eq!(
+            pp_vcs_diff(
+                repo,
+                slice_of(b"").as_ref(),
+                slice_of(b"").as_ref(),
+                &mut out,
+            ),
+            PpStatus::Ok as i32
+        );
         let value: ciborium::value::Value = decode(&out).unwrap();
         let map = value.as_map().expect("diff result is a map");
         let mut added = 0u64;
@@ -1149,7 +1203,12 @@ mod tests {
 
         let mut out: repr_c::Vec<u8> = Vec::new().into();
         assert_eq!(
-            pp_vcs_merge(repo, slice_of(b"feature").as_ref(), &mut out),
+            pp_vcs_merge(
+                repo,
+                slice_of(b"feature").as_ref(),
+                slice_of(b"merger").as_ref(),
+                &mut out,
+            ),
             PpStatus::Ok as i32
         );
         let value: ciborium::value::Value = decode(&out).unwrap();
@@ -1167,6 +1226,136 @@ mod tests {
         }
         assert!(conflicts_empty, "expected a clean merge");
         assert!(ff, "expected a fast-forward merge");
+        pp_buf_free(out);
+
+        assert_eq!(pp_handle_free(repo), PpStatus::Ok as i32);
+    }
+
+    #[test]
+    fn merge_commit_records_the_named_author() {
+        // Build divergent history so the merge creates a real merge
+        // commit (not a fast-forward), then assert the merge commit is
+        // attributed to the author passed to pp_vcs_merge.
+        let dir = tempfile::tempdir().unwrap();
+        let repo = init_repo(dir.path());
+        add_and_commit(repo, schema_with_vertices(&["a"]), "initial", "alice");
+
+        // Branch feature at the initial commit and advance it.
+        let mut bout: repr_c::Vec<u8> = Vec::new().into();
+        assert_eq!(
+            pp_vcs_branch(repo, slice_of(b"feature").as_ref(), &mut bout),
+            PpStatus::Ok as i32
+        );
+        pp_buf_free(bout);
+        let mut cout: repr_c::Vec<u8> = Vec::new().into();
+        assert_eq!(
+            pp_vcs_checkout(repo, slice_of(b"feature").as_ref(), &mut cout),
+            PpStatus::Ok as i32
+        );
+        pp_buf_free(cout);
+        add_and_commit(repo, schema_with_vertices(&["a", "b"]), "add b", "bob");
+
+        // Advance main divergently so the merge cannot fast-forward.
+        let mut cout2: repr_c::Vec<u8> = Vec::new().into();
+        assert_eq!(
+            pp_vcs_checkout(repo, slice_of(b"main").as_ref(), &mut cout2),
+            PpStatus::Ok as i32
+        );
+        pp_buf_free(cout2);
+        add_and_commit(repo, schema_with_vertices(&["a", "c"]), "add c", "carol");
+
+        // Merge feature into main, attributing the merge to "merlin".
+        let mut out: repr_c::Vec<u8> = Vec::new().into();
+        assert_eq!(
+            pp_vcs_merge(
+                repo,
+                slice_of(b"feature").as_ref(),
+                slice_of(b"merlin").as_ref(),
+                &mut out,
+            ),
+            PpStatus::Ok as i32
+        );
+        let value: ciborium::value::Value = decode(&out).unwrap();
+        let map = value.as_map().expect("merge result is a map");
+        let mut ff = true;
+        let mut conflicts_empty = true;
+        for (k, v) in map {
+            match k.as_text() {
+                Some("fast_forward") => ff = v == &ciborium::value::Value::Bool(true),
+                Some("conflicts") => conflicts_empty = v.as_array().is_none_or(Vec::is_empty),
+                _ => {}
+            }
+        }
+        assert!(!ff, "divergent history should not fast-forward");
+        assert!(conflicts_empty, "non-overlapping changes merge cleanly");
+        pp_buf_free(out);
+
+        // The newest log entry is the merge commit; its author is the one
+        // passed to pp_vcs_merge.
+        let mut log_out: repr_c::Vec<u8> = Vec::new().into();
+        assert_eq!(pp_vcs_log(repo, 1, &mut log_out), PpStatus::Ok as i32);
+        let log_text = format!("{:?}", decode::<ciborium::value::Value>(&log_out).unwrap());
+        assert!(
+            log_text.contains("merlin"),
+            "merge commit should record the named author, got: {log_text}"
+        );
+        pp_buf_free(log_out);
+
+        assert_eq!(pp_handle_free(repo), PpStatus::Ok as i32);
+    }
+
+    #[test]
+    fn diff_between_two_refs() {
+        // Commit two revisions on two branches, then diff one branch ref
+        // against the other: the schema that adds vertices reads as added.
+        let dir = tempfile::tempdir().unwrap();
+        let repo = init_repo(dir.path());
+        add_and_commit(repo, schema_with_vertices(&["a"]), "base", "alice");
+
+        // feature branch adds vertex b on top of base.
+        let mut bout: repr_c::Vec<u8> = Vec::new().into();
+        assert_eq!(
+            pp_vcs_branch(repo, slice_of(b"feature").as_ref(), &mut bout),
+            PpStatus::Ok as i32
+        );
+        pp_buf_free(bout);
+        let mut cout: repr_c::Vec<u8> = Vec::new().into();
+        assert_eq!(
+            pp_vcs_checkout(repo, slice_of(b"feature").as_ref(), &mut cout),
+            PpStatus::Ok as i32
+        );
+        pp_buf_free(cout);
+        add_and_commit(repo, schema_with_vertices(&["a", "b"]), "add b", "bob");
+
+        // Diff main (one vertex) against feature (two vertices): b added.
+        let mut out: repr_c::Vec<u8> = Vec::new().into();
+        assert_eq!(
+            pp_vcs_diff(
+                repo,
+                slice_of(b"main").as_ref(),
+                slice_of(b"feature").as_ref(),
+                &mut out,
+            ),
+            PpStatus::Ok as i32
+        );
+        let value: ciborium::value::Value = decode(&out).unwrap();
+        let map = value.as_map().expect("diff result is a map");
+        let mut added = 0u64;
+        let mut has_changes = false;
+        for (k, v) in map {
+            match k.as_text() {
+                Some("added") => {
+                    added = v
+                        .as_integer()
+                        .and_then(|i| u64::try_from(i).ok())
+                        .unwrap_or(0);
+                }
+                Some("changes") => has_changes = v.as_array().is_some_and(|a| !a.is_empty()),
+                _ => {}
+            }
+        }
+        assert_eq!(added, 1, "feature adds exactly vertex b over main");
+        assert!(has_changes, "diff should describe the added vertex");
         pp_buf_free(out);
 
         assert_eq!(pp_handle_free(repo), PpStatus::Ok as i32);

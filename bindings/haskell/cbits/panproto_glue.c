@@ -494,10 +494,24 @@ int32_t pp_gat_free_model_at(
     return pp_gat_free_model(theory, config, out_handle);
 }
 
+int32_t pp_gat_eval_in_model_at(
+    uint32_t model,
+    const uint8_t *op_name_ptr,
+    size_t op_name_len,
+    const uint8_t *args_ptr,
+    size_t args_len,
+    Vec_uint8_t *out
+) {
+    slice_ref_uint8_t op_name = { .ptr = op_name_ptr, .len = op_name_len };
+    slice_ref_uint8_t args = { .ptr = args_ptr, .len = args_len };
+    return pp_gat_eval_in_model(model, op_name, args, out);
+}
+
 /*
- * pp_gat_check_model and pp_gat_serialize_theory take only handle(s) and
- * a Vec_uint8_t* out, with no by-value slice arguments, so they are
- * imported directly without a pointer-based wrapper.
+ * pp_gat_check_model, pp_gat_model_sort_interp, and
+ * pp_gat_serialize_theory take only handle(s) and a Vec_uint8_t* out,
+ * with no by-value slice arguments, so they are imported directly without
+ * a pointer-based wrapper.
  */
 
 /* ---------- expr ---------- */
@@ -682,10 +696,26 @@ int32_t pp_vcs_merge_at(
     uint32_t repo,
     const uint8_t *branch_ptr,
     size_t branch_len,
+    const uint8_t *author_ptr,
+    size_t author_len,
     Vec_uint8_t *out
 ) {
     slice_ref_uint8_t branch = { .ptr = branch_ptr, .len = branch_len };
-    return pp_vcs_merge(repo, branch, out);
+    slice_ref_uint8_t author = { .ptr = author_ptr, .len = author_len };
+    return pp_vcs_merge(repo, branch, author, out);
+}
+
+int32_t pp_vcs_diff_at(
+    uint32_t repo,
+    const uint8_t *from_ptr,
+    size_t from_len,
+    const uint8_t *to_ptr,
+    size_t to_len,
+    Vec_uint8_t *out
+) {
+    slice_ref_uint8_t from = { .ptr = from_ptr, .len = from_len };
+    slice_ref_uint8_t to = { .ptr = to_ptr, .len = to_len };
+    return pp_vcs_diff(repo, from, to, out);
 }
 
 int32_t pp_vcs_blame_at(

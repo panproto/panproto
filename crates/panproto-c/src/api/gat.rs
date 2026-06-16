@@ -9,10 +9,13 @@
 //!
 //! Theories live in the slab as [`Resource::Theory`]; free models live as
 //! [`Resource::Model`]. A [`gat::Model`] carries operation
-//! interpretations as closures (`Arc<dyn Fn(...)>`), so it is held by
-//! handle and never serialized; only its sort interpretations cross the
-//! boundary (in [`pp_gat_migrate_model`]). The remaining entry points
-//! exchange CBOR payloads.
+//! interpretations as closures (`Arc<dyn Fn(...)>`), which stay
+//! in-process and never cross the boundary as data. The model is still
+//! fully evaluable and its carrier is extractable across the boundary:
+//! [`pp_gat_eval_in_model`] runs an operation in the model and returns
+//! the resulting [`gat::ModelValue`], and [`pp_gat_model_sort_interp`]
+//! emits the model's full carrier (its `sort_interp` map). The remaining
+//! entry points exchange CBOR payloads.
 
 use std::collections::HashMap;
 
@@ -260,6 +263,70 @@ pub fn pp_gat_check_model(model: u32, theory: u32, out: &mut repr_c::Vec<u8>) ->
 
         let descriptions: Vec<String> = violations.iter().map(|v| format!("{v:?}")).collect();
         *out = crate::canonical::encode(&descriptions)?.into();
+        Ok(PpStatus::Ok)
+    })
+}
+
+/// Evaluate an operation in a model and return the resulting value.
+///
+/// `model` is a [`Resource::Model`] handle; `op_name` is the UTF-8
+/// operation name; `args` is a CBOR-encoded `Vec<ModelValue>` of
+/// arguments. On success, `out` receives the CBOR-encoded
+/// [`gat::ModelValue`] the operation produced. The operation's
+/// interpretation (a closure held in the model) is run in-process; only
+/// its inputs and output cross the boundary, so a handle-held model is
+/// fully evaluable from the host. Calls [`gat::Model::eval`].
+///
+/// Returns [`PpStatus::Serialization`] on a malformed argument payload,
+/// [`PpStatus::InvalidHandle`] / [`PpStatus::TypeMismatch`] for a bad
+/// model handle, and [`PpStatus::Operation`] when the operation is not in
+/// the model or its interpretation fails.
+#[must_use = "FFI status codes should not be discarded"]
+#[ffi_export]
+pub fn pp_gat_eval_in_model(
+    model: u32,
+    op_name: c_slice::Ref<'_, u8>,
+    args: c_slice::Ref<'_, u8>,
+    out: &mut repr_c::Vec<u8>,
+) -> i32 {
+    guard(|| {
+        let op = std::str::from_utf8(op_name.as_slice())
+            .map_err(|e| FfiError::Operation(format!("invalid op name: {e}")))?;
+        let arg_values: Vec<gat::ModelValue> = crate::canonical::decode(args.as_slice())
+            .map_err(|e| FfiError::Serialization(format!("model args: {e}")))?;
+
+        let value = handle::with_resource(model, |r| {
+            let model = r.as_model()?;
+            model
+                .eval(op, &arg_values)
+                .map_err(|e| FfiError::Operation(format!("eval_in_model: {e}")))
+        })?;
+
+        *out = crate::canonical::encode(&value)?.into();
+        Ok(PpStatus::Ok)
+    })
+}
+
+/// Emit a model's full carrier: its sort-interpretation map.
+///
+/// `model` is a [`Resource::Model`] handle. On success, `out` receives
+/// the CBOR-encoded `HashMap<String, Vec<ModelValue>>` of the model's
+/// `sort_interp`: each sort name mapped to its carrier set. This is the
+/// extractable data half of a model (the operation interpretations stay
+/// in-process); paired with [`pp_gat_eval_in_model`], a handle-held model
+/// is both evaluable and its carrier serializable.
+///
+/// Returns [`PpStatus::InvalidHandle`] / [`PpStatus::TypeMismatch`] for a
+/// bad model handle.
+#[must_use = "FFI status codes should not be discarded"]
+#[ffi_export]
+pub fn pp_gat_model_sort_interp(model: u32, out: &mut repr_c::Vec<u8>) -> i32 {
+    guard(|| {
+        let bytes = handle::with_resource(model, |r| {
+            let model = r.as_model()?;
+            crate::canonical::encode(&model.sort_interp)
+        })?;
+        *out = bytes.into();
         Ok(PpStatus::Ok)
     })
 }
@@ -639,6 +706,115 @@ mod tests {
         let mut out: repr_c::Vec<u8> = Vec::new().into();
         assert_eq!(
             pp_gat_check_model(theory_h, theory_h, &mut out),
+            PpStatus::TypeMismatch as i32
+        );
+        pp_buf_free(out);
+        assert_eq!(pp_handle_free(theory_h), PpStatus::Ok as i32);
+    }
+
+    // ── pp_gat_eval_in_model + pp_gat_model_sort_interp ────────────────
+
+    #[test]
+    fn eval_in_model_runs_a_free_model_operation() {
+        // The free model of the collapsed pointed-set theory interprets
+        // its two nullary constants `a` and `b` as the single collapsed
+        // carrier element; evaluating either returns a sane ModelValue.
+        let theory_h = alloc_theory(theory_two_points_collapsed());
+        let mut model_h: u32 = u32::MAX;
+        let empty: c_slice::Box<u8> = Vec::new().into_boxed_slice().into();
+        assert_eq!(
+            pp_gat_free_model(theory_h, empty.as_ref(), &mut model_h),
+            PpStatus::Ok as i32
+        );
+
+        // Evaluate the nullary constant `a` (no arguments).
+        let no_args: Vec<gat::ModelValue> = Vec::new();
+        let args_bytes = encode(&no_args).unwrap();
+        let args_slice: c_slice::Box<u8> = args_bytes.into_boxed_slice().into();
+        let op_bytes: Box<[u8]> = b"a".to_vec().into_boxed_slice();
+        let op_slice: c_slice::Box<u8> = op_bytes.into();
+
+        let mut out: repr_c::Vec<u8> = Vec::new().into();
+        assert_eq!(
+            pp_gat_eval_in_model(model_h, op_slice.as_ref(), args_slice.as_ref(), &mut out),
+            PpStatus::Ok as i32
+        );
+        // The result decodes as a structured ModelValue (the carrier
+        // element `a` is interpreted as).
+        let value: gat::ModelValue = decode(&out).unwrap();
+        // A free model interprets a nullary constant as a term value; it
+        // is not the absent/null value.
+        assert_ne!(value, gat::ModelValue::Null, "eval should yield a value");
+        pp_buf_free(out);
+
+        assert_eq!(pp_handle_free(model_h), PpStatus::Ok as i32);
+        assert_eq!(pp_handle_free(theory_h), PpStatus::Ok as i32);
+    }
+
+    #[test]
+    fn eval_in_model_rejects_unknown_op() {
+        let _ = crate::error::take_last_error();
+        let theory_h = alloc_theory(theory_two_points_collapsed());
+        let mut model_h: u32 = u32::MAX;
+        let empty: c_slice::Box<u8> = Vec::new().into_boxed_slice().into();
+        assert_eq!(
+            pp_gat_free_model(theory_h, empty.as_ref(), &mut model_h),
+            PpStatus::Ok as i32
+        );
+
+        let no_args: Vec<gat::ModelValue> = Vec::new();
+        let args_bytes = encode(&no_args).unwrap();
+        let args_slice: c_slice::Box<u8> = args_bytes.into_boxed_slice().into();
+        let op_bytes: Box<[u8]> = b"nonexistent".to_vec().into_boxed_slice();
+        let op_slice: c_slice::Box<u8> = op_bytes.into();
+
+        let mut out: repr_c::Vec<u8> = Vec::new().into();
+        assert_eq!(
+            pp_gat_eval_in_model(model_h, op_slice.as_ref(), args_slice.as_ref(), &mut out),
+            PpStatus::Operation as i32
+        );
+        pp_buf_free(out);
+
+        assert_eq!(pp_handle_free(model_h), PpStatus::Ok as i32);
+        assert_eq!(pp_handle_free(theory_h), PpStatus::Ok as i32);
+    }
+
+    #[test]
+    fn model_sort_interp_is_non_empty_for_a_free_model() {
+        // A free model assigns a carrier set to every sort; the emitted
+        // map round-trips and carries the collapsed `S` carrier.
+        let theory_h = alloc_theory(theory_two_points_collapsed());
+        let mut model_h: u32 = u32::MAX;
+        let empty: c_slice::Box<u8> = Vec::new().into_boxed_slice().into();
+        assert_eq!(
+            pp_gat_free_model(theory_h, empty.as_ref(), &mut model_h),
+            PpStatus::Ok as i32
+        );
+
+        let mut out: repr_c::Vec<u8> = Vec::new().into();
+        assert_eq!(
+            pp_gat_model_sort_interp(model_h, &mut out),
+            PpStatus::Ok as i32
+        );
+        let sort_interp: HashMap<String, Vec<gat::ModelValue>> = decode(&out).unwrap();
+        assert!(
+            !sort_interp.is_empty(),
+            "a free model has at least one carrier set"
+        );
+        let carrier = sort_interp.get("S").expect("carrier for sort S");
+        assert_eq!(carrier.len(), 1, "a = b collapses S to a single class");
+        pp_buf_free(out);
+
+        assert_eq!(pp_handle_free(model_h), PpStatus::Ok as i32);
+        assert_eq!(pp_handle_free(theory_h), PpStatus::Ok as i32);
+    }
+
+    #[test]
+    fn model_sort_interp_rejects_non_model_handle() {
+        let theory_h = alloc_theory(theory_two_points_collapsed());
+        let mut out: repr_c::Vec<u8> = Vec::new().into();
+        assert_eq!(
+            pp_gat_model_sort_interp(theory_h, &mut out),
             PpStatus::TypeMismatch as i32
         );
         pp_buf_free(out);
