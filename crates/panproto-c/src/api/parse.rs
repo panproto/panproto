@@ -25,9 +25,7 @@
 
 use std::sync::Arc;
 
-use panproto_core::parse::{
-    ParseEmitLens, ParserRegistry, check_emit_parse, check_parse_emit,
-};
+use panproto_core::parse::{ParseEmitLens, ParserRegistry, check_emit_parse, check_parse_emit};
 use safer_ffi::prelude::*;
 
 use crate::error::{FfiError, PpStatus};
@@ -483,10 +481,7 @@ mod tests {
     fn protocol_names_lists_core_grammars() {
         let reg = new_registry();
         let mut out: repr_c::Vec<u8> = Vec::new().into();
-        assert_eq!(
-            pp_parse_protocol_names(reg, &mut out),
-            PpStatus::Ok as i32
-        );
+        assert_eq!(pp_parse_protocol_names(reg, &mut out), PpStatus::Ok as i32);
         let names: Vec<String> = decode(&out).unwrap();
         assert!(
             names.iter().any(|n| n == "go"),
@@ -505,10 +500,7 @@ mod tests {
         // available_grammars (registry-independent) and a fresh
         // registry's protocol_names report the same compiled-in set.
         let mut out: repr_c::Vec<u8> = Vec::new().into();
-        assert_eq!(
-            pp_parse_available_grammars(&mut out),
-            PpStatus::Ok as i32
-        );
+        assert_eq!(pp_parse_available_grammars(&mut out), PpStatus::Ok as i32);
         let grammars: Vec<String> = decode(&out).unwrap();
         pp_buf_free(out);
 

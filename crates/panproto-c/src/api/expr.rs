@@ -17,7 +17,6 @@ use std::sync::Arc;
 
 use panproto_core::gat::{self, Term, Theory, VarContext};
 use panproto_core::inst::{self, WInstance};
-use panproto_core::schema::{Schema, SchemaBuilder};
 use rustc_hash::FxHashMap;
 use safer_ffi::prelude::*;
 use serde::Serialize;
@@ -186,11 +185,10 @@ pub fn pp_expr_check(
 /// `node_id`, `anchor`, `value`, and `fields`. Calls
 /// [`inst::execute_query`].
 ///
-/// When `schema_handle` does not resolve to a schema (invalid handle or
-/// wrong resource type), a minimal placeholder schema (one `record`
-/// vertex named `_`) is used: this matches the WASM reference, where an
-/// empty schema payload triggers the same fallback, and is sufficient
-/// for queries that do not require schema-aware navigation.
+/// The schema handle must resolve to a
+/// [`Resource::Schema`](crate::handle::Resource); a bad handle yields
+/// [`PpStatus::InvalidHandle`] and a wrong resource type yields
+/// [`PpStatus::TypeMismatch`].
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_query_execute(
@@ -203,13 +201,8 @@ pub fn pp_query_execute(
         let query: inst::InstanceQuery = crate::canonical::decode(query.as_slice())?;
         let instance: WInstance = crate::canonical::decode(instance.as_slice())?;
 
-        // Resolve the anchoring schema. A bad or non-schema handle falls
-        // back to the minimal placeholder (mirrors the WASM empty-schema
-        // path), so queries that do not navigate the schema still run.
-        let schema = match handle::with_resource(schema_handle, |r| Ok(r.as_schema()?.clone())) {
-            Ok(s) => s,
-            Err(_) => placeholder_schema()?,
-        };
+        // The anchoring schema must be a live schema handle.
+        let schema = handle::with_resource(schema_handle, |r| Ok(r.as_schema()?.clone()))?;
 
         let matches = inst::execute_query(&query, &instance, &schema);
 
@@ -251,17 +244,6 @@ struct CheckOutput {
     error: Option<String>,
 }
 
-/// Build the minimal placeholder schema used by [`pp_query_execute`]
-/// when no valid schema handle is supplied: a single `record` vertex.
-fn placeholder_schema() -> Result<Schema, FfiError> {
-    let protocol = crate::api::helpers::default_protocol("_query_placeholder");
-    SchemaBuilder::new(&protocol)
-        .vertex("_", "record", None)
-        .map_err(|e| FfiError::Operation(format!("placeholder schema: {e}")))?
-        .build()
-        .map_err(|e| FfiError::Operation(format!("placeholder schema: {e}")))
-}
-
 /// Evaluate a GAT term recursively using a variable environment and
 /// theory.
 ///
@@ -269,8 +251,20 @@ fn placeholder_schema() -> Result<Schema, FfiError> {
 /// (`crates/panproto-wasm/src/api/helpers.rs`). Variables resolve against
 /// the environment; applications evaluate arguments and consult the
 /// theory's operation table; nullary constants reduce to their name as a
-/// string; `let` extends the environment; `case` and `hole` terms are not
-/// evaluable (they carry control flow / type information only).
+/// string; `let` extends the environment; `case` reduces the scrutinee
+/// to a constructor and evaluates the matching branch; `hole` terms are
+/// not evaluable (they carry type information only).
+///
+/// The symbolic term representation is the convention this evaluator
+/// already uses for applications: a nullary constructor `c` reduces to
+/// `Str("c")`, and an applied constructor `f(a, b)` reduces to a `Map`
+/// with keys `op` (the constructor name) and `args` (the evaluated
+/// arguments). `Case` matching reads that representation back: it
+/// extracts the constructor name and its arguments, finds the branch
+/// whose constructor matches, binds the branch's binders to the
+/// constructor arguments, and evaluates the chosen branch's body. This
+/// mirrors the `Term::Case` semantics in
+/// `panproto_gat::check_model::eval_term`.
 fn eval_term_recursive(
     term: &Term,
     env: &[(String, gat::ModelValue)],
@@ -312,8 +306,35 @@ fn eval_term_recursive(
                 map
             }))
         }
-        Term::Case { .. } => {
-            Err("case terms are not yet supported in expression evaluation".to_string())
+        Term::Case {
+            scrutinee,
+            branches,
+        } => {
+            let value = eval_term_recursive(scrutinee, env, theory)?;
+            let (constructor, ctor_args) = constructor_of(&value)?;
+
+            let branch = branches
+                .iter()
+                .find(|b| b.constructor.as_ref() == constructor.as_str())
+                .ok_or_else(|| format!("no case branch matches constructor '{constructor}'"))?;
+
+            if branch.binders.len() != ctor_args.len() {
+                return Err(format!(
+                    "case branch '{constructor}' binds {} names but the constructor \
+                     carries {} arguments",
+                    branch.binders.len(),
+                    ctor_args.len()
+                ));
+            }
+
+            // Bind each branch binder to the corresponding constructor
+            // argument, then evaluate the branch body in the extended
+            // environment.
+            let mut extended: Vec<(String, gat::ModelValue)> = env.to_vec();
+            for (binder, arg) in branch.binders.iter().zip(ctor_args) {
+                extended.push((binder.to_string(), arg));
+            }
+            eval_term_recursive(&branch.body, &extended, theory)
         }
         Term::Hole { .. } => {
             Err("typed holes cannot be evaluated; they only carry type information".to_string())
@@ -324,6 +345,32 @@ fn eval_term_recursive(
             extended.push((name.to_string(), v));
             eval_term_recursive(body, &extended, theory)
         }
+    }
+}
+
+/// Extract the constructor name and arguments a [`gat::ModelValue`]
+/// represents, in the symbolic-term convention this evaluator produces.
+///
+/// A nullary constructor reduces to `Str(name)` (no arguments); an
+/// applied constructor reduces to a `Map { op: Str(name), args: List }`.
+/// Any other value does not name a constructor and therefore cannot be
+/// case-analysed.
+fn constructor_of(value: &gat::ModelValue) -> Result<(String, Vec<gat::ModelValue>), String> {
+    match value {
+        gat::ModelValue::Str(name) => Ok((name.clone(), Vec::new())),
+        gat::ModelValue::Map(map) => {
+            let Some(gat::ModelValue::Str(name)) = map.get("op") else {
+                return Err("case scrutinee did not reduce to a matchable constructor".to_string());
+            };
+            let args = match map.get("args") {
+                Some(gat::ModelValue::List(items)) => items.clone(),
+                _ => Vec::new(),
+            };
+            Ok((name.clone(), args))
+        }
+        other => Err(format!(
+            "case scrutinee reduced to {other:?}, which does not name a constructor"
+        )),
     }
 }
 
@@ -672,12 +719,10 @@ mod tests {
     }
 
     #[test]
-    fn query_falls_back_to_placeholder_schema_on_bad_handle() {
-        // A `post` instance, but an invalid schema handle: the query
-        // engine still runs against the placeholder schema rather than
-        // erroring. Anchor matching is against the instance's node
-        // anchors (the schema is consulted only for schema-aware
-        // navigation), so the `post` node is still matched.
+    fn query_rejects_bad_schema_handle() {
+        // The query engine requires a live schema handle. u32::MAX is
+        // never a live handle, so the call reports InvalidHandle rather
+        // than fabricating a schema.
         let schema_h = handle::alloc(Resource::Schema(Arc::new(post_schema())));
         let mut inst_out: repr_c::Vec<u8> = Vec::new().into();
         assert_eq!(
@@ -699,17 +744,154 @@ mod tests {
         };
 
         let mut out: repr_c::Vec<u8> = Vec::new().into();
-        // u32::MAX is never a live handle, so the placeholder kicks in:
-        // the call succeeds instead of failing on the bad handle.
         let status = pp_query_execute(
             slice_of(encode(&query).unwrap()).as_ref(),
             slice_of(instance_bytes).as_ref(),
             u32::MAX,
             &mut out,
         );
-        assert_eq!(status, PpStatus::Ok as i32);
-        let results: Vec<serde_json::Value> = decode(&out).unwrap();
-        assert_eq!(results.len(), 1, "expected one post node, got {results:?}");
+        assert_eq!(status, PpStatus::InvalidHandle as i32);
+    }
+
+    // ── pp_expr_eval_gat: Case ─────────────────────────────────────────
+
+    /// A `Bool` theory with a closed sort `Bool` whose constructors are
+    /// `t` and `f`, plus a unary `not : Bool -> Bool`. The closed sort
+    /// makes `t`/`f` the complete constructor set for case analysis.
+    fn theory_bool() -> Theory {
+        use panproto_core::gat::Sort;
+        Theory::new(
+            "Bool",
+            vec![Sort::closed("Bool", vec![], ["t", "f"])],
+            vec![
+                Operation::nullary("t", "Bool"),
+                Operation::nullary("f", "Bool"),
+                Operation::unary("not", "x", "Bool", "Bool"),
+            ],
+            vec![],
+        )
+    }
+
+    #[test]
+    fn eval_gat_case_selects_matching_branch() {
+        let theory_h = handle::alloc(Resource::Theory(Box::new(theory_bool())));
+
+        // case t of t => f | f => t end. The scrutinee `t` reduces to
+        // Str("t"), matching the first branch, whose body `f` reduces to
+        // Str("f").
+        let term = Term::Case {
+            scrutinee: Box::new(Term::App {
+                op: Arc::from("t"),
+                args: vec![],
+            }),
+            branches: vec![
+                panproto_core::gat::CaseBranch {
+                    constructor: Arc::from("t"),
+                    binders: vec![],
+                    body: Term::App {
+                        op: Arc::from("f"),
+                        args: vec![],
+                    },
+                },
+                panproto_core::gat::CaseBranch {
+                    constructor: Arc::from("f"),
+                    binders: vec![],
+                    body: Term::App {
+                        op: Arc::from("t"),
+                        args: vec![],
+                    },
+                },
+            ],
+        };
+        let env: Vec<(String, ModelValue)> = vec![];
+
+        let mut out: repr_c::Vec<u8> = Vec::new().into();
+        assert_eq!(
+            pp_expr_eval_gat(
+                slice_of(encode(&term).unwrap()).as_ref(),
+                slice_of(encode(&env).unwrap()).as_ref(),
+                theory_h,
+                &mut out,
+            ),
+            PpStatus::Ok as i32
+        );
+        let result: ModelValue = decode(&out).unwrap();
+        assert_eq!(result, ModelValue::Str("f".to_string()));
         pp_buf_free(out);
+
+        assert_eq!(pp_handle_free(theory_h), PpStatus::Ok as i32);
+    }
+
+    #[test]
+    fn eval_gat_case_binds_constructor_arguments() {
+        // A scrutinee that is an applied constructor `not(t)` reduces to a
+        // structured Map; the matching branch binds the single argument
+        // and returns it, so the result is the evaluated argument t.
+        let theory_h = handle::alloc(Resource::Theory(Box::new(theory_bool())));
+
+        let term = Term::Case {
+            scrutinee: Box::new(Term::App {
+                op: Arc::from("not"),
+                args: vec![Term::App {
+                    op: Arc::from("t"),
+                    args: vec![],
+                }],
+            }),
+            branches: vec![panproto_core::gat::CaseBranch {
+                constructor: Arc::from("not"),
+                binders: vec![Arc::from("inner")],
+                body: Term::Var(Arc::from("inner")),
+            }],
+        };
+        let env: Vec<(String, ModelValue)> = vec![];
+
+        let mut out: repr_c::Vec<u8> = Vec::new().into();
+        assert_eq!(
+            pp_expr_eval_gat(
+                slice_of(encode(&term).unwrap()).as_ref(),
+                slice_of(encode(&env).unwrap()).as_ref(),
+                theory_h,
+                &mut out,
+            ),
+            PpStatus::Ok as i32
+        );
+        let result: ModelValue = decode(&out).unwrap();
+        // not(t) binds `inner` to the evaluated argument t = Str("t").
+        assert_eq!(result, ModelValue::Str("t".to_string()));
+        pp_buf_free(out);
+
+        assert_eq!(pp_handle_free(theory_h), PpStatus::Ok as i32);
+    }
+
+    #[test]
+    fn eval_gat_case_no_matching_branch_is_error() {
+        let theory_h = handle::alloc(Resource::Theory(Box::new(theory_bool())));
+
+        // Scrutinee reduces to Str("t") but the only branch matches `f`.
+        let term = Term::Case {
+            scrutinee: Box::new(Term::App {
+                op: Arc::from("t"),
+                args: vec![],
+            }),
+            branches: vec![panproto_core::gat::CaseBranch {
+                constructor: Arc::from("f"),
+                binders: vec![],
+                body: Term::App {
+                    op: Arc::from("t"),
+                    args: vec![],
+                },
+            }],
+        };
+        let env: Vec<(String, ModelValue)> = vec![];
+
+        let mut out: repr_c::Vec<u8> = Vec::new().into();
+        let status = pp_expr_eval_gat(
+            slice_of(encode(&term).unwrap()).as_ref(),
+            slice_of(encode(&env).unwrap()).as_ref(),
+            theory_h,
+            &mut out,
+        );
+        assert_eq!(status, PpStatus::Operation as i32);
+        assert_eq!(pp_handle_free(theory_h), PpStatus::Ok as i32);
     }
 }

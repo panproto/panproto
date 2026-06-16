@@ -363,6 +363,27 @@ pp_expr_parse (
     Vec_uint8_t * out);
 
 /** \brief
+ *  Check a model against a theory, returning equation violations.
+ *
+ *  `model` is a [`Resource::Model`] handle; `theory` is a
+ *  [`Resource::Theory`] handle. On success, `out` receives a
+ *  CBOR-encoded `Vec<String>` of violation descriptions (the `Debug`
+ *  rendering of each `gat::EquationViolation`), empty when the model
+ *  satisfies every equation. A satisfied and a violated model both
+ *  return [`PpStatus::Ok`]; the verdict lives in the payload.
+ *
+ *  Returns [`PpStatus::InvalidHandle`] / [`PpStatus::TypeMismatch`] for a
+ *  bad handle, and [`PpStatus::Operation`] when checking itself fails (a
+ *  missing carrier set, or an assignment count that exceeds the engine
+ *  bound). Calls `gat::check_model`.
+ */
+int32_t
+pp_gat_check_model (
+    uint32_t model,
+    uint32_t theory,
+    Vec_uint8_t * out);
+
+/** \brief
  *  Check the validity of a theory morphism.
  *
  *  `morphism` is a CBOR-encoded [`gat::TheoryMorphism`]; `domain` and
@@ -411,6 +432,32 @@ pp_gat_create_theory (
     uint32_t * out_handle);
 
 /** \brief
+ *  Construct a bounded approximation of the free (initial) model of a
+ *  theory.
+ *
+ *  `theory` is a [`Resource::Theory`] handle; `config` is an optional
+ *  CBOR-encoded [`FreeModelConfigSpec`] (`{max_depth, max_terms_per_sort}`).
+ *  An empty slice selects the engine defaults. On success, `out_handle`
+ *  receives a fresh [`Resource::Model`] handle holding the constructed
+ *  model.
+ *
+ *  The model is held by handle rather than serialized: a model's
+ *  operation interpretations are closures (`Arc<dyn Fn(...)>`) that
+ *  cannot cross the ABI. Calls `gat::free_model`.
+ *
+ *  Returns [`PpStatus::Serialization`] on a malformed config payload,
+ *  [`PpStatus::InvalidHandle`] / [`PpStatus::TypeMismatch`] for a bad
+ *  theory handle, and [`PpStatus::Operation`] when free-model
+ *  construction fails (a cyclic sort dependency or an exceeded term
+ *  bound).
+ */
+int32_t
+pp_gat_free_model (
+    uint32_t theory,
+    slice_ref_uint8_t config,
+    uint32_t * out_handle);
+
+/** \brief
  *  Migrate a model through a theory morphism.
  *
  *  `model` is a CBOR-encoded sort-interpretation map
@@ -430,6 +477,23 @@ int32_t
 pp_gat_migrate_model (
     slice_ref_uint8_t model,
     slice_ref_uint8_t morphism,
+    Vec_uint8_t * out);
+
+/** \brief
+ *  Serialize the theory behind a handle to CBOR.
+ *
+ *  `theory` is a [`Resource::Theory`] handle. On success, `out` receives
+ *  the CBOR-encoded [`gat::Theory`] in the same shape
+ *  [`pp_gat_create_theory`] decodes, so an engine-produced theory (a
+ *  colimit result, for instance) can be reified by the host and fed back
+ *  in.
+ *
+ *  Returns [`PpStatus::InvalidHandle`] / [`PpStatus::TypeMismatch`] for a
+ *  bad handle.
+ */
+int32_t
+pp_gat_serialize_theory (
+    uint32_t theory,
     Vec_uint8_t * out);
 
 /** \brief
@@ -781,6 +845,13 @@ pp_last_error_take (
  *  UTF-8 tier name. On success, `out` receives a CBOR-encoded
  *  `{ candidates, coerce_proposals }` record. Calls
  *  `lens::auto_generate_candidates`.
+ *
+ *  Each candidate entry carries its instantiable `chain`: the candidate's
+ *  `ProtolensChain` serialized in the same JSON shape
+ *  `ProtolensChain::to_json` emits, so the host can feed it back through
+ *  `pp_protolens_from_json` and `pp_protolens_instantiate` to obtain a
+ *  runnable lens. The score, coverage, quality, strategies, and per-step
+ *  explanations travel alongside it.
  */
 int32_t
 pp_lens_auto_generate_candidates (
@@ -1215,11 +1286,9 @@ pp_protolens_instantiate (
  *  `node_id`, `anchor`, `value`, and `fields`. Calls
  *  [`inst::execute_query`].
  *
- *  When `schema_handle` does not resolve to a schema (invalid handle or
- *  wrong resource type), a minimal placeholder schema (one `record`
- *  vertex named `_`) is used: this matches the WASM reference, where an
- *  empty schema payload triggers the same fallback, and is sufficient
- *  for queries that do not require schema-aware navigation.
+ *  The schema handle must resolve to a [`Resource::Schema`]; a bad
+ *  handle yields [`PpStatus::InvalidHandle`] and a wrong resource type
+ *  yields [`PpStatus::TypeMismatch`].
  */
 int32_t
 pp_query_execute (
@@ -1423,9 +1492,10 @@ pp_schema_validate (
  *
  *  `repo` is a VCS repo handle; `schema` is a
  *  [`Resource::Schema`](crate::handle::Resource) handle. On success,
- *  `out` receives a CBOR-encoded
- *  [`VcsAddResult`] carrying the
- *  staged schema's object id. Calls `vcs::tree::store_schema_as_tree`.
+ *  `out` receives a CBOR-encoded add result carrying the staged schema's
+ *  object id, whether a migration from HEAD was auto-derived, the
+ *  validation verdict, and any validation messages. Calls
+ *  `Repository::add`.
  */
 int32_t
 pp_vcs_add (
@@ -1477,14 +1547,13 @@ pp_vcs_checkout (
  *  Commit the staged schema in a VCS repository.
  *
  *  `repo` is a VCS repo handle; `message` and `author` are UTF-8 bytes.
+ *  Calls `Repository::commit`, which builds a commit from the staging
+ *  index and advances HEAD. On success, `out` receives a CBOR-encoded
+ *  commit result carrying the new commit id, the recorded message and
+ *  author, and the commit timestamp.
  *
- *  In-memory repositories carry no staging *index* (that lives in the
- *  filesystem-backed `Repository`, not the `Store` trait `MemStore`
- *  implements), so there is nothing for `MemStore` to commit. This
- *  mirrors the WASM reference exactly: HEAD is resolved to confirm the
- *  repo is well-formed, then an [`FfiError::Operation`] is returned
- *  describing the limitation, echoing the message, author, and current
- *  HEAD. The status is therefore [`PpStatus::Operation`].
+ *  Returns [`PpStatus::Operation`] when there is nothing staged or when
+ *  GAT validation blocks the commit.
  */
 int32_t
 pp_vcs_commit (
@@ -1494,13 +1563,16 @@ pp_vcs_commit (
     Vec_uint8_t * out);
 
 /** \brief
- *  Structural diff for the repository.
+ *  Structural diff of the most recent schema change at HEAD.
  *
- *  `repo` is a VCS repo handle. The in-memory store holds no staged
- *  change to diff against HEAD, so the diff reports zero structural
- *  counts and renders the branch listing as informational change lines,
- *  surfacing the same state the WASM reference does. On success, `out`
- *  receives a CBOR-encoded diff record.
+ *  `repo` is a VCS repo handle. The HEAD commit's schema is diffed
+ *  against its first parent's schema via `panproto_check::diff`,
+ *  surfacing the change the latest commit introduced. A root commit (no
+ *  parent) is diffed against the empty schema, so every element reads as
+ *  added; an empty repository (unborn HEAD) yields a zero-change record.
+ *  On success, `out` receives a CBOR-encoded diff record carrying the
+ *  added / removed / modified counts and the human-readable change
+ *  descriptions.
  */
 int32_t
 pp_vcs_diff (
@@ -1508,18 +1580,19 @@ pp_vcs_diff (
     Vec_uint8_t * out);
 
 /** \brief
- *  Initialize an in-memory VCS repository.
+ *  Open or initialize an on-disk VCS repository at a filesystem path.
  *
- *  `protocol_name` is the UTF-8 protocol name bytes (currently advisory:
- *  the in-memory store tracks the protocol per commit, not per repo, so
- *  this argument is accepted for parity with the WASM and Python
- *  surfaces and validated as UTF-8). On success, `out_handle` receives a
- *  fresh [`Resource::VcsRepo`](crate::handle::Resource) handle wrapping a
- *  `vcs::MemStore` whose HEAD points at `main`.
+ *  `path` is the UTF-8 path bytes of the repository's working directory.
+ *  If a `.panproto/` store already exists there, the repository is opened
+ *  via `Repository::open`; otherwise it is created via `Repository::init`
+ *  (which writes the `.panproto/` directory structure and sets HEAD to
+ *  `main`). On success, `out_handle` receives a fresh
+ *  [`Resource::VcsRepo`](crate::handle::Resource) handle wrapping the
+ *  `Repository`.
  */
 int32_t
 pp_vcs_init (
-    slice_ref_uint8_t protocol_name,
+    slice_ref_uint8_t path,
     uint32_t * out_handle);
 
 /** \brief
@@ -1527,7 +1600,7 @@ pp_vcs_init (
  *
  *  `repo` is a VCS repo handle; `count` caps the walk length. On success,
  *  `out` receives a CBOR-encoded log result (a map with an `entries`
- *  list, newest first). Calls `vcs::dag::log_walk`. Each entry's
+ *  list, newest first). Calls `Repository::log`. Each entry's
  *  `commit_id` is recomputed from the commit object via
  *  `vcs::hash::hash_commit` (the `CommitObject` does not carry its own
  *  id). An empty repository yields an empty entry list.
@@ -1541,12 +1614,14 @@ pp_vcs_log (
 /** \brief
  *  Merge a branch into the current branch.
  *
- *  `repo` is a VCS repo handle; `branch` is the UTF-8 branch name. The
- *  merge target is resolved via `vcs::refs::resolve_ref`; a full
- *  three-way merge requires the index-backed `Repository`, so for the
- *  in-memory store this reports the resolved target as a conflict-free
- *  summary rather than fabricating a merge commit. On success, `out`
- *  receives a CBOR-encoded merge result.
+ *  `repo` is a VCS repo handle; `branch` is the UTF-8 branch name. Calls
+ *  `Repository::merge`, a real three-way merge that fast-forwards or
+ *  creates a merge commit as appropriate. The merge commit (when one is
+ *  created) is attributed to the `"merge"` author, since the frozen C
+ *  signature carries no author argument. On success, `out` receives a
+ *  CBOR-encoded merge result carrying the fast-forward flag, the
+ *  resulting HEAD commit, and the conflict descriptions (empty on a
+ *  clean merge).
  */
 int32_t
 pp_vcs_merge (
@@ -1555,13 +1630,14 @@ pp_vcs_merge (
     Vec_uint8_t * out);
 
 /** \brief
- *  Stash the current working state.
+ *  Stash the current staged schema.
  *
- *  `repo` is a VCS repo handle. Reads the stash stack via
- *  `vcs::stash::stash_list`. The in-memory store has no working tree to
- *  stash, so this reports the existing stack with the most-recent entry
- *  echoed as `stashed` (or a neutral entry when the stack is empty). On
+ *  `repo` is a VCS repo handle. Pushes the currently staged schema onto
+ *  the stash stack via `vcs::stash::stash_push`, clears the staging
+ *  index, and reports the new stash entry plus the full stack. On
  *  success, `out` receives a CBOR-encoded stash result.
+ *
+ *  Returns [`PpStatus::Operation`] when there is nothing staged to stash.
  */
 int32_t
 pp_vcs_stash (
@@ -1572,8 +1648,9 @@ pp_vcs_stash (
  *  Pop the most recent stash entry.
  *
  *  `repo` is a VCS repo handle. Calls `vcs::stash::stash_pop`, restoring
- *  the schema staged in the popped stash, then reports the restored
- *  schema id and the remaining stack as a CBOR-encoded stash-pop result.
+ *  the schema staged in the popped stash into the index, then reports
+ *  the restored schema id and the remaining stack as a CBOR-encoded
+ *  stash-pop result.
  */
 int32_t
 pp_vcs_stash_pop (
@@ -1581,12 +1658,12 @@ pp_vcs_stash_pop (
     Vec_uint8_t * out);
 
 /** \brief
- *  Get repository status (branch and HEAD).
+ *  Get repository status (HEAD, staging, working state).
  *
  *  `repo` is a VCS repo handle. On success, `out` receives a
  *  CBOR-encoded status record: HEAD state, the resolved HEAD commit
  *  (absent for an empty repo), and `has_staged` / `working_dirty`
- *  booleans (both `false` for an in-memory store with no index).
+ *  booleans read from the staging index.
  */
 int32_t
 pp_vcs_status (

@@ -147,8 +147,7 @@ pub fn pp_project_build(builder: u32, out_handle: &mut u32) -> i32 {
 #[ffi_export]
 pub fn pp_project_schema_get(project: u32, out_handle: &mut u32) -> i32 {
     guard(|| {
-        let schema =
-            handle::with_resource(project, |r| Ok(r.as_project_schema()?.schema.clone()))?;
+        let schema = handle::with_resource(project, |r| Ok(r.as_project_schema()?.schema.clone()))?;
         *out_handle = handle::alloc(Resource::Schema(std::sync::Arc::new(schema)));
         Ok(PpStatus::Ok)
     })
@@ -197,10 +196,7 @@ mod tests {
     /// project-schema handle.
     fn build_from_files(files: &[(&str, &[u8])]) -> u32 {
         let mut builder_h: u32 = u32::MAX;
-        assert_eq!(
-            pp_project_builder_new(&mut builder_h),
-            PpStatus::Ok as i32
-        );
+        assert_eq!(pp_project_builder_new(&mut builder_h), PpStatus::Ok as i32);
 
         for (path, content) in files {
             let path_slice = slice_box(path.as_bytes());
@@ -277,10 +273,7 @@ mod tests {
     fn build_empty_project_is_an_operation_error() {
         let _ = crate::error::take_last_error();
         let mut builder_h: u32 = u32::MAX;
-        assert_eq!(
-            pp_project_builder_new(&mut builder_h),
-            PpStatus::Ok as i32
-        );
+        assert_eq!(pp_project_builder_new(&mut builder_h), PpStatus::Ok as i32);
 
         let mut project_h: u32 = u32::MAX;
         let status = pp_project_build(builder_h, &mut project_h);
@@ -298,10 +291,7 @@ mod tests {
     fn add_file_invalid_utf8_path_is_an_operation_error() {
         let _ = crate::error::take_last_error();
         let mut builder_h: u32 = u32::MAX;
-        assert_eq!(
-            pp_project_builder_new(&mut builder_h),
-            PpStatus::Ok as i32
-        );
+        assert_eq!(pp_project_builder_new(&mut builder_h), PpStatus::Ok as i32);
 
         let path = slice_box(&[0xFF, 0xFE]); // not valid UTF-8
         let content = slice_box(b"x");

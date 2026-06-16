@@ -1,5 +1,5 @@
 //! GAT operations: theory construction, colimit, morphism checking,
-//! model migration.
+//! model migration, free-model construction, and model checking.
 //!
 //! Ported from `panproto_wasm::api::gat` (see
 //! `crates/panproto-wasm/src/api/gat.rs`) to the panproto-c conventions:
@@ -7,21 +7,65 @@
 //! [`crate::handle`] slab, and panic-safe entry points wrapped in
 //! [`crate::panic::guard`].
 //!
-//! Theories live in the slab as [`Resource::Theory`]; the other three
-//! entry points exchange CBOR payloads. Model migration only moves the
-//! sort-interpretation map: operation interpretations are closures
-//! (`Arc<dyn Fn(...)>`) that cannot cross the ABI, so they are neither
-//! serialized nor reconstructed here.
+//! Theories live in the slab as [`Resource::Theory`]; free models live as
+//! [`Resource::Model`]. A [`gat::Model`] carries operation
+//! interpretations as closures (`Arc<dyn Fn(...)>`), so it is held by
+//! handle and never serialized; only its sort interpretations cross the
+//! boundary (in [`pp_gat_migrate_model`]). The remaining entry points
+//! exchange CBOR payloads.
 
 use std::collections::HashMap;
 
-use panproto_core::gat::{self};
+use panproto_core::gat::{self, FreeModelConfig};
 use safer_ffi::prelude::*;
+use serde::Deserialize;
 
 use crate::api::helpers::MorphismCheckResult;
 use crate::error::{FfiError, PpStatus};
 use crate::handle::{self, Resource, with_three_resources, with_two_resources};
 use crate::panic::guard;
+
+/// CBOR config payload for [`pp_gat_free_model`].
+///
+/// Mirrors the public fields of [`gat::FreeModelConfig`]. Each field is
+/// `serde(default)`, so an empty or partial payload falls back to the
+/// engine defaults (`max_depth = 3`, `max_terms_per_sort = 1000`).
+#[derive(Debug, Deserialize)]
+struct FreeModelConfigSpec {
+    /// Maximum depth of term generation.
+    #[serde(default = "default_max_depth")]
+    max_depth: usize,
+    /// Maximum number of terms per sort (safety bound).
+    #[serde(default = "default_max_terms_per_sort")]
+    max_terms_per_sort: usize,
+}
+
+fn default_max_depth() -> usize {
+    FreeModelConfig::default().max_depth
+}
+
+fn default_max_terms_per_sort() -> usize {
+    FreeModelConfig::default().max_terms_per_sort
+}
+
+impl Default for FreeModelConfigSpec {
+    fn default() -> Self {
+        let cfg = FreeModelConfig::default();
+        Self {
+            max_depth: cfg.max_depth,
+            max_terms_per_sort: cfg.max_terms_per_sort,
+        }
+    }
+}
+
+impl From<FreeModelConfigSpec> for FreeModelConfig {
+    fn from(spec: FreeModelConfigSpec) -> Self {
+        Self {
+            max_depth: spec.max_depth,
+            max_terms_per_sort: spec.max_terms_per_sort,
+        }
+    }
+}
 
 /// Create a GAT theory from a CBOR spec.
 ///
@@ -149,18 +193,128 @@ pub fn pp_gat_migrate_model(
     })
 }
 
+/// Construct a bounded approximation of the free (initial) model of a
+/// theory.
+///
+/// `theory` is a [`Resource::Theory`] handle; `config` is an optional
+/// CBOR-encoded free-model config (`{max_depth, max_terms_per_sort}`); an
+/// empty slice selects the engine defaults. On success, `out_handle`
+/// receives a fresh [`Resource::Model`] handle holding the constructed
+/// model.
+///
+/// The model is held by handle rather than serialized: a model's
+/// operation interpretations are closures (`Arc<dyn Fn(...)>`) that
+/// cannot cross the ABI. Calls `gat::free_model`.
+///
+/// Returns [`PpStatus::Serialization`] on a malformed config payload,
+/// [`PpStatus::InvalidHandle`] / [`PpStatus::TypeMismatch`] for a bad
+/// theory handle, and [`PpStatus::Operation`] when free-model
+/// construction fails (a cyclic sort dependency or an exceeded term
+/// bound).
+#[must_use = "FFI status codes should not be discarded"]
+#[ffi_export]
+pub fn pp_gat_free_model(theory: u32, config: c_slice::Ref<'_, u8>, out_handle: &mut u32) -> i32 {
+    guard(|| {
+        let spec: FreeModelConfigSpec = if config.as_slice().is_empty() {
+            FreeModelConfigSpec::default()
+        } else {
+            crate::canonical::decode(config.as_slice())?
+        };
+        let cfg: FreeModelConfig = spec.into();
+
+        let model = handle::with_resource(theory, |r| {
+            let theory = r.as_theory()?;
+            gat::free_model(theory, &cfg)
+                .map(|result| result.model)
+                .map_err(|e| FfiError::Operation(format!("free_model: {e}")))
+        })?;
+
+        *out_handle = handle::alloc(Resource::Model(Box::new(model)));
+        Ok(PpStatus::Ok)
+    })
+}
+
+/// Check a model against a theory, returning equation violations.
+///
+/// `model` is a [`Resource::Model`] handle; `theory` is a
+/// [`Resource::Theory`] handle. On success, `out` receives a
+/// CBOR-encoded `Vec<String>` of violation descriptions (the `Debug`
+/// rendering of each `gat::EquationViolation`), empty when the model
+/// satisfies every equation. A satisfied and a violated model both
+/// return [`PpStatus::Ok`]; the verdict lives in the payload.
+///
+/// Returns [`PpStatus::InvalidHandle`] / [`PpStatus::TypeMismatch`] for a
+/// bad handle, and [`PpStatus::Operation`] when checking itself fails (a
+/// missing carrier set, or an assignment count that exceeds the engine
+/// bound). Calls `gat::check_model`.
+#[must_use = "FFI status codes should not be discarded"]
+#[ffi_export]
+pub fn pp_gat_check_model(model: u32, theory: u32, out: &mut repr_c::Vec<u8>) -> i32 {
+    guard(|| {
+        let violations = with_two_resources(model, theory, |rm, rt| {
+            let model = rm.as_model()?;
+            let theory = rt.as_theory()?;
+            gat::check_model(model, theory)
+                .map_err(|e| FfiError::Operation(format!("check_model: {e}")))
+        })?;
+
+        let descriptions: Vec<String> = violations.iter().map(|v| format!("{v:?}")).collect();
+        *out = crate::canonical::encode(&descriptions)?.into();
+        Ok(PpStatus::Ok)
+    })
+}
+
+/// Serialize the theory behind a handle to CBOR.
+///
+/// `theory` is a [`Resource::Theory`] handle. On success, `out` receives
+/// the CBOR-encoded [`gat::Theory`] in the same shape
+/// [`pp_gat_create_theory`] decodes, so an engine-produced theory (a
+/// colimit result, for instance) can be reified by the host and fed back
+/// in.
+///
+/// Returns [`PpStatus::InvalidHandle`] / [`PpStatus::TypeMismatch`] for a
+/// bad handle.
+#[must_use = "FFI status codes should not be discarded"]
+#[ffi_export]
+pub fn pp_gat_serialize_theory(theory: u32, out: &mut repr_c::Vec<u8>) -> i32 {
+    guard(|| {
+        let bytes = handle::with_resource(theory, |r| {
+            let theory = r.as_theory()?;
+            crate::canonical::encode(theory)
+        })?;
+        *out = bytes.into();
+        Ok(PpStatus::Ok)
+    })
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use std::collections::HashMap;
     use std::sync::Arc;
 
-    use panproto_core::gat::{self, Operation, Sort, Theory, TheoryMorphism};
+    use panproto_core::gat::{self, Equation, Operation, Sort, Term, Theory, TheoryMorphism};
 
     use super::*;
     use crate::api::{pp_buf_free, pp_handle_free};
     use crate::canonical::{decode, encode};
     use crate::handle::with_resource;
+
+    /// A pointed-set theory `{ S }` with two constants `a, b : S` and an
+    /// equation `a = b`. Its free model has a single carrier element and
+    /// satisfies the equation.
+    fn theory_two_points_collapsed() -> Theory {
+        Theory::new(
+            "TwoPoints",
+            vec![Sort::simple("S")],
+            vec![Operation::nullary("a", "S"), Operation::nullary("b", "S")],
+            vec![Equation::new(
+                "a_eq_b",
+                Term::constant("a"),
+                Term::constant("b"),
+            )],
+        )
+    }
 
     /// A two-sort theory `{ A, B }` with a single op `f : A -> B`.
     fn theory_ab() -> Theory {
@@ -378,5 +532,172 @@ mod tests {
             PpStatus::Serialization as i32
         );
         pp_buf_free(out);
+    }
+
+    // ── pp_gat_free_model + pp_gat_check_model ─────────────────────────
+
+    #[test]
+    fn free_model_with_default_config_builds_model_handle() {
+        let theory_h = alloc_theory(theory_two_points_collapsed());
+
+        // Empty config slice selects the engine defaults.
+        let mut model_h: u32 = u32::MAX;
+        let empty: c_slice::Box<u8> = Vec::new().into_boxed_slice().into();
+        assert_eq!(
+            pp_gat_free_model(theory_h, empty.as_ref(), &mut model_h),
+            PpStatus::Ok as i32
+        );
+        assert_ne!(model_h, u32::MAX);
+
+        // The handle resolves to a Model whose single carrier is the
+        // collapsed `{a, b}` class.
+        let sort_keys = with_resource(model_h, |r| {
+            let m = r.as_model()?;
+            let carrier = m
+                .sort_interp
+                .get("S")
+                .cloned()
+                .ok_or_else(|| FfiError::Operation("no carrier S".to_owned()))?;
+            Ok(carrier.len())
+        })
+        .unwrap();
+        assert_eq!(sort_keys, 1, "a = b collapses S to a single class");
+
+        assert_eq!(pp_handle_free(model_h), PpStatus::Ok as i32);
+        assert_eq!(pp_handle_free(theory_h), PpStatus::Ok as i32);
+    }
+
+    #[test]
+    fn free_model_honors_explicit_config() {
+        let theory_h = alloc_theory(theory_two_points_collapsed());
+
+        let cfg = encode(&serde_json::json!({
+            "max_depth": 1,
+            "max_terms_per_sort": 100
+        }))
+        .unwrap();
+        let cfg_slice: c_slice::Box<u8> = cfg.into_boxed_slice().into();
+
+        let mut model_h: u32 = u32::MAX;
+        assert_eq!(
+            pp_gat_free_model(theory_h, cfg_slice.as_ref(), &mut model_h),
+            PpStatus::Ok as i32
+        );
+        assert_ne!(model_h, u32::MAX);
+
+        assert_eq!(pp_handle_free(model_h), PpStatus::Ok as i32);
+        assert_eq!(pp_handle_free(theory_h), PpStatus::Ok as i32);
+    }
+
+    #[test]
+    fn free_model_rejects_non_theory_handle() {
+        let schema = handle::alloc(Resource::Protocol(
+            Box::<panproto_core::schema::Protocol>::default(),
+        ));
+        let mut model_h: u32 = u32::MAX;
+        let empty: c_slice::Box<u8> = Vec::new().into_boxed_slice().into();
+        assert_eq!(
+            pp_gat_free_model(schema, empty.as_ref(), &mut model_h),
+            PpStatus::TypeMismatch as i32
+        );
+        assert_eq!(pp_handle_free(schema), PpStatus::Ok as i32);
+    }
+
+    #[test]
+    fn check_model_of_free_model_reports_no_violations() {
+        // The free model of a theory satisfies that theory's equations by
+        // construction, so check_model returns an empty violation list.
+        let theory_h = alloc_theory(theory_two_points_collapsed());
+
+        let mut model_h: u32 = u32::MAX;
+        let empty: c_slice::Box<u8> = Vec::new().into_boxed_slice().into();
+        assert_eq!(
+            pp_gat_free_model(theory_h, empty.as_ref(), &mut model_h),
+            PpStatus::Ok as i32
+        );
+
+        let mut out: repr_c::Vec<u8> = Vec::new().into();
+        assert_eq!(
+            pp_gat_check_model(model_h, theory_h, &mut out),
+            PpStatus::Ok as i32
+        );
+        let violations: Vec<String> = decode(&out).unwrap();
+        assert!(
+            violations.is_empty(),
+            "free model should satisfy its theory, got {violations:?}"
+        );
+        pp_buf_free(out);
+
+        assert_eq!(pp_handle_free(model_h), PpStatus::Ok as i32);
+        assert_eq!(pp_handle_free(theory_h), PpStatus::Ok as i32);
+    }
+
+    #[test]
+    fn check_model_rejects_non_model_handle() {
+        let theory_h = alloc_theory(theory_two_points_collapsed());
+        // A theory handle passed where a model is expected is a mismatch.
+        let mut out: repr_c::Vec<u8> = Vec::new().into();
+        assert_eq!(
+            pp_gat_check_model(theory_h, theory_h, &mut out),
+            PpStatus::TypeMismatch as i32
+        );
+        pp_buf_free(out);
+        assert_eq!(pp_handle_free(theory_h), PpStatus::Ok as i32);
+    }
+
+    // ── pp_gat_serialize_theory ────────────────────────────────────────
+
+    #[test]
+    fn serialize_theory_round_trips_through_create() {
+        // Serializing an engine-produced colimit theory and feeding it
+        // back through pp_gat_create_theory reconstructs the same shape.
+        let h1 = alloc_theory(theory_ab());
+        let h2 = alloc_theory(theory_ab());
+        let shared = alloc_theory(theory_a());
+        let mut colimit_h: u32 = u32::MAX;
+        assert_eq!(
+            pp_gat_colimit(h1, h2, shared, &mut colimit_h),
+            PpStatus::Ok as i32
+        );
+
+        let mut out: repr_c::Vec<u8> = Vec::new().into();
+        assert_eq!(
+            pp_gat_serialize_theory(colimit_h, &mut out),
+            PpStatus::Ok as i32
+        );
+        let serialized = out.to_vec();
+        pp_buf_free(out);
+
+        // Reify the serialized theory.
+        let serialized_slice: c_slice::Box<u8> = serialized.into_boxed_slice().into();
+        let mut reified_h: u32 = u32::MAX;
+        assert_eq!(
+            pp_gat_create_theory(serialized_slice.as_ref(), &mut reified_h),
+            PpStatus::Ok as i32
+        );
+
+        let original = with_resource(colimit_h, |r| Ok(r.as_theory()?.clone())).unwrap();
+        let reified = with_resource(reified_h, |r| Ok(r.as_theory()?.clone())).unwrap();
+        assert_eq!(original.name, reified.name);
+        assert_eq!(original.sorts.len(), reified.sorts.len());
+        assert_eq!(original.ops.len(), reified.ops.len());
+
+        for h in [h1, h2, shared, colimit_h, reified_h] {
+            assert_eq!(pp_handle_free(h), PpStatus::Ok as i32);
+        }
+    }
+
+    #[test]
+    fn serialize_theory_rejects_non_theory_handle() {
+        let proto = handle::alloc(Resource::Protocol(
+            Box::<panproto_core::schema::Protocol>::default(),
+        ));
+        let mut out: repr_c::Vec<u8> = Vec::new().into();
+        assert_eq!(
+            pp_gat_serialize_theory(proto, &mut out),
+            PpStatus::TypeMismatch as i32
+        );
+        pp_buf_free(out);
+        assert_eq!(pp_handle_free(proto), PpStatus::Ok as i32);
     }
 }

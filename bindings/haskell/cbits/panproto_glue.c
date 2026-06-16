@@ -484,6 +484,22 @@ int32_t pp_gat_migrate_model_at(
     return pp_gat_migrate_model(model, morphism, out);
 }
 
+int32_t pp_gat_free_model_at(
+    uint32_t theory,
+    const uint8_t *config_ptr,
+    size_t config_len,
+    uint32_t *out_handle
+) {
+    slice_ref_uint8_t config = { .ptr = config_ptr, .len = config_len };
+    return pp_gat_free_model(theory, config, out_handle);
+}
+
+/*
+ * pp_gat_check_model and pp_gat_serialize_theory take only handle(s) and
+ * a Vec_uint8_t* out, with no by-value slice arguments, so they are
+ * imported directly without a pointer-based wrapper.
+ */
+
 /* ---------- expr ---------- */
 
 int32_t pp_expr_parse_at(

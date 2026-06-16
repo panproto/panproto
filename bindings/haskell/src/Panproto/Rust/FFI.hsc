@@ -115,6 +115,9 @@ module Panproto.Rust.FFI
     , pp_gat_colimit
     , pp_gat_check_morphism_at
     , pp_gat_migrate_model_at
+    , pp_gat_free_model_at
+    , pp_gat_check_model
+    , pp_gat_serialize_theory
 
       -- * Expression / query
     , pp_expr_parse_at
@@ -533,6 +536,20 @@ foreign import ccall safe "pp_gat_check_morphism_at"
 foreign import ccall safe "pp_gat_migrate_model_at"
     pp_gat_migrate_model_at
         :: Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | Construct the free model of a theory handle under an optional CBOR
+-- config, returning a fresh model handle.
+foreign import ccall safe "pp_gat_free_model_at"
+    pp_gat_free_model_at :: Word32 -> Ptr Word8 -> CSize -> Ptr Word32 -> IO CInt
+
+-- | Check a model handle against a theory handle, returning a CBOR
+-- @Vec\<String\>@ of equation-violation descriptions.
+foreign import ccall safe "pp_gat_check_model"
+    pp_gat_check_model :: Word32 -> Word32 -> Ptr VecU8 -> IO CInt
+
+-- | Serialize the theory behind a handle to its CBOR @Theory@ shape.
+foreign import ccall safe "pp_gat_serialize_theory"
+    pp_gat_serialize_theory :: Word32 -> Ptr VecU8 -> IO CInt
 
 -- ---------------------------------------------------------------------------
 -- Expression / query

@@ -357,6 +357,13 @@ int32_t pp_gat_migrate_model_at(
     Vec_uint8_t *out
 );
 
+int32_t pp_gat_free_model_at(
+    uint32_t theory,
+    const uint8_t *config_ptr,
+    size_t config_len,
+    uint32_t *out_handle
+);
+
 /* ---------- expr ---------- */
 
 int32_t pp_expr_parse_at(

@@ -19,12 +19,12 @@
 use std::cell::RefCell;
 use std::sync::Arc;
 
-use panproto_core::gat::Theory;
+use panproto_core::gat::{Model, Theory};
 use panproto_core::inst::CompiledMigration;
 use panproto_core::io::ProtocolRegistry;
 use panproto_core::lens::{ProtolensChain, SymmetricLens};
 use panproto_core::schema::{Protocol, Schema};
-use panproto_core::vcs::{DataSetObject, MemStore};
+use panproto_core::vcs::{DataSetObject, Repository};
 
 #[cfg(feature = "full-parse")]
 use panproto_core::parse::ParserRegistry;
@@ -66,8 +66,11 @@ pub enum Resource {
     IoRegistry(Box<ProtocolRegistry>),
     /// A GAT theory.
     Theory(Box<Theory>),
-    /// A VCS in-memory repository.
-    VcsRepo(Box<MemStore>),
+    /// A free model of a GAT theory. Held by handle rather than
+    /// serialized: a model's operation interpretations are closures.
+    Model(Box<Model>),
+    /// A version-control repository backed by an on-disk store.
+    VcsRepo(Box<Repository>),
     /// A protolens chain (reusable, schema-independent).
     ProtolensChain(Box<ProtolensChain>),
     /// A symmetric lens.
@@ -168,13 +171,29 @@ impl Resource {
         }
     }
 
-    /// Project an immutable [`MemStore`] reference out of a [`Resource`].
+    /// Project an immutable [`Model`] reference out of a [`Resource`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FfiError::TypeMismatch`] when the variant is not
+    /// [`Resource::Model`].
+    pub fn as_model(&self) -> Result<&Model, FfiError> {
+        match self {
+            Self::Model(m) => Ok(m),
+            _ => Err(FfiError::TypeMismatch {
+                expected: "Model",
+                actual: self.type_name(),
+            }),
+        }
+    }
+
+    /// Project an immutable [`Repository`] reference out of a [`Resource`].
     ///
     /// # Errors
     ///
     /// Returns [`FfiError::TypeMismatch`] when the variant is not
     /// [`Resource::VcsRepo`].
-    pub fn as_vcs_repo(&self) -> Result<&MemStore, FfiError> {
+    pub fn as_vcs_repo(&self) -> Result<&Repository, FfiError> {
         match self {
             Self::VcsRepo(s) => Ok(s),
             _ => Err(FfiError::TypeMismatch {
@@ -184,13 +203,13 @@ impl Resource {
         }
     }
 
-    /// Project a mutable [`MemStore`] reference out of a [`Resource`].
+    /// Project a mutable [`Repository`] reference out of a [`Resource`].
     ///
     /// # Errors
     ///
     /// Returns [`FfiError::TypeMismatch`] when the variant is not
     /// [`Resource::VcsRepo`].
-    pub fn as_vcs_repo_mut(&mut self) -> Result<&mut MemStore, FfiError> {
+    pub fn as_vcs_repo_mut(&mut self) -> Result<&mut Repository, FfiError> {
         match self {
             Self::VcsRepo(s) => Ok(s),
             other => Err(FfiError::TypeMismatch {
@@ -311,6 +330,7 @@ impl Resource {
             Self::MigrationWithSchemas { .. } => "MigrationWithSchemas",
             Self::IoRegistry(_) => "IoRegistry",
             Self::Theory(_) => "Theory",
+            Self::Model(_) => "Model",
             Self::VcsRepo(_) => "VcsRepo",
             Self::ProtolensChain(_) => "ProtolensChain",
             Self::SymmetricLensHandle(_) => "SymmetricLens",
@@ -679,10 +699,11 @@ mod tests {
     #[test]
     fn with_resource_mut_allows_mutation() {
         reset();
-        // Exercise the mut accessor path on a VcsRepo resource.
-        let h = alloc(Resource::VcsRepo(Box::new(
-            panproto_core::vcs::MemStore::new(),
-        )));
+        // Exercise the mut accessor path on a VcsRepo resource backed by
+        // an on-disk Repository rooted at a temp dir.
+        let dir = tempfile::tempdir().unwrap();
+        let repo = panproto_core::vcs::Repository::init(dir.path()).unwrap();
+        let h = alloc(Resource::VcsRepo(Box::new(repo)));
         let result = with_resource_mut(h, |r| {
             let _store = r.as_vcs_repo_mut()?;
             Ok(())

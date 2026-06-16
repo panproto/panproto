@@ -212,6 +212,13 @@ pub fn pp_lens_auto_generate_protolens(
 /// UTF-8 tier name. On success, `out` receives a CBOR-encoded
 /// `{ candidates, coerce_proposals }` record. Calls
 /// `lens::auto_generate_candidates`.
+///
+/// Each candidate entry carries its instantiable `chain`: the candidate's
+/// `ProtolensChain` serialized in the same JSON shape
+/// `ProtolensChain::to_json` emits, so the host can feed it back through
+/// `pp_protolens_from_json` and `pp_protolens_instantiate` to obtain a
+/// runnable lens. The score, coverage, quality, strategies, and per-step
+/// explanations travel alongside it.
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_lens_auto_generate_candidates(
@@ -268,20 +275,27 @@ pub fn pp_lens_auto_generate_candidates(
         let candidates_payload: Vec<serde_json::Value> = candidates
             .iter()
             .map(|c| {
-                serde_json::json!({
+                // Embed each candidate's chain in the same serde shape
+                // `ProtolensChain::to_json` emits, so the host can
+                // round-trip it through `pp_protolens_from_json`.
+                let chain = serde_json::to_value(&c.chain).map_err(|e| {
+                    FfiError::Serialization(format!("candidate chain serialize: {e}"))
+                })?;
+                Ok(serde_json::json!({
                     "quality": c.quality,
                     "coverage": c.coverage,
                     "score": c.score(),
                     "strategies_used": c.strategies_used,
+                    "chain": chain,
                     "steps": c.steps.iter().map(|s| serde_json::json!({
                         "kind": s.kind,
                         "explanation": s.explanation,
                         "confidence": s.confidence,
                         "strategy": s.strategy,
                     })).collect::<Vec<_>>(),
-                })
+                }))
             })
-            .collect();
+            .collect::<Result<Vec<_>, FfiError>>()?;
 
         let wrapper = serde_json::json!({
             "candidates": candidates_payload,
@@ -1039,6 +1053,64 @@ mod tests {
         assert_eq!(pp_handle_free(composed_h), PpStatus::Ok as i32);
         assert_eq!(pp_handle_free(chain_h), PpStatus::Ok as i32);
         assert_eq!(pp_handle_free(chain_h2), PpStatus::Ok as i32);
+    }
+
+    #[test]
+    fn auto_generate_candidates_each_carries_a_chain() {
+        // Each ranked candidate must carry an instantiable `chain` (the
+        // serialized ProtolensChain) alongside its score, so the host can
+        // run any candidate, not just the top one.
+        let src_h = schema_handle(&source_schema());
+        let tgt_h = schema_handle(&target_schema());
+
+        let mut out: repr_c::Vec<u8> = Vec::new().into();
+        // Exploratory tier surfaces spans as multiple candidates.
+        let status = pp_lens_auto_generate_candidates(
+            src_h,
+            tgt_h,
+            5,
+            slice(b"exploratory").as_ref(),
+            &mut out,
+        );
+        assert_eq!(status, PpStatus::Ok as i32);
+
+        let value: serde_json::Value = canonical::decode(&out).unwrap();
+        pp_buf_free(out);
+        let candidates = value
+            .get("candidates")
+            .and_then(serde_json::Value::as_array)
+            .expect("candidates array present");
+        assert!(
+            !candidates.is_empty(),
+            "expected at least one candidate, got {value:?}"
+        );
+
+        // Every candidate carries a `chain` whose JSON round-trips
+        // through pp_protolens_from_json (the engine's own chain codec).
+        for cand in candidates {
+            let chain = cand.get("chain").expect("candidate carries a chain");
+            assert!(cand.get("score").is_some(), "candidate carries a score");
+            let chain_json = serde_json::to_string(chain).unwrap();
+            let mut chain_h: u32 = u32::MAX;
+            assert_eq!(
+                pp_protolens_from_json(slice(chain_json.as_bytes()).as_ref(), &mut chain_h),
+                PpStatus::Ok as i32,
+                "candidate chain {chain_json} should parse via from_json"
+            );
+            // And it instantiates against the source schema, yielding a
+            // runnable lens handle.
+            let mut lens_h: u32 = u32::MAX;
+            assert_eq!(
+                pp_protolens_instantiate(chain_h, src_h, &mut lens_h),
+                PpStatus::Ok as i32,
+                "candidate chain should instantiate at the source schema"
+            );
+            assert_eq!(pp_handle_free(lens_h), PpStatus::Ok as i32);
+            assert_eq!(pp_handle_free(chain_h), PpStatus::Ok as i32);
+        }
+
+        assert_eq!(pp_handle_free(src_h), PpStatus::Ok as i32);
+        assert_eq!(pp_handle_free(tgt_h), PpStatus::Ok as i32);
     }
 
     #[test]

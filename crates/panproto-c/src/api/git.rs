@@ -6,9 +6,11 @@
 //! CBOR codec and [`FfiError`]. The on-disk repository is opened here with
 //! [`git2`] (exactly as the Python surface does); the walk itself is driven
 //! by `panproto_core::git::import_git_repo`, which reads the git commit DAG
-//! into a fresh `panproto_core::vcs::MemStore`.
+//! into a `panproto_core::vcs::Store`.
 //!
-//! The imported store becomes a
+//! The imported history lands in a fresh on-disk
+//! `panproto_core::vcs::Repository`, rooted at a process-lifetime
+//! directory under the system temp dir. The repository becomes a
 //! [`Resource::VcsRepo`](crate::handle::Resource) handle, the same resource
 //! [`pp_vcs_init`](crate::api::pp_vcs_init) allocates, so the caller can
 //! drive the result with the `pp_vcs_*` porcelain (log, branch, diff, …) or
@@ -24,14 +26,34 @@
 //! strings, and the Haskell `Panproto.Git.decodeGitImportResult` decoder
 //! that reads it.
 
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use panproto_core::git::import_git_repo;
-use panproto_core::vcs::MemStore;
+use panproto_core::vcs::Repository;
 use safer_ffi::prelude::*;
 use serde::Serialize;
 
 use crate::error::{FfiError, PpStatus};
 use crate::handle::{self, Resource};
 use crate::panic::guard;
+
+/// Monotonic counter disambiguating concurrent import roots within a
+/// single process (the timestamp alone is not unique enough under fast
+/// repeated imports).
+static IMPORT_SEQ: AtomicU64 = AtomicU64::new(0);
+
+/// Allocate a fresh, process-lifetime directory under the system temp
+/// dir for an imported repository's on-disk store. The directory is not
+/// auto-removed: it backs the `Repository` handle for as long as the
+/// caller holds it, which is the lifetime of an import inspection.
+fn fresh_import_root() -> std::path::PathBuf {
+    let seq = IMPORT_SEQ.fetch_add(1, Ordering::Relaxed);
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    std::env::temp_dir().join(format!("panproto-git-import-{nanos}-{seq}"))
+}
 
 /// The `git_import` summary, matching the Haskell `GitImportResult`
 /// decoder: the commit count plus the imported HEAD's object id as a
@@ -44,20 +66,22 @@ struct GitImportResultRecord {
     head_id: String,
 }
 
-/// Import a git repository into a fresh in-memory VCS store.
+/// Import a git repository into a fresh on-disk VCS repository.
 ///
 /// `repo_path` is the UTF-8 path to the git repository; `revspec` is the
 /// UTF-8 revision specifier to import (e.g. `"HEAD"`, `"main"`,
 /// `"HEAD~10..HEAD"`). On success, `out_handle` receives a fresh
-/// [`Resource::VcsRepo`](crate::handle::Resource) handle wrapping the
-/// imported `MemStore`, and `out` receives a CBOR-encoded
-/// `{ commit_count, head_id }` summary.
+/// [`Resource::VcsRepo`](crate::handle::Resource) handle wrapping a
+/// `Repository` rooted at a process-lifetime temp directory, and `out`
+/// receives a CBOR-encoded `{ commit_count, head_id }` summary.
 ///
-/// Opens the repository with [`git2::Repository::open`] and walks it via
-/// `panproto_core::git::import_git_repo`. Both arguments are validated as
-/// UTF-8 at the boundary; a malformed path, an unopenable repository, or a
-/// failed walk surfaces as [`PpStatus::Operation`]. The out-handle slot is
-/// only written on success, so a failed call leaves it untouched.
+/// Opens the source repository with [`git2::Repository::open`] and walks
+/// it via `panproto_core::git::import_git_repo`, which writes the commit
+/// DAG into the new repository's `FsStore`. Both arguments are validated
+/// as UTF-8 at the boundary; a malformed path, an unopenable repository,
+/// a store init failure, or a failed walk surfaces as
+/// [`PpStatus::Operation`]. The out-handle slot is only written on
+/// success, so a failed call leaves it untouched.
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_git_import(
@@ -76,8 +100,11 @@ pub fn pp_git_import(
             FfiError::Operation(format!("failed to open git repo at {repo_path_str:?}: {e}"))
         })?;
 
-        let mut store = MemStore::new();
-        let result = import_git_repo(&git_repo, &mut store, revspec_str)
+        // Fresh on-disk repository to receive the imported history.
+        let root = fresh_import_root();
+        let mut repository =
+            Repository::init(&root).map_err(|e| FfiError::Operation(e.to_string()))?;
+        let result = import_git_repo(&git_repo, repository.store_mut(), revspec_str)
             .map_err(|e| FfiError::Operation(e.to_string()))?;
 
         let summary = GitImportResultRecord {
@@ -86,10 +113,10 @@ pub fn pp_git_import(
         };
         *out = crate::canonical::encode(&summary)?.into();
 
-        // Allocate the imported store as a VcsRepo handle only after the
-        // summary has encoded cleanly, so a serialization failure does not
-        // leak a slab slot.
-        *out_handle = handle::alloc(Resource::VcsRepo(Box::new(store)));
+        // Allocate the imported repository as a VcsRepo handle only after
+        // the summary has encoded cleanly, so a serialization failure
+        // does not leak a slab slot.
+        *out_handle = handle::alloc(Resource::VcsRepo(Box::new(repository)));
         Ok(PpStatus::Ok)
     })
 }
