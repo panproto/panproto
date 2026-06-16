@@ -8,9 +8,8 @@
 //! exchanges with the host; the adapter functions assemble engine inputs
 //! from handle-resident resources.
 //!
-//! Unlike the stubbed domain entry points, everything in this module is
-//! a real implementation: it is reused by the engine-wiring pass and so
-//! must compile and behave correctly today.
+//! Everything in this module is a real implementation: it is reused
+//! across the api modules and so must compile and behave correctly.
 
 use std::collections::HashMap;
 

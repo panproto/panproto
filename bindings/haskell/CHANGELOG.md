@@ -57,5 +57,5 @@ C ABI (112 entry points).
   `optics-adaptors` / `lens-adaptors` flags) exposing the
   structurally-lawful subset to the `optics` and `lens` ecosystems.
 
-* A 59-case test suite, including `Spec.Wave2Roundtrip` exercising every
+* A 59-case test suite, including `Spec.EngineRoundtrip` exercising every
   domain end-to-end against the `Rust` backend.

@@ -4,8 +4,8 @@
 -- | Rust-backed schematic version control: the @VcsBackend Rust@
 -- instance plus the @MonadGit@ / @GitM@ convenience wiring.
 --
--- This is the Wave 2 engine binding for the @vcs@ domain. It dispatches
--- each of the twelve porcelain operations declared in "Panproto.Vcs" to
+-- FFI-backed implementation of the @vcs@-domain capability class. It
+-- dispatches each of the twelve porcelain operations declared in "Panproto.Vcs" to
 -- a @pp_vcs_*@ FFI call in "Panproto.Rust.FFI", turning status codes
 -- into 'Panproto.Errors.PanprotoError' exceptions and decoding each
 -- result with the cborg codec from "Panproto.Vcs".

@@ -14,8 +14,8 @@
 -- adding only the pure smart constructors and the JSON view this layer
 -- exposes.
 --
--- Registry lookups and protocol resolution against the Rust backend
--- are a later wave; this module is pure.
+-- This module is pure; registry lookups and protocol resolution against
+-- the Rust backend live in "Panproto.Rust.Io".
 module Panproto.Protocol
     ( -- * Protocol
       Protocol (..)

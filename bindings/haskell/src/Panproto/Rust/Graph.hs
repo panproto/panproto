@@ -33,12 +33,12 @@
 --   computed).
 -- * 'fiberAt' → @pp_graph_fiber_at@ (@inst::fiber_at_anchor@) and
 --   'fiberDecomposition' → @pp_graph_fiber_decomposition@
---   (@inst::fiber_decomposition@). See the note below: both entry points
---   take the /compiled migration/ as a CBOR @CompiledMigration@ value,
---   for which the C ABI exposes no serializer from a handle, so these two
---   methods raise a descriptive error rather than silently misbehave.
+--   (@inst::fiber_decomposition@). Both entry points take the /compiled
+--   migration/ as a CBOR @CompiledMigration@ value; see the note below
+--   for how the binding lowers its compiled-migration handle to those
+--   bytes.
 --
--- == The compiled-migration serialization gap
+-- == Compiled-migration serialization
 --
 -- The @graph@ entry points are unusual in the C ABI: where the @mig@ and
 -- @lens@ domains pass a compiled migration as a /slab handle/
@@ -47,25 +47,13 @@
 -- /value/ (they deserialize it from a byte slice). The
 -- @'Panproto.Migration.CompiledRep' 'Rust'@ this binding carries is a
 -- handle (a bare @u32@ into the slab, see
--- 'Panproto.Rust.Migration.RustCompiled'), and the C ABI exposes /no/
--- entry point that serializes a compiled-migration handle back to its
--- CBOR bytes: the @mig@ domain's @Vec@-out functions emit lifted
--- instances, existence reports, inverted /specs/, and coverage reports,
--- but never the @CompiledMigration@ itself.
---
--- The shared @'Panproto.Graph.GraphBackend'@ class (Wave 1) fixes the
--- 'fiberAt' \/ 'fiberDecomposition' signatures in terms of the handle
--- rep and cannot be changed here, and the C ABI surface (Wave 0) cannot
--- grow a new symbol from this module. So the two fiber methods are
--- implemented to fail fast with a clear 'PanprotoError' (tag
--- @unsupported@) naming the missing serialization path, rather than
--- fabricate bytes or panic. They become live the moment the C ABI gains
--- a compiled-migration serializer (e.g. @pp_mig_serialize_compiled@): the
--- body then encodes the source instance with
--- 'Panproto.Instance.encodeInstance', fetches the migration's CBOR via
--- that new symbol, and calls @pp_graph_fiber_at_at@ \/
--- @pp_graph_fiber_decomposition_at@ exactly as 'homSchema' and
--- 'preferredPath' already do for their value inputs.
+-- 'Panproto.Rust.Migration.RustCompiled'), so 'fiberAt' and
+-- 'fiberDecomposition' first lower that handle to its CBOR bytes with
+-- @pp_mig_serialize_compiled@ (the 'serializeCompiled' helper), encode
+-- the source instance with 'Panproto.Instance.encodeInstance', and pass
+-- both as borrowed value slices to @pp_graph_fiber_at_at@ \/
+-- @pp_graph_fiber_decomposition_at@, exactly as 'homSchema' and
+-- 'preferredPath' do for their own value inputs.
 module Panproto.Rust.Graph () where
 
 import Control.Exception (throwIO)

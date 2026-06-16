@@ -179,8 +179,8 @@ emptyPathResult = PathResult {cost = 0, steps = []}
 -- @WInstance@ and a @CompiledMigration@ from byte slices), whereas the
 -- methods here are modeled in terms of the handle reps
 -- ('Panproto.Instance.InstanceRep' \/ 'Panproto.Migration.CompiledRep')
--- to match the rest of the binding's hot-path convention. The Wave-2
--- 'Panproto.Class.Rust' wiring bridges the two by serializing the reps
+-- to match the rest of the binding's hot-path convention. The
+-- 'Panproto.Class.Rust' instance bridges the two by serializing the reps
 -- (reifying the instance to its 'Panproto.Instance.Instance' value,
 -- encoding it, and re-encoding the compiled migration) before the FFI
 -- call.
@@ -189,11 +189,11 @@ emptyPathResult = PathResult {cost = 0, steps = []}
 -- 'conversionDistance') take their input as plain 'GraphEdge' values
 -- rather than a backend rep, so they carry a 'Proxy' to fix the backend
 -- the operation runs on, mirroring 'Panproto.Instance.ingestInstance'.
--- (The Wave-2 wiring serializes the graph to its CBOR @Vec<GraphEdge>@
+-- (The Rust backend serializes the graph to its CBOR @Vec<GraphEdge>@
 -- form for the FFI call.)
 --
--- The 'Panproto.Class.Rust' instance is authored later (in
--- @Panproto.Rust.Graph@); this module declares only the class.
+-- The 'Panproto.Class.Rust' instance lives in @Panproto.Rust.Graph@;
+-- this module declares the class.
 class (InstanceBackend back, MigrationBackend back) => GraphBackend back where
     -- | The source node ids whose fiber lands at a given target anchor,
     -- under a compiled migration. Wraps @pp_graph_fiber_at@

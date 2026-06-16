@@ -11,7 +11,7 @@
 -- operations on strings, numbers, records, and lists. Evaluation is
 -- deterministic; there is no IO, mutation, or platform dependence.
 --
--- This module is the Wave-1 value layer. It carries:
+-- This module is the pure value layer. It carries:
 --
 --   * 'Expr', 'Literal', 'Pattern', and 'BuiltinOp' value types that
 --     mirror the Rust enums in @crates\/panproto-expr@ field-for-field.
@@ -26,7 +26,7 @@
 --     ('parseExpr', 'evalFunc', 'executeQuery') correspond to the
 --     @pp_expr_parse@, @pp_expr_eval_func@, and @pp_query_execute@ FFI
 --     entry points. No backend instance lives here: the Rust instance
---     lands in Wave 2 (@Panproto.Rust.Expr@).
+--     lives in @Panproto.Rust.Expr@.
 --
 -- == Wire format
 --
@@ -1444,17 +1444,17 @@ halfToFloat h =
 --     @inst::execute_query@).
 --
 -- No backend instance lives in this module: the value layer is pure and
--- backend-agnostic. The Rust instance is supplied separately (Wave 2,
--- @Panproto.Rust.Expr@). 'parseExpr' and 'evalFunc' return plain 'IO'
+-- backend-agnostic. The Rust instance is supplied separately in
+-- @Panproto.Rust.Expr@. 'parseExpr' and 'evalFunc' return plain 'IO'
 -- because the engine they call is foreign; 'prettyPrintExpr' stays a pure
 -- function above because the Rust pretty printer is itself pure.
 --
 -- 'executeQuery' needs the backend's instance representation in addition
 -- to its schema representation, so 'SchemaBackend' is a superclass and
 -- the instance representation is an associated data family on this class.
--- (Wave 3 may relocate 'InstanceRep' onto a dedicated @InstanceBackend@
--- class and add it as a second superclass; the method signature is
--- written so that move is mechanical.)
+-- ('InstanceRep' could later move onto a dedicated @InstanceBackend@
+-- class added as a second superclass; the method signature is written so
+-- that move is mechanical.)
 class (SchemaBackend back, InstanceBackend back) => ExprBackend back where
     -- | Parse surface syntax into an 'Expr' AST using the engine's
     -- parser. Throws the backend's error type on a tokenize or parse

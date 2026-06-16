@@ -2,7 +2,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE TypeFamilies #-}
 
--- | Data-set versioning and data-level migration (Wave 1).
+-- | Data-set versioning and data-level migration.
 --
 -- A /data set/ is a snapshot of records that conform to a schema: the
 -- @inst::parse_json@ of a JSON array, kept as a @Vec<WInstance>@ bound
@@ -16,8 +16,8 @@
 -- This module mirrors that handle-backed shape. The data set itself is
 -- /not/ a Haskell value type: it is an associated 'DataSetRep' on the
 -- 'DataBackend' capability class, an opaque foreign handle for 'Rust'
--- (filled in Wave 2) or a thin in-memory carrier for a future native
--- backend. The only value type is the small 'StalenessReport' that
+-- or a thin in-memory carrier for a future native backend. The only
+-- value type is the small 'StalenessReport' that
 -- @pp_data_check_staleness@ emits.
 --
 -- == The six operations

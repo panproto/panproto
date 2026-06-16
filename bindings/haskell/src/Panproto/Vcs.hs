@@ -7,7 +7,7 @@
 
 -- | Schematic version control for panproto: result records, a
 -- 'Repository' handle, the 'VcsBackend' capability class, and the
--- 'MonadGit' / 'GitM' convenience layer (Wave 1).
+-- 'MonadGit' / 'GitM' convenience layer.
 --
 -- == Scope: the twelve porcelain operations
 --
@@ -42,16 +42,16 @@
 -- 1. 'VcsBackend' is the capability class, parameterized by a backend
 --    tag, mirroring 'Panproto.Class.SchemaBackend'. It declares the
 --    twelve operations as plain 'IO' actions over a backend-specific
---    'RepoRep'. The FFI instance (@VcsBackend Rust@) lands in Wave 2 in
---    "Panproto.Rust.Vcs"; only the class is defined here.
+--    'RepoRep'. The FFI instance @VcsBackend Rust@ lives in
+--    "Panproto.Rust.Vcs"; this module defines the class.
 --
 -- 2. 'MonadGit' / 'GitM' is a thin, ergonomic layer over the 'Rust'
 --    backend. It threads a 'Repository' handle through a
 --    @ReaderT Repository IO@ so call sites read like a git session
 --    (@vcsAdd s >> vcsCommit msg author@) without passing the handle
 --    explicitly. The pure scaffolding ('runRepo', 'askRepo', the
---    'GitM' newtype) is provided here; the method bodies that actually
---    call the FFI are Wave 2.
+--    'GitM' newtype) lives here; the method bodies that actually call
+--    the FFI live in "Panproto.Rust.Vcs".
 --
 -- 'MonadGit' composes cleanly with @Panproto.Effect.MonadPanproto@: a
 -- caller's monad can be an instance of both, since 'MonadGit' only adds
@@ -575,9 +575,9 @@ defaultBlameReport =
 -- @panproto_vcs::bisect::BisectState@.
 --
 -- Bisect is not one of the twelve C ABI operations; this record is
--- provided so that a future @vcs_bisect@ op (Wave 2 or later) has a
--- ready Haskell mirror, and so that callers building bisect workflows
--- over the lower-level store can name the state.
+-- provided so that a future @vcs_bisect@ op has a ready Haskell mirror,
+-- and so that callers building bisect workflows over the lower-level
+-- store can name the state.
 data BisectState = BisectState
     { path :: ![VcsObjectId]
     -- ^ @serde@ field: @path@. The good-to-bad path through the DAG,
@@ -601,8 +601,7 @@ data BisectState = BisectState
 -- @FsStore@.
 data RepoBackend
     = -- | An in-memory store. This is the only backend the current C
-      -- ABI opens, so it is the only one 'vcsInit' / 'withRepo' wire up
-      -- in Wave 2.
+      -- ABI opens, so it is the only one 'vcsInit' / 'withRepo' wire up.
       InMemory
     | -- | A filesystem-backed store rooted at the given directory.
       --
@@ -620,7 +619,7 @@ data RepoBackend
 -- Wraps the slab handle that @libpanproto_c@ allocates for the
 -- repository's store (a @u32@, as for protocols and schemas), tagged
 -- with the 'RepoBackend' that produced it. The handle is released by
--- @pp_handle_free@ in Wave 2; 'withRepo' brackets it.
+-- @pp_handle_free@; 'withRepo' brackets it.
 data Repository = Repository
     { handle :: !Word32
     -- ^ The panproto-c slab handle for the repository's store.
@@ -641,11 +640,11 @@ data Repository = Repository
 -- pure value over an in-memory store. Every operation takes the
 -- 'RepoRep' and returns one of the typed result records above.
 --
--- Only the class is declared in Wave 1. The @VcsBackend Rust@ instance,
--- which dispatches each method to a @pp_vcs_*@ FFI call, lands in Wave
--- 2 in "Panproto.Rust.Vcs". A schema is the unit of work for several
--- operations, so this class refines 'SchemaBackend': a backend that
--- can version schemas must first be able to ingest them.
+-- The @VcsBackend Rust@ instance, which dispatches each method to a
+-- @pp_vcs_*@ FFI call, lives in "Panproto.Rust.Vcs". A schema is the
+-- unit of work for several operations, so this class refines
+-- 'SchemaBackend': a backend that can version schemas must first be
+-- able to ingest them.
 class SchemaBackend back => VcsBackend back where
     -- | Backend-specific representation of an open repository.
     data RepoRep back :: Type
@@ -670,7 +669,7 @@ class SchemaBackend back => VcsBackend back where
     -- | @diff@: structural diff between two refs (by name or id).
     vcsDiffB :: RepoRep back -> Text -> Text -> IO VcsDiffResult
 
-    -- | @branch@: list branches (Wave 2 may add create\/delete forms).
+    -- | @branch@: list branches.
     vcsBranchB :: RepoRep back -> IO VcsBranchResult
 
     -- | @checkout@: switch HEAD to the named ref.
@@ -728,16 +727,16 @@ runRepo repo (GitM action) = runReaderT action repo
 -- | Open a repository over the given backend, run a 'GitM' action with
 -- it in scope, and release the handle afterwards (even on exception).
 --
--- Wave 1 provides the type and shape; the open and release calls this
--- function brackets are wired to the FFI in Wave 2 (only 'InMemory' is
--- opened by the current C ABI). The bracketing body is intentionally
--- deferred to "Panproto.Rust.Vcs" so this pure module takes no
--- dependency on the FFI; the signature is the contract.
+-- This pure module fixes the type and shape; the open and release calls
+-- this function brackets are wired to the FFI in "Panproto.Rust.Vcs"
+-- (only 'InMemory' is opened by the current C ABI). The bracketing body
+-- lives there as 'Panproto.Rust.Vcs.withRustRepo' so this module takes
+-- no dependency on the FFI; the signature is the contract.
 withRepo :: RepoBackend -> (Repository -> IO a) -> IO a
 withRepo _backend _k =
     error
-        "Panproto.Vcs.withRepo: Rust FFI body is provided in Wave 2 \
-        \(Panproto.Rust.Vcs); only the signature is defined in Wave 1"
+        "Panproto.Vcs.withRepo: the Rust FFI body is \
+        \Panproto.Rust.Vcs.withRustRepo; this module defines the signature"
 
 -- ---------------------------------------------------------------------------
 -- Porcelain over MonadGit
@@ -745,72 +744,73 @@ withRepo _backend _k =
 -- These are the twelve operations as the convenience layer exposes
 -- them: each reads the 'Repository' from the environment and returns
 -- the typed result record. The bodies dispatch to the @VcsBackend
--- Rust@ instance, which is wired to the FFI in Wave 2; here they are
--- declared with their final signatures and deferred bodies so the rest
+-- Rust@ instance, whose FFI dispatch lives in "Panproto.Rust.Vcs"; here
+-- they carry their signatures and a backend-deferred body so the rest
 -- of the binding can be written against a stable surface.
 
 -- | @init@: create a fresh repository (see 'vcsInitB').
 vcsInit :: MonadGit m => RepoBackend -> m VcsInitResult
-vcsInit _backend = waveTwo "vcsInit"
+vcsInit _backend = deferredToRust "vcsInit"
 
 -- | @add@: stage a schema for the next commit.
 vcsAdd :: MonadGit m => CanonicalSchema -> m VcsAddResult
-vcsAdd _schema = waveTwo "vcsAdd"
+vcsAdd _schema = deferredToRust "vcsAdd"
 
 -- | @commit@: commit the staging area under the given message and
 -- author (the author is supplied per call; see the carry-over note).
 vcsCommit :: MonadGit m => Text -> Text -> m VcsCommitResult
-vcsCommit _message _author = waveTwo "vcsCommit"
+vcsCommit _message _author = deferredToRust "vcsCommit"
 
 -- | @log@: walk the commit log from HEAD, optionally limited.
 vcsLog :: MonadGit m => Maybe Int -> m VcsLogResult
-vcsLog _limit = waveTwo "vcsLog"
+vcsLog _limit = deferredToRust "vcsLog"
 
 -- | @status@: summarize HEAD, staging, and working state.
 vcsStatus :: MonadGit m => m VcsStatus
-vcsStatus = waveTwo "vcsStatus"
+vcsStatus = deferredToRust "vcsStatus"
 
 -- | @diff@: structural diff between two refs.
 vcsDiff :: MonadGit m => Text -> Text -> m VcsDiffResult
-vcsDiff _from _to = waveTwo "vcsDiff"
+vcsDiff _from _to = deferredToRust "vcsDiff"
 
 -- | @branch@: list branches.
 vcsBranch :: MonadGit m => m VcsBranchResult
-vcsBranch = waveTwo "vcsBranch"
+vcsBranch = deferredToRust "vcsBranch"
 
 -- | @checkout@: switch HEAD to the named ref.
 vcsCheckout :: MonadGit m => Text -> m VcsOpResult
-vcsCheckout _ref = waveTwo "vcsCheckout"
+vcsCheckout _ref = deferredToRust "vcsCheckout"
 
 -- | @merge@: merge the named branch into HEAD under the given author.
 vcsMerge :: MonadGit m => Text -> Text -> m VcsMergeResult
-vcsMerge _branch _author = waveTwo "vcsMerge"
+vcsMerge _branch _author = deferredToRust "vcsMerge"
 
 -- | @stash@: save the staged schema as a stash entry.
 vcsStash :: MonadGit m => Maybe Text -> m VcsStashResult
-vcsStash _message = waveTwo "vcsStash"
+vcsStash _message = deferredToRust "vcsStash"
 
 -- | @stash_pop@: restore the most recent stash entry.
 vcsStashPop :: MonadGit m => m VcsStashPopResult
-vcsStashPop = waveTwo "vcsStashPop"
+vcsStashPop = deferredToRust "vcsStashPop"
 
 -- | @blame@: attribute a schema element to a commit.
 vcsBlame :: MonadGit m => Text -> m BlameReport
-vcsBlame _element = waveTwo "vcsBlame"
+vcsBlame _element = deferredToRust "vcsBlame"
 
 -- | Shared deferral for the porcelain bodies. The FFI dispatch through
--- @VcsBackend Rust@ lands in Wave 2 ("Panproto.Rust.Vcs"); naming each
--- operation keeps the eventual error site precise.
+-- @VcsBackend Rust@ lives in "Panproto.Rust.Vcs"; naming each operation
+-- keeps the error site precise when a caller invokes the pure porcelain
+-- directly rather than the wired counterparts.
 --
 -- This is a polymorphic bottom: the porcelain operations above
 -- discharge their own arguments and call it for the result, so its
 -- signature carries no argument of its own.
-waveTwo :: MonadGit m => String -> m a
-waveTwo op =
+deferredToRust :: MonadGit m => String -> m a
+deferredToRust op =
     liftIO $
         error
             ( "Panproto.Vcs." <> op
-                <> ": Rust FFI body is provided in Wave 2 (Panproto.Rust.Vcs)"
+                <> ": the Rust FFI body lives in Panproto.Rust.Vcs"
             )
 
 -- ---------------------------------------------------------------------------

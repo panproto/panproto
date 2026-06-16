@@ -31,13 +31,12 @@
 --
 -- * The 'Theory' @directed_eqs@ and @policies@ fields and the
 --   'Operation' carry @panproto_expr::Expr@ values on the Rust side
---   (rewrite implementations, conflict-resolution expressions). The
---   panproto expression AST is not yet mirrored in Haskell
---   ("Panproto.Expr" is a later wave), so both fields store the
---   round-trippable 'Data.Aeson.Value' the expressions serialize to;
---   the codec preserves them verbatim. Both are @serde(default)@, so a
---   theory that uses neither encodes them as empty lists and decodes
---   cleanly from a payload that omits them.
+--   (rewrite implementations, conflict-resolution expressions). This
+--   module stores both fields as the round-trippable 'Data.Aeson.Value'
+--   the expressions serialize to rather than re-parsing them into the
+--   "Panproto.Expr" AST, and the codec preserves them verbatim. Both
+--   are @serde(default)@, so a theory that uses neither encodes them as
+--   empty lists and decodes cleanly from a payload that omits them.
 --
 -- * 'Model' carries only its theory name and sort interpretations. The
 --   Rust @Model@ also holds @op_interp@: a map of operation names to

@@ -365,7 +365,7 @@ toCanonical =<< fromCanonical (Proxy @b) p ≡ pure p
 
 for every backend `b` and `CanonicalProtocol` (and analogously for
 `CanonicalSchema`). The 59-case test suite verifies this and exercises every
-domain end-to-end against the `Rust` backend. `Spec.Wave2Roundtrip` runs one
+domain end-to-end against the `Rust` backend. `Spec.EngineRoundtrip` runs one
 meaningful operation per capability domain (build/ingest/recover a schema,
 diff-and-classify a change, compile and lift a record, parse/validate/emit an
 instance, auto-generate a lens and check `GetPut`, ingest a theory and check a

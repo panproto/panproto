@@ -1,12 +1,10 @@
 # panproto-c C ABI contract
 
-Frozen-signature manifest for the panproto-c C ABI (Wave 0 of Haskell
-parity). Every `pp_*` entry point below has a stable signature that
-downstream agents generate Haskell FFI imports against and later fill in
-with real engine wiring. With the exception of the lifecycle helpers and
-the four already-implemented schema/protocol entry points, every function
-is currently a compiling stub that returns `PpStatus::Operation` (status
-code `7`) until the engine-wiring pass lands.
+Signature reference for the panproto-c C ABI. Every `pp_*` entry point
+below has a stable signature that downstream consumers generate Haskell
+FFI imports against, and each one is backed by the engine. The tables
+below group the entry points by domain and document the byte-payload
+conventions for each function.
 
 ## Boundary conventions
 
@@ -41,7 +39,7 @@ Handles index a thread-local slab whose variants mirror
 `AstRegistry` (`full-parse`), `ProjectBuilder` and `ProjectSchema`
 (`project`).
 
-## Lifecycle (4, real)
+## Lifecycle (4)
 
 | Signature | Notes |
 | --- | --- |
@@ -50,26 +48,26 @@ Handles index a thread-local slab whose variants mirror
 | `int32_t pp_last_error_take(Vec_uint8_t *out)` | Drain last error as CBOR `ErrorEnvelope`; empty buffer when none. |
 | `void pp_buf_free(Vec_uint8_t buf)` | Free an owned output buffer. |
 
-## protocol (2, real)
+## protocol (2)
 
 | Signature | Notes |
 | --- | --- |
 | `int32_t pp_protocol_define(slice_ref_uint8_t spec, uint32_t *out_handle)` | CBOR `Protocol` in; new `Protocol` handle out. |
 | `int32_t pp_protocol_serialize(uint32_t proto, Vec_uint8_t *out)` | `Protocol` handle in; CBOR `Protocol` out. |
 
-## schema (7; 3 real, 4 stub)
+## schema (7)
 
 | Signature | Notes |
 | --- | --- |
-| `int32_t pp_schema_from_cbor(slice_ref_uint8_t spec, uint32_t *out_handle)` | Real. CBOR `Schema` in; new `Schema` handle out. |
-| `int32_t pp_schema_to_cbor(uint32_t schema_handle, Vec_uint8_t *out)` | Real. `Schema` handle in; CBOR `Schema` out. |
-| `int32_t pp_schema_validate(uint32_t schema_handle, uint32_t proto_handle, Vec_uint8_t *out_messages)` | Real. CBOR `Vec<String>` messages out; calls `schema::validate`. |
+| `int32_t pp_schema_from_cbor(slice_ref_uint8_t spec, uint32_t *out_handle)` | CBOR `Schema` in; new `Schema` handle out. |
+| `int32_t pp_schema_to_cbor(uint32_t schema_handle, Vec_uint8_t *out)` | `Schema` handle in; CBOR `Schema` out. |
+| `int32_t pp_schema_validate(uint32_t schema_handle, uint32_t proto_handle, Vec_uint8_t *out_messages)` | CBOR `Vec<String>` messages out; calls `schema::validate`. |
 | `int32_t pp_schema_build(uint32_t proto, slice_ref_uint8_t ops, uint32_t *out_handle)` | CBOR `Vec<BuildOp>` in; calls `helpers::build_schema_from_ops`. |
 | `int32_t pp_schema_metadata(uint32_t schema_handle, Vec_uint8_t *out)` | CBOR `{ protocol, vertices, edges }` out. |
 | `int32_t pp_schema_normalize(uint32_t schema_handle, uint32_t *out_handle)` | New `Schema` handle out; calls `schema::normalize`. |
 | `int32_t pp_schema_parse_atproto_lexicon(slice_ref_uint8_t json, uint32_t *out_handle)` | Raw JSON in; calls `protocols::atproto::parse_lexicon`. |
 
-## check (5, stub)
+## check (5)
 
 | Signature | Notes |
 | --- | --- |
@@ -79,7 +77,7 @@ Handles index a thread-local slab whose variants mirror
 | `int32_t pp_check_report_text(slice_ref_uint8_t report, Vec_uint8_t *out)` | CBOR `CompatReport` in; UTF-8 text out; calls `check::report_text`. |
 | `int32_t pp_check_report_json(slice_ref_uint8_t report, Vec_uint8_t *out)` | CBOR `CompatReport` in; JSON out; calls `check::report_json`. |
 
-## mig (7, stub)
+## mig (7)
 
 | Signature | Notes |
 | --- | --- |
@@ -91,7 +89,7 @@ Handles index a thread-local slab whose variants mirror
 | `int32_t pp_mig_coverage(uint32_t migration, uint32_t src, uint32_t tgt, slice_ref_uint8_t instances, Vec_uint8_t *out)` | CBOR `Vec<WInstance>` in; CBOR coverage report out. |
 | `int32_t pp_mig_lift_json(uint32_t migration, slice_ref_uint8_t json, slice_ref_uint8_t root_vertex, Vec_uint8_t *out)` | Raw JSON in/out; `root_vertex` is UTF-8; calls `inst::parse_json` -> `mig::lift_wtype` -> `inst::to_json`. |
 
-## hom (5, stub) — Python-only surface
+## hom (5) — Python-only surface
 
 | Signature | Notes |
 | --- | --- |
@@ -101,7 +99,7 @@ Handles index a thread-local slab whose variants mirror
 | `int32_t pp_hom_induce_schema_morphism(slice_ref_uint8_t theory_morphism, uint32_t src, Vec_uint8_t *out)` | CBOR `TheoryMorphism` in, `SchemaMorphism` out; calls `cascade::induce_schema_morphism`. |
 | `int32_t pp_hom_induce_migration_from_theory(slice_ref_uint8_t theory_morphism, uint32_t src, uint32_t tgt, Vec_uint8_t *out, uint32_t *out_handle)` | CBOR `TheoryMorphism` in, `SchemaMorphism` out plus new `MigrationWithSchemas` handle; calls `cascade::induce_migration_from_theory`. |
 
-## instance (4, stub)
+## instance (4)
 
 | Signature | Notes |
 | --- | --- |
@@ -110,7 +108,7 @@ Handles index a thread-local slab whose variants mirror
 | `int32_t pp_inst_json_to_instance(uint32_t schema_handle, slice_ref_uint8_t json, slice_ref_uint8_t root_vertex, Vec_uint8_t *out)` | Raw JSON in, CBOR `WInstance` out; `root_vertex` UTF-8; calls `inst::parse_json`. |
 | `int32_t pp_inst_element_count(slice_ref_uint8_t instance, uint32_t *out_count)` | CBOR `WInstance` in; node count out; calls `WInstance::node_count`. |
 
-## registry (6, stub)
+## registry (6)
 
 | Signature | Notes |
 | --- | --- |
@@ -121,7 +119,7 @@ Handles index a thread-local slab whose variants mirror
 | `int32_t pp_registry_list_builtin(Vec_uint8_t *out)` | CBOR `Vec<String>` out; calls `helpers::builtin_protocol_names`. |
 | `int32_t pp_registry_get_builtin(slice_ref_uint8_t name, Vec_uint8_t *out)` | UTF-8 name in; CBOR `Protocol` out; calls `helpers::lookup_builtin_protocol`. |
 
-## lens (18, stub)
+## lens (18)
 
 | Signature | Notes |
 | --- | --- |
@@ -144,7 +142,7 @@ Handles index a thread-local slab whose variants mirror
 | `int32_t pp_lens_symmetric_sync(uint32_t sym_lens, slice_ref_uint8_t view, slice_ref_uint8_t complement, uint8_t direction, Vec_uint8_t *out)` | CBOR `WInstance` + `Complement` in; `direction` 0=L→R, 1=R→L; CBOR `WInstance` out. |
 | `int32_t pp_lens_compile_document(slice_ref_uint8_t source, slice_ref_uint8_t format, slice_ref_uint8_t body_vertex, uint32_t *out_handle)` | UTF-8 DSL source; `format` is `json`/`yaml`; new `ProtolensChain` handle; calls `panproto_lens_dsl`. |
 
-## gat (4, stub)
+## gat (4)
 
 | Signature | Notes |
 | --- | --- |
@@ -153,7 +151,7 @@ Handles index a thread-local slab whose variants mirror
 | `int32_t pp_gat_check_morphism(slice_ref_uint8_t morphism, uint32_t domain, uint32_t codomain, Vec_uint8_t *out)` | CBOR `TheoryMorphism` in, `MorphismCheckResult` out; calls `gat::check_morphism`. |
 | `int32_t pp_gat_migrate_model(slice_ref_uint8_t model, slice_ref_uint8_t morphism, Vec_uint8_t *out)` | CBOR sort-interp map + `TheoryMorphism` in; CBOR reindexed sort interps out. |
 
-## expr (5, stub)
+## expr (5)
 
 | Signature | Notes |
 | --- | --- |
@@ -163,7 +161,7 @@ Handles index a thread-local slab whose variants mirror
 | `int32_t pp_expr_check(slice_ref_uint8_t expr, uint32_t theory, slice_ref_uint8_t context, Vec_uint8_t *out)` | CBOR `Term` + `Vec<(String, String)>` context in; CBOR `{ well_formed, output_sort, error }` out; calls `gat::typecheck_term`. |
 | `int32_t pp_query_execute(slice_ref_uint8_t query, slice_ref_uint8_t instance, uint32_t schema_handle, Vec_uint8_t *out)` | CBOR `InstanceQuery` + `WInstance` in; CBOR match list out; calls `inst::execute_query`. |
 
-## enriched (5, stub)
+## enriched (5)
 
 | Signature | Notes |
 | --- | --- |
@@ -173,7 +171,7 @@ Handles index a thread-local slab whose variants mirror
 | `int32_t pp_schema_add_policy(uint32_t schema_handle, slice_ref_uint8_t vertex_name, slice_ref_uint8_t spec, uint32_t *out_handle)` | CBOR `{ policy }` in; new `Schema` handle. |
 | `int32_t pp_enriched_refinement_subsort(slice_ref_uint8_t base_sort, slice_ref_uint8_t sub_constraints, slice_ref_uint8_t super_constraints, uint32_t *out_is_subsort)` | UTF-8 base sort; CBOR `Vec<(String, String)>` constraint sets; `1`/`0` out. |
 
-## vcs (12, stub)
+## vcs (12)
 
 | Signature | Notes |
 | --- | --- |
@@ -190,7 +188,7 @@ Handles index a thread-local slab whose variants mirror
 | `int32_t pp_vcs_stash_pop(uint32_t repo, Vec_uint8_t *out)` | CBOR `VcsOpResult` out; calls `vcs::stash::stash_pop`. |
 | `int32_t pp_vcs_blame(uint32_t repo, slice_ref_uint8_t vertex, Vec_uint8_t *out)` | UTF-8 vertex id; CBOR `VcsBlameResult` out; calls `vcs::blame::blame_vertex`. |
 
-## data (6, stub)
+## data (6)
 
 | Signature | Notes |
 | --- | --- |
@@ -201,7 +199,7 @@ Handles index a thread-local slab whose variants mirror
 | `int32_t pp_data_check_staleness(uint32_t dataset_handle, uint32_t schema_handle, Vec_uint8_t *out)` | CBOR `{ stale, data_schema_id, target_schema_id }` out. |
 | `int32_t pp_data_get_migration_complement(slice_ref_uint8_t complement, Vec_uint8_t *out)` | CBOR `Vec<Complement>` round-trip (validation). |
 
-## graph (5, stub)
+## graph (5)
 
 | Signature | Notes |
 | --- | --- |
@@ -211,7 +209,7 @@ Handles index a thread-local slab whose variants mirror
 | `int32_t pp_graph_preferred_path(slice_ref_uint8_t graph, slice_ref_uint8_t source_schema, slice_ref_uint8_t target_schema, Vec_uint8_t *out)` | CBOR `Vec<GraphEdge>` in; UTF-8 schema names; CBOR `{ cost, steps }` out; calls `LensGraph::preferred_path`. |
 | `int32_t pp_graph_conversion_distance(slice_ref_uint8_t graph, slice_ref_uint8_t source_schema, slice_ref_uint8_t target_schema, double *out_distance)` | `f64` distance out (INF if unreachable); calls `LensGraph::distance`. |
 
-## parse (10, stub) — feature `full-parse`
+## parse (10) — feature `full-parse`
 
 | Signature | Notes |
 | --- | --- |
@@ -226,7 +224,7 @@ Handles index a thread-local slab whose variants mirror
 | `int32_t pp_parse_check_emit_parse(uint32_t registry, slice_ref_uint8_t protocol, uint32_t schema, Vec_uint8_t *out)` | Empty buffer if law holds else divergence text; calls `check_emit_parse`. |
 | `int32_t pp_parse_check_parse_emit(uint32_t registry, slice_ref_uint8_t protocol, slice_ref_uint8_t bytes, Vec_uint8_t *out)` | Empty buffer if law holds else divergence text; calls `check_parse_emit`. |
 
-## project (6, stub) — feature `project`
+## project (6) — feature `project`
 
 | Signature | Notes |
 | --- | --- |
@@ -237,7 +235,7 @@ Handles index a thread-local slab whose variants mirror
 | `int32_t pp_project_schema_get(uint32_t project, uint32_t *out_handle)` | New `Schema` handle for the coproduct schema. |
 | `int32_t pp_project_protocol_map(uint32_t project, Vec_uint8_t *out)` | CBOR `HashMap<String, String>` (path → protocol) out. |
 
-## git (1, stub) — feature `git`
+## git (1) — feature `git`
 
 | Signature | Notes |
 | --- | --- |

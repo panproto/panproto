@@ -32,8 +32,8 @@
 -- return a 'Panproto.Class.SchemaRep', and 'emit' \/ 'emitPretty'
 -- consume one.
 --
--- The 'Panproto.Class.Rust' instance is authored in a later wave (in
--- @Panproto.Rust.Parse@); this module declares only the class.
+-- The 'Panproto.Class.Rust' instance lives in @Panproto.Rust.Parse@;
+-- this module declares the class.
 module Panproto.Parse
     ( -- * Capability class
       ParseBackend (..)

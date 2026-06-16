@@ -71,8 +71,10 @@ data PpStatus
     | StatusSerialization
     | StatusInternal
     | StatusOperation
-    -- ^ The entry point is a compiling stub awaiting engine wiring
-    -- (wire code @7@, @PpStatus::Operation@).
+    -- ^ A domain operation ran but the engine returned an error (wire
+    -- code @7@, @PpStatus::Operation@). This is distinct from an invalid
+    -- handle, a type mismatch, or a serialization failure: the call
+    -- reached the engine and the engine reported a domain-level failure.
     | StatusUnknown !Int
     -- ^ Forward-compatibility: an unrecognized code from a newer
     -- @panproto-c@. Treated as a hard error by callers but preserves

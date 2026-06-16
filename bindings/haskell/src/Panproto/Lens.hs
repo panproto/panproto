@@ -54,8 +54,8 @@
 -- backend carries its runnable artifacts in its own associated
 -- representations ('ChainRep', 'LensRep', 'SymLensRep'), bridging to the
 -- pure 'ProtolensChain' through 'ingestChain' \/ 'reifyChain'. The
--- 'Rust' instance is authored in a later wave (@Panproto.Rust.Lens@);
--- this module declares only the class.
+-- 'Rust' instance lives in @Panproto.Rust.Lens@; this module declares
+-- the class.
 --
 -- The CBOR codecs ('encodeChain' \/ 'decodeChain') and the aeson
 -- bridge ('chainToJson' \/ 'chainFromJson') follow the tolerant decoder

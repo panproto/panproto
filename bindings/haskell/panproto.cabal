@@ -193,7 +193,6 @@ library
             Panproto.Rust.Io
             Panproto.Rust.Lens
             Panproto.Rust.Migration
-            Panproto.Rust.Schema
             Panproto.Rust.Vcs
         include-dirs:       cbits
         includes:           panproto.h, panproto_glue.h
@@ -256,7 +255,7 @@ test-suite panproto-test
     -- The Rust-dependent specs import "Panproto.Rust", which only exists
     -- under the FFI backend, so they are gated alongside the
     -- @PANPROTO_RUST_BACKEND@ define that @test/Main.hs@ keys on.
-    -- @Spec.SchemaRoundtrip@ and @Spec.Wave2Roundtrip@ both link the
+    -- @Spec.SchemaRoundtrip@ and @Spec.EngineRoundtrip@ both link the
     -- backend, so they live here, not in the unconditional list above
     -- (otherwise @-f native-only@ would try to compile a module that
     -- imports the absent "Panproto.Rust").
@@ -265,5 +264,5 @@ test-suite panproto-test
         other-modules:
             Spec.RustRoundtrip
             Spec.SchemaRoundtrip
-            Spec.Wave2Roundtrip
+            Spec.EngineRoundtrip
         extra-libraries: panproto_c

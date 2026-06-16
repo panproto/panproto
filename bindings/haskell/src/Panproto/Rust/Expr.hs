@@ -20,8 +20,8 @@
 -- (@pp_expr_eval_gat@\/@pp_expr_check@) also live in the @expr@ domain
 -- and have correct Rust bodies, but they back the @GatBackend@ methods
 -- 'Panproto.Gat.evalGatTerm'\/'Panproto.Gat.typecheckTerm', not
--- 'ExprBackend'. Their Haskell wiring is deferred to the @gat@ domain
--- (Wave 3); this module is exactly the three 'ExprBackend' methods.
+-- 'ExprBackend'. Their Haskell wiring lives in the @gat@ domain; this
+-- module is exactly the three 'ExprBackend' methods.
 --
 -- == Query match representation
 --

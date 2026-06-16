@@ -36,8 +36,8 @@
 --    single @import@ operation as a plain 'IO' action that returns the
 --    imported repository handle ('RepoRep', the same backend-specific
 --    representation 'Panproto.Vcs.vcsInitB' yields) alongside the
---    summary. The FFI instance (@GitBackend Rust@) lands in Wave 2 in
---    "Panproto.Rust.Git"; only the class is defined here.
+--    summary. The FFI instance @GitBackend Rust@ lives in
+--    "Panproto.Rust.Git"; this module defines the class.
 --
 -- 'headId' is carried as the bare hex 'Text' rather than a
 -- 'Panproto.Vcs.VcsObjectId' so that 'GitImportResult' has the same
@@ -143,9 +143,9 @@ gitImportResultDecoder = decodeMap defaultGitImportResult $ \acc key -> case key
 -- 'VcsBackend' operations (log, branch, diff, …) or releases it with
 -- 'Panproto.Vcs.releaseRepo'.
 --
--- Only the class is declared in Wave 1. The @GitBackend Rust@ instance,
--- which dispatches 'gitImport' to the @pp_git_import@ FFI call, lands in
--- Wave 2 in "Panproto.Rust.Git". The 'Proxy' selects the backend: the
+-- The @GitBackend Rust@ instance, which dispatches 'gitImport' to the
+-- @pp_git_import@ FFI call, lives in "Panproto.Rust.Git". The 'Proxy'
+-- selects the backend: the
 -- import takes no backend-tagged representation as input (it produces
 -- one), so the tag is supplied explicitly, as with
 -- 'Panproto.Class.fromCanonical'.

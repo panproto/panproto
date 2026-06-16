@@ -3,8 +3,8 @@
 
 -- | Rust-backed git import: the @GitBackend Rust@ instance.
 --
--- This is the Wave 2 engine binding for the @git@ domain. It dispatches
--- the single @import@ operation declared in "Panproto.Git" to the
+-- FFI-backed implementation of the @git@-domain capability class. It
+-- dispatches the single @import@ operation declared in "Panproto.Git" to the
 -- @pp_git_import_at@ FFI call in "Panproto.Rust.FFI", turning status
 -- codes into 'Panproto.Errors.PanprotoError' exceptions and decoding the
 -- summary with the cborg codec from "Panproto.Git".

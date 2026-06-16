@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
--- | End-to-end cross-backend tests for the Wave 2 engine surface.
+-- | End-to-end tests that drive each domain's capability class against
+-- the FFI-backed @Rust@ backend.
 --
 -- One representative operation per capability domain, driven against the
 -- FFI-backed 'Rust' backend so the marshalling, the @libpanproto_c@
@@ -14,7 +15,7 @@
 -- under the W-type-native @geojson@ codec), so the I/O, instance,
 -- migration, lens, and data domains all share one well-formed,
 -- parseable shape.
-module Spec.Wave2Roundtrip (tests) where
+module Spec.EngineRoundtrip (tests) where
 
 import Control.Exception (bracket, try)
 import Data.ByteString (ByteString)
@@ -90,7 +91,6 @@ import Panproto.Rust.Instance ()
 import Panproto.Rust.Io ()
 import Panproto.Rust.Lens ()
 import Panproto.Rust.Migration ()
-import Panproto.Rust.Schema ()
 import Panproto.Rust.Vcs ()
 
 rust :: Proxy Rust
@@ -99,7 +99,7 @@ rust = Proxy
 tests :: TestTree
 tests =
     testGroup
-        "Spec.Wave2Roundtrip"
+        "Spec.EngineRoundtrip"
         [ testCase "schema: build, ingest, recover metadata" schemaRoundTrip
         , testCase "schema: validate empty against protocol" schemaValidate
         , testCase "check: diff + classify an additive change" checkDiffClassify
