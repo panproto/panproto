@@ -433,6 +433,29 @@ pp_gat_migrate_model (
     Vec_uint8_t * out);
 
 /** \brief
+ *  Import a git repository into a fresh in-memory VCS store.
+ *
+ *  `repo_path` is the UTF-8 path to the git repository; `revspec` is the
+ *  UTF-8 revision specifier to import (e.g. `"HEAD"`, `"main"`,
+ *  `"HEAD~10..HEAD"`). On success, `out_handle` receives a fresh
+ *  [`Resource::VcsRepo`](crate::handle::Resource) handle wrapping the
+ *  imported `MemStore`, and `out` receives a CBOR-encoded
+ *  `{ commit_count, head_id }` summary.
+ *
+ *  Opens the repository with [`git2::Repository::open`] and walks it via
+ *  `panproto_core::git::import_git_repo`. Both arguments are validated as
+ *  UTF-8 at the boundary; a malformed path, an unopenable repository, or a
+ *  failed walk surfaces as [`PpStatus::Operation`]. The out-handle slot is
+ *  only written on success, so a failed call leaves it untouched.
+ */
+int32_t
+pp_git_import (
+    slice_ref_uint8_t repo_path,
+    slice_ref_uint8_t revspec,
+    uint32_t * out_handle,
+    Vec_uint8_t * out);
+
+/** \brief
  *  Compute the shortest distance between two schemas in a lens graph.
  *
  *  `graph` is a CBOR-encoded `Vec<GraphEdge>`; `source_schema` and
@@ -1083,6 +1106,260 @@ int32_t
 pp_mig_serialize_compiled (
     uint32_t mig_handle,
     Vec_uint8_t * out);
+
+/** \brief
+ *  List all available tree-sitter grammar languages enabled by feature
+ *  flags.
+ *
+ *  On success, `out` receives a CBOR-encoded `Vec<String>` (sorted). The
+ *  catalogue is registry-independent: it is read off a throwaway
+ *  `ParserRegistry::new()`, which `panproto-parse` populates from
+ *  `panproto_grammars::grammars()` (the set fixed by the compiled-in
+ *  grammar group features). Reading it through a fresh registry keeps the
+ *  list exactly in step with what `pp_parse_registry_new` would register,
+ *  without `panproto-c` needing a direct `panproto-grammars` dependency.
+ */
+int32_t
+pp_parse_available_grammars (
+    Vec_uint8_t * out);
+
+/** \brief
+ *  Verify the `EmitParse` retraction on a schema.
+ *
+ *  `registry` is an AST-registry handle; `protocol` is the UTF-8
+ *  protocol name; `schema` is a
+ *  [`Resource::Schema`](crate::handle::Resource) handle. On success,
+ *  `out` receives the empty buffer when the law holds, or the
+ *  divergence message bytes otherwise. Calls `check_emit_parse` against a
+ *  `ParseEmitLens` bound to `protocol`.
+ */
+int32_t
+pp_parse_check_emit_parse (
+    uint32_t registry,
+    slice_ref_uint8_t protocol,
+    uint32_t schema,
+    Vec_uint8_t * out);
+
+/** \brief
+ *  Verify the `ParseEmit` stability law on source bytes.
+ *
+ *  `registry` is an AST-registry handle; `protocol` is the UTF-8
+ *  protocol name; `bytes` is the source to round-trip. On success,
+ *  `out` receives the empty buffer when the law holds, or the
+ *  divergence message bytes otherwise. Calls `check_parse_emit` against a
+ *  `ParseEmitLens` bound to `protocol`.
+ */
+int32_t
+pp_parse_check_parse_emit (
+    uint32_t registry,
+    slice_ref_uint8_t protocol,
+    slice_ref_uint8_t bytes,
+    Vec_uint8_t * out);
+
+/** \brief
+ *  Detect the language protocol for a file path.
+ *
+ *  `registry` is an AST-registry handle; `path` is the UTF-8 file path.
+ *  On success, `out` receives the detected protocol name as UTF-8 bytes,
+ *  or the empty buffer when no grammar claims the extension (mirroring
+ *  the `Option<&str>` the core `detect_language` returns).
+ */
+int32_t
+pp_parse_detect_language (
+    uint32_t registry,
+    slice_ref_uint8_t path,
+    Vec_uint8_t * out);
+
+/** \brief
+ *  Emit a schema back to source bytes via the parse-derived layout.
+ *
+ *  `registry` is an AST-registry handle; `protocol` is the UTF-8
+ *  protocol name; `schema` is a
+ *  [`Resource::Schema`](crate::handle::Resource) handle. On success,
+ *  `out` receives the source bytes. Calls `emit_with_protocol`.
+ */
+int32_t
+pp_parse_emit (
+    uint32_t registry,
+    slice_ref_uint8_t protocol,
+    uint32_t schema,
+    Vec_uint8_t * out);
+
+/** \brief
+ *  Render a by-construction schema to source bytes via the grammar's
+ *  production walker.
+ *
+ *  Arguments match [`pp_parse_emit`]; unlike that entry point, the
+ *  schema need not carry parse-derived byte positions. Calls
+ *  `emit_pretty_with_protocol`.
+ */
+int32_t
+pp_parse_emit_pretty (
+    uint32_t registry,
+    slice_ref_uint8_t protocol,
+    uint32_t schema,
+    Vec_uint8_t * out);
+
+/** \brief
+ *  Parse a source file into a full-AST schema, language auto-detected
+ *  from the path.
+ *
+ *  `registry` is an AST-registry handle; `path` is the UTF-8 file path
+ *  (used for extension detection); `content` is the source bytes. On
+ *  success, `out_handle` receives a fresh
+ *  [`Resource::Schema`](crate::handle::Resource) handle.
+ *
+ *  An unrecognised extension, an unparseable source, or a non-UTF-8 path
+ *  surfaces as [`PpStatus::Operation`]; a type-mismatched `registry`
+ *  handle as [`PpStatus::TypeMismatch`]. The out-handle slot is written
+ *  only on success.
+ */
+int32_t
+pp_parse_file (
+    uint32_t registry,
+    slice_ref_uint8_t path,
+    slice_ref_uint8_t content,
+    uint32_t * out_handle);
+
+/** \brief
+ *  List all protocol names registered in an AST registry.
+ *
+ *  `registry` is an AST-registry handle. On success, `out` receives a
+ *  CBOR-encoded `Vec<String>` (sorted for a deterministic wire image, as
+ *  the underlying `protocol_names` iterates an unordered map).
+ */
+int32_t
+pp_parse_protocol_names (
+    uint32_t registry,
+    Vec_uint8_t * out);
+
+/** \brief
+ *  Construct a parser registry populated with all enabled grammars.
+ *
+ *  On success, `out_handle` receives a fresh
+ *  [`Resource::AstRegistry`](crate::handle::Resource) handle wrapping a
+ *  `ParserRegistry::new()`. The set of registered grammars is fixed by the
+ *  crate's compiled-in grammar group features (the default `group-core`,
+ *  or whatever the dependent build enables).
+ */
+int32_t
+pp_parse_registry_new (
+    uint32_t * out_handle);
+
+/** \brief
+ *  Parse source code with an explicit protocol name.
+ *
+ *  `registry` is an AST-registry handle; `protocol` is the UTF-8
+ *  protocol name; `content` is the source bytes; `file_path` is the
+ *  UTF-8 path recorded on the parsed schema. On success, `out_handle`
+ *  receives a fresh [`Resource::Schema`](crate::handle::Resource)
+ *  handle.
+ *
+ *  An unregistered protocol, an unparseable source, or non-UTF-8
+ *  `protocol` / `file_path` surfaces as [`PpStatus::Operation`]. The
+ *  out-handle slot is written only on success.
+ */
+int32_t
+pp_parse_with_protocol (
+    uint32_t registry,
+    slice_ref_uint8_t protocol,
+    slice_ref_uint8_t content,
+    slice_ref_uint8_t file_path,
+    uint32_t * out_handle);
+
+/** \brief
+ *  Recursively add all files in a directory to a project builder.
+ *
+ *  `builder` is a project-builder handle; `path` is the UTF-8 directory
+ *  path. Mutates the builder in place via
+ *  [`crate::handle::with_resource_mut`], dispatching to
+ *  `ProjectBuilder::add_directory`, which walks the directory on the
+ *  local filesystem (skipping hidden entries and the usual build-output
+ *  directories) and reads each file's bytes with `std::fs`.
+ *
+ *  The path is validated as UTF-8 at the boundary; a malformed path, an
+ *  unreadable directory, or a parse failure surfaces as
+ *  [`PpStatus::Operation`].
+ */
+int32_t
+pp_project_add_directory (
+    uint32_t builder,
+    slice_ref_uint8_t path);
+
+/** \brief
+ *  Add a single file to a project builder.
+ *
+ *  `builder` is a [`Resource::ProjectBuilder`](crate::handle::Resource)
+ *  handle; `path` is the UTF-8 file path; `content` is the file bytes.
+ *  Mutates the builder in place via [`crate::handle::with_resource_mut`],
+ *  dispatching to `ProjectBuilder::add_file`.
+ *
+ *  The path is validated as UTF-8 at the boundary; a malformed path or a
+ *  parse failure surfaces as [`PpStatus::Operation`].
+ */
+int32_t
+pp_project_add_file (
+    uint32_t builder,
+    slice_ref_uint8_t path,
+    slice_ref_uint8_t content);
+
+/** \brief
+ *  Assemble a project builder into a unified project schema.
+ *
+ *  `builder` is a project-builder handle. On success, `out_handle`
+ *  receives a fresh [`Resource::ProjectSchema`](crate::handle::Resource)
+ *  handle and the builder is logically consumed: its slab slot is left
+ *  holding a fresh empty builder (`ProjectBuilder::new`), so the handle
+ *  stays valid but carries no accumulated files. This mirrors the Python
+ *  reference, which swaps in a fresh builder before taking ownership for
+ *  `ProjectBuilder::build`.
+ *
+ *  A failed assembly (no files added, or a coproduct failure) surfaces as
+ *  [`PpStatus::Operation`] and leaves the out-handle slot untouched.
+ */
+int32_t
+pp_project_build (
+    uint32_t builder,
+    uint32_t * out_handle);
+
+/** \brief
+ *  Create an empty multi-file project builder.
+ *
+ *  On success, `out_handle` receives a fresh
+ *  [`Resource::ProjectBuilder`](crate::handle::Resource) handle wrapping
+ *  a `ProjectBuilder::new`. The out-handle slot is written only on
+ *  success.
+ */
+int32_t
+pp_project_builder_new (
+    uint32_t * out_handle);
+
+/** \brief
+ *  Extract the file-to-protocol map from an assembled project.
+ *
+ *  `project` is a project-schema handle. On success, `out` receives a
+ *  CBOR-encoded `HashMap<String, String>` mapping file paths (rendered
+ *  via `Path::display`) to the protocol used to parse each, matching the
+ *  Haskell `Panproto.Project.decodeProtocolMap` decoder.
+ */
+int32_t
+pp_project_protocol_map (
+    uint32_t project,
+    Vec_uint8_t * out);
+
+/** \brief
+ *  Extract the unified schema from an assembled project.
+ *
+ *  `project` is a [`Resource::ProjectSchema`](crate::handle::Resource)
+ *  handle. On success, `out_handle` receives a fresh
+ *  [`Resource::Schema`](crate::handle::Resource) handle for the
+ *  coproduct schema (cloned out of the project). The out-handle slot is
+ *  written only on success.
+ */
+int32_t
+pp_project_schema_get (
+    uint32_t project,
+    uint32_t * out_handle);
 
 /** \brief
  *  Ingest a CBOR-encoded [`Protocol`] specification and register it
