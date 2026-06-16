@@ -3,36 +3,41 @@
 
 -- | Rust-backed GAT operations: the @'GatBackend' 'Rust'@ instance.
 --
--- Theories live in @libpanproto_c@'s slab as @Resource::Theory@ handles;
--- 'ingestTheory' allocates one from a structured 'Theory' and
--- 'colimitTheories' \/ 'checkMorphism' dispatch to the @gat@ domain of
--- @panproto-c@ (see @crates\/panproto-c\/CONTRACT.md@):
--- @pp_gat_create_theory@, @pp_gat_colimit@, @pp_gat_check_morphism@, and
--- @pp_gat_migrate_model@.
+-- Theories and models live in @libpanproto_c@'s slab as
+-- @Resource::Theory@ and @Resource::Model@ handles. 'ingestTheory'
+-- allocates a theory from a structured 'Theory'; 'colimitTheories' \/
+-- 'checkMorphism' \/ 'freeModel' \/ 'checkModel' dispatch to the @gat@
+-- domain of @panproto-c@ (see @crates\/panproto-c\/CONTRACT.md@):
+-- @pp_gat_create_theory@, @pp_gat_colimit@, @pp_gat_check_morphism@,
+-- @pp_gat_migrate_model@, @pp_gat_free_model@, @pp_gat_check_model@, and
+-- @pp_gat_serialize_theory@.
 --
 -- == Reifying a theory handle
 --
--- The @gat@ C ABI is exactly those four entry points; it exposes no
--- theory serializer (no @pp_gat_serialize@), so a bare slab handle
--- cannot be read back to CBOR. (The WASM reference surface
--- @crates\/panproto-wasm\/src\/api\/gat.rs@ is identical in this
--- respect, and the Python binding reifies by holding the structured
--- @Theory@ in the wrapper rather than round-tripping the engine.) The
--- Rust 'TheoryRep' therefore pairs the slab handle with the structured
--- 'Theory' it was built from, so 'reifyTheory' returns that value
--- directly. A handle produced by the engine ('colimitTheories') has no
--- such Haskell-side structured form; 'reifyTheory' on it raises a clear
--- 'PanprotoError' rather than fabricate one.
+-- 'reifyTheory' calls @pp_gat_serialize_theory@, which emits the CBOR
+-- 'Theory' in the same shape @pp_gat_create_theory@ ingests. It works
+-- uniformly for an ingested theory and for an engine-produced one (a
+-- 'colimitTheories' result), so a 'TheoryRep' need carry only the slab
+-- handle: there is no Haskell-side structured cache.
+--
+-- == Models
+--
+-- A model is a @Resource::Model@ slab handle. @pp_gat_free_model@
+-- constructs one and returns the handle; @pp_gat_check_model@ checks a
+-- model handle against a theory handle and returns the
+-- equation-violation list. The @gat@ C ABI exposes no model-metadata
+-- entry (no @pp_gat_model_metadata@), so 'modelTheoryNameIO' \/
+-- 'sortInterpKeysIO' cannot be read back from the slab. They are served
+-- from values captured at 'freeModel' time instead: a free model
+-- interprets exactly the theory it was built from, and its carrier sets
+-- are keyed by that theory's sort names. 'freeModel' reifies the source
+-- theory (via @pp_gat_serialize_theory@) and stores its name and sort
+-- names in the 'ModelRep', so both accessors return real values, not
+-- placeholders. (Python's @Model.theory_name@ \/
+-- @Model.sort_interp_keys@ are the parity targets; these are exactly
+-- those values for a free model.)
 --
 -- == Operations with no @gat@-domain symbol
---
--- Three things the pure 'GatBackend' class advertises cannot be served
--- by this backend:
---
--- * 'freeModel' and 'checkModel' map to @gat::free_model@ \/
---   @gat::check_model@, which are not exposed across the C ABI (a
---   'Model' carries operation closures that cannot serialize). They
---   throw 'PanprotoError' with 'StatusOperation'.
 --
 -- 'evalGatTerm' and 'typecheckTerm' map to @pp_expr_eval_gat@ \/
 -- @pp_expr_check@, which live in the @expr@ domain
@@ -42,9 +47,8 @@
 -- and decodes a 'ModelValue'; 'typecheckTerm' encodes the context as
 -- @Vec<(String, String)>@ and decodes a 'TypecheckResult'.
 --
--- A 'ModelRep' for the Rust backend never holds a slab handle: no @gat@
--- entry point produces a model handle. 'migrateModel' is pure CBOR-in \/
--- CBOR-out and needs no theory or model handle at all.
+-- 'migrateModel' is pure CBOR-in \/ CBOR-out and needs no theory or
+-- model handle at all.
 module Panproto.Rust.Gat
     ( -- * Theory representation
       RustTheory (..)
@@ -68,6 +72,7 @@ import Panproto.Gat
     , Model
     , ModelValue
     , MorphismCheckResult
+    , Sort (..)
     , Term
     , Theory
     , TheoryMorphism (..)
@@ -75,21 +80,29 @@ import Panproto.Gat
     , decodeModelSortInterp
     , decodeModelValueBytes
     , decodeMorphismCheckResult
+    , decodeStringList
+    , decodeTheory
     , decodeTypecheckResult
+    , encodeFreeModelConfig
     , encodeModelSortInterp
     , encodeMorphism
     , encodeSortContext
     , encodeTermBytes
     , encodeTermEnv
     , encodeTheory
+    , sorts
+    , theoryName
     )
 import Panproto.Rust.FFI
     ( pp_expr_check_at
     , pp_expr_eval_gat_at
+    , pp_gat_check_model
     , pp_gat_check_morphism_at
     , pp_gat_colimit
     , pp_gat_create_theory_at
+    , pp_gat_free_model_at
     , pp_gat_migrate_model_at
+    , pp_gat_serialize_theory
     , pp_handle_free
     )
 import Panproto.Rust.Handle
@@ -116,51 +129,56 @@ withRustTheory t = bracket (ingestRustTheory t) freeRustTheory
 -- Instance
 
 instance GatBackend Rust where
-    -- The slab handle paired with the structured theory it was built
-    -- from, if known. 'Just' for an ingested theory ('ingestTheory'),
-    -- 'Nothing' for an engine-produced one ('colimitTheories'), which
-    -- has no Haskell-side structured form.
-    data TheoryRep Rust = RustTheoryRep !RustTheory !(Maybe Theory)
+    -- The bare slab handle. 'reifyTheory' recovers the structured
+    -- 'Theory' on demand via @pp_gat_serialize_theory@, so no
+    -- Haskell-side cache is kept and an engine-produced handle (a colimit
+    -- result) reifies the same way an ingested one does.
+    newtype TheoryRep Rust = RustTheoryRep RustTheory
 
-    -- A 'Model' never gets a slab handle in the @gat@ C ABI: no entry
-    -- point produces one. The representation is inert; the
-    -- model-producing methods ('freeModel', 'checkModel') are
-    -- unsupported by this backend (see the module header).
-    data ModelRep Rust = RustModelUnsupported
+    -- A @Resource::Model@ slab handle paired with the theory name and
+    -- sort-interp keys captured at 'freeModel' time. The @gat@ C ABI has
+    -- no model-metadata entry, so these two fields back 'modelTheoryNameIO'
+    -- \/ 'sortInterpKeysIO' with the free model's real values (its theory
+    -- name and its theory's sort names) rather than re-reading the slab.
+    data ModelRep Rust = RustModelRep !Word32 !Text ![Text]
 
-    ingestTheory _ t = do
-        h <- ingestRustTheory t
-        pure (RustTheoryRep h (Just t))
+    ingestTheory _ t = RustTheoryRep <$> ingestRustTheory t
 
-    reifyTheory (RustTheoryRep _ (Just t)) = pure t
-    reifyTheory (RustTheoryRep _ Nothing) = throwIO reifyUnavailableError
+    reifyTheory (RustTheoryRep (RustTheory th)) = reifyRustTheory th
 
-    releaseTheory (RustTheoryRep r _) = freeRustTheory r
+    releaseTheory (RustTheoryRep r) = freeRustTheory r
 
     colimitTheories
-        (RustTheoryRep (RustTheory t1) _)
-        (RustTheoryRep (RustTheory t2) _)
-        (RustTheoryRep (RustTheory shared) _) = do
+        (RustTheoryRep (RustTheory t1))
+        (RustTheoryRep (RustTheory t2))
+        (RustTheoryRep (RustTheory shared)) = do
             h <- callHandleOut (pp_gat_colimit t1 t2 shared)
-            pure (RustTheoryRep (RustTheory h) Nothing)
+            pure (RustTheoryRep (RustTheory h))
 
-    checkMorphism morph (RustTheoryRep (RustTheory dom) _) (RustTheoryRep (RustTheory cod) _) =
+    checkMorphism morph (RustTheoryRep (RustTheory dom)) (RustTheoryRep (RustTheory cod)) =
         checkRustMorphism morph dom cod
 
     migrateModel _ = migrateRustModel
 
-    -- Unsupported by the @gat@ C ABI (see module header).
-    freeModel _ _ _ = unsupportedModelOp "freeModel" "gat::free_model"
-    checkModel _ _ = unsupportedModelOp "checkModel" "gat::check_model"
-    modelTheoryNameIO _ = unsupportedModelOp "modelTheoryNameIO" "a model handle"
-    sortInterpKeysIO _ = unsupportedModelOp "sortInterpKeysIO" "a model handle"
-    releaseModel RustModelUnsupported = pure ()
+    freeModel (RustTheoryRep (RustTheory th)) maxDepth maxTerms =
+        freeRustModel th maxDepth maxTerms
+
+    checkModel (RustModelRep model _ _) (RustTheoryRep (RustTheory th)) =
+        checkRustModel model th
+
+    -- Served from the values captured at 'freeModel' time (see module
+    -- header): a free model interprets exactly its source theory, whose
+    -- sort names key its carrier sets.
+    modelTheoryNameIO (RustModelRep _ name _) = pure name
+    sortInterpKeysIO (RustModelRep _ _ keys) = pure keys
+
+    releaseModel (RustModelRep model _ _) = freeRustModelHandle model
 
     -- Served by the @expr@ domain against a theory handle (see module
     -- header): @pp_expr_eval_gat@ \/ @pp_expr_check@.
-    evalGatTerm (RustTheoryRep (RustTheory th) _) term env =
+    evalGatTerm (RustTheoryRep (RustTheory th)) term env =
         evalRustGatTerm th term env
-    typecheckTerm (RustTheoryRep (RustTheory th) _) term ctx =
+    typecheckTerm (RustTheoryRep (RustTheory th)) term ctx =
         typecheckRustTerm th term ctx
 
 -- ---------------------------------------------------------------------------
@@ -175,6 +193,16 @@ freeRustTheory :: RustTheory -> IO ()
 freeRustTheory (RustTheory h) = do
     status <- pp_handle_free h
     checkStatus status
+
+-- | Reify a theory handle to a structured 'Theory' via
+-- @pp_gat_serialize_theory@. Works for both ingested and engine-produced
+-- (colimit-result) handles.
+reifyRustTheory :: Word32 -> IO Theory
+reifyRustTheory th = do
+    bs <- callVecOut (pp_gat_serialize_theory th)
+    case decodeTheory bs of
+        Right t -> pure t
+        Left err -> throwIO (hostDecodeError "pp_gat_serialize_theory" err)
 
 -- ---------------------------------------------------------------------------
 -- Morphism checking and model migration
@@ -199,6 +227,41 @@ migrateRustModel morph model = do
     case decodeModelSortInterp morph.domain bs of
         Right m -> pure m
         Left err -> throwIO (hostDecodeError "pp_gat_migrate_model" err)
+
+-- ---------------------------------------------------------------------------
+-- Free model construction and checking
+
+-- | Construct the free model of a theory handle under a @max_depth@ \/
+-- @max_terms_per_sort@ bound. Wraps @pp_gat_free_model@: the bound goes
+-- in as a borrowed CBOR @{ max_depth, max_terms_per_sort }@ slice, the
+-- theory as a slab handle, and a fresh @Resource::Model@ handle comes
+-- back. The source theory is reified (via @pp_gat_serialize_theory@) so
+-- its name and sort names can back 'modelTheoryNameIO' \/
+-- 'sortInterpKeysIO' (see the module header).
+freeRustModel :: Word32 -> Int -> Int -> IO (ModelRep Rust)
+freeRustModel th maxDepth maxTerms = do
+    theory <- reifyRustTheory th
+    model <-
+        withSliceIn (encodeFreeModelConfig maxDepth maxTerms) $ \cfgPtr cfgLen ->
+            callHandleOut (pp_gat_free_model_at th cfgPtr cfgLen)
+    let keys = [s.sortName | s <- sorts theory]
+    pure (RustModelRep model (theoryName theory) keys)
+
+-- | Check a model handle against a theory handle, decoding the CBOR
+-- @Vec\<String\>@ of equation-violation descriptions. Wraps
+-- @pp_gat_check_model@.
+checkRustModel :: Word32 -> Word32 -> IO [Text]
+checkRustModel model th = do
+    bs <- callVecOut (pp_gat_check_model model th)
+    case decodeStringList bs of
+        Right vs -> pure vs
+        Left err -> throwIO (hostDecodeError "pp_gat_check_model" err)
+
+-- | Release a model slab handle.
+freeRustModelHandle :: Word32 -> IO ()
+freeRustModelHandle h = do
+    status <- pp_handle_free h
+    checkStatus status
 
 -- ---------------------------------------------------------------------------
 -- Term evaluation and typechecking (expr domain, theory-aware)
@@ -237,49 +300,6 @@ typecheckRustTerm th term ctx = do
 
 -- ---------------------------------------------------------------------------
 -- Errors
-
--- | 'reifyTheory' on an engine-produced handle (e.g. a colimit result),
--- which has no Haskell-side structured 'Theory' and no @gat@-domain
--- serializer to recover one.
-reifyUnavailableError :: PanprotoError
-reifyUnavailableError =
-    PanprotoError
-        { code = StatusOperation
-        , envelope =
-            Just
-                ErrorEnvelope
-                    { status = statusToInt StatusOperation
-                    , tag = "unsupported"
-                    , message =
-                        "reifyTheory: the gat C ABI exposes no theory serializer, "
-                            <> "so an engine-produced theory handle (colimit result) "
-                            <> "cannot be read back to a structured Theory"
-                    }
-        }
-
--- | Throw for a model-producing operation that has no @gat@-domain C ABI
--- symbol (@gat::free_model@, @gat::check_model@, or a model handle).
-unsupportedModelOp :: Text -> Text -> IO a
-unsupportedModelOp method backing =
-    throwIO (unsupportedError method backing "the gat C ABI exposes no model handle")
-
-unsupportedError :: Text -> Text -> Text -> PanprotoError
-unsupportedError method backing reason =
-    PanprotoError
-        { code = StatusOperation
-        , envelope =
-            Just
-                ErrorEnvelope
-                    { status = statusToInt StatusOperation
-                    , tag = "unsupported"
-                    , message =
-                        method
-                            <> " (backed by "
-                            <> backing
-                            <> ") is not available through the GatBackend Rust instance: "
-                            <> reason
-                    }
-        }
 
 hostDecodeError :: String -> String -> PanprotoError
 hostDecodeError site reason =

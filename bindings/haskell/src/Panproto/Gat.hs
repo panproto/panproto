@@ -112,6 +112,10 @@ module Panproto.Gat
     , encodeSortContext
     , decodeTypecheckResult
 
+      -- * Free model construction
+    , encodeFreeModelConfig
+    , decodeStringList
+
       -- * Builder
     , TheoryBuilderM
     , buildTheory
@@ -789,6 +793,20 @@ encodeNamedPairs :: (v -> Encoding) -> [(Text, v)] -> Encoding
 encodeNamedPairs enc =
     encodeList (\(k, v) -> Enc.encodeListLen 2 <> Enc.encodeString k <> enc v)
 
+-- | Encode a free-model bound as the CBOR @{ max_depth, max_terms_per_sort }@
+-- map @pp_gat_free_model@ deserializes (the @gat::FreeModelConfig@ shape;
+-- both fields are @serde(default)@, but both are always written here).
+-- The bounds are non-negative counts, so they encode as CBOR unsigned
+-- integers, matching the Rust @usize@ fields.
+encodeFreeModelConfig :: Int -> Int -> LBS.ByteString
+encodeFreeModelConfig maxDepth maxTerms =
+    CBOR.toLazyByteString $
+        Enc.encodeMapLen 2
+            <> Enc.encodeString "max_depth"
+            <> Enc.encodeInt maxDepth
+            <> Enc.encodeString "max_terms_per_sort"
+            <> Enc.encodeInt maxTerms
+
 encodeSort :: Sort -> Encoding
 encodeSort s =
     Enc.encodeMapLen 4
@@ -988,6 +1006,12 @@ decodeModelValueBytes = runDecoder decodeModelValue "model value"
 -- @{ well_formed, output_sort, error }@) into a 'TypecheckResult'.
 decodeTypecheckResult :: LBS.ByteString -> Either String TypecheckResult
 decodeTypecheckResult = runDecoder typecheckResultDecoder "typecheck result"
+
+-- | Decode a top-level CBOR @Vec\<String\>@ into a list of 'Text'. The
+-- @pp_gat_check_model@ output shape (the equation-violation
+-- descriptions, empty when the model satisfies every equation).
+decodeStringList :: LBS.ByteString -> Either String [Text]
+decodeStringList = runDecoder (decodeListOf Dec.decodeString) "string list"
 
 runDecoder :: (forall s. Decoder s a) -> String -> LBS.ByteString -> Either String a
 runDecoder dec what bs =

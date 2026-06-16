@@ -17,7 +17,7 @@
 -- parseable shape.
 module Spec.EngineRoundtrip (tests) where
 
-import Control.Exception (bracket, try)
+import Control.Exception (bracket)
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BS8
 import Data.HashMap.Strict (HashMap)
@@ -26,6 +26,13 @@ import Data.List (isInfixOf)
 import Data.Proxy (Proxy (..))
 import Data.Text (Text)
 import Data.Text qualified as T
+import System.Directory
+    ( createDirectoryIfMissing
+    , doesPathExist
+    , getTemporaryDirectory
+    , removeDirectoryRecursive
+    )
+import System.FilePath ((</>))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase, (@?=))
 
@@ -38,7 +45,6 @@ import Panproto.Class
     , SchemaValidate (..)
     )
 import Panproto.Data (DataBackend (..))
-import Panproto.Errors (PanprotoError (..), PpStatus (..))
 import Panproto.Expr (Expr, ExprBackend (..), Literal (..))
 import Panproto.Gat
     ( GatBackend (..)
@@ -71,12 +77,12 @@ import Panproto.Native.Schema ()
 import Panproto.Schema (Schema)
 import Panproto.Schema qualified as S
 import Panproto.Vcs
-    ( RepoBackend (InMemory)
+    ( LogEntry (..)
     , VcsAddResult (..)
-    , VcsBackend (..)
-    , VcsInitResult (..)
+    , VcsCommitResult (..)
     , VcsLogResult (..)
     , VcsObjectId (..)
+    , runRepo
     )
 
 -- Backend instances under test.
@@ -91,7 +97,7 @@ import Panproto.Rust.Instance ()
 import Panproto.Rust.Io ()
 import Panproto.Rust.Lens ()
 import Panproto.Rust.Migration ()
-import Panproto.Rust.Vcs ()
+import Panproto.Rust.Vcs (vcsAdd, vcsCommit, vcsLog, withRepo)
 
 rust :: Proxy Rust
 rust = Proxy
@@ -369,40 +375,66 @@ exprParseEval = do
 -- ---------------------------------------------------------------------------
 -- VCS
 
--- | Initialise an in-memory repository (HEAD on @main@), stage the
--- schema (the staged change is valid and gets a non-empty object id),
--- and read the log. The in-memory @MemStore@ carries no staging index,
--- so @vcs_commit@ is a faithful no-op-error on this backend and the log
--- is therefore empty: both facts are asserted, exercising the @init@,
--- @add@, @commit@, and @log@ FFI paths end-to-end.
+-- | Open an on-disk repository in a fresh temp directory, stage the
+-- schema (the staged change must be valid with a non-empty object id),
+-- commit it (the commit must succeed and return a real, non-empty commit
+-- id), and read the log (it must show exactly that commit, with matching
+-- id, message, and author). Exercises the @init@, @add@, @commit@, and
+-- @log@ FFI paths end-to-end against the real filesystem 'Repository'.
+-- The temp repository is removed afterwards.
 vcsInitAddLog :: IO ()
-vcsInitAddLog = do
-    (repo, initResult) <- vcsInitB @Rust InMemory
-    initResult.initialBranch @?= "main"
-    bracket (pure repo) releaseRepo $ \_ -> do
+vcsInitAddLog =
+    withTempVcsRepo $ \dir -> withRepo dir $ \repo -> do
         canonical <- bracket (fromSchema rust postSchema) releaseSchema toCanonicalSchema
-        addResult <- vcsAddB repo canonical
+        (addResult, commitResult, logResult) <- runRepo repo $ do
+            a <- vcsAdd canonical
+            c <- vcsCommit "initial commit" "tester"
+            l <- vcsLog Nothing
+            pure (a, c, l)
+        -- add: the staged schema is valid and gets a real object id.
         assertBool
             ("staged schema should be valid; messages: " <> show addResult.validationMessages)
             addResult.valid
-        let VcsObjectId oid = addResult.schemaId
-        assertBool "the staged schema must get a non-empty object id" (not (T.null oid))
-        -- MemStore has no index to commit from; the engine reports a
-        -- clean operation error rather than fabricating a commit.
-        committed <- try @PanprotoError (vcsCommitB repo "initial commit" "tester")
-        case committed of
-            Left err ->
-                assertEqual
-                    "vcs_commit on an in-memory store is an operation error"
-                    StatusOperation
-                    err.code
-            Right _ ->
-                assertBool "expected vcs_commit to fail on the in-memory store" False
-        logResult <- vcsLogB repo Nothing
-        assertEqual
-            "an in-memory repo with no commit has an empty log"
-            []
-            logResult.entries
+        let VcsObjectId stagedId = addResult.schemaId
+        assertBool "the staged schema must get a non-empty object id" (not (T.null stagedId))
+        -- commit: succeeds and returns a real, non-empty commit id with
+        -- the message and author it was given.
+        let VcsObjectId committedId = commitResult.commitId
+        assertBool
+            "the commit must return a non-empty commit id"
+            (not (T.null committedId))
+        commitResult.message @?= "initial commit"
+        commitResult.author @?= "tester"
+        -- log: shows exactly the one commit, matching the commit result.
+        case logResult.entries of
+            [entry] -> do
+                entry.commitId @?= commitResult.commitId
+                entry.message @?= "initial commit"
+                entry.author @?= "tester"
+            other ->
+                assertBool
+                    ("the log should show exactly the one commit, got " <> show other)
+                    False
+
+-- | Run an action with a freshly-created, unique temp directory for an
+-- on-disk repository, removing it (and its @.panproto\/@ store) when the
+-- action finishes, even on exception.
+withTempVcsRepo :: (FilePath -> IO a) -> IO a
+withTempVcsRepo =
+    bracket acquire removeDirectoryRecursive
+  where
+    acquire = do
+        tmp <- getTemporaryDirectory
+        dir <- uniqueDir tmp 0
+        createDirectoryIfMissing True dir
+        pure dir
+    -- Pick the first @panproto-vcs-test-<n>@ path under the temp dir that
+    -- does not already exist, so concurrent and repeated runs never
+    -- collide.
+    uniqueDir tmp n = do
+        let candidate = tmp </> ("panproto-vcs-test-" <> show (n :: Int))
+        taken <- doesPathExist candidate
+        if taken then uniqueDir tmp (n + 1) else pure candidate
 
 -- ---------------------------------------------------------------------------
 -- Hom

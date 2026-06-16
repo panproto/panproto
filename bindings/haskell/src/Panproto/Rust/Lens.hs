@@ -80,6 +80,11 @@ import Foreign.Ptr (Ptr)
 import Codec.CBOR.Decoding (Decoder)
 import Codec.CBOR.Decoding qualified as Dec
 import Codec.CBOR.Read qualified as CBOR
+import Data.Aeson qualified as Aeson
+import Data.Aeson.Key qualified as Key
+import Data.Aeson.KeyMap qualified as KM
+import Data.Scientific qualified as Sci
+import Data.Vector qualified as V
 
 import Panproto.Class (Rust)
 import Panproto.Errors
@@ -244,28 +249,25 @@ instance LensBackend Rust where
             RustChainRep . RustChain
                 <$> callHandleOut (pp_lens_auto_generate_protolens_at lh rh ptr len)
 
-    -- The C ABI's auto_generate_candidates returns ranked /summaries/
-    -- (quality, coverage, per-step explanations) without per-candidate
-    -- runnable handles. To honor the [ChainRep] return type we read the
-    -- candidate count from the payload and, when the set is non-empty,
-    -- return the top-1 chain (which the same CSP produces) as a
-    -- single-element list. Callers who want the full scored summary
-    -- decode the raw payload directly; this method exposes the runnable
-    -- artifact the ABI actually hands back.
+    -- The C ABI's auto_generate_candidates returns each ranked candidate
+    -- with its own instantiable @chain@: the candidate's @ProtolensChain@
+    -- in the same serde shape @ProtolensChain::to_json@ emits, carried
+    -- alongside the score / coverage / quality / per-step explanations.
+    -- We decode the @candidates@ list, pull each candidate's @chain@
+    -- sub-value out of the CBOR payload, re-serialize it as JSON, and feed
+    -- it through @pp_protolens_from_json@ (the same path 'chainFromJsonIO'
+    -- uses) to obtain a real runnable chain handle. The full
+    -- @[ChainRep]@ is returned, one entry per candidate the engine ranked.
     autoGenerateCandidates left right topN stringency = do
         let lh = schemaRepHandle left
             rh = schemaRepHandle right
         bs <- withSliceIn (stringencyBytes stringency) $ \ptr len ->
             callVecOut
                 (pp_lens_auto_generate_candidates_at lh rh (fromIntegral topN) ptr len)
-        count <- case decodeCandidateCount bs of
-            Right n -> pure n
+        chainJsons <- case decodeCandidateChains bs of
+            Right js -> pure js
             Left err -> throwIO $ hostDecodeError "pp_lens_auto_generate_candidates" err
-        if count <= 0
-            then pure []
-            else do
-                chainRep <- autoGenerateProtolens left right stringency
-                pure [chainRep]
+        traverse (chainFromJsonIO proxyRust) chainJsons
 
     instantiateChain (RustChainRep (RustChain ch)) schema =
         RustLensRep . RustLens
@@ -457,37 +459,127 @@ complementSpecDecoder = decodeMapWith (CEmpty, T.empty) onKey
         "mixed" -> CMixed
         _ -> CEmpty
 
--- | Decode the candidate-count field of the @{ candidates,
--- coerce_proposals }@ payload @pp_lens_auto_generate_candidates@
--- produces: the length of the @candidates@ array.
-decodeCandidateCount :: LBS.ByteString -> Either String Int
-decodeCandidateCount bs =
-    case CBOR.deserialiseFromBytes candidateCountDecoder bs of
+-- | Decode the @{ candidates, coerce_proposals }@ payload
+-- @pp_lens_auto_generate_candidates@ produces into one JSON-encoded
+-- @ProtolensChain@ per candidate, ready to feed back through
+-- @pp_protolens_from_json@.
+--
+-- Each candidate is a map carrying score / coverage / quality / steps
+-- alongside a @chain@ sub-value: the candidate's @ProtolensChain@ in the
+-- serde shape @ProtolensChain::to_json@ emits, nested as a CBOR term
+-- inside the @ciborium@-encoded wrapper. We decode that sub-term into an
+-- aeson 'Aeson.Value' and re-encode it as JSON, which is byte-for-shape
+-- what @pp_protolens_from_json@ (@ProtolensChain::from_json@) parses.
+decodeCandidateChains :: LBS.ByteString -> Either String [LBS.ByteString]
+decodeCandidateChains bs =
+    case CBOR.deserialiseFromBytes candidateChainsDecoder bs of
         Left err -> Left (show err)
-        Right (rest, n)
-            | LBS.null rest -> Right n
+        Right (rest, js)
+            | LBS.null rest -> Right (map Aeson.encode (reverse js))
             | otherwise -> Left "trailing bytes after candidates payload"
 
-candidateCountDecoder :: Decoder s Int
-candidateCountDecoder = decodeMapWith 0 onKey
+-- | Walk the wrapper map, capturing each candidate's @chain@ as an aeson
+-- 'Aeson.Value'. The accumulator collects chains in reverse order; the
+-- caller reverses to restore the engine's ranking.
+candidateChainsDecoder :: Decoder s [Aeson.Value]
+candidateChainsDecoder = decodeMapWith [] onKey
   where
     onKey acc key = case key of
-        "candidates" -> countListItems
+        "candidates" -> decodeCandidateList
         _ -> skipTerm >> pure acc
 
--- | Count (and skip) the items of a CBOR list without decoding them.
-countListItems :: Decoder s Int
-countListItems = do
+-- | Decode the @candidates@ list, pulling the @chain@ value out of each
+-- candidate map. A candidate missing its @chain@ is an engine
+-- inconsistency, so the decoder fails rather than silently dropping it.
+decodeCandidateList :: Decoder s [Aeson.Value]
+decodeCandidateList = do
     len <- Dec.decodeListLenOrIndef
     case len of
-        Just n -> skipN n >> pure n
-        Nothing -> goIndef 0
+        Just n -> goN n []
+        Nothing -> goIndef []
   where
-    skipN 0 = pure ()
-    skipN n = skipTerm >> skipN (n - 1 :: Int)
-    goIndef !acc = do
+    goN 0 acc = pure acc
+    goN n acc = decodeCandidateChain >>= \c -> goN (n - 1 :: Int) (c : acc)
+    goIndef acc = do
         stop <- Dec.decodeBreakOr
-        if stop then pure acc else skipTerm >> goIndef (acc + 1)
+        if stop then pure acc else decodeCandidateChain >>= \c -> goIndef (c : acc)
+
+-- | Decode a single candidate map, returning its @chain@ sub-value.
+decodeCandidateChain :: Decoder s Aeson.Value
+decodeCandidateChain = do
+    mChain <- decodeMapWith Nothing onKey
+    case mChain of
+        Just c -> pure c
+        Nothing -> fail "candidate entry is missing its chain"
+  where
+    onKey acc key = case key of
+        "chain" -> Just <$> decodeCborValue
+        _ -> skipTerm >> pure acc
+
+-- | Decode an arbitrary CBOR term (as produced by @ciborium@ from a
+-- @serde_json::Value@) into an aeson 'Aeson.Value', so it can be
+-- re-serialized as JSON. Covers the JSON-representable token types;
+-- byte strings and tags do not occur in a @serde_json::Value@ and are
+-- rejected.
+decodeCborValue :: Decoder s Aeson.Value
+decodeCborValue = do
+    tt <- Dec.peekTokenType
+    case tt of
+        Dec.TypeUInt -> intValue <$> Dec.decodeWord64
+        Dec.TypeUInt64 -> intValue <$> Dec.decodeWord64
+        Dec.TypeNInt -> intValue <$> Dec.decodeInt64
+        Dec.TypeNInt64 -> intValue <$> Dec.decodeInt64
+        Dec.TypeInteger -> (Aeson.Number . fromInteger) <$> Dec.decodeInteger
+        Dec.TypeFloat16 -> doubleValue <$> Dec.decodeFloat
+        Dec.TypeFloat32 -> doubleValue <$> Dec.decodeFloat
+        Dec.TypeFloat64 -> doubleValue <$> Dec.decodeDouble
+        Dec.TypeBool -> Aeson.Bool <$> Dec.decodeBool
+        Dec.TypeNull -> Dec.decodeNull >> pure Aeson.Null
+        Dec.TypeString -> Aeson.String <$> Dec.decodeString
+        Dec.TypeListLen -> decodeArrayValue
+        Dec.TypeListLen64 -> decodeArrayValue
+        Dec.TypeListLenIndef -> decodeArrayValue
+        Dec.TypeMapLen -> decodeObjectValue
+        Dec.TypeMapLen64 -> decodeObjectValue
+        Dec.TypeMapLenIndef -> decodeObjectValue
+        _ -> fail "Panproto.Rust.Lens: unexpected CBOR token in candidate chain"
+  where
+    intValue :: Integral a => a -> Aeson.Value
+    intValue = Aeson.Number . fromIntegral . toInteger
+    doubleValue :: Real a => a -> Aeson.Value
+    doubleValue = Aeson.Number . Sci.fromFloatDigits . realToFrac @_ @Double
+
+decodeArrayValue :: Decoder s Aeson.Value
+decodeArrayValue = do
+    len <- Dec.decodeListLenOrIndef
+    items <- case len of
+        Just n -> goN n []
+        Nothing -> goIndef []
+    pure (Aeson.Array (V.fromList (reverse items)))
+  where
+    goN 0 acc = pure acc
+    goN n acc = decodeCborValue >>= \v -> goN (n - 1 :: Int) (v : acc)
+    goIndef acc = do
+        stop <- Dec.decodeBreakOr
+        if stop then pure acc else decodeCborValue >>= \v -> goIndef (v : acc)
+
+decodeObjectValue :: Decoder s Aeson.Value
+decodeObjectValue = do
+    len <- Dec.decodeMapLenOrIndef
+    pairs <- case len of
+        Just n -> goN n []
+        Nothing -> goIndef []
+    pure (Aeson.Object (KM.fromList (reverse pairs)))
+  where
+    pair = do
+        k <- Dec.decodeString
+        v <- decodeCborValue
+        pure (Key.fromText k, v)
+    goN 0 acc = pure acc
+    goN n acc = pair >>= \p -> goN (n - 1 :: Int) (p : acc)
+    goIndef acc = do
+        stop <- Dec.decodeBreakOr
+        if stop then pure acc else pair >>= \p -> goIndef (p : acc)
 
 -- ---------------------------------------------------------------------------
 -- Generic CBOR map / skip helpers (mirroring "Panproto.Lens")

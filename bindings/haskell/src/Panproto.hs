@@ -68,6 +68,29 @@ module Panproto
 #ifdef PANPROTO_RUST_BACKEND
       -- * Rust backend
     , module Panproto.Rust
+
+      -- * VCS porcelain (Rust backend)
+      --
+      -- The working VCS surface lives in "Panproto.Rust.Vcs" (the
+      -- "Panproto.Vcs" module carries the result types, the capability
+      -- class, and the 'runRepo' \/ 'GitM' scaffolding). These names are
+      -- re-exported here so @import Panproto@ gives a usable session:
+      -- 'withRepo' / 'openRepo' to open a repository, then 'runRepo' over
+      -- the porcelain. 'runRepo' itself is re-exported via
+      -- "Panproto.Vcs", so it is not repeated here.
+    , openRepo
+    , withRepo
+    , vcsAdd
+    , vcsCommit
+    , vcsLog
+    , vcsStatus
+    , vcsDiff
+    , vcsBranch
+    , vcsCheckout
+    , vcsMerge
+    , vcsStash
+    , vcsStashPop
+    , vcsBlame
 #endif
     ) where
 
@@ -137,7 +160,25 @@ import Panproto.Rust.Instance ()
 import Panproto.Rust.Io ()
 import Panproto.Rust.Lens ()
 import Panproto.Rust.Migration ()
-import Panproto.Rust.Vcs ()
+-- "Panproto.Rust.Vcs" carries the @VcsBackend Rust@ orphan instance and
+-- the working VCS porcelain (@vcsAdd@, @vcsCommit@, …) plus the
+-- @openRepo@ \/ @withRepo@ openers, which are re-exported above so a
+-- plain @import Panproto@ gives a usable VCS session.
+import Panproto.Rust.Vcs
+    ( openRepo
+    , vcsAdd
+    , vcsBlame
+    , vcsBranch
+    , vcsCheckout
+    , vcsCommit
+    , vcsDiff
+    , vcsLog
+    , vcsMerge
+    , vcsStash
+    , vcsStashPop
+    , vcsStatus
+    , withRepo
+    )
 #endif
 
 #if defined(PANPROTO_RUST_BACKEND) && defined(PANPROTO_PARSE)

@@ -50,8 +50,11 @@
 --    @ReaderT Repository IO@ so call sites read like a git session
 --    (@vcsAdd s >> vcsCommit msg author@) without passing the handle
 --    explicitly. The pure scaffolding ('runRepo', 'askRepo', the
---    'GitM' newtype) lives here; the method bodies that actually call
---    the FFI live in "Panproto.Rust.Vcs".
+--    'GitM' newtype) lives here; the porcelain
+--    (@Panproto.Rust.Vcs.vcsAdd@, @Panproto.Rust.Vcs.vcsCommit@, …) and
+--    the repository openers (@Panproto.Rust.Vcs.openRepo@ /
+--    @Panproto.Rust.Vcs.withRepo@) that call the FFI live in
+--    "Panproto.Rust.Vcs".
 --
 -- 'MonadGit' composes cleanly with @Panproto.Effect.MonadPanproto@: a
 -- caller's monad can be an instance of both, since 'MonadGit' only adds
@@ -106,24 +109,17 @@ module Panproto.Vcs
     , VcsBackend (..)
 
       -- * Effect layer
+      --
+      -- The 'MonadGit' / 'GitM' scaffolding lives here; the porcelain
+      -- that runs against it ('Panproto.Rust.Vcs.vcsAdd',
+      -- 'Panproto.Rust.Vcs.vcsCommit', …) and the repository openers
+      -- ('Panproto.Rust.Vcs.openRepo' / 'Panproto.Rust.Vcs.withRepo')
+      -- are defined in "Panproto.Rust.Vcs" and re-exported by the
+      -- "Panproto" umbrella, so @import Panproto@ gives a working VCS
+      -- session.
     , MonadGit (..)
     , GitM (..)
     , runRepo
-    , withRepo
-
-      -- * Porcelain (the twelve operations)
-    , vcsInit
-    , vcsAdd
-    , vcsCommit
-    , vcsLog
-    , vcsStatus
-    , vcsDiff
-    , vcsBranch
-    , vcsCheckout
-    , vcsMerge
-    , vcsStash
-    , vcsStashPop
-    , vcsBlame
     ) where
 
 import Codec.CBOR.Decoding (Decoder)
@@ -595,22 +591,17 @@ data BisectState = BisectState
 
 -- | Which kind of store backs a 'Repository'.
 --
--- This mirrors the split on the Rust side between the in-memory
--- @panproto_vcs::MemStore@ (used by 'VcsRepository' in the Python
--- surface) and the filesystem @panproto_vcs::Repository@ backed by
--- @FsStore@.
-data RepoBackend
-    = -- | An in-memory store. This is the only backend the current C
-      -- ABI opens, so it is the only one 'vcsInit' / 'withRepo' wire up.
-      InMemory
-    | -- | A filesystem-backed store rooted at the given directory.
-      --
-      -- Forward-looking: the Rust @Repository::open@ / @::init@ take a
-      -- path and the @FsStore@ persists @.panproto\/@ on disk, but the
-      -- C ABI does not yet expose a path-taking @vcs_open@. The
-      -- constructor is carried here so the handle type is complete
-      -- ahead of that op landing.
-      OnDisk !FilePath
+-- The C ABI is backed by the filesystem @panproto_vcs::Repository@ (a
+-- @FsStore@ that persists @.panproto\/@ on disk): @pp_vcs_init@ takes a
+-- filesystem path and opens-or-initializes a real on-disk repository
+-- there. There is no in-memory store across the boundary, so 'OnDisk'
+-- is the only constructor: it records the directory the repository was
+-- opened at.
+newtype RepoBackend
+    = -- | A filesystem-backed store rooted at the given directory. The
+      -- repository's @.panproto\/@ subtree lives under this path; the
+      -- Rust @Repository::open@ / @::init@ are driven against it.
+      OnDisk FilePath
     deriving stock (Eq, Show, Generic)
     deriving anyclass (NFData)
 
@@ -619,7 +610,7 @@ data RepoBackend
 -- Wraps the slab handle that @libpanproto_c@ allocates for the
 -- repository's store (a @u32@, as for protocols and schemas), tagged
 -- with the 'RepoBackend' that produced it. The handle is released by
--- @pp_handle_free@; 'withRepo' brackets it.
+-- @pp_handle_free@; 'Panproto.Rust.Vcs.withRepo' brackets it.
 data Repository = Repository
     { handle :: !Word32
     -- ^ The panproto-c slab handle for the repository's store.
@@ -649,14 +640,16 @@ class SchemaBackend back => VcsBackend back where
     -- | Backend-specific representation of an open repository.
     data RepoRep back :: Type
 
-    -- | @init@: create a fresh repository over the given backend store.
+    -- | @init@: open (or initialize) the repository rooted at the
+    -- backend's directory and return a handle to it.
     vcsInitB :: RepoBackend -> IO (RepoRep back, VcsInitResult)
 
     -- | @add@: stage a schema for the next commit.
     vcsAddB :: RepoRep back -> CanonicalSchema -> IO VcsAddResult
 
-    -- | @commit@: create a commit from the staging area. The author is
-    -- supplied per call (see the @vcs_commit@ carry-over note).
+    -- | @commit@: build a commit from the staging area against the
+    -- on-disk repository and return its id. The author is supplied per
+    -- call (see the @vcs_commit@ carry-over note).
     vcsCommitB :: RepoRep back -> Text -> Text -> IO VcsCommitResult
 
     -- | @log@: walk the commit log from HEAD, newest first, optionally
@@ -723,95 +716,6 @@ instance MonadGit GitM where
 -- | Run a 'GitM' action against an already-open 'Repository'.
 runRepo :: Repository -> GitM a -> IO a
 runRepo repo (GitM action) = runReaderT action repo
-
--- | Open a repository over the given backend, run a 'GitM' action with
--- it in scope, and release the handle afterwards (even on exception).
---
--- This pure module fixes the type and shape; the open and release calls
--- this function brackets are wired to the FFI in "Panproto.Rust.Vcs"
--- (only 'InMemory' is opened by the current C ABI). The bracketing body
--- lives there as 'Panproto.Rust.Vcs.withRustRepo' so this module takes
--- no dependency on the FFI; the signature is the contract.
-withRepo :: RepoBackend -> (Repository -> IO a) -> IO a
-withRepo _backend _k =
-    error
-        "Panproto.Vcs.withRepo: the Rust FFI body is \
-        \Panproto.Rust.Vcs.withRustRepo; this module defines the signature"
-
--- ---------------------------------------------------------------------------
--- Porcelain over MonadGit
---
--- These are the twelve operations as the convenience layer exposes
--- them: each reads the 'Repository' from the environment and returns
--- the typed result record. The bodies dispatch to the @VcsBackend
--- Rust@ instance, whose FFI dispatch lives in "Panproto.Rust.Vcs"; here
--- they carry their signatures and a backend-deferred body so the rest
--- of the binding can be written against a stable surface.
-
--- | @init@: create a fresh repository (see 'vcsInitB').
-vcsInit :: MonadGit m => RepoBackend -> m VcsInitResult
-vcsInit _backend = deferredToRust "vcsInit"
-
--- | @add@: stage a schema for the next commit.
-vcsAdd :: MonadGit m => CanonicalSchema -> m VcsAddResult
-vcsAdd _schema = deferredToRust "vcsAdd"
-
--- | @commit@: commit the staging area under the given message and
--- author (the author is supplied per call; see the carry-over note).
-vcsCommit :: MonadGit m => Text -> Text -> m VcsCommitResult
-vcsCommit _message _author = deferredToRust "vcsCommit"
-
--- | @log@: walk the commit log from HEAD, optionally limited.
-vcsLog :: MonadGit m => Maybe Int -> m VcsLogResult
-vcsLog _limit = deferredToRust "vcsLog"
-
--- | @status@: summarize HEAD, staging, and working state.
-vcsStatus :: MonadGit m => m VcsStatus
-vcsStatus = deferredToRust "vcsStatus"
-
--- | @diff@: structural diff between two refs.
-vcsDiff :: MonadGit m => Text -> Text -> m VcsDiffResult
-vcsDiff _from _to = deferredToRust "vcsDiff"
-
--- | @branch@: list branches.
-vcsBranch :: MonadGit m => m VcsBranchResult
-vcsBranch = deferredToRust "vcsBranch"
-
--- | @checkout@: switch HEAD to the named ref.
-vcsCheckout :: MonadGit m => Text -> m VcsOpResult
-vcsCheckout _ref = deferredToRust "vcsCheckout"
-
--- | @merge@: merge the named branch into HEAD under the given author.
-vcsMerge :: MonadGit m => Text -> Text -> m VcsMergeResult
-vcsMerge _branch _author = deferredToRust "vcsMerge"
-
--- | @stash@: save the staged schema as a stash entry.
-vcsStash :: MonadGit m => Maybe Text -> m VcsStashResult
-vcsStash _message = deferredToRust "vcsStash"
-
--- | @stash_pop@: restore the most recent stash entry.
-vcsStashPop :: MonadGit m => m VcsStashPopResult
-vcsStashPop = deferredToRust "vcsStashPop"
-
--- | @blame@: attribute a schema element to a commit.
-vcsBlame :: MonadGit m => Text -> m BlameReport
-vcsBlame _element = deferredToRust "vcsBlame"
-
--- | Shared deferral for the porcelain bodies. The FFI dispatch through
--- @VcsBackend Rust@ lives in "Panproto.Rust.Vcs"; naming each operation
--- keeps the error site precise when a caller invokes the pure porcelain
--- directly rather than the wired counterparts.
---
--- This is a polymorphic bottom: the porcelain operations above
--- discharge their own arguments and call it for the result, so its
--- signature carries no argument of its own.
-deferredToRust :: MonadGit m => String -> m a
-deferredToRust op =
-    liftIO $
-        error
-            ( "Panproto.Vcs." <> op
-                <> ": the Rust FFI body lives in Panproto.Rust.Vcs"
-            )
 
 -- ---------------------------------------------------------------------------
 -- Decoders
