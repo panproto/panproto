@@ -24,6 +24,7 @@
   - [From TypeScript](./how-to/define-schema/typescript.md)
   - [From Python](./how-to/define-schema/python.md)
   - [From Rust](./how-to/define-schema/rust.md)
+  - [From Haskell](./how-to/define-schema/haskell.md)
 - [Build a migration](./how-to/build-migration.md)
 - [Apply field transforms](./how-to/field-transforms.md)
 - [Use lenses](./how-to/use-lenses.md)

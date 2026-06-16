@@ -134,4 +134,4 @@ validate =
 
 - [Install the Haskell SDK](../how-to/install/haskell.md) for setup and the bootstrap scripts.
 - [Crate map](./crate-map.md) for `panproto-c` and the rest of the workspace.
-- [Reference: Python SDK](./sdk-python.md) for the surface the binding has parity with.
+- [Define a schema from Haskell](../how-to/define-schema/haskell.md) for the builder walkthrough.
