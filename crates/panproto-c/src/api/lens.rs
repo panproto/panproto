@@ -245,7 +245,7 @@ pub fn pp_lens_auto_generate_candidates(
 
         // Exploratory-tier coerce proposals are a property of the run,
         // not of any individual candidate; surface them by running a
-        // top-1 alignment at the same config. If candidates were found
+        // single alignment at the same config. If candidates were found
         // but that alignment errors, the engine is inconsistent, so the
         // error is surfaced rather than swallowed.
         let coerce_proposals = if candidates.is_empty() {

@@ -22,7 +22,8 @@
 -- tuple accumulators, @serde(default)@ for the optional fields, and a
 -- depth-first unknown-term skipper for forward compatibility.
 --
--- Three Rust shapes are mirrored with deliberate simplifications:
+-- Three Rust shapes need a representation note; each round-trips
+-- losslessly across the FFI boundary:
 --
 -- * 'SortExpr' is @#[serde(untagged)]@ on the Rust side: @Name(n)@
 --   serializes as the bare string @"n"@ and @App@ as a struct with
