@@ -49,17 +49,19 @@ The value types (vertices, edges, constraints, optic kinds, object ids) derive `
 
 ```haskell
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 
-import Panproto.Schema
+import Panproto.Schema (Schema)
+import qualified Panproto.Schema as S
 
 postSchema :: Schema
-postSchema = buildSchema "geojson" $ do
-    vertex Vertex {id = "post", kind = "record", nsid = Nothing}
-    vertex Vertex {id = "text", kind = "string", nsid = Nothing}
-    edge Edge {src = "post", tgt = "text", kind = "prop", name = Just "text"}
+postSchema = S.buildSchema "geojson" $ do
+    S.vertex S.Vertex {S.id = "post", S.kind = "record", S.nsid = Nothing}
+    S.vertex S.Vertex {S.id = "text", S.kind = "string", S.nsid = Nothing}
+    S.edge S.Edge {S.src = "post", S.tgt = "text", S.kind = "prop", S.name = Just "text"}
 ```
 
-*Listing R.1: Building a structured schema with `SchemaBuilderM`.*
+*Listing R.1: Building a structured schema with `SchemaBuilderM`.* `Vertex`, `Edge`, `HyperEdge`, and `Constraint` share field names under `DuplicateRecordFields`, so the module imports `Panproto.Schema` qualified and writes the fields qualified (`S.id`, `S.kind`, ...); the record constructor in `S.Vertex {...}` resolves which type each field belongs to.
 
 ## The effect layer
 
@@ -72,16 +74,21 @@ panproto lenses are asymmetric delta lenses carrying an explicit complement. A l
 A complement-carrying delta lens is not a lawful van Laarhoven `Lens'`. A `Lens' s a` has `set :: a -> s -> s`, so the discarded information is recovered from the original `s`; a panproto `put` takes `(a, c)`, where the discarded information lives in a separate complement that the original `s` is not available to supply. Two sources with the same view can carry different complements, and `put` distinguishes them while `set` cannot. For the lossless subset the complement carries no information, `put` degenerates to a function of the view alone, and the delta lens coincides with a lawful van Laarhoven lens. `Panproto.Lens.Optics` therefore exposes only the structurally-lawful subset: read-only `Getter`s over the pure structural values, and lawful `Lens'`es onto the record fields of the structural types (where `put` is plain record update). It prefers [`optics-core`](https://hackage.haskell.org/package/optics-core) under the `optics-adaptors` flag and falls back to [`lens`](https://hackage.haskell.org/package/lens) under `lens-adaptors`.
 
 ```haskell
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
 import Control.Exception (bracket)
-import Panproto
+import Panproto.Class (Rust, SchemaBackend (..))
+import Panproto.Instance (InstanceBackend (..), nodeCount)
+import Panproto.Lens (LensBackend (..), Stringency (..))
+import Panproto.Rust.Instance ()
+import Panproto.Rust.Lens ()
 
 getPutLaw :: SchemaRep Rust -> IO Bool
 getPutLaw schema =
     bracket (jsonToInstance schema "post" "{\"text\": \"hello\"}")
             releaseInstance $ \inst -> do
-        (lensRep, _score) <- autoGenerateLens schema schema Balanced
+        (lensRep, _score)  <- autoGenerateLens schema schema Balanced
         original           <- reifyInstance inst
         (view, complement) <- lensGet lensRep inst              -- s -> (a, c)
         rebuilt            <- lensPut lensRep view complement    -- (a, c) -> s
@@ -104,7 +111,10 @@ Schemas built with the `Native` value algebra reach the engine through `fromSche
 
 import Control.Exception (bracket)
 import Data.Proxy (Proxy (..))
-import Panproto
+import Data.Text (Text)
+import Panproto.Class (Rust, ProtocolBackend (..), SchemaBackend (..), SchemaValidate (..))
+import Panproto.Canonical (CanonicalProtocol (..), defaultProtocol)
+import Panproto.Rust ()   -- brings the Rust instances into scope
 
 validate :: IO [Text]
 validate =
@@ -115,7 +125,7 @@ validate =
         validateSchema schema proto   -- [] means valid
 ```
 
-*Listing R.3: Ingesting a structured schema into the `Rust` backend and validating it against a protocol.*
+*Listing R.3: Ingesting a structured schema into the `Rust` backend and validating it against a protocol. It reuses `postSchema` from Listing R.1.*
 
 ## Cabal flags
 

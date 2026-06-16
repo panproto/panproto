@@ -137,15 +137,23 @@ Build a schema with `SchemaBuilderM`:
 
 ```haskell
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 
-import Panproto.Schema
+import Panproto.Schema (Schema)
+import qualified Panproto.Schema as S
 
 postSchema :: Schema
-postSchema = buildSchema "geojson" $ do
-    vertex Vertex {id = "post", kind = "record", nsid = Nothing}
-    vertex Vertex {id = "text", kind = "string", nsid = Nothing}
-    edge Edge {src = "post", tgt = "text", kind = "prop", name = Just "text"}
+postSchema = S.buildSchema "geojson" $ do
+    S.vertex S.Vertex {S.id = "post", S.kind = "record", S.nsid = Nothing}
+    S.vertex S.Vertex {S.id = "text", S.kind = "string", S.nsid = Nothing}
+    S.edge S.Edge {S.src = "post", S.tgt = "text", S.kind = "prop", S.name = Just "text"}
 ```
+
+The value types (`Vertex`, `Edge`, `HyperEdge`, `Constraint`) all share field
+names (`id`, `kind`, `name`, ...) under `DuplicateRecordFields`, so the snippet
+imports `Panproto.Schema` qualified and writes the fields qualified
+(`S.id`, `S.kind`, ...); the record constructor in `S.Vertex {...}` fixes which
+type each field belongs to.
 
 The CBOR codecs (`encodeSchema` / `decodeSchema`) and the aeson instances
 exchange the snake_case, `serde(default)`, unknown-field-tolerant shape the
@@ -162,8 +170,17 @@ primitive, `liftPanproto :: IO a -> m a`. Instances cover `IO`, `ReaderT`,
 stack without per-site `liftIO`:
 
 ```haskell
+{-# LANGUAGE TypeApplications #-}
+
 import Control.Monad.Reader (ReaderT)
-import Panproto
+import Data.Proxy (Proxy (..))
+import Panproto.Class (Rust, SchemaBackend (..))
+import Panproto.Effect (MonadPanproto (..))
+import Panproto.Schema (Schema)
+import Panproto.Rust ()   -- the Rust SchemaBackend instance
+
+-- AppEnv is whatever your application reader carries.
+type AppEnv = ()
 
 handler :: ReaderT AppEnv IO Schema
 handler = liftPanproto $ do
@@ -231,16 +248,22 @@ protocol:
 ```haskell
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 
 import Control.Exception (bracket)
 import Data.Proxy (Proxy (..))
-import Panproto
+import Data.Text (Text)
+import Panproto.Class (Rust, ProtocolBackend (..), SchemaBackend (..), SchemaValidate (..))
+import Panproto.Canonical (CanonicalProtocol (..), defaultProtocol)
+import Panproto.Schema (Schema)
+import qualified Panproto.Schema as S
+import Panproto.Rust ()   -- brings the Rust instances into scope
 
 postSchema :: Schema
-postSchema = buildSchema "geojson" $ do
-    vertex Vertex {id = "post", kind = "record", nsid = Nothing}
-    vertex Vertex {id = "text", kind = "string", nsid = Nothing}
-    edge Edge {src = "post", tgt = "text", kind = "prop", name = Just "text"}
+postSchema = S.buildSchema "geojson" $ do
+    S.vertex S.Vertex {S.id = "post", S.kind = "record", S.nsid = Nothing}
+    S.vertex S.Vertex {S.id = "text", S.kind = "string", S.nsid = Nothing}
+    S.edge S.Edge {S.src = "post", S.tgt = "text", S.kind = "prop", S.name = Just "text"}
 
 validate :: IO [Text]
 validate =
@@ -255,20 +278,25 @@ Auto-generate a lens from a schema to itself and check the `GetPut` law on a
 parsed instance:
 
 ```haskell
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
 import Control.Exception (bracket)
-import Panproto
+import Panproto.Class (Rust, SchemaBackend (..))
+import Panproto.Instance (InstanceBackend (..), nodeCount)
+import Panproto.Lens (LensBackend (..), Stringency (..))
+import Panproto.Rust.Instance ()
+import Panproto.Rust.Lens ()
 
 getPutLaw :: SchemaRep Rust -> IO Bool
 getPutLaw schema =
     bracket (jsonToInstance schema "post" "{\"text\": \"hello\"}")
             releaseInstance $ \inst -> do
-        (lensRep, _score) <- autoGenerateLens schema schema Balanced
-        original             <- reifyInstance inst
-        (view, complement)   <- lensGet lensRep inst       -- s -> (a, c)
-        rebuilt              <- lensPut lensRep view complement  -- (a, c) -> s
-        recovered            <- reifyInstance rebuilt
+        (lensRep, _score)  <- autoGenerateLens schema schema Balanced
+        original           <- reifyInstance inst
+        (view, complement) <- lensGet lensRep inst              -- s -> (a, c)
+        rebuilt            <- lensPut lensRep view complement    -- (a, c) -> s
+        recovered          <- reifyInstance rebuilt
         releaseInstance view
         releaseInstance rebuilt
         releaseLens lensRep

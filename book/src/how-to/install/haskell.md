@@ -46,14 +46,15 @@ cabal build -f-rust
 
 ```haskell
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 
-import Panproto.Schema
+import qualified Panproto.Schema as S
 
 main :: IO ()
 main = do
-    let s = buildSchema "geojson" $ do
-                vertex Vertex {id = "post", kind = "record", nsid = Nothing}
-    print (length (vertices s))
+    let s = S.buildSchema "geojson" $ do
+                S.vertex S.Vertex {S.id = "post", S.kind = "record", S.nsid = Nothing}
+    print (S.vertexCount s)
 ```
 
 `cabal run` builds and links against the staged libraries. Building a one-vertex structured schema and printing its vertex count exercises the pure value algebra without touching the engine, so it succeeds under every flag configuration, the `native-only` build included.

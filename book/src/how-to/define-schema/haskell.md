@@ -8,17 +8,19 @@ The `panproto` package installed and linked against `libpanproto_c` ([Install th
 
 ```haskell
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 
-import Panproto.Schema
+import Panproto.Schema (Schema)
+import qualified Panproto.Schema as S
 
 postSchema :: Schema
-postSchema = buildSchema "geojson" $ do
-    vertex Vertex {id = "post", kind = "record", nsid = Nothing}
-    vertex Vertex {id = "text", kind = "string", nsid = Nothing}
-    vertex Vertex {id = "title", kind = "string", nsid = Nothing}
-    edge Edge {src = "post", tgt = "text", kind = "prop", name = Just "text"}
-    edge Edge {src = "post", tgt = "title", kind = "prop", name = Just "title"}
-    constraint "title" Constraint {sort = "maxLength", value = "120"}
+postSchema = S.buildSchema "geojson" $ do
+    S.vertex S.Vertex {S.id = "post", S.kind = "record", S.nsid = Nothing}
+    S.vertex S.Vertex {S.id = "text", S.kind = "string", S.nsid = Nothing}
+    S.vertex S.Vertex {S.id = "title", S.kind = "string", S.nsid = Nothing}
+    S.edge S.Edge {S.src = "post", S.tgt = "text", S.kind = "prop", S.name = Just "text"}
+    S.edge S.Edge {S.src = "post", S.tgt = "title", S.kind = "prop", S.name = Just "title"}
+    S.constraint "title" S.Constraint {S.sort = "maxLength", S.value = "120"}
 ```
 
 `buildSchema name` runs a `SchemaBuilderM` (a `State Schema` computation) against an empty schema attached to the protocol `name`, here the [GeoJSON](https://geojson.org/) codec; `vertex`, `edge`, `hyperEdge`, and `constraint` each mutate the schema in the `do`-block, and `buildSchema` returns the assembled `Schema`. Every value is a plain record: a `Vertex` carries an `id`, a `kind` drawn from the protocol's vertex kinds, and an optional `nsid`; an `Edge` carries its `src`, `tgt`, structural `kind` (`prop`, `item`, `variant`), and an optional `name`; `constraint vid` attaches a `Constraint` to the vertex `vid`. This is the pure `Native` value algebra, so it never starts a Rust runtime; what it produces is a structured ADT you ingest into the engine for validation.
@@ -26,7 +28,9 @@ postSchema = buildSchema "geojson" $ do
 A `Schema` built this way carries no protocol object of its own. To validate it you pair it with a protocol, which you can take straight from the canonical default with its name set:
 
 ```haskell
-import Panproto.Canonical (defaultProtocol, name)
+{-# LANGUAGE OverloadedStrings #-}
+
+import Panproto.Canonical (CanonicalProtocol (..), defaultProtocol)
 
 geoProtocol :: CanonicalProtocol
 geoProtocol = defaultProtocol {name = "geojson"}
@@ -45,7 +49,8 @@ Validation runs on the `Rust` backend, so the schema and the protocol both pass 
 import Control.Exception (bracket)
 import Data.Proxy (Proxy (..))
 import Data.Text (Text)
-import Panproto
+import Panproto.Class (Rust, ProtocolBackend (..), SchemaBackend (..), SchemaValidate (..))
+import Panproto.Rust ()   -- brings the Rust instances into scope
 
 validate :: IO [Text]
 validate =
