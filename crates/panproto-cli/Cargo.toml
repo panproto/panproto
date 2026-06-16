@@ -27,12 +27,12 @@ panproto-project = { workspace = true }
 panproto-git = { workspace = true }
 panproto-llvm = { workspace = true }
 clap = { workspace = true }
-git2 = { version = "0.20", features = ["vendored-libgit2", "vendored-openssl"] }
+git2 = { version = "0.21", features = ["vendored-libgit2", "vendored-openssl"] }
 panproto-xrpc = { workspace = true }
 panproto-vcs = { workspace = true }
 panproto-repl = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread"] }
-rustyline = "14"
+rustyline = "18"
 miette = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
