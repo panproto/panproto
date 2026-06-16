@@ -171,22 +171,23 @@ Handles index a thread-local slab whose variants mirror
 | `int32_t pp_schema_add_policy(uint32_t schema_handle, slice_ref_uint8_t vertex_name, slice_ref_uint8_t spec, uint32_t *out_handle)` | CBOR `{ policy }` in; new `Schema` handle. |
 | `int32_t pp_enriched_refinement_subsort(slice_ref_uint8_t base_sort, slice_ref_uint8_t sub_constraints, slice_ref_uint8_t super_constraints, uint32_t *out_is_subsort)` | UTF-8 base sort; CBOR `Vec<(String, String)>` constraint sets; `1`/`0` out. |
 
-## vcs (12)
+## vcs (13)
 
 | Signature | Notes |
 | --- | --- |
-| `int32_t pp_vcs_init(slice_ref_uint8_t protocol_name, uint32_t *out_handle)` | UTF-8 name; new `VcsRepo` handle; calls `vcs::MemStore::new`. |
-| `int32_t pp_vcs_add(uint32_t repo, uint32_t schema, Vec_uint8_t *out)` | CBOR `VcsAddResult` out; calls `vcs::tree::store_schema_as_tree`. |
-| `int32_t pp_vcs_commit(uint32_t repo, slice_ref_uint8_t message, slice_ref_uint8_t author, Vec_uint8_t *out)` | UTF-8 message/author; CBOR commit-id out. |
-| `int32_t pp_vcs_log(uint32_t repo, uint32_t count, Vec_uint8_t *out)` | CBOR `Vec<VcsLogEntry>` out; calls `vcs::dag::log_walk`. |
-| `int32_t pp_vcs_status(uint32_t repo, Vec_uint8_t *out)` | CBOR `VcsStatusResult` out. |
-| `int32_t pp_vcs_diff(uint32_t repo, Vec_uint8_t *out)` | CBOR `VcsDiffResult` out; calls `vcs::refs::list_branches`. |
-| `int32_t pp_vcs_branch(uint32_t repo, slice_ref_uint8_t name, Vec_uint8_t *out)` | UTF-8 name; CBOR `VcsOpResult` out; calls `vcs::refs::create_branch`. |
+| `int32_t pp_vcs_init(slice_ref_uint8_t path, uint32_t *out_handle)` | UTF-8 working-dir path; new `VcsRepo` handle; opens an existing `.panproto/` store via `Repository::open` or initializes one via `Repository::init`. |
+| `int32_t pp_vcs_add(uint32_t repo, uint32_t schema, Vec_uint8_t *out)` | CBOR `VcsAddResult` out; calls `Repository::add`. |
+| `int32_t pp_vcs_commit(uint32_t repo, slice_ref_uint8_t message, slice_ref_uint8_t author, Vec_uint8_t *out)` | UTF-8 message/author; CBOR `VcsCommitResult` out; calls `Repository::commit`. |
+| `int32_t pp_vcs_log(uint32_t repo, uint32_t count, Vec_uint8_t *out)` | CBOR `VcsLogResult` out (map with `entries`); calls `Repository::log`. |
+| `int32_t pp_vcs_status(uint32_t repo, Vec_uint8_t *out)` | CBOR `VcsStatus` out. |
+| `int32_t pp_vcs_diff(uint32_t repo, slice_ref_uint8_t from, slice_ref_uint8_t to, Vec_uint8_t *out)` | UTF-8 refs; CBOR `VcsDiffResult` out; both empty diffs HEAD against its parent, else each ref is resolved and its schema diffed via `check::diff`. |
+| `int32_t pp_vcs_list_branches(uint32_t repo, Vec_uint8_t *out)` | CBOR `VcsBranchResult` out (the full branch listing); calls `vcs::refs::list_branches`. |
+| `int32_t pp_vcs_branch(uint32_t repo, slice_ref_uint8_t name, Vec_uint8_t *out)` | UTF-8 name; CBOR `VcsBranchResult` out (the updated listing); calls `vcs::refs::create_branch` against HEAD. |
 | `int32_t pp_vcs_checkout(uint32_t repo, slice_ref_uint8_t target, Vec_uint8_t *out)` | UTF-8 target; CBOR `VcsOpResult` out; calls `vcs::refs::checkout_branch`. |
-| `int32_t pp_vcs_merge(uint32_t repo, slice_ref_uint8_t branch, Vec_uint8_t *out)` | UTF-8 branch; CBOR `VcsOpResult` out. |
-| `int32_t pp_vcs_stash(uint32_t repo, Vec_uint8_t *out)` | CBOR `VcsOpResult` out; calls `vcs::stash::stash_list`. |
-| `int32_t pp_vcs_stash_pop(uint32_t repo, Vec_uint8_t *out)` | CBOR `VcsOpResult` out; calls `vcs::stash::stash_pop`. |
-| `int32_t pp_vcs_blame(uint32_t repo, slice_ref_uint8_t vertex, Vec_uint8_t *out)` | UTF-8 vertex id; CBOR `VcsBlameResult` out; calls `vcs::blame::blame_vertex`. |
+| `int32_t pp_vcs_merge(uint32_t repo, slice_ref_uint8_t branch, slice_ref_uint8_t author, Vec_uint8_t *out)` | UTF-8 branch/author; CBOR `VcsMergeResult` out; calls `Repository::merge` (the author is recorded on the merge commit when one is created). |
+| `int32_t pp_vcs_stash(uint32_t repo, Vec_uint8_t *out)` | CBOR `VcsStashResult` out; calls `vcs::stash::stash_push`. |
+| `int32_t pp_vcs_stash_pop(uint32_t repo, Vec_uint8_t *out)` | CBOR `VcsStashPopResult` out; calls `vcs::stash::stash_pop`. |
+| `int32_t pp_vcs_blame(uint32_t repo, slice_ref_uint8_t vertex, Vec_uint8_t *out)` | UTF-8 vertex id; CBOR `BlameReport` out; calls `vcs::blame::blame_vertex`. |
 
 ## data (6)
 

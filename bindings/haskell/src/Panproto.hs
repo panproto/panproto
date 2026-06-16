@@ -85,7 +85,8 @@ module Panproto
     , vcsLog
     , vcsStatus
     , vcsDiff
-    , vcsBranch
+    , vcsListBranches
+    , vcsCreateBranch
     , vcsCheckout
     , vcsMerge
     , vcsStash
@@ -168,10 +169,11 @@ import Panproto.Rust.Vcs
     ( openRepo
     , vcsAdd
     , vcsBlame
-    , vcsBranch
     , vcsCheckout
     , vcsCommit
+    , vcsCreateBranch
     , vcsDiff
+    , vcsListBranches
     , vcsLog
     , vcsMerge
     , vcsStash

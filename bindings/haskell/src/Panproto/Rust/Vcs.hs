@@ -6,7 +6,7 @@
 -- repository openers (@openRepo@ / @withRepo@).
 --
 -- FFI-backed implementation of the @vcs@-domain capability class. It
--- dispatches each of the twelve porcelain operations declared in
+-- dispatches each porcelain operation declared in
 -- "Panproto.Vcs" to a @pp_vcs_*@ FFI call in "Panproto.Rust.FFI",
 -- turning status codes into 'Panproto.Errors.PanprotoError' exceptions
 -- and decoding each result with the cborg codec from "Panproto.Vcs".
@@ -52,7 +52,8 @@ module Panproto.Rust.Vcs
     , vcsLog
     , vcsStatus
     , vcsDiff
-    , vcsBranch
+    , vcsListBranches
+    , vcsCreateBranch
     , vcsCheckout
     , vcsMerge
     , vcsStash
@@ -81,10 +82,12 @@ import Panproto.Rust.FFI
     ( pp_handle_free
     , pp_vcs_add
     , pp_vcs_blame_at
+    , pp_vcs_branch_at
     , pp_vcs_checkout_at
     , pp_vcs_commit_at
     , pp_vcs_diff_at
     , pp_vcs_init_at
+    , pp_vcs_list_branches
     , pp_vcs_log
     , pp_vcs_merge_at
     , pp_vcs_stash
@@ -216,16 +219,19 @@ instance VcsBackend Rust where
                 bs <- callVecOut (pp_vcs_diff_at repo fromPtr fromLen toPtr toLen)
                 decodeOrThrow "pp_vcs_diff" decodeVcsDiffResult bs
 
-    -- The class @branch@ method lists branches; the C @vcs_branch@
-    -- creates one and returns the updated listing. There is no
-    -- create-free listing op in the C ABI, so the diff op (called with
-    -- empty refs) backs the listing here: its record has no @branches@
-    -- key, so the tolerant decoder yields the empty listing.
-    vcsBranchB (RustRepoRep (RustRepo repo)) =
-        withSliceIn (textBytes T.empty) $ \fromPtr fromLen ->
-            withSliceIn (textBytes T.empty) $ \toPtr toLen -> do
-                bs <- callVecOut (pp_vcs_diff_at repo fromPtr fromLen toPtr toLen)
-                decodeOrThrow "pp_vcs_branch(list)" decodeVcsBranchResult bs
+    -- The create-free listing op: every branch and the commit it points
+    -- at, tagging the branch HEAD tracks.
+    vcsListBranchesB (RustRepoRep (RustRepo repo)) = do
+        bs <- callVecOut (pp_vcs_list_branches repo)
+        decodeOrThrow "pp_vcs_list_branches" decodeVcsBranchResult bs
+
+    -- The C @vcs_branch@ creates a branch from HEAD and returns the
+    -- updated listing, so the result decodes with the same branch-result
+    -- codec as the listing op.
+    vcsCreateBranchB (RustRepoRep (RustRepo repo)) name =
+        withSliceIn (textBytes name) $ \ptr len -> do
+            bs <- callVecOut (pp_vcs_branch_at repo ptr len)
+            decodeOrThrow "pp_vcs_branch(create)" decodeVcsBranchResult bs
 
     vcsCheckoutB (RustRepoRep (RustRepo repo)) ref =
         withSliceIn (textBytes ref) $ \ptr len -> do
@@ -330,9 +336,16 @@ vcsStatus = askRustRepo >>= \repo -> liftIO (vcsStatusB @Rust repo)
 vcsDiff :: MonadGit m => Text -> Text -> m VcsDiffResult
 vcsDiff from to = askRustRepo >>= \repo -> liftIO (vcsDiffB @Rust repo from to)
 
--- | @branch@: list branches.
-vcsBranch :: MonadGit m => m VcsBranchResult
-vcsBranch = askRustRepo >>= \repo -> liftIO (vcsBranchB @Rust repo)
+-- | @branch@ (list): every branch and the commit it points at, tagging
+-- the branch HEAD currently tracks.
+vcsListBranches :: MonadGit m => m VcsBranchResult
+vcsListBranches = askRustRepo >>= \repo -> liftIO (vcsListBranchesB @Rust repo)
+
+-- | @branch@ (create): create a branch from HEAD with the given name and
+-- return the updated branch listing.
+vcsCreateBranch :: MonadGit m => Text -> m VcsBranchResult
+vcsCreateBranch name =
+    askRustRepo >>= \repo -> liftIO (vcsCreateBranchB @Rust repo name)
 
 -- | @checkout@: switch HEAD to the named ref.
 vcsCheckout :: MonadGit m => Text -> m VcsOpResult

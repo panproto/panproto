@@ -142,6 +142,7 @@ module Panproto.Rust.FFI
     , pp_vcs_log
     , pp_vcs_status
     , pp_vcs_diff_at
+    , pp_vcs_list_branches
     , pp_vcs_branch_at
     , pp_vcs_checkout_at
     , pp_vcs_merge_at
@@ -662,7 +663,15 @@ foreign import ccall safe "pp_vcs_diff_at"
     pp_vcs_diff_at
         :: Word32 -> Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
 
--- | Create a branch by UTF-8 name, returning a CBOR op result.
+-- | CBOR branch-listing result for the repository: every branch and the
+-- commit it points at, tagging the branch HEAD currently tracks. Takes
+-- only the handle and a byte-buffer out-param, so it is imported
+-- directly with no @*_at@ glue wrapper.
+foreign import ccall safe "pp_vcs_list_branches"
+    pp_vcs_list_branches :: Word32 -> Ptr VecU8 -> IO CInt
+
+-- | Create a branch by UTF-8 name, returning the updated CBOR branch
+-- listing.
 foreign import ccall safe "pp_vcs_branch_at"
     pp_vcs_branch_at :: Word32 -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
 

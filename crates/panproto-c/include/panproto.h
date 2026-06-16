@@ -1645,6 +1645,21 @@ pp_vcs_init (
     uint32_t * out_handle);
 
 /** \brief
+ *  List all branches and the commit each points at.
+ *
+ *  `repo` is a VCS repo handle. Calls `vcs::refs::list_branches` and
+ *  reports the full branch listing as a CBOR-encoded branch result,
+ *  tagging the branch HEAD currently tracks. An empty repository (no
+ *  branches yet) yields an empty listing. This is the create-free
+ *  listing op; `pp_vcs_branch` creates a branch and returns the same
+ *  listing shape after the create.
+ */
+int32_t
+pp_vcs_list_branches (
+    uint32_t repo,
+    Vec_uint8_t * out);
+
+/** \brief
  *  Walk the commit log from HEAD.
  *
  *  `repo` is a VCS repo handle; `count` caps the walk length. On success,

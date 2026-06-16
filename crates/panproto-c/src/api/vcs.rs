@@ -594,6 +594,30 @@ fn empty_diff_baseline() -> panproto_core::schema::Schema {
     }
 }
 
+/// List all branches and the commit each points at.
+///
+/// `repo` is a VCS repo handle. Calls `vcs::refs::list_branches` and
+/// reports the full branch listing as a CBOR-encoded branch result,
+/// tagging the branch HEAD currently tracks. An empty repository (no
+/// branches yet) yields an empty listing. This is the create-free
+/// listing op; `pp_vcs_branch` creates a branch and returns the same
+/// listing shape after the create.
+#[must_use = "FFI status codes should not be discarded"]
+#[ffi_export]
+pub fn pp_vcs_list_branches(repo: u32, out: &mut repr_c::Vec<u8>) -> i32 {
+    guard(|| {
+        let result = handle::with_resource(repo, |r| {
+            let repository = r.as_vcs_repo()?;
+            Ok(BranchResultRecord {
+                branches: list_branch_records(repository)?,
+            })
+        })?;
+
+        *out = crate::canonical::encode(&result)?.into();
+        Ok(PpStatus::Ok)
+    })
+}
+
 /// Create a new branch from HEAD.
 ///
 /// `repo` is a VCS repo handle; `name` is the UTF-8 branch name. Calls
@@ -1088,6 +1112,115 @@ mod tests {
         let co: ciborium::value::Value = decode(&co_out).unwrap();
         assert!(format!("{co:?}").contains("feature"));
         pp_buf_free(co_out);
+
+        assert_eq!(pp_handle_free(repo), PpStatus::Ok as i32);
+    }
+
+    #[test]
+    fn list_branches_after_create_and_checkout() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = init_repo(dir.path());
+        add_and_commit(repo, schema_with_vertices(&["a"]), "initial", "alice");
+
+        // Create a feature branch from HEAD.
+        let mut branch_out: repr_c::Vec<u8> = Vec::new().into();
+        assert_eq!(
+            pp_vcs_branch(repo, slice_of(b"feature").as_ref(), &mut branch_out),
+            PpStatus::Ok as i32
+        );
+        pp_buf_free(branch_out);
+
+        // The create-free listing op reports both branches; "main" is
+        // current (HEAD still tracks it) and "feature" is not.
+        let mut list_out: repr_c::Vec<u8> = Vec::new().into();
+        assert_eq!(
+            pp_vcs_list_branches(repo, &mut list_out),
+            PpStatus::Ok as i32
+        );
+        let value: ciborium::value::Value = decode(&list_out).unwrap();
+        let map = value.as_map().expect("branch result is a map");
+        let mut names: Vec<String> = Vec::new();
+        let mut current: Option<String> = None;
+        for (k, v) in map {
+            if k.as_text() == Some("branches") {
+                for entry in v.as_array().expect("branches is an array") {
+                    let entry_map = entry.as_map().expect("branch entry is a map");
+                    let mut name = String::new();
+                    let mut is_current = false;
+                    for (ek, ev) in entry_map {
+                        match ek.as_text() {
+                            Some("name") => name = ev.as_text().unwrap().to_owned(),
+                            Some("is_current") => {
+                                is_current = ev == &ciborium::value::Value::Bool(true);
+                            }
+                            _ => {}
+                        }
+                    }
+                    if is_current {
+                        current = Some(name.clone());
+                    }
+                    names.push(name);
+                }
+            }
+        }
+        pp_buf_free(list_out);
+        assert!(
+            names.iter().any(|n| n == "feature"),
+            "listing should include the new branch: {names:?}"
+        );
+        assert!(
+            names.iter().any(|n| n == "main"),
+            "listing should include the default branch: {names:?}"
+        );
+        assert_eq!(
+            current.as_deref(),
+            Some("main"),
+            "HEAD still tracks main before checkout"
+        );
+
+        // Checkout the feature branch; the listing now marks it current.
+        let mut co_out: repr_c::Vec<u8> = Vec::new().into();
+        assert_eq!(
+            pp_vcs_checkout(repo, slice_of(b"feature").as_ref(), &mut co_out),
+            PpStatus::Ok as i32
+        );
+        pp_buf_free(co_out);
+
+        let mut list_out2: repr_c::Vec<u8> = Vec::new().into();
+        assert_eq!(
+            pp_vcs_list_branches(repo, &mut list_out2),
+            PpStatus::Ok as i32
+        );
+        let value2: ciborium::value::Value = decode(&list_out2).unwrap();
+        let map2 = value2.as_map().expect("branch result is a map");
+        let mut current2: Option<String> = None;
+        for (k, v) in map2 {
+            if k.as_text() == Some("branches") {
+                for entry in v.as_array().expect("branches is an array") {
+                    let entry_map = entry.as_map().expect("branch entry is a map");
+                    let mut name = String::new();
+                    let mut is_current = false;
+                    for (ek, ev) in entry_map {
+                        match ek.as_text() {
+                            Some("name") => name = ev.as_text().unwrap().to_owned(),
+                            Some("is_current") => {
+                                is_current = ev == &ciborium::value::Value::Bool(true);
+                            }
+                            _ => {}
+                        }
+                    }
+                    if is_current {
+                        current2 = Some(name);
+                    }
+                }
+            }
+        }
+        pp_buf_free(list_out2);
+        assert_eq!(
+            current2.as_deref(),
+            Some("feature"),
+            "HEAD tracks feature after checkout"
+        );
 
         assert_eq!(pp_handle_free(repo), PpStatus::Ok as i32);
     }

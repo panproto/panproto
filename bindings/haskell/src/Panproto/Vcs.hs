@@ -9,15 +9,14 @@
 -- 'Repository' handle, the 'VcsBackend' capability class, and the
 -- 'MonadGit' / 'GitM' convenience layer.
 --
--- == Scope: the twelve porcelain operations
+-- == Scope: the porcelain operations
 --
 -- The Rust @Repository@ porcelain (in @crates\/panproto-vcs\/src\/repo.rs@)
 -- exposes roughly forty methods. The C ABI deliberately surfaces a
--- smaller, stable subset of twelve operations, and that subset is what
--- this module targets:
+-- smaller, stable subset, and that subset is what this module targets:
 --
--- @init@, @add@, @commit@, @log@, @status@, @diff@, @branch@,
--- @checkout@, @merge@, @stash@, @stash_pop@, @blame@.
+-- @init@, @add@, @commit@, @log@, @status@, @diff@, @branch@ (list and
+-- create), @checkout@, @merge@, @stash@, @stash_pop@, @blame@.
 --
 -- Each operation returns a flat, wire-friendly result record. These
 -- records mirror the @Vcs*Result@ shadow structs that the C layer
@@ -41,7 +40,7 @@
 --
 -- 1. 'VcsBackend' is the capability class, parameterized by a backend
 --    tag, mirroring 'Panproto.Class.SchemaBackend'. It declares the
---    twelve operations as plain 'IO' actions over a backend-specific
+--    operations as plain 'IO' actions over a backend-specific
 --    'RepoRep'. The FFI instance @VcsBackend Rust@ lives in
 --    "Panproto.Rust.Vcs"; this module defines the class.
 --
@@ -565,12 +564,12 @@ defaultBlameReport =
         }
 
 -- ---------------------------------------------------------------------------
--- bisect (not one of the twelve ops; carried for completeness)
+-- bisect (not one of the C ABI ops; carried for completeness)
 
 -- | State of an in-progress bisect session, mirroring
 -- @panproto_vcs::bisect::BisectState@.
 --
--- Bisect is not one of the twelve C ABI operations; this record is
+-- Bisect is not one of the C ABI operations; this record is
 -- provided so that a future @vcs_bisect@ op has a ready Haskell mirror,
 -- and so that callers building bisect workflows over the lower-level
 -- store can name the state.
@@ -623,8 +622,11 @@ data Repository = Repository
 -- ---------------------------------------------------------------------------
 -- Capability class
 
--- | Backends that can perform the twelve schematic-version-control
+-- | Backends that can perform the schematic-version-control
 -- operations, mirroring the shape of 'Panproto.Class.SchemaBackend'.
+-- The @branch@ op splits into a create-free listing
+-- ('vcsListBranchesB') and a create that returns the updated listing
+-- ('vcsCreateBranchB'); the rest are one method each.
 --
 -- 'RepoRep' is the backend-specific repository representation: an
 -- opaque foreign handle for 'Rust', or (in a future native backend) a
@@ -662,8 +664,14 @@ class SchemaBackend back => VcsBackend back where
     -- | @diff@: structural diff between two refs (by name or id).
     vcsDiffB :: RepoRep back -> Text -> Text -> IO VcsDiffResult
 
-    -- | @branch@: list branches.
-    vcsBranchB :: RepoRep back -> IO VcsBranchResult
+    -- | @branch@ (list): every branch and the commit it points at,
+    -- tagging the branch HEAD currently tracks.
+    vcsListBranchesB :: RepoRep back -> IO VcsBranchResult
+
+    -- | @branch@ (create): create a branch from HEAD with the given
+    -- name and return the updated branch listing (so the caller sees the
+    -- new branch in context).
+    vcsCreateBranchB :: RepoRep back -> Text -> IO VcsBranchResult
 
     -- | @checkout@: switch HEAD to the named ref.
     vcsCheckoutB :: RepoRep back -> Text -> IO VcsOpResult
