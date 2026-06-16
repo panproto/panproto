@@ -289,14 +289,14 @@ impl PyParseEmitLens {
 
     /// Vertex-kind multiset of a schema (one half of the retraction witness).
     #[staticmethod]
-    fn kind_multiset(py: Python<'_>, schema: &PySchema) -> PyResult<PyObject> {
+    fn kind_multiset(py: Python<'_>, schema: &PySchema) -> PyResult<Py<PyAny>> {
         let map = kind_multiset(&schema.inner);
         convert::to_python(py, &map)
     }
 
     /// Edge-shape multiset over ``(src_kind, edge_kind, tgt_kind)`` triples.
     #[staticmethod]
-    fn edge_multiset(py: Python<'_>, schema: &PySchema) -> PyResult<PyObject> {
+    fn edge_multiset(py: Python<'_>, schema: &PySchema) -> PyResult<Py<PyAny>> {
         let map = edge_multiset(&schema.inner);
         let entries: Vec<((String, String, String), usize)> = map.into_iter().collect();
         convert::to_python(py, &entries)

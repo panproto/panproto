@@ -20,7 +20,12 @@ use crate::schema::PySchema;
 // PyTheoryMorphism
 // ---------------------------------------------------------------------------
 
-#[pyclass(name = "TheoryMorphism", frozen, module = "panproto._native")]
+#[pyclass(
+    from_py_object,
+    name = "TheoryMorphism",
+    frozen,
+    module = "panproto._native"
+)]
 #[derive(Clone)]
 pub struct PyTheoryMorphism {
     pub(crate) inner: TheoryMorphism,
@@ -61,7 +66,7 @@ impl PyTheoryMorphism {
             .collect()
     }
 
-    fn to_dict(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn to_dict(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         convert::to_python(py, &self.inner)
     }
 
@@ -83,7 +88,12 @@ impl PyTheoryMorphism {
 // PySchemaMorphism
 // ---------------------------------------------------------------------------
 
-#[pyclass(name = "SchemaMorphism", frozen, module = "panproto._native")]
+#[pyclass(
+    from_py_object,
+    name = "SchemaMorphism",
+    frozen,
+    module = "panproto._native"
+)]
 #[derive(Clone)]
 pub struct PySchemaMorphism {
     pub(crate) inner: SchemaMorphism,
@@ -115,7 +125,7 @@ impl PySchemaMorphism {
             .collect()
     }
 
-    fn to_dict(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn to_dict(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         convert::to_python(py, &self.inner)
     }
 
@@ -131,7 +141,12 @@ impl PySchemaMorphism {
 // PyFoundMorphism
 // ---------------------------------------------------------------------------
 
-#[pyclass(name = "FoundMorphism", frozen, module = "panproto._native")]
+#[pyclass(
+    from_py_object,
+    name = "FoundMorphism",
+    frozen,
+    module = "panproto._native"
+)]
 #[derive(Clone)]
 pub struct PyFoundMorphism {
     pub(crate) inner: FoundMorphism,
@@ -159,7 +174,7 @@ impl PyFoundMorphism {
         }
     }
 
-    fn to_dict(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn to_dict(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let map: HashMap<&str, serde_json::Value> = HashMap::from([
             (
                 "vertex_map",

@@ -39,7 +39,7 @@ use crate::schema::PySchema;
 /// the JSON data model (parsed via `pythonize`). A string that is not
 /// valid JSON raises ``ValueError``.
 fn json_from_py(doc: &Bound<'_, PyAny>) -> PyResult<serde_json::Value> {
-    if let Ok(text) = doc.downcast::<PyString>() {
+    if let Ok(text) = doc.cast::<PyString>() {
         let raw = text.to_str()?;
         return serde_json::from_str(raw).map_err(|e| {
             pyo3::exceptions::PyValueError::new_err(format!("document is not valid JSON: {e}"))

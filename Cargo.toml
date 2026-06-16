@@ -76,8 +76,8 @@ safer-ffi = "0.1.13"
 ciborium = "0.2.2"
 
 # Python bindings
-pyo3 = { version = "0.24", features = ["extension-module", "abi3-py313"] }
-pythonize = "0.24"
+pyo3 = { version = "0.29", features = ["extension-module", "abi3-py313"] }
+pythonize = "0.29"
 
 # CLI
 clap = { version = "4.6.0", features = ["derive"] }

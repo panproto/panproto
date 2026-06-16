@@ -39,7 +39,7 @@ fn extract_theory_name(value: &Bound<'_, PyAny>) -> PyResult<String> {
 // ---------------------------------------------------------------------------
 
 /// A schema vertex.
-#[pyclass(name = "Vertex", frozen, module = "panproto._native")]
+#[pyclass(from_py_object, name = "Vertex", frozen, module = "panproto._native")]
 #[derive(Clone)]
 pub struct PyVertex {
     pub(crate) inner: Vertex,
@@ -65,7 +65,7 @@ impl PyVertex {
         self.inner.nsid.as_deref()
     }
 
-    fn to_dict(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn to_dict(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         convert::to_python(py, &self.inner)
     }
 
@@ -98,7 +98,7 @@ impl PyVertex {
 // ---------------------------------------------------------------------------
 
 /// A directed binary edge between two vertices.
-#[pyclass(name = "Edge", frozen, module = "panproto._native")]
+#[pyclass(from_py_object, name = "Edge", frozen, module = "panproto._native")]
 #[derive(Clone)]
 pub struct PyEdge {
     pub(crate) inner: Edge,
@@ -130,7 +130,7 @@ impl PyEdge {
         self.inner.name.as_deref()
     }
 
-    fn to_dict(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn to_dict(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         convert::to_python(py, &self.inner)
     }
 
@@ -164,7 +164,12 @@ impl PyEdge {
 // ---------------------------------------------------------------------------
 
 /// A constraint on a schema vertex.
-#[pyclass(name = "Constraint", frozen, module = "panproto._native")]
+#[pyclass(
+    from_py_object,
+    name = "Constraint",
+    frozen,
+    module = "panproto._native"
+)]
 #[derive(Clone)]
 pub struct PyConstraint {
     pub(crate) inner: Constraint,
@@ -198,7 +203,12 @@ impl PyConstraint {
 // ---------------------------------------------------------------------------
 
 /// A hyper-edge connecting multiple vertices via a labeled signature.
-#[pyclass(name = "HyperEdge", frozen, module = "panproto._native")]
+#[pyclass(
+    from_py_object,
+    name = "HyperEdge",
+    frozen,
+    module = "panproto._native"
+)]
 #[derive(Clone)]
 pub struct PyHyperEdge {
     pub(crate) inner: HyperEdge,
@@ -231,7 +241,7 @@ impl PyHyperEdge {
         self.inner.parent_label.as_ref()
     }
 
-    fn to_dict(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn to_dict(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         convert::to_python(py, &self.inner)
     }
 }
@@ -245,7 +255,7 @@ impl PyHyperEdge {
 /// Protocols are the Level-1 configuration objects that drive schema
 /// construction and validation. Each protocol names a schema theory GAT,
 /// an instance theory GAT, and supplies edge rules and recognized vertex kinds.
-#[pyclass(name = "Protocol", frozen, module = "panproto._native")]
+#[pyclass(from_py_object, name = "Protocol", frozen, module = "panproto._native")]
 #[derive(Clone)]
 pub struct PyProtocol {
     pub(crate) inner: Protocol,
@@ -403,7 +413,7 @@ impl PyProtocol {
 
     /// Well-formedness rules for edges.
     #[getter]
-    fn edge_rules(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn edge_rules(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         convert::to_python(py, &self.inner.edge_rules)
     }
 
@@ -415,7 +425,7 @@ impl PyProtocol {
         }
     }
 
-    fn to_dict(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn to_dict(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         convert::to_python(py, &self.inner)
     }
 
@@ -570,7 +580,7 @@ impl PySchemaBuilder {
 /// A validated schema with precomputed adjacency indices.
 ///
 /// Schemas are immutable once built. Use ``SchemaBuilder`` to construct one.
-#[pyclass(name = "Schema", frozen, module = "panproto._native")]
+#[pyclass(from_py_object, name = "Schema", frozen, module = "panproto._native")]
 #[derive(Clone)]
 pub struct PySchema {
     pub(crate) inner: Arc<Schema>,
@@ -698,7 +708,7 @@ impl PySchema {
     }
 
     /// Serialize the schema to a Python dict via serde.
-    fn to_dict(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn to_dict(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         convert::to_python(py, self.inner.as_ref())
     }
 
