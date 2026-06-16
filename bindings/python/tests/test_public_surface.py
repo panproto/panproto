@@ -96,6 +96,12 @@ def test_core_public_symbols_are_reexported() -> None:
         "free_model",
         "migrate_model",
         "colimit_theories",
+        # Lexicon / schema-document parsing (closes the gap where
+        # `web_document::atproto::parse_lexicon` existed in Rust but no
+        # Python call turned a lexicon document into a Schema/Theory).
+        "parse_atproto_lexicon",
+        "parse_schema_document",
+        "theory_of",
         # Expr
         "Expr",
         "parse_expr",

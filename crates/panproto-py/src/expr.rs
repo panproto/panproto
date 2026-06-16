@@ -14,7 +14,7 @@ use crate::convert;
 /// The expression language is a lambda calculus with ~50 built-in
 /// operations, pattern matching, records, and lists. Evaluation is
 /// deterministic and bounded by configurable step/depth limits.
-#[pyclass(name = "Expr", frozen, module = "panproto._native")]
+#[pyclass(from_py_object, name = "Expr", frozen, module = "panproto._native")]
 #[derive(Clone)]
 pub struct PyExpr {
     pub(crate) inner: Expr,
@@ -28,7 +28,7 @@ impl PyExpr {
     /// -------
     /// dict
     ///     The evaluation result as a ``Literal`` (serialized to dict).
-    fn eval(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn eval(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let env = Env::new();
         let config = EvalConfig::default();
         let value = panproto_expr::eval(&self.inner, &env, &config)
@@ -37,7 +37,7 @@ impl PyExpr {
     }
 
     /// Serialize the expression AST to a Python dict.
-    fn to_dict(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn to_dict(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         convert::to_python(py, &self.inner)
     }
 

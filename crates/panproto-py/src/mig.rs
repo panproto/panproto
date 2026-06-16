@@ -19,7 +19,12 @@ use crate::inst::PyInstance;
 use crate::schema::{PyProtocol, PySchema};
 
 /// A migration specification mapping source to target schema elements.
-#[pyclass(name = "Migration", frozen, module = "panproto._native")]
+#[pyclass(
+    from_py_object,
+    name = "Migration",
+    frozen,
+    module = "panproto._native"
+)]
 #[derive(Clone)]
 pub struct PyMigration {
     pub(crate) inner: Migration,
@@ -27,7 +32,7 @@ pub struct PyMigration {
 
 #[pymethods]
 impl PyMigration {
-    fn to_dict(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn to_dict(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         convert::to_python(py, &self.inner)
     }
 
@@ -126,7 +131,12 @@ impl PyMigrationBuilder {
 }
 
 /// A compiled migration ready for per-record application.
-#[pyclass(name = "CompiledMigration", frozen, module = "panproto._native")]
+#[pyclass(
+    from_py_object,
+    name = "CompiledMigration",
+    frozen,
+    module = "panproto._native"
+)]
 #[derive(Clone)]
 pub struct PyCompiledMigration {
     pub(crate) compiled: CompiledMigration,
@@ -159,7 +169,7 @@ impl PyCompiledMigration {
     ///     The view instance and complement. The complement is returned as
     ///     a dict with keys ``dropped_nodes`` and ``dropped_arcs`` because
     ///     the Rust ``Complement`` type does not implement ``Serialize``.
-    fn get(&self, instance: &PyInstance, py: Python<'_>) -> PyResult<(PyInstance, PyObject)> {
+    fn get(&self, instance: &PyInstance, py: Python<'_>) -> PyResult<(PyInstance, Py<PyAny>)> {
         let (view, complement) = panproto_core::inst::restrict_with_complement(
             &instance.inner,
             &self.src_schema,
@@ -180,7 +190,7 @@ impl PyCompiledMigration {
         Ok((view_inst, dict.into_any().unbind()))
     }
 
-    fn to_dict(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn to_dict(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         convert::to_python(py, &self.compiled)
     }
 }
@@ -230,7 +240,7 @@ pub fn check_existence(
     src_schema: &PySchema,
     tgt_schema: &PySchema,
     py: Python<'_>,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     // check_existence requires a theory_registry; pass an empty one
     // since the built-in protocols don't require external theory lookup
     // for basic existence checks.
@@ -290,7 +300,7 @@ pub fn check_coverage(
     src_schema: &PySchema,
     tgt_schema: &PySchema,
     py: Python<'_>,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let winstances: Vec<_> = instances.iter().map(|i| i.inner.clone()).collect();
     let report = mig::check_coverage(
         &compiled.compiled,

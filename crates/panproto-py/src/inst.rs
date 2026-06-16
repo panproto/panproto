@@ -15,7 +15,7 @@ use crate::convert;
 use crate::schema::PySchema;
 
 /// A W-type instance (tree-shaped data conforming to a schema).
-#[pyclass(name = "Instance", module = "panproto._native")]
+#[pyclass(from_py_object, name = "Instance", module = "panproto._native")]
 #[derive(Clone)]
 pub struct PyInstance {
     pub(crate) inner: WInstance,
@@ -49,7 +49,7 @@ impl PyInstance {
     }
 
     /// Serialize the raw W-type structure to a Python dict.
-    fn to_dict(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn to_dict(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         convert::to_python(py, &self.inner)
     }
 

@@ -73,7 +73,7 @@ impl PyComplement {
     }
 
     /// Serialize the complement to a Python dict.
-    fn to_dict(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn to_dict(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         convert::to_python(py, &self.inner)
     }
 
@@ -205,7 +205,7 @@ pub fn auto_generate_lens(
     tgt_schema: &PySchema,
     protocol: &PyProtocol,
     stringency: Option<&str>,
-) -> PyResult<(PyLens, f64, PyObject)> {
+) -> PyResult<(PyLens, f64, Py<PyAny>)> {
     let mut config = AutoLensConfig::default();
     if let Some(s) = parse_stringency(stringency)? {
         config.stringency = s;
@@ -620,7 +620,7 @@ pub fn auto_generate_lens_candidates(
     protocol: &PyProtocol,
     top_n: usize,
     stringency: Option<&str>,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let mut config = AutoLensConfig::default();
     if let Some(s) = parse_stringency(stringency)? {
         config.stringency = s;

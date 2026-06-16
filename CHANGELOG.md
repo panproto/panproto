@@ -2,6 +2,20 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [0.53.0] - 2026-06-16
+
+### Added
+
+- **ATProto lexicon parsing and schema-to-theory extraction in the Python SDK** (`panproto-py`): `parse_atproto_lexicon(doc)` turns an ATProto lexicon document (a dict or a JSON string) into a `Schema` under the builtin `atproto` protocol, wrapping the existing Rust `web_document::atproto::parse_lexicon`. A protocol-dispatching `parse_schema_document("atproto", doc)` and the `Schema.from_atproto_lexicon` classmethod expose the same path. `theory_of(schema)` and `Schema.theory(name=None)` extract the generalized algebraic theory a schema instantiates (one sort per vertex, one unary operation per edge), preserving primitive value kinds on value-kind vertices via the existing `SortKind::Val` vocabulary. Closes #189; addresses #190 (refined scalars, per-field defaults, and reference-versus-containment ride the `Schema` constraint layer and `Edge.kind`, not the theory).
+
+### Fixed
+
+- **Reference-bearing ATProto lexicons validate against the builtin protocol** (`panproto-protocols`): the lexicon parser records a `ref` provenance constraint on reference properties, but the `atproto` protocol's `constraint_sorts` whitelist omitted `ref`, so any lexicon containing a `ref` (including real `app.bsky.*` lexicons) failed `Schema.validate`. The whitelist now includes `ref`.
+
+### Changed
+
+- **pyo3 and pythonize upgraded 0.24 → 0.29** (workspace `Cargo.toml`, `panproto-py`): closes two security advisories on the previous pyo3 0.24 (RUSTSEC-2026-0176, an out-of-bounds read in `PyList` and `PyTuple` iterators; RUSTSEC-2026-0177, a missing `Sync` bound on `PyCFunction::new_closure`), both fixed in pyo3 0.29. The 0.29 API migration is confined to `panproto-py`: `PyObject` is no longer re-exported from the prelude, so signatures use `Py<PyAny>`; `Bound::downcast` is now `Bound::cast`; and `#[pyclass]` types that derive `Clone` opt into the `FromPyObject` derive with `from_py_object`. The ten `panproto-grammars-*` crates compile unchanged.
+
 ## [0.52.1] - 2026-06-08
 
 ### Fixed

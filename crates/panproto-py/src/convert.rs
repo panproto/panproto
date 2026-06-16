@@ -9,7 +9,7 @@ use pyo3::prelude::*;
 ///
 /// Uses `pythonize` to walk the serde data model and produce the
 /// corresponding Python dict/list/scalar.
-pub fn to_python<T: serde::Serialize>(py: Python<'_>, value: &T) -> PyResult<PyObject> {
+pub fn to_python<T: serde::Serialize>(py: Python<'_>, value: &T) -> PyResult<Py<PyAny>> {
     pythonize::pythonize(py, value)
         .map(pyo3::Bound::unbind)
         .map_err(|e| {

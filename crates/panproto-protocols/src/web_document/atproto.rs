@@ -58,6 +58,10 @@ pub fn protocol() -> Protocol {
             "closed".into(),
             "format".into(),
             "knownValues".into(),
+            // Provenance of a `ref` property: the literal lexicon ref
+            // target string, recorded alongside the structural ref edge
+            // by `parse_object_def` / `parse_array_def`.
+            "ref".into(),
         ],
         has_order: true,
         has_coproducts: true,
