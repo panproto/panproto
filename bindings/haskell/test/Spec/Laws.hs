@@ -19,6 +19,7 @@ module Spec.Laws (tests) where
 
 import Control.Category qualified as Cat
 import Control.Exception (Exception, fromException, toException)
+import Data.Aeson (Value (String))
 import Data.HashMap.Strict qualified as HM
 import Data.Maybe (isJust)
 import Data.Text (Text)
@@ -51,10 +52,13 @@ import Panproto.Lens
     , identityChain
     )
 import Panproto.Migration
-    ( Migration
+    ( HyperResolution (..)
+    , Migration (..)
     , buildMigration
     , composeMigrationsPure
+    , decodeMigration
     , emptyMigration
+    , encodeMigration
     , identityMigrationOn
     , mapVertex
     , resolve
@@ -68,11 +72,49 @@ tests =
     testGroup
         "algebraic laws"
         [ migrationLaws
+        , migrationCodecLaws
         , chainLaws
         , stringencyLaws
         , opticKindLaws
         , byQualityLaws
         , exceptionLaws
+        ]
+
+-- ---------------------------------------------------------------------------
+-- Migration codec: decodeMigration . encodeMigration = Right, all fields
+
+-- | A migration with /every/ field populated, including the
+-- tuple-keyed @label_map@ \/ @resolver@ \/ @expr_resolvers@ and the
+-- @(hyper_edge_id, labels)@-keyed @hyper_resolver@ — the complex-key
+-- codecs that 'WireRoundtrip' (vertex map + resolver only) leaves
+-- untested. @encodeMigration@ is the @mapping@ argument to
+-- @pp_mig_compile@, so a mis-encode here silently miscompiles.
+fullMigration :: Migration
+fullMigration =
+    base
+        { edgeMap = HM.fromList [(e1, e2)]
+        , hyperEdgeMap = HM.fromList [("h1", "h2")]
+        , labelMap = HM.fromList [(("h1", "l1"), "l2")]
+        , hyperResolver =
+            HM.fromList
+                [(("h1", ["l1", "l2"]), HyperResolution {targetHyperEdge = "h3", labelRemap = HM.fromList [("l1", "x")]})]
+        , exprResolvers = HM.fromList [(("a", "b"), String "expr")]
+        }
+  where
+    base = buildMigration $ do
+        mapVertex "post" "note"
+        resolve "post" "text" e1
+    e1 = S.Edge {S.src = "post", S.tgt = "text", S.kind = "prop", S.name = Just "text"}
+    e2 = S.Edge {S.src = "note", S.tgt = "body", S.kind = "prop", S.name = Just "body"}
+
+migrationCodecLaws :: TestTree
+migrationCodecLaws =
+    testGroup
+        "Migration codec (decode . encode = Right)"
+        [ testCase "empty migration round-trips" $
+            decodeMigration (encodeMigration emptyMigration) @?= Right emptyMigration
+        , testCase "every field round-trips (incl. tuple-keyed + hyper-resolver)" $
+            decodeMigration (encodeMigration fullMigration) @?= Right fullMigration
         ]
 
 -- ---------------------------------------------------------------------------
