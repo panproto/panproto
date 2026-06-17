@@ -20,11 +20,21 @@ module Spec.Laws (tests) where
 import Control.Category qualified as Cat
 import Control.Exception (Exception, fromException, toException)
 import Data.Aeson (Value (String))
+import Data.ByteString qualified as BS
 import Data.HashMap.Strict qualified as HM
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+
+import Panproto.Expr
+    ( BuiltinOp (..)
+    , Expr (..)
+    , Literal (..)
+    , Pattern (..)
+    , decodeExpr
+    , encodeExpr
+    )
 
 import Panproto.Errors
     ( CheckError (..)
@@ -73,11 +83,49 @@ tests =
         "algebraic laws"
         [ migrationLaws
         , migrationCodecLaws
+        , exprCodecLaws
         , chainLaws
         , stringencyLaws
         , opticKindLaws
         , byQualityLaws
         , exceptionLaws
+        ]
+
+-- ---------------------------------------------------------------------------
+-- Expr codec: decodeExpr . encodeExpr = Right, over every variant
+
+-- | One expression nesting every 'Expr' constructor (11), every
+-- 'Pattern' constructor (6, via the @case@ arms), and every 'Literal'
+-- constructor (9, via 'Lit' and 'PLit'). A round-trip of this single
+-- value exercises every hand-written variant codec at once.
+bigExpr :: Expr
+bigExpr =
+    Let "x" (Lit (LInt (-42))) $
+        App
+            ( Lam "y" $
+                Match
+                    (Var "y")
+                    [ (PWildcard, Lit LNull)
+                    , (PVar "v", List [Index (Var "v") (Lit (LInt 0)), Field (Record [("a", Lit (LBool True))]) "a"])
+                    , (PLit (LStr "s"), Lit (LFloat 3.5))
+                    , (PRecord [("k", PVar "kv")], Lit (LBytes (BS.pack [0, 1, 255])))
+                    , (PList [PWildcard, PVar "tl"], Lit (LList [LBool False, LNull, LInt 9]))
+                    , (PConstructor "Just" [PVar "inner"], Builtin OpAdd [Lit (LInt 1), Lit (LRecord [("f", LInt 2)])])
+                    ]
+            )
+            (Lit (LClosure "p" (Var "p") [("cap", LInt 7)]))
+
+exprCodecLaws :: TestTree
+exprCodecLaws =
+    testGroup
+        "Expr codec (decode . encode = Right)"
+        [ testCase "every Expr/Pattern/Literal variant round-trips" $
+            decodeExpr (encodeExpr bigExpr) @?= Right bigExpr
+        , testCase "every BuiltinOp round-trips through encodeExpr" $
+            sequence_
+                [ decodeExpr (encodeExpr (Builtin op [])) @?= Right (Builtin op [])
+                | op <- [minBound .. maxBound] :: [BuiltinOp]
+                ]
         ]
 
 -- ---------------------------------------------------------------------------
