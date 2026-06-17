@@ -243,6 +243,50 @@ jobs:
           print(f"OK: {len(protos)} protocols with companion ({len(native.protocol_names())} core)")
           PY
 
+  haskell:
+    name: Haskell SDK
+    runs-on: ubuntu-latest
+    # The only CI job that exercises the panproto-c C ABI across a real
+    # C-linkage boundary: `bootstrap/dev-link.sh` builds panproto-c and
+    # the hand-written C glue from source, then the cabal package is
+    # built and tested against the FFI backend. This covers the by-value
+    # safer-ffi structs, the `*_at` glue wrappers, the `VecU8`
+    # marshalling, and the cross-language CBOR wire agreement that the
+    # Rust-side `panproto-c` tests cannot reach. The default build links
+    # the FFI backend (`+rust`); `native-only` covers the pure-Haskell
+    # backend. The feature-gated cold-path surfaces (parse/project/git)
+    # need the full tree-sitter grammar build and are exercised at
+    # release time, not per PR.
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: haskell
+      - uses: haskell-actions/setup@v2
+        id: setup-haskell
+        with:
+          ghc-version: "9.12.2"
+          cabal-version: "3.16.0.0"
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.setup-haskell.outputs.cabal-store }}
+          key: haskell-cabal-${{ hashFiles('bindings/haskell/panproto.cabal') }}
+          restore-keys: haskell-cabal-
+      - name: Build panproto-c + C glue, stage libs
+        run: bash bindings/haskell/bootstrap/dev-link.sh
+      - name: cabal update
+        run: cd bindings/haskell && cabal update
+      - name: Build and test (FFI backend, +rust)
+        # panproto-c builds a cdylib alongside the staticlib, so GHC
+        # links libpanproto_c dynamically; point the runtime loader at
+        # the staged lib dir so the test binary resolves it.
+        run: cd bindings/haskell && cabal test
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/bindings/haskell/.panproto-c/lib
+      - name: Build and test (native-only)
+        run: cd bindings/haskell && cabal test -f native-only
+
   semver:
     name: Semver Check
     if: github.event_name == 'pull_request'
