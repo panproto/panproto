@@ -17,6 +17,7 @@ use std::sync::Arc;
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::types::{PyBytes, PyDict, PyList};
 
 use panproto_core::gat::Name;
 use panproto_core::schema::Edge;
@@ -285,6 +286,20 @@ impl PyRepository {
         convert::to_python(py, &index_to_value(&index))
     }
 
+    /// Stage a data file for the next commit.
+    ///
+    /// Reads ``path``, associates it with the staged or HEAD schema,
+    /// counts records, stores the data set, and records it in the index.
+    /// The committed data is later readable with :meth:`data_at`. Returns
+    /// the updated index.
+    fn add_data(&mut self, py: Python<'_>, path: &str) -> PyResult<Py<PyAny>> {
+        let index = self
+            .inner
+            .add_data(std::path::Path::new(path))
+            .map_err(vcs_err)?;
+        convert::to_python(py, &index_to_value(&index))
+    }
+
     /// Create a commit with the given message and author.
     #[pyo3(signature = (message, author, *, skip_verify=false))]
     fn commit(&mut self, message: &str, author: &str, skip_verify: bool) -> PyResult<String> {
@@ -355,6 +370,27 @@ impl PyRepository {
         Ok(PySchema {
             inner: Arc::new(schema),
         })
+    }
+
+    /// Read the data sets committed at ``ref`` without moving HEAD.
+    ///
+    /// Resolves ``ref`` (branch, tag, or commit-id prefix) and returns
+    /// one dict per recorded data set, each with ``schema_id`` (hex object
+    /// id), ``data`` (the committed data bytes), and ``record_count``.
+    /// This is the data counterpart to :meth:`schema_at`: it never moves
+    /// HEAD, the index, or the working tree, unlike
+    /// :meth:`checkout_with_data`.
+    fn data_at(&self, py: Python<'_>, r#ref: &str) -> PyResult<Py<PyAny>> {
+        let datasets = self.inner.data_at(r#ref).map_err(vcs_err)?;
+        let list = PyList::empty(py);
+        for ds in datasets {
+            let dict = PyDict::new(py);
+            dict.set_item("schema_id", ds.schema_id.to_string())?;
+            dict.set_item("data", PyBytes::new(py, &ds.data))?;
+            dict.set_item("record_count", ds.record_count)?;
+            list.append(dict)?;
+        }
+        Ok(list.into_any().unbind())
     }
 
     // -- Refs: branches --

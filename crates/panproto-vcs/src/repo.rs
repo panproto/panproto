@@ -627,6 +627,38 @@ impl Repository {
         Ok(())
     }
 
+    /// Read the data sets committed at `reference` without moving `HEAD`.
+    ///
+    /// Resolves `reference` (branch, tag, or commit-id prefix) to a
+    /// commit and returns every [`DataSetObject`] recorded at it. This is
+    /// the data counterpart to reading a committed schema: unlike
+    /// [`checkout_with_data`](Self::checkout_with_data) it never changes
+    /// `HEAD`, the index, or any file in the working tree. The data is
+    /// already content-addressed, so this is a plain store walk.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `reference` cannot be resolved, the resolved
+    /// object is not a commit, or one of its recorded data sets is
+    /// missing or of the wrong object type.
+    pub fn data_at(&self, reference: &str) -> Result<Vec<DataSetObject>, VcsError> {
+        let commit_id = refs::resolve_ref(&self.store, reference)?;
+        let commit = self.load_commit(commit_id)?;
+        let mut datasets = Vec::with_capacity(commit.data_ids.len());
+        for data_id in &commit.data_ids {
+            match self.store.get(data_id)? {
+                Object::DataSet(ds) => datasets.push(ds),
+                other => {
+                    return Err(VcsError::WrongObjectType {
+                        expected: "dataset",
+                        found: other.type_name(),
+                    });
+                }
+            }
+        }
+        Ok(datasets)
+    }
+
     /// Merge a branch into the current branch and migrate data files.
     ///
     /// Performs the schema merge via [`merge_with_options`](Self::merge_with_options),
@@ -1020,6 +1052,47 @@ mod tests {
         }
 
         assert_eq!(store::resolve_head(repo.store())?, Some(commit_id));
+        Ok(())
+    }
+
+    #[test]
+    fn data_at_reads_committed_data_without_moving_head() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let dir = tempfile::tempdir()?;
+        let mut repo = Repository::init(dir.path())?;
+
+        // First commit: a schema, no data.
+        let s = make_schema(&[("a", "object"), ("b", "string")]);
+        repo.add(&s)?;
+        let schema_only = repo.commit("initial schema", "alice")?;
+
+        // A ref with no committed data returns an empty list.
+        assert!(repo.data_at(&schema_only.to_string())?.is_empty());
+
+        // Stage and commit a data file.
+        let payload = br#"[{"a": 1}, {"a": 2}, {"a": 3}]"#;
+        let data_path = dir.path().join("data.json");
+        std::fs::write(&data_path, payload)?;
+        repo.add_data(&data_path)?;
+        let s2 = make_schema(&[("a", "object"), ("b", "string"), ("c", "number")]);
+        repo.add(&s2)?;
+        let commit_id = repo.commit("add data", "alice")?;
+
+        let head_before = store::resolve_head(repo.store())?;
+
+        // The committed data is readable by branch name, "HEAD", and commit id.
+        for reference in ["main", "HEAD", &commit_id.to_string()] {
+            let datasets = repo.data_at(reference)?;
+            assert_eq!(datasets.len(), 1, "ref {reference}");
+            assert_eq!(datasets[0].record_count, 3, "ref {reference}");
+            assert_eq!(datasets[0].data, payload, "ref {reference}");
+        }
+
+        // Reading never moved HEAD.
+        assert_eq!(store::resolve_head(repo.store())?, head_before);
+
+        // An unresolvable ref is an error, not a panic or empty result.
+        assert!(repo.data_at("no-such-ref").is_err());
         Ok(())
     }
 
