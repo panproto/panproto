@@ -2,6 +2,16 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [0.54.0] - 2026-06-17
+
+### Added
+
+- **Read-only access to committed data at a revision** (`panproto-vcs`, `panproto-py`): `Repository::data_at(reference)` resolves a branch, tag, or commit-id prefix and returns the `DataSetObject`s recorded at that commit, never moving `HEAD`, the index, or the working tree. It is the data counterpart to reading a committed schema; unlike `checkout_with_data` (which moves `HEAD` and migrates files in place), it is a plain content-addressed store walk. The Python binding `Repository.data_at(ref)` returns one dict per data set, each carrying `schema_id`, `data` (the committed bytes), and `record_count`. So the round-trip is usable end to end from Python, the existing core `Repository::add_data` is now also exposed as `Repository.add_data(path)`, letting a caller both record and read back committed data sets without dropping to Rust. Closes #193.
+
+### Fixed
+
+- **`Repository.create_annotated_tag` type stub matched to the runtime** (`panproto-py`): the `_native.pyi` stub declared `(name, commit_id, message, author) -> None`, but the binding takes `(name, commit_id, author, message)` and returns the new annotated-tag object id. A caller passing by keyword per the stub silently swapped tagger and message (both are `str`, so no error surfaced); a caller wanting the returned tag id could not see it, because the stub hid the return. The stub now reads `(name, commit_id, author, message) -> str`. Closes #194.
+
 ## [0.53.0] - 2026-06-16
 
 ### Added
