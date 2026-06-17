@@ -26,7 +26,7 @@ rustc-hash = { workspace = true }
 # is done here, with the import driven by `panproto_core::git`. Vendored
 # libgit2/openssl match the Python surface so the bridge builds without
 # system git libraries.
-git2 = { version = "0.20", optional = true, default-features = false, features = [
+git2 = { version = "0.21", optional = true, default-features = false, features = [
     "vendored-libgit2",
     "vendored-openssl",
 ] }

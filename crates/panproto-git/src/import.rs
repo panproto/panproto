@@ -429,7 +429,7 @@ fn collect_tree_leaves<S: Store>(
     for entry in tree {
         let name = entry
             .name()
-            .ok_or_else(|| GitBridgeError::NonUtf8TreeEntry {
+            .map_err(|_| GitBridgeError::NonUtf8TreeEntry {
                 parent: prefix.display().to_string(),
             })?;
         let path = prefix.join(name);
