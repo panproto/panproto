@@ -179,9 +179,9 @@ callStatus :: IO CInt -> IO ()
 callStatus action = action >>= checkStatus
 
 -- | Allocate a 'VecU8' on the stack, initialize it as a /valid empty/
--- 'VecU8', hand its pointer to @action@, and ensure the resulting
--- buffer is freed via 'pp_buf_free_at' on the way out — even if
--- @action@ or @callback@ throws.
+-- 'VecU8', hand its pointer to @action@, and ensure whatever buffer
+-- lands in the slot is freed via 'pp_buf_free_at' on the way out —
+-- even if @action@ or @callback@ throws.
 --
 -- The empty-vec sentinel is @{ ptr = 0x1, len = 0, cap = 0 }@.
 -- Rust\'s @Vec@ drop is a no-op when @cap == 0@ (it never reads
@@ -189,6 +189,14 @@ callStatus action = action >>= checkStatus
 -- check requires only that @ptr@ is non-zero. A literal @null@
 -- would trip the entry check; @0x1@ has the alignment a @u8@ needs
 -- (1) and is otherwise inert.
+--
+-- The free is registered as the @bracket@ release around the /whole/
+-- call, so it runs whether @action@ succeeds, @action@ throws (e.g.
+-- a status check inside it), or @callback@ throws. Freeing the
+-- untouched sentinel is the @cap == 0@ no-op above, so this is safe
+-- even on the error path where no buffer was allocated — the Haskell
+-- side never has to assume the C entry left @*out@ untouched on a
+-- non-@Ok@ status.
 --
 -- The @callback@ receives the populated 'VecU8' AFTER @action@
 -- returns and BEFORE the buffer is freed; that is the place to copy
@@ -203,9 +211,9 @@ withVecU8Out action callback =
     alloca $ \pVec -> do
         poke pVec emptyVecU8
         bracket
-            (action pVec >> peek pVec)
-            (\_ -> pp_buf_free_at pVec)
-            callback
+            (pure pVec)
+            pp_buf_free_at
+            (\p -> action p >> peek p >>= callback)
 
 -- | A valid empty 'VecU8' with a non-null sentinel pointer. See
 -- 'withVecU8Out' for why @0x1@ specifically.
