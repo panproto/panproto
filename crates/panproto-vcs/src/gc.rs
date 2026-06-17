@@ -388,6 +388,7 @@ mod tests {
             schema_id,
             data: vec![1, 2, 3],
             record_count: 1,
+            key: None,
         };
         let data_id = store.put(&Object::DataSet(dataset))?;
 

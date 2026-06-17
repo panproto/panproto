@@ -108,6 +108,9 @@ pub fn migrate_forward(
             }
         })?,
         record_count: migrated_instances.len() as u64,
+        // The key identifies the record, not its schema version, so it
+        // survives migration unchanged.
+        key: data_obj.key,
     };
     let new_data_id = store.put(&Object::DataSet(new_data))?;
 
@@ -199,6 +202,7 @@ pub fn migrate_backward(
             reason: format!("serialize: {e}"),
         })?,
         record_count: restored.len() as u64,
+        key: data_obj.key,
     };
     let restored_id = store.put(&Object::DataSet(restored_data))?;
 
@@ -296,6 +300,9 @@ pub fn migrate_data_directory(
                 }
             })?,
             record_count: 1,
+            // The source file path is this set's natural key, matching
+            // how `Repository::add_data` keys a staged file by default.
+            key: Some(path.to_string_lossy().into_owned()),
         };
         store.put(&Object::DataSet(migrated_data))?;
 
@@ -466,6 +473,7 @@ mod tests {
             schema_id: old_schema_id,
             data: vec![],
             record_count: 0,
+            key: None,
         };
         let data_id = store.put(&Object::DataSet(ds))?;
 
@@ -491,6 +499,7 @@ mod tests {
             schema_id,
             data: vec![],
             record_count: 0,
+            key: None,
         };
         let data_id = store.put(&Object::DataSet(ds))?;
 
