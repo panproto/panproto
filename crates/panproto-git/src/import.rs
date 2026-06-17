@@ -427,11 +427,9 @@ fn collect_tree_leaves<S: Store>(
     leaves: &mut Vec<(PathBuf, ObjectId)>,
 ) -> Result<(), GitBridgeError> {
     for entry in tree {
-        let name = entry
-            .name()
-            .map_err(|_| GitBridgeError::NonUtf8TreeEntry {
-                parent: prefix.display().to_string(),
-            })?;
+        let name = entry.name().map_err(|_| GitBridgeError::NonUtf8TreeEntry {
+            parent: prefix.display().to_string(),
+        })?;
         let path = prefix.join(name);
 
         match entry.kind() {
