@@ -17,6 +17,7 @@ use std::sync::Arc;
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::types::{PyBytes, PyDict, PyList};
 
 use panproto_core::gat::Name;
 use panproto_core::schema::Edge;
@@ -73,7 +74,7 @@ impl PyVcsRepository {
     }
 
     /// List all refs in the store.
-    fn list_refs(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn list_refs(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let refs = self
             .store
             .list_refs("")
@@ -280,8 +281,22 @@ impl PyRepository {
     // -- Staging + commit --
 
     /// Stage a schema for the next commit.
-    fn add(&mut self, py: Python<'_>, schema: &PySchema) -> PyResult<PyObject> {
+    fn add(&mut self, py: Python<'_>, schema: &PySchema) -> PyResult<Py<PyAny>> {
         let index = self.inner.add(schema.inner.as_ref()).map_err(vcs_err)?;
+        convert::to_python(py, &index_to_value(&index))
+    }
+
+    /// Stage a data file for the next commit.
+    ///
+    /// Reads ``path``, associates it with the staged or HEAD schema,
+    /// counts records, stores the data set, and records it in the index.
+    /// The committed data is later readable with :meth:`data_at`. Returns
+    /// the updated index.
+    fn add_data(&mut self, py: Python<'_>, path: &str) -> PyResult<Py<PyAny>> {
+        let index = self
+            .inner
+            .add_data(std::path::Path::new(path))
+            .map_err(vcs_err)?;
         convert::to_python(py, &index_to_value(&index))
     }
 
@@ -310,7 +325,7 @@ impl PyRepository {
 
     /// List commits reachable from HEAD, newest first.
     #[pyo3(signature = (limit=None))]
-    fn log(&self, py: Python<'_>, limit: Option<usize>) -> PyResult<PyObject> {
+    fn log(&self, py: Python<'_>, limit: Option<usize>) -> PyResult<Py<PyAny>> {
         let commits = self.inner.log(limit).map_err(vcs_err)?;
         let dicts: Result<Vec<_>, _> = commits
             .iter()
@@ -355,6 +370,27 @@ impl PyRepository {
         Ok(PySchema {
             inner: Arc::new(schema),
         })
+    }
+
+    /// Read the data sets committed at ``ref`` without moving HEAD.
+    ///
+    /// Resolves ``ref`` (branch, tag, or commit-id prefix) and returns
+    /// one dict per recorded data set, each with ``schema_id`` (hex object
+    /// id), ``data`` (the committed data bytes), and ``record_count``.
+    /// This is the data counterpart to :meth:`schema_at`: it never moves
+    /// HEAD, the index, or the working tree, unlike
+    /// :meth:`checkout_with_data`.
+    fn data_at(&self, py: Python<'_>, r#ref: &str) -> PyResult<Py<PyAny>> {
+        let datasets = self.inner.data_at(r#ref).map_err(vcs_err)?;
+        let list = PyList::empty(py);
+        for ds in datasets {
+            let dict = PyDict::new(py);
+            dict.set_item("schema_id", ds.schema_id.to_string())?;
+            dict.set_item("data", PyBytes::new(py, &ds.data))?;
+            dict.set_item("record_count", ds.record_count)?;
+            list.append(dict)?;
+        }
+        Ok(list.into_any().unbind())
     }
 
     // -- Refs: branches --
@@ -448,7 +484,7 @@ impl PyRepository {
     }
 
     /// Read an annotated tag object by its id.
-    fn read_annotated_tag(&self, py: Python<'_>, tag_oid: &str) -> PyResult<PyObject> {
+    fn read_annotated_tag(&self, py: Python<'_>, tag_oid: &str) -> PyResult<Py<PyAny>> {
         let id = parse_oid(tag_oid)?;
         let obj = self.inner.store().get(&id).map_err(vcs_err)?;
         match obj {
@@ -476,7 +512,7 @@ impl PyRepository {
     // -- Merge / rewrite --
 
     /// Three-way merge ``branch`` into HEAD.
-    fn merge(&mut self, py: Python<'_>, branch: &str, author: &str) -> PyResult<PyObject> {
+    fn merge(&mut self, py: Python<'_>, branch: &str, author: &str) -> PyResult<Py<PyAny>> {
         let result = self.inner.merge(branch, author).map_err(vcs_err)?;
         convert::to_python(py, &merge_result_to_value(&result))
     }
@@ -513,7 +549,7 @@ impl PyRepository {
     }
 
     /// Delete unreachable objects.
-    fn gc(&mut self, py: Python<'_>) -> PyResult<PyObject> {
+    fn gc(&mut self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let report = self.inner.gc().map_err(vcs_err)?;
         convert::to_python(py, &gc_to_value(&report))
     }
@@ -521,7 +557,7 @@ impl PyRepository {
     // -- Status / index --
 
     /// Inspect the staging index.
-    fn index(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn index(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let idx = self.inner.read_index().map_err(vcs_err)?;
         convert::to_python(py, &index_to_value(&idx))
     }
@@ -540,7 +576,7 @@ impl PyRepository {
     // -- Blame --
 
     /// Find the commit that introduced ``vertex_id`` reachable from ``head``.
-    fn blame_vertex(&self, py: Python<'_>, head: &str, vertex_id: &str) -> PyResult<PyObject> {
+    fn blame_vertex(&self, py: Python<'_>, head: &str, vertex_id: &str) -> PyResult<Py<PyAny>> {
         let head_id = parse_oid(head)?;
         let entry = blame::blame_vertex(self.inner.store(), head_id, vertex_id).map_err(vcs_err)?;
         convert::to_python(py, &blame_to_value(&entry))
@@ -557,7 +593,7 @@ impl PyRepository {
         tgt: &str,
         kind: &str,
         name: Option<&str>,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         let head_id = parse_oid(head)?;
         let edge = Edge {
             src: Name::from(src),
@@ -576,7 +612,7 @@ impl PyRepository {
         head: &str,
         vertex_id: &str,
         sort: &str,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         let head_id = parse_oid(head)?;
         let entry = blame::blame_constraint(self.inner.store(), head_id, vertex_id, sort)
             .map_err(vcs_err)?;
@@ -593,7 +629,7 @@ impl PyRepository {
         py: Python<'_>,
         good: &str,
         bad: &str,
-    ) -> PyResult<(PyBisectState, PyObject)> {
+    ) -> PyResult<(PyBisectState, Py<PyAny>)> {
         let good_id = parse_oid(good)?;
         let bad_id = parse_oid(bad)?;
         let (state, step) =
@@ -625,7 +661,7 @@ impl PyRepository {
     }
 
     /// List stash entries (most recent first).
-    fn stash_list(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn stash_list(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let entries = stash::stash_list(self.inner.store()).map_err(vcs_err)?;
         let dicts: Vec<_> = entries.iter().map(stash_to_value).collect();
         convert::to_python(py, &dicts)
@@ -656,7 +692,7 @@ impl PyRepository {
     // -- Data migration --
 
     /// Detect data sets whose schema lags behind HEAD's schema.
-    fn detect_staleness(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn detect_staleness(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let head = vcs_store::resolve_head(self.inner.store())
             .map_err(vcs_err)?
             .ok_or_else(|| VcsError::new_err("HEAD does not resolve to a commit"))?;
@@ -690,7 +726,7 @@ impl PyRepository {
         py: Python<'_>,
         ref_name: &str,
         limit: Option<usize>,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         let entries = self
             .inner
             .store()
@@ -719,7 +755,7 @@ pub struct PyBisectState {
 impl PyBisectState {
     /// Advance the bisect by reporting whether the most recent test commit
     /// was good. Returns the next step (``"test"`` or ``"found"``).
-    fn step(&mut self, py: Python<'_>, is_good: bool) -> PyResult<PyObject> {
+    fn step(&mut self, py: Python<'_>, is_good: bool) -> PyResult<Py<PyAny>> {
         let step = bisect::bisect_step(&mut self.inner, is_good);
         convert::to_python(py, &bisect_step_to_value(&step))
     }

@@ -36,12 +36,16 @@ crates/panproto-mig/src/existence.rs	nsid
 crates/panproto-mig/src/invert.rs	nsid
 crates/panproto-mig/src/lift.rs	nsid
 crates/panproto-py/src/io.rs	atproto
+crates/panproto-py/src/lexicon.rs	atproto
+crates/panproto-py/src/lexicon.rs	lexicon
+crates/panproto-py/src/lib.rs	lexicon
 crates/panproto-py/src/protocols.rs	atproto
 crates/panproto-py/src/protocols.rs	mongodb
 crates/panproto-py/src/protocols.rs	openapi
 crates/panproto-py/src/schema.rs	at-uri
 crates/panproto-py/src/schema.rs	atproto
 crates/panproto-py/src/schema.rs	bsky
+crates/panproto-py/src/schema.rs	lexicon
 crates/panproto-py/src/schema.rs	nsid
 crates/panproto-schema/src/builder.rs	atproto
 crates/panproto-schema/src/builder.rs	bsky

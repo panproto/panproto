@@ -8,7 +8,12 @@ use crate::convert;
 use crate::schema::{PyProtocol, PySchema};
 
 /// Structural diff between two schemas.
-#[pyclass(name = "SchemaDiff", frozen, module = "panproto._native")]
+#[pyclass(
+    from_py_object,
+    name = "SchemaDiff",
+    frozen,
+    module = "panproto._native"
+)]
 #[derive(Clone)]
 pub struct PySchemaDiff {
     pub(crate) inner: SchemaDiff,
@@ -23,7 +28,7 @@ impl PySchemaDiff {
     }
 
     /// The full diff as a Python dict.
-    fn to_dict(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn to_dict(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         convert::to_python(py, &self.inner)
     }
 
@@ -38,7 +43,12 @@ impl PySchemaDiff {
 }
 
 /// Compatibility report classifying changes as breaking or non-breaking.
-#[pyclass(name = "CompatReport", frozen, module = "panproto._native")]
+#[pyclass(
+    from_py_object,
+    name = "CompatReport",
+    frozen,
+    module = "panproto._native"
+)]
 #[derive(Clone)]
 pub struct PyCompatReport {
     pub(crate) inner: CompatReport,
@@ -54,13 +64,13 @@ impl PyCompatReport {
 
     /// Breaking changes as a list of dicts.
     #[getter]
-    fn breaking_changes(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn breaking_changes(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         convert::to_python(py, &self.inner.breaking)
     }
 
     /// Non-breaking changes as a list of dicts.
     #[getter]
-    fn non_breaking_changes(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn non_breaking_changes(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         convert::to_python(py, &self.inner.non_breaking)
     }
 
@@ -74,7 +84,7 @@ impl PyCompatReport {
         check::report_json(&self.inner).to_string()
     }
 
-    fn to_dict(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn to_dict(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         convert::to_python(py, &self.inner)
     }
 

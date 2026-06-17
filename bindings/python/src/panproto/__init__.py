@@ -79,6 +79,10 @@ from panproto._native import (
     create_theory,
     free_model,
     migrate_model,
+    # Lexicon / schema-document parsing
+    parse_atproto_lexicon,
+    parse_schema_document,
+    theory_of,
     # Expr
     Expr,
     parse_expr,
@@ -246,6 +250,10 @@ __all__ = [
     "create_theory",
     "free_model",
     "migrate_model",
+    # Lexicon / schema-document parsing
+    "parse_atproto_lexicon",
+    "parse_schema_document",
+    "theory_of",
     # Expr
     "Expr",
     "parse_expr",

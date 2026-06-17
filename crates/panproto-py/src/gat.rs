@@ -24,7 +24,7 @@ use panproto_theory_dsl::{
 use crate::convert;
 
 /// A generalized algebraic theory.
-#[pyclass(name = "Theory", frozen, module = "panproto._native")]
+#[pyclass(from_py_object, name = "Theory", frozen, module = "panproto._native")]
 #[derive(Clone)]
 pub struct PyTheory {
     pub(crate) inner: Arc<Theory>,
@@ -57,23 +57,23 @@ impl PyTheory {
 
     /// Sorts as a list of dicts.
     #[getter]
-    fn sorts(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn sorts(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         convert::to_python(py, &self.inner.sorts)
     }
 
     /// Operations as a list of dicts.
     #[getter]
-    fn ops(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn ops(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         convert::to_python(py, &self.inner.ops)
     }
 
     /// Equations as a list of dicts.
     #[getter]
-    fn eqs(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn eqs(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         convert::to_python(py, &self.inner.eqs)
     }
 
-    fn to_dict(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn to_dict(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         convert::to_python(py, self.inner.as_ref())
     }
 
