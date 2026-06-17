@@ -243,6 +243,7 @@ test-suite panproto-test
         Spec.NativeProtocol
         Spec.StructuredSchema
     build-depends:
+        aeson,
         base,
         bytestring,
         cborg,
