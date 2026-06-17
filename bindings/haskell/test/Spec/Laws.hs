@@ -35,6 +35,7 @@ import Panproto.Expr
     , decodeExpr
     , encodeExpr
     )
+import Panproto.Gat qualified as Gat
 
 import Panproto.Errors
     ( CheckError (..)
@@ -84,11 +85,36 @@ tests =
         [ migrationLaws
         , migrationCodecLaws
         , exprCodecLaws
+        , termCodecLaws
         , chainLaws
         , stringencyLaws
         , opticKindLaws
         , byQualityLaws
         , exceptionLaws
+        ]
+
+-- ---------------------------------------------------------------------------
+-- Term codec: decodeTermBytes . encodeTermBytes = Right, over every variant
+
+-- | A GAT 'Gat.Term' nesting every variant (Var, App, Case, Hole with
+-- and without a name, Let) and a 'Gat.CaseBranch'. The @App@ variant is
+-- the only one 'WireRoundtrip' exercises.
+bigTerm :: Gat.Term
+bigTerm =
+    Gat.Let
+        "x"
+        (Gat.App "f" [Gat.Var "a", Gat.Hole (Just "h"), Gat.Hole Nothing])
+        ( Gat.Case
+            (Gat.Var "x")
+            [Gat.CaseBranch {Gat.constructor = "C", Gat.binders = ["y", "z"], Gat.branchBody = Gat.App "g" [Gat.Var "y"]}]
+        )
+
+termCodecLaws :: TestTree
+termCodecLaws =
+    testGroup
+        "Term codec (decode . encode = Right)"
+        [ testCase "every Term variant round-trips" $
+            Gat.decodeTermBytes (Gat.encodeTermBytes bigTerm) @?= Right bigTerm
         ]
 
 -- ---------------------------------------------------------------------------
