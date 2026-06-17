@@ -15,6 +15,7 @@ import Spec.StructuredSchema qualified
 import Spec.RustRoundtrip qualified
 import Spec.SchemaRoundtrip qualified
 import Spec.EngineRoundtrip qualified
+import Spec.WireRoundtrip qualified
 #endif
 
 main :: IO ()
@@ -33,5 +34,6 @@ tests =
         , Spec.RustRoundtrip.tests
         , Spec.SchemaRoundtrip.tests
         , Spec.EngineRoundtrip.tests
+        , Spec.WireRoundtrip.tests
 #endif
         ]

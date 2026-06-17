@@ -267,4 +267,5 @@ test-suite panproto-test
             Spec.RustRoundtrip
             Spec.SchemaRoundtrip
             Spec.EngineRoundtrip
+            Spec.WireRoundtrip
         extra-libraries: panproto_c
