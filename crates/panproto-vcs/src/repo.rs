@@ -182,30 +182,44 @@ impl Repository {
         options: &CommitOptions,
     ) -> Result<ObjectId, VcsError> {
         let index = self.read_index()?;
-        let staged = index.staged.ok_or(VcsError::NothingStaged)?;
-
-        // Check GAT diagnostics unless skip_verify is set.
-        if !options.skip_verify {
-            // Check validation status.
-            if let ValidationStatus::Invalid(reasons) = &staged.validation {
-                return Err(VcsError::ValidationFailed {
-                    reasons: reasons.clone(),
-                });
-            }
-            // Check GAT diagnostics directly (covers type errors and equation violations).
-            if let Some(ref diag) = staged.gat_diagnostics {
-                if diag.has_errors() {
-                    return Err(VcsError::ValidationFailed {
-                        reasons: diag.all_errors(),
-                    });
-                }
-            }
+        if !index.has_staged() {
+            return Err(VcsError::NothingStaged);
         }
 
         let head_id = store::resolve_head(&self.store)?;
 
+        // The commit's schema is the staged schema when one is staged, or
+        // HEAD's schema carried forward for a data-only or protocol-only
+        // commit (re-recording data or a protocol against the existing
+        // type, which has no migration). This keeps `commit` in agreement
+        // with `Index::has_staged`: a data-only stage now commits instead
+        // of failing with `NothingStaged`.
+        let (schema_id, migration_id) = if let Some(ref staged) = index.staged {
+            // Check staged validation unless skip_verify is set.
+            if !options.skip_verify {
+                if let ValidationStatus::Invalid(reasons) = &staged.validation {
+                    return Err(VcsError::ValidationFailed {
+                        reasons: reasons.clone(),
+                    });
+                }
+                // Covers type errors and equation violations.
+                if let Some(ref diag) = staged.gat_diagnostics {
+                    if diag.has_errors() {
+                        return Err(VcsError::ValidationFailed {
+                            reasons: diag.all_errors(),
+                        });
+                    }
+                }
+            }
+            (staged.schema_id, staged.migration_id)
+        } else {
+            // Data/protocol-only commit: carry HEAD's schema forward.
+            let head = head_id.ok_or(VcsError::NothingStaged)?;
+            (self.load_commit(head)?.schema_id, None)
+        };
+
         // Determine protocol from the schema.
-        let schema = self.load_schema(staged.schema_id)?;
+        let schema = self.load_schema(schema_id)?;
 
         // Store the implicit theory derived from the schema.
         let theory = crate::gat_validate::schema_to_theory(&schema.protocol, &schema);
@@ -216,12 +230,12 @@ impl Repository {
         let parents: Vec<ObjectId> = head_id.into_iter().collect();
         let data_ids: Vec<ObjectId> = index.staged_data.iter().map(|sd| sd.data_id).collect();
 
-        let mut builder = CommitObject::builder(staged.schema_id, schema.protocol, author, message)
+        let mut builder = CommitObject::builder(schema_id, schema.protocol, author, message)
             .theory_ids(theory_ids);
         if !parents.is_empty() {
             builder = builder.parents(parents);
         }
-        if let Some(mid) = staged.migration_id {
+        if let Some(mid) = migration_id {
             builder = builder.migration_id(mid);
         }
         if let Some(pid) = index.staged_protocol {
@@ -528,13 +542,15 @@ impl Repository {
     ///
     /// Reads the file, determines the schema (from staged schema or HEAD),
     /// counts records if the data is a JSON array, stores a `DataSetObject`,
-    /// and updates the index.
+    /// and updates the index. The data set is keyed by `key`, or by the
+    /// source path when `key` is `None`, so a committed set read back via
+    /// [`data_at`](Self::data_at) can be mapped to its origin.
     ///
     /// # Errors
     ///
     /// Returns an error if the file cannot be read, or if no schema is
     /// available (nothing staged and no HEAD commit).
-    pub fn add_data(&mut self, path: &Path) -> Result<Index, VcsError> {
+    pub fn add_data(&mut self, path: &Path, key: Option<&str>) -> Result<Index, VcsError> {
         let data_bytes = std::fs::read(path)?;
 
         // Determine schema: use staged schema if present, otherwise HEAD.
@@ -549,10 +565,14 @@ impl Repository {
 
         let record_count = count_records(&data_bytes);
 
+        // Fall back to the source path so every staged set carries a key.
+        let key = key.map_or_else(|| path.to_string_lossy().into_owned(), str::to_owned);
+
         let dataset = DataSetObject {
             schema_id,
             data: data_bytes,
             record_count,
+            key: Some(key),
         };
         let data_id = self.store.put(&Object::DataSet(dataset))?;
 
@@ -1028,7 +1048,7 @@ mod tests {
         std::fs::write(&data_path, r#"[{"a": 1}, {"a": 2}, {"a": 3}]"#)?;
 
         // Stage data.
-        let index = repo.add_data(&data_path)?;
+        let index = repo.add_data(&data_path, None)?;
         assert_eq!(index.staged_data.len(), 1);
         assert_eq!(index.staged_data[0].source_path, data_path);
 
@@ -1069,11 +1089,11 @@ mod tests {
         // A ref with no committed data returns an empty list.
         assert!(repo.data_at(&schema_only.to_string())?.is_empty());
 
-        // Stage and commit a data file.
+        // Stage and commit a data file with an explicit key.
         let payload = br#"[{"a": 1}, {"a": 2}, {"a": 3}]"#;
         let data_path = dir.path().join("data.json");
         std::fs::write(&data_path, payload)?;
-        repo.add_data(&data_path)?;
+        repo.add_data(&data_path, Some("records-key"))?;
         let s2 = make_schema(&[("a", "object"), ("b", "string"), ("c", "number")]);
         repo.add(&s2)?;
         let commit_id = repo.commit("add data", "alice")?;
@@ -1086,6 +1106,11 @@ mod tests {
             assert_eq!(datasets.len(), 1, "ref {reference}");
             assert_eq!(datasets[0].record_count, 3, "ref {reference}");
             assert_eq!(datasets[0].data, payload, "ref {reference}");
+            assert_eq!(
+                datasets[0].key.as_deref(),
+                Some("records-key"),
+                "ref {reference}"
+            );
         }
 
         // Reading never moved HEAD.
@@ -1093,6 +1118,78 @@ mod tests {
 
         // An unresolvable ref is an error, not a panic or empty result.
         assert!(repo.data_at("no-such-ref").is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn data_only_commit_carries_schema_forward() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut repo = Repository::init(dir.path())?;
+
+        // First commit: a schema, no data.
+        let s = make_schema(&[("a", "object"), ("b", "string")]);
+        repo.add(&s)?;
+        repo.commit("schema", "alice")?;
+
+        // Stage data with no schema change.
+        let payload = br#"[{"a": 1}, {"a": 2}]"#;
+        let data_path = dir.path().join("rec.json");
+        std::fs::write(&data_path, payload)?;
+        let index = repo.add_data(&data_path, Some("at://rec/1"))?;
+        assert!(index.has_staged(), "data should register as staged");
+        assert!(index.staged.is_none(), "no schema is staged");
+
+        // `commit` and `has_staged` now agree: a data-only stage commits
+        // instead of failing with NothingStaged.
+        repo.commit("data only", "alice")?;
+
+        // The data-only commit carries the parent's schema forward, with
+        // no migration, and tracks the data.
+        let log = repo.log(None)?;
+        assert_eq!(log[0].message, "data only");
+        assert_eq!(
+            log[0].schema_id, log[1].schema_id,
+            "schema carried forward unchanged"
+        );
+        assert!(
+            log[0].migration_id.is_none(),
+            "a data-only commit has no migration"
+        );
+        assert_eq!(log[0].data_ids.len(), 1);
+
+        // The committed data reads back with its key (issue #198 path).
+        let datasets = repo.data_at("HEAD")?;
+        assert_eq!(datasets.len(), 1);
+        assert_eq!(datasets[0].record_count, 2);
+        assert_eq!(datasets[0].key.as_deref(), Some("at://rec/1"));
+
+        // A truly empty index still rejects.
+        assert!(matches!(
+            repo.commit("nothing", "alice"),
+            Err(VcsError::NothingStaged)
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn add_data_defaults_key_to_source_path() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut repo = Repository::init(dir.path())?;
+        let s = make_schema(&[("a", "object")]);
+        repo.add(&s)?;
+        repo.commit("schema", "alice")?;
+
+        let data_path = dir.path().join("rec.json");
+        std::fs::write(&data_path, br#"[{"a": 1}]"#)?;
+        repo.add_data(&data_path, None)?;
+        repo.commit("data", "alice")?;
+
+        let datasets = repo.data_at("HEAD")?;
+        assert_eq!(
+            datasets[0].key.as_deref(),
+            Some(data_path.to_string_lossy().as_ref()),
+            "key defaults to the source path when none is given"
+        );
         Ok(())
     }
 

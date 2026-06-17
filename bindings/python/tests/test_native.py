@@ -1147,3 +1147,36 @@ class TestRepositoryDataAccess:
         # Author landed in `tagger` and message in `message`: not transposed.
         assert tag["tagger"] == "Tagger <t@example.com>"
         assert tag["message"] == "release two"
+
+    def test_commit_data_only_change(self, tmp_path) -> None:
+        # A data-only stage (no schema change) commits instead of raising
+        # NothingStaged, so commit and has_staged() agree.
+        repo = panproto.Repository.init(str(tmp_path / "repo"))
+        repo.add(self._schema(("a", "integer")))
+        repo.commit("schema", "alice <a@example.com>")
+
+        data_file = tmp_path / "rec.json"
+        data_file.write_text('[{"a": 1}, {"a": 2}]')
+        repo.add_data(str(data_file), key="at://rec/1")
+        assert repo.has_staged() is True
+
+        # Previously raised VcsError("nothing staged"); now succeeds.
+        repo.commit("data only", "alice <a@example.com>")
+
+        datasets = repo.data_at("HEAD")
+        assert len(datasets) == 1
+        assert datasets[0]["record_count"] == 2
+        assert datasets[0]["key"] == "at://rec/1"
+
+    def test_add_data_key_defaults_to_path(self, tmp_path) -> None:
+        repo = panproto.Repository.init(str(tmp_path / "repo"))
+        repo.add(self._schema(("a", "integer")))
+        repo.commit("schema", "alice <a@example.com>")
+
+        data_file = tmp_path / "rec.json"
+        data_file.write_text('[{"a": 1}]')
+        repo.add_data(str(data_file))  # no explicit key
+        repo.commit("data", "alice <a@example.com>")
+
+        # With no caller key, the source path is the key.
+        assert repo.data_at("HEAD")[0]["key"] == str(data_file)

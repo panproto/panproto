@@ -435,6 +435,12 @@ pub struct DataSetObject {
     pub data: Vec<u8>,
     /// Number of records.
     pub record_count: u64,
+    /// Caller key identifying the record(s) this set holds, so a
+    /// committed data set can be mapped back to a downstream key (a
+    /// source path, an AT-URI, or any caller-chosen identifier). `None`
+    /// when no key was recorded. Carried forward across data migration.
+    #[serde(default)]
+    pub key: Option<String>,
 }
 
 /// A complement from data migration, enabling backward migration.
@@ -511,12 +517,14 @@ mod tests {
             schema_id: ObjectId::ZERO,
             data: vec![1, 2, 3, 4],
             record_count: 42,
+            key: Some("at://did:plc:abc/app.bsky.feed.post/1".to_owned()),
         };
         let bytes = rmp_serde::to_vec(&ds)?;
         let ds2: DataSetObject = rmp_serde::from_slice(&bytes)?;
         assert_eq!(ds.schema_id, ds2.schema_id);
         assert_eq!(ds.data, ds2.data);
         assert_eq!(ds.record_count, ds2.record_count);
+        assert_eq!(ds.key, ds2.key);
         Ok(())
     }
 

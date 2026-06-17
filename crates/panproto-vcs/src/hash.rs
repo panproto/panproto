@@ -397,6 +397,7 @@ pub fn hash_dataset(dataset: &DataSetObject) -> Result<ObjectId, VcsError> {
         ("schema_id", rmp_serde::to_vec(&dataset.schema_id)?),
         ("data", rmp_serde::to_vec(&dataset.data)?),
         ("record_count", rmp_serde::to_vec(&dataset.record_count)?),
+        ("key", rmp_serde::to_vec(&dataset.key)?),
     ]);
     let bytes = rmp_serde::to_vec(&canonical)?;
     Ok(ObjectId(blake3::hash(&bytes).into()))
@@ -804,6 +805,7 @@ mod tests {
             schema_id: ObjectId::from_bytes([1; 32]),
             data: vec![10, 20, 30],
             record_count: 3,
+            key: None,
         };
         let h1 = hash_dataset(&ds)?;
         let h2 = hash_dataset(&ds)?;

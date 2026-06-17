@@ -69,6 +69,8 @@ pub fn store_dataset(schema_handle: u32, data_json: &[u8]) -> Result<u32, JsErro
         schema_id,
         data: data_bytes,
         record_count: instances.len() as u64,
+        // This FFI stages raw bytes with no caller path or key.
+        key: None,
     };
 
     Ok(slab::alloc(Resource::DataSet(Box::new(ds))))
@@ -167,6 +169,8 @@ pub fn migrate_dataset_forward(
             reason: format!("serialize: {e}"),
         })?,
         record_count: migrated.len() as u64,
+        // The key identifies the record, so it survives migration.
+        key: ds.key.clone(),
     };
 
     let data_handle = slab::alloc(Resource::DataSet(Box::new(new_ds)));
@@ -182,6 +186,8 @@ pub fn migrate_dataset_forward(
         schema_id: ds.schema_id,
         data: complement_bytes,
         record_count: complements.len() as u64,
+        // A complement carrier holds no record, so it carries no key.
+        key: None,
     };
     let complement_handle = slab::alloc(Resource::DataSet(Box::new(comp_ds)));
 
@@ -257,6 +263,7 @@ pub fn migrate_dataset_backward(
             reason: format!("serialize: {e}"),
         })?,
         record_count: restored.len() as u64,
+        key: ds.key,
     };
 
     Ok(slab::alloc(Resource::DataSet(Box::new(restored_ds))))

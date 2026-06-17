@@ -2,6 +2,20 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [0.56.0] - 2026-06-17
+
+### Added
+
+- **Committed data sets carry a per-record key** (`panproto-vcs`, `panproto-py`): `DataSetObject` gains a `key: Option<String>` field, so a committed set read back through `data_at` can be mapped to a downstream identifier (a source path, an AT-URI, or any caller key) instead of being anonymous. `Repository::add_data(path, key)` records the key, falling back to the source path when `key` is `None`; the key is carried forward unchanged across data migration (forward, backward, and directory migration). The Python `Repository.add_data(path, key=None)` and the dict returned by `Repository.data_at` (now including `key`) expose this. Closes #198.
+
+### Fixed
+
+- **A data-only change now commits** (`panproto-vcs`, `panproto-py`): `Repository::commit` required a staged schema and raised `NothingStaged` for a stage holding only data (or only a protocol), even though `Index::has_staged` reported it staged. The two now agree: when no schema is staged, `commit` builds a data-only or protocol-only commit that carries HEAD's schema forward with no migration. Re-recording records of an already-committed type, then diffing revisions by data alone, is now possible. Closes #197.
+
+### Changed
+
+- **`Repository::add_data` takes a key argument** (`panproto-vcs`): the signature is now `add_data(&mut self, path: &Path, key: Option<&str>)`, and `DataSetObject` carries a `key` field, to support the per-record key above. The Python binding adds an optional `key` keyword (`add_data(path, key=None)`), so Python callers are unaffected; Rust callers pass `None` for the previous behavior.
+
 ## [0.55.0] - 2026-06-17
 
 ### Added
