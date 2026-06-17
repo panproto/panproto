@@ -1,4 +1,4 @@
-//! Thread-local slab allocator for opaque FFI handles.
+//! Process-global slab allocator for opaque FFI handles.
 //!
 //! Mirrors the design of `panproto_wasm::slab` (see
 //! `crates/panproto-wasm/src/slab.rs`). Resources live in a
