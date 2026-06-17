@@ -83,7 +83,7 @@ import GHC.Generics (Generic)
 
 import Panproto.Class (SchemaBackend (..))
 import Panproto.Gat (TheoryMorphism)
-import Panproto.Migration (CompiledRep, Migration (..), MigrationBackend, identityMigration)
+import Panproto.Migration (CompiledRep, Migration (..), MigrationBackend, emptyMigration)
 import Panproto.Schema (Edge (..))
 
 -- ---------------------------------------------------------------------------
@@ -268,11 +268,11 @@ foundMorphismToMigration found =
     Migration
         { vertexMap = found.vertexMap
         , edgeMap = found.edgeMap
-        , hyperEdgeMap = identityMigration.hyperEdgeMap
-        , labelMap = identityMigration.labelMap
-        , resolver = identityMigration.resolver
-        , hyperResolver = identityMigration.hyperResolver
-        , exprResolvers = identityMigration.exprResolvers
+        , hyperEdgeMap = emptyMigration.hyperEdgeMap
+        , labelMap = emptyMigration.labelMap
+        , resolver = emptyMigration.resolver
+        , hyperResolver = emptyMigration.hyperResolver
+        , exprResolvers = emptyMigration.exprResolvers
         }
 
 -- ---------------------------------------------------------------------------

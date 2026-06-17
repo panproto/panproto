@@ -69,7 +69,7 @@ import Panproto.Hom
     , decodeSchemaMorphism
     , encodeSearchOptions
     )
-import Panproto.Migration (Migration (..), MigrationBackend (..), identityMigration)
+import Panproto.Migration (Migration (..), MigrationBackend (..), emptyMigration)
 import Panproto.Rust (schemaRepHandle)
 import Panproto.Rust.FFI
     ( VecU8
@@ -438,9 +438,9 @@ schemaMorphismToMigration m =
     Migration
         { vertexMap = m.vertexMap
         , edgeMap = m.edgeMap
-        , hyperEdgeMap = identityMigration.hyperEdgeMap
-        , labelMap = identityMigration.labelMap
-        , resolver = identityMigration.resolver
-        , hyperResolver = identityMigration.hyperResolver
-        , exprResolvers = identityMigration.exprResolvers
+        , hyperEdgeMap = emptyMigration.hyperEdgeMap
+        , labelMap = emptyMigration.labelMap
+        , resolver = emptyMigration.resolver
+        , hyperResolver = emptyMigration.hyperResolver
+        , exprResolvers = emptyMigration.exprResolvers
         }

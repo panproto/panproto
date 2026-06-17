@@ -239,6 +239,7 @@ test-suite panproto-test
         Spec.CanonicalRoundtrip
         Spec.Errors
         Spec.InstanceRoundtrip
+        Spec.Laws
         Spec.NativeProtocol
         Spec.StructuredSchema
     build-depends:

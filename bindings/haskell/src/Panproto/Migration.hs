@@ -26,17 +26,26 @@
 -- tolerant decoder idiom of "Panproto.Schema" and "Panproto.Instance".
 --
 -- Two composition surfaces sit side by side. The /structural/ algebra
--- ('composeMigrationsPure', 'identityMigration', and the 'Semigroup',
--- 'Monoid', and 'Control.Category.Category' instances) composes
--- mappings purely, the way @panproto_mig::compose@ composes vertex and
--- edge maps without consulting an engine. The /engine-validated/
+-- ('composeMigrationsPure' and the associative 'Semigroup' instance)
+-- composes mappings purely, the way @panproto_mig::compose@ composes
+-- vertex and edge maps without consulting an engine: a vertex in the
+-- image of the left migration that the right migration does not map is
+-- dropped (the right migration removed it). The /engine-validated/
 -- 'composeMigrations' method on 'MigrationBackend' recomputes resolver
 -- tables and checks well-formedness against the compiled schemas; it
 -- is the method callers reach for when correctness matters.
+--
+-- Because that drop-on-miss composition has no schema-independent unit
+-- (the identity is the per-schema self-map 'identityMigrationOn',
+-- mirroring @Migration::identity@), 'Migration' is a 'Semigroup' but
+-- /not/ a 'Monoid': there is no single value @u@ with @u '<>' m == m@
+-- for every @m@. 'emptyMigration' is the empty mapping (the builder's
+-- zero), which under this composition is an annihilator, not a unit.
 module Panproto.Migration
     ( -- * Migration spec
       Migration (..)
-    , identityMigration
+    , emptyMigration
+    , identityMigrationOn
 
       -- * Resolver value types
     , HyperResolution (..)
@@ -53,7 +62,6 @@ module Panproto.Migration
 
       -- * Structural composition
     , composeMigrationsPure
-    , MigrationArr (..)
 
       -- * Builder
     , MigrationBuilderM
@@ -71,9 +79,7 @@ import Codec.CBOR.Encoding (Encoding)
 import Codec.CBOR.Encoding qualified as Enc
 import Codec.CBOR.Read qualified as CBOR
 import Codec.CBOR.Write qualified as CBOR
-import Control.Category (Category (id, (.)))
 import Control.DeepSeq (NFData)
-import Prelude hiding (id, (.))
 import Control.Monad.Trans.State.Strict (State, execState, modify')
 import Data.Aeson (FromJSON, ToJSON)
 import Data.ByteString.Lazy qualified as LBS
@@ -145,19 +151,18 @@ data Migration = Migration
     deriving stock (Eq, Show, Generic)
     deriving anyclass (NFData, ToJSON, FromJSON)
 
--- | The empty migration (no mappings of any kind). Mirrors
--- @Migration::empty@ and serves as the structural unit: it is
--- 'Monoid.mempty' for 'Migration' and the identity of
--- 'composeMigrationsPure'.
+-- | The empty migration (no mappings of any kind). It is the zero a
+-- 'buildMigration' accumulates into and a convenient source of empty
+-- sub-maps.
 --
--- This is /not/ the same as @Migration::identity@, which seeds the
--- vertex and edge maps with self-mappings for a concrete schema. The
--- structural identity has no schema to enumerate, so it is the empty
--- map: composing it with any migration leaves that migration unchanged
--- (composition silently drops mappings whose image is outside the
--- other migration's domain, and the empty map adds none).
-identityMigration :: Migration
-identityMigration =
+-- It is /not/ an identity for 'composeMigrationsPure'. Composition is
+-- drop-on-miss (a vertex the other side does not map is removed), and
+-- the empty migration maps nothing, so @'emptyMigration' '<>' m@ and
+-- @m '<>' 'emptyMigration'@ both reduce to the empty migration: under
+-- this composition it is an annihilator, not a unit. The real identity
+-- is per-schema; see 'identityMigrationOn'.
+emptyMigration :: Migration
+emptyMigration =
     Migration
         { vertexMap = HM.empty
         , edgeMap = HM.empty
@@ -166,6 +171,23 @@ identityMigration =
         , resolver = HM.empty
         , hyperResolver = HM.empty
         , exprResolvers = HM.empty
+        }
+
+-- | The identity migration over a concrete schema's carriers: every
+-- vertex and edge maps to itself. Mirrors @Migration::identity@.
+--
+-- This /is/ a two-sided identity of 'composeMigrationsPure' for any
+-- migration whose endpoints lie within the given vertices and edges:
+-- @'identityMigrationOn' vs es '<>' m == m@ and
+-- @m '<>' 'identityMigrationOn' vs es == m@ when @vs@ and @es@ cover
+-- @m@'s source (resp. target). Because the carriers must be supplied,
+-- there is no schema-independent unit, which is why 'Migration' is a
+-- 'Semigroup' but not a 'Monoid'.
+identityMigrationOn :: [Text] -> [Edge] -> Migration
+identityMigrationOn vertices edges =
+    emptyMigration
+        { vertexMap = HM.fromList [(v, v) | v <- vertices]
+        , edgeMap = HM.fromList [(e, e) | e <- edges]
         }
 
 -- ---------------------------------------------------------------------------
@@ -319,47 +341,17 @@ composeMigrationsPure m1 m2 =
 -- | The structural composition: @m1 <> m2@ is @composeMigrationsPure
 -- m1 m2@. The data-flow order is left to right: the source of @m1@
 -- travels through @m1@ and then @m2@, so @(<>)@ reads in the same
--- direction as a migration pipeline written top to bottom. (This is
--- the opposite hand from ordinary function composition @(.)@, where
--- the right argument runs first; see the 'Category' instance of
--- 'MigrationArr' for that convention.)
+-- direction as a migration pipeline written top to bottom (the
+-- opposite hand from ordinary function composition @(.)@, where the
+-- right argument runs first).
+--
+-- This is associative (the pure counterpart of the associative
+-- engine @panproto_mig::compose@), so 'Migration' is a lawful
+-- 'Semigroup'. It is deliberately /not/ a 'Monoid': composition is
+-- drop-on-miss and the unit would have to be the per-schema identity
+-- 'identityMigrationOn', which has no schema-independent value.
 instance Semigroup Migration where
     (<>) = composeMigrationsPure
-
--- | 'mempty' is 'identityMigration', the empty mapping that leaves any
--- migration unchanged under structural composition.
-instance Monoid Migration where
-    mempty = identityMigration
-
--- | A 'Migration' viewed as a morphism from a phantom source schema
--- @a@ to a phantom target schema @b@, so it can take part in
--- 'Control.Category.Category'-style composition with the standard
--- right-to-left reading.
---
--- The phantom type parameters carry no runtime content; they let a
--- chain of migrations track its endpoints at the type level while the
--- wrapped 'Migration' carries the actual mapping. Use 'MigrationArr'
--- when composing with @('Control.Category..')@ and @id@ idioms; use
--- the bare 'Migration' 'Semigroup' \/ 'Monoid' when the left-to-right
--- data-flow reading is more natural.
-newtype MigrationArr a b = MigrationArr {migration :: Migration}
-    deriving stock (Eq, Show, Generic)
-    deriving anyclass (NFData)
-
--- | Structural category of migrations. @id@ is 'identityMigration' and
--- @g . f@ composes @f@ first, then @g@, the standard right-to-left
--- reading of @('Control.Category..')@: it is
--- @composeMigrationsPure f g@ (note the swapped order relative to the
--- 'Semigroup' instance on the bare 'Migration', whose @(<>)@ reads
--- left to right).
---
--- These laws hold structurally (composition is associative and
--- 'identityMigration' is a two-sided unit because it adds no mappings
--- and drops none). They are the pure counterpart of the
--- engine-validated 'composeMigrations'.
-instance Category MigrationArr where
-    id = MigrationArr identityMigration
-    MigrationArr g . MigrationArr f = MigrationArr (composeMigrationsPure f g)
 
 -- ---------------------------------------------------------------------------
 -- Builder
@@ -370,9 +362,9 @@ instance Category MigrationArr where
 -- then materialize with 'buildMigration'.
 type MigrationBuilderM = State Migration
 
--- | Run a builder against 'identityMigration' (the empty mapping).
+-- | Run a builder against 'emptyMigration' (the empty mapping).
 buildMigration :: MigrationBuilderM () -> Migration
-buildMigration = (`execState` identityMigration)
+buildMigration = (`execState` emptyMigration)
 
 -- | Map a source vertex to a target vertex. Mirrors
 -- @PyMigrationBuilder.map_vertex@.
@@ -595,8 +587,8 @@ migrationDecoder :: Decoder s Migration
 migrationDecoder = do
     mapLen <- Dec.decodeMapLenOrIndef
     case mapLen of
-        Just n -> readEntries n identityMigration
-        Nothing -> readEntriesIndef identityMigration
+        Just n -> readEntries n emptyMigration
+        Nothing -> readEntriesIndef emptyMigration
   where
     readEntries 0 acc = pure acc
     readEntries n acc = readEntry acc >>= readEntries (n - 1 :: Int)

@@ -13,10 +13,10 @@
 -- @crates\/panproto-py\/src\/lens.rs@), but produce a migration
 -- mapping rather than a protolens chain.
 --
--- 'pipeline' chains a list of edits with 'mconcat', so the edits apply
--- left to right under the structural composition of "Panproto.Migration"
--- (its 'Semigroup' is left-to-right data flow). An empty list is the
--- 'Panproto.Migration.identityMigration'.
+-- 'pipeline' chains a list of edits with the structural 'Semigroup'
+-- @('<>')@, so the edits apply left to right under the composition of
+-- "Panproto.Migration" (its 'Semigroup' is left-to-right data flow).
+-- An empty list is the 'Panproto.Migration.emptyMigration'.
 --
 -- These constructors are /structural/: they assemble the mapping a
 -- caller would then 'Panproto.Migration.compile' and validate against
@@ -35,7 +35,7 @@ import Data.Text (Text)
 
 import Panproto.Migration
     ( Migration (..)
-    , identityMigration
+    , emptyMigration
     )
 import Panproto.Schema (Edge (..))
 
@@ -51,7 +51,7 @@ import Panproto.Schema (Edge (..))
 -- vertex correctly.
 addField :: Text -> Text -> Text -> Migration
 addField parent name kind =
-    identityMigration
+    emptyMigration
         { vertexMap = HM.fromList [(parent, parent), (name, name)]
         , edgeMap = HM.singleton newEdge newEdge
         }
@@ -72,10 +72,10 @@ addField parent name kind =
 -- vertex appears nowhere in the vertex map, so the surviving-set
 -- computation drops it and its incident edges. The resulting migration
 -- has no positive mappings of its own (it is the empty
--- 'Panproto.Migration.identityMigration'); composed against a concrete
+-- 'Panproto.Migration.emptyMigration'); composed against a concrete
 -- source schema it omits @field@ from the target.
 removeField :: Text -> Migration
-removeField _field = identityMigration
+removeField _field = emptyMigration
 
 -- | A 'Migration' that renames the property edge from @parent@ to
 -- @field@, changing its label from @oldName@ to @newName@. Mirrors the
@@ -86,7 +86,7 @@ removeField _field = identityMigration
 -- @newName@, which is the relabeling the engine applies during lift.
 renameField :: Text -> Text -> Text -> Text -> Migration
 renameField parent field oldName newName =
-    identityMigration
+    emptyMigration
         { vertexMap = HM.fromList [(parent, parent), (field, field)]
         , edgeMap = HM.singleton oldEdge newEdge
         }
@@ -109,7 +109,7 @@ renameField parent field oldName newName =
 -- @parent -> child@ property edge.
 hoistField :: Text -> Text -> Text -> Migration
 hoistField parent intermediate child =
-    identityMigration
+    emptyMigration
         { vertexMap = HM.fromList [(parent, parent), (child, child)]
         , edgeMap = HM.singleton intermediateEdge hoistedEdge
         , resolver = HM.singleton (parent, child) hoistedEdge
@@ -122,10 +122,15 @@ hoistField parent intermediate child =
     hoistedEdge =
         Edge {src = parent, tgt = child, kind = "prop", name = Just child}
 
--- | Chain a list of structural edits into one 'Migration' by
--- 'mconcat': the edits apply left to right under the structural
--- composition of "Panproto.Migration". An empty list is the
--- 'Panproto.Migration.identityMigration'. Mirrors the Python
+-- | Chain a list of structural edits into one 'Migration' by folding
+-- the structural 'Semigroup' @('<>')@ across them: the edits apply left
+-- to right under the composition of "Panproto.Migration". An empty list
+-- is the 'Panproto.Migration.emptyMigration'. Mirrors the Python
 -- @pipeline(chains)@ (vertical composition).
+--
+-- ('Migration' has no lawful 'Monoid', so this folds @('<>')@ directly
+-- rather than using @mconcat@, whose @mempty@ seed is an annihilator
+-- under drop-on-miss composition.)
 pipeline :: [Migration] -> Migration
-pipeline = mconcat
+pipeline [] = emptyMigration
+pipeline ms = foldr1 (<>) ms

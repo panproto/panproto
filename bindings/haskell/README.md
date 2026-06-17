@@ -97,11 +97,13 @@ structured `Schema`) lets you move a value between backends.
 Where panproto's structures already are a known algebra, the binding gives them
 the standard Haskell class so you compose with the usual vocabulary.
 
-* __`Category` / `Semigroup` / `Monoid`.__ A `Migration` is a `Monoid` under
-  structural composition (`mempty` is the identity migration, `(<>)` reads
-  left-to-right as a data-flow pipeline); `MigrationArr` wraps it as a
-  `Control.Category.Category` with the standard right-to-left `(.)`. A
-  `ProtolensChain` is a `Monoid` by step concatenation, with `LensArr` its
+* __`Category` / `Semigroup` / `Monoid`.__ A `Migration` is a `Semigroup`
+  under structural composition (`(<>)` reads left-to-right as a data-flow
+  pipeline). It is deliberately *not* a `Monoid`: the composition is
+  drop-on-miss (matching the engine `panproto_mig::compose`), so its unit is
+  the per-schema self-map `identityMigrationOn`, which has no
+  schema-independent value. A `ProtolensChain` is a `Monoid` by step
+  concatenation (the empty chain is a genuine unit), with `LensArr` its
   `Category` wrapper. `OpticKind` is a `Monoid` under the optics lattice (`Iso`
   the unit, `Traversal` absorbing). These are *pure* structural composites; the
   engine-validated counterparts (`composeMigrations`, chain instantiation) stay
@@ -365,7 +367,7 @@ cabal build -f-rust
 | `Panproto.Class`        | Backend tags `Native` / `Rust`, the protocol/schema/validate classes.           |
 | `Panproto.Schema`       | Structured `Schema` ADT, value types, codecs, `SchemaBuilderM`.                  |
 | `Panproto.Instance`     | `InstanceBackend`, instances, complements.                                       |
-| `Panproto.Migration`    | `MigrationBackend`, `Migration` (`Monoid`), `MigrationArr` (`Category`), builder.|
+| `Panproto.Migration`    | `MigrationBackend`, `Migration` (`Semigroup`), `identityMigrationOn`, builder.|
 | `Panproto.Lens`         | Delta-lens types, `ProtolensChain`, `OpticKind`, `LensBackend`.                  |
 | `Panproto.Lens.Optics`  | Lawful `optics` / `lens` adaptors over the lossless subset (flag-gated).         |
 | `Panproto.Check`        | `CheckBackend`: diff and compatibility classification.                           |

@@ -199,14 +199,19 @@ data Stringency
     deriving stock (Eq, Show, Bounded, Enum, Generic)
     deriving anyclass (NFData, Hashable)
 
--- | The engine default is 'Balanced'.
-instance Monoid Stringency where
-    mempty = Balanced
-
 -- | The looser of two tiers wins, matching the \"adds the strategies of
 -- the tiers below\" reading: combining tiers takes the maximum.
 instance Semigroup Stringency where
     a <> b = if fromEnum a >= fromEnum b then a else b
+
+-- | 'Strict' is the unit: since @('<>')@ is the join (looser tier wins)
+-- and 'Strict' is the least tier, @'Strict' '<>' x = x@ and
+-- @x '<>' 'Strict' = x@ for every tier, so the monoid identity laws
+-- hold. (The /engine/ default tier for auto-generation is 'Balanced',
+-- a separate notion: it is the starting tier a caller passes, not the
+-- neutral element of tier composition.)
+instance Monoid Stringency where
+    mempty = Strict
 
 -- | The snake_case wire form @serde@ expects.
 stringencyText :: Stringency -> Text
