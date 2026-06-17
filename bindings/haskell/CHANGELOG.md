@@ -14,7 +14,7 @@ This file exists so Hackage has a per-package CHANGELOG to surface on
 the package page. It is not maintained per release; the workspace
 CHANGELOG is the source of truth.
 
-## Unreleased
+## 0.55.0 - 2026-06-17
 
 The Haskell binding reaches full parity with the Python and TypeScript
 SDKs. The whole panproto surface (schemas, instances, migrations,
@@ -22,7 +22,7 @@ lenses, the GAT layer, the expression language, compatibility
 checking, schema homomorphism search, graph fibers, datasets, I/O
 codecs, and version control) is now reachable from Haskell over the
 extended [`panproto-c`](https://github.com/panproto/panproto/tree/main/crates/panproto-c)
-C ABI (112 entry points).
+C ABI (over 120 entry points).
 
 * A capability typeclass per domain, each parameterised by a backend
   tag, with a `Rust` (FFI) instance for every class: `ProtocolBackend`,
