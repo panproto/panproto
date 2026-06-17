@@ -12,3 +12,4 @@ cabal.project.local
 *.o
 *.dyn_hi
 *.dyn_o
+.panproto/

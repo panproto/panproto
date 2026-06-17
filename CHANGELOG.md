@@ -2,6 +2,16 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [0.55.0] - 2026-06-17
+
+### Added
+
+- **Haskell bindings at full parity with the Python SDK** (`bindings/haskell`, `crates/panproto-c`): the Haskell `panproto` package now reaches the whole engine, matching the Python SDK across schema construction, protocol round-trip, migration, morphism (hom) search, diff and compatibility classification, instance build and JSON I/O, lens and protolens algebra, the GAT layer (theories, free models, and morphism checking), the expression language, version control, data versioning, and graph and fibre introspection, with parsing, multi-file project assembly, and git import behind cabal feature flags. A Haskell consumer can do everything a Python consumer can through an API that reads as idiomatic Haskell.
+
+  The bridge is the `panproto-c` C ABI, which grows from a handful of entry points to over 120 frozen `pp_*` functions covering every domain. Each follows the established panic-safe contract: a `guard(...)` wrapper that catches unwinds and returns an `i32` `PpStatus`, opaque `u32` slab handles on the hot path (no serialization), and CBOR payloads (ciborium on the Rust side, [`cborg`](https://hackage.haskell.org/package/cborg) on the Haskell side) on the cold path, with a drained `ErrorEnvelope` carrying the failure detail. The handle table is a process-global allocator so a handle stays valid across OS threads under GHC's threaded runtime; the input and output buffer marshalling is exception-safe end to end.
+
+  The Haskell layer is built on this with a capability typeclass per domain (`ProtocolBackend`, `SchemaBackend`, `MigrationBackend`, `LensBackend`, `GatBackend`, and the rest), a `Native` and a `Rust` backend tag, and tight integration with the standard classes: `Migration` composes through an associative `Semigroup` (its drop-on-miss composition has no schema-independent unit, so the identity is the per-schema `identityMigrationOn`, mirroring `panproto_mig::compose`), while `ProtolensChain` composes through `Semigroup`, `Monoid`, and `Control.Category.Category`; a `SomePanprotoError` exception hierarchy with a domain-specific child per surface; `Hashable` / `Eq` / `Ord` mirroring the Rust derives; `State`-monad builder DSLs (`buildSchema`, `buildTheory`, `buildMigration`); a `MonadPanproto` effect layer with instances for the common `transformers` stacks and an [`effectful`](https://hackage.haskell.org/package/effectful) effect; and a self-contained delta-lens type with read-only [`optics`](https://hackage.haskell.org/package/optics-core) and [`lens`](https://hackage.haskell.org/package/lens) adaptors over the structurally-lawful projections. Cross-language CBOR wire agreement, the algebraic laws of the standard-class instances, and full round-trips of the hand-written Schema, Migration, expression, and term codecs are covered by the test suite.
+
 ## [0.54.0] - 2026-06-17
 
 ### Added

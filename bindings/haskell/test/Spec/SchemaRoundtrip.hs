@@ -39,6 +39,7 @@ import Panproto.Errors (PanprotoError (..), PpStatus (..))
 import Panproto.Native.Protocol ()
 import Panproto.Native.Schema ()
 import Panproto.Rust (withRustSchema)
+import Panproto.Schema qualified as S
 
 tests :: TestTree
 tests =
@@ -51,6 +52,7 @@ tests =
         , testCase "fromCanonicalSchema rejects garbage" rejectGarbageBytes
         , testCase "canonicalSchemaBytes is the underlying bytes" canonicalBytesAccessor
         , testCase "withRustSchema releases on exception" withRustSchemaReleases
+        , testCase "structured schema survives Rust round-trip" structuredRustRoundTrip
         ]
 
 -- | Build a minimal valid Rust-side schema by ingesting a CBOR-
@@ -169,3 +171,27 @@ withRustSchemaReleases = do
     case captured of
         Left _ -> pure ()
         Right () -> assertFailure "expected the inner action to throw"
+
+-- | A structured 'S.Schema' built with the DSL, encoded through
+-- 'fromSchema', and recovered through 'toSchema' against the Rust
+-- backend, must survive with its semantic fields intact. The bar is
+-- structural (counts and membership), not bytewise, since the Rust
+-- side recomputes the adjacency indices and @HashMap@ order is not
+-- preserved.
+structuredRustRoundTrip :: IO ()
+structuredRustRoundTrip =
+    bracket (fromSchema (Proxy @Rust) sample) releaseSchema $ \rep -> do
+        recovered <- toSchema rep
+        recovered.protocol @?= sample.protocol
+        S.vertexCount recovered @?= S.vertexCount sample
+        S.edgeCount recovered @?= S.edgeCount sample
+        S.hasVertex recovered "post" @?= True
+        S.fieldText recovered "post" "op" @?= Just "+"
+        length (S.constraintsFor recovered "text") @?= 1
+  where
+    sample = S.buildSchema "schema-test" $ do
+        S.vertex S.Vertex {S.id = "post", S.kind = "record", S.nsid = Nothing}
+        S.vertex S.Vertex {S.id = "text", S.kind = "string", S.nsid = Nothing}
+        S.edge S.Edge {S.src = "post", S.tgt = "text", S.kind = "prop", S.name = Just "text"}
+        S.constraint "text" S.Constraint {S.sort = "maxLength", S.value = "3000"}
+        S.constraint "post" S.Constraint {S.sort = "field:op", S.value = "+"}

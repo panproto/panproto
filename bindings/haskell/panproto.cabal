@@ -1,6 +1,6 @@
 cabal-version:      3.8
 name:               panproto
-version:            0.54.0
+version:            0.55.0
 synopsis:           Haskell bindings for panproto
 description:
   Haskell bindings for panproto, a schematic version-control system for
@@ -53,6 +53,39 @@ flag native-only
     default:     False
     manual:      True
 
+flag parse
+    description: Enable the tree-sitter parse surface (links the
+                 @full-parse@-gated panproto-c entry points).
+    default:     False
+    manual:      True
+
+flag project
+    description: Enable the multi-file project surface (links the
+                 @project@-gated panproto-c entry points).
+    default:     False
+    manual:      True
+
+flag git
+    description: Enable the git-import surface (links the @git@-gated
+                 panproto-c entry point).
+    default:     False
+    manual:      True
+
+flag optics-adaptors
+    description: Expose @optics-core@ adaptors for the lens surface.
+    default:     False
+    manual:      True
+
+flag lens-adaptors
+    description: Expose @lens@ (van Laarhoven) adaptors for the lens surface.
+    default:     False
+    manual:      True
+
+flag effectful
+    description: Expose an @effectful@ effect for panproto operations.
+    default:     False
+    manual:      True
+
 common common-options
     default-language: GHC2024
     default-extensions:
@@ -76,24 +109,91 @@ library
     exposed-modules:
         Panproto
         Panproto.Canonical
+        Panproto.Check
         Panproto.Class
+        Panproto.Data
+        Panproto.Effect
+        Panproto.Enriched
         Panproto.Errors
+        Panproto.Expr
+        Panproto.Gat
+        Panproto.Graph
+        Panproto.Hom
+        Panproto.Instance
+        Panproto.Io
+        Panproto.Lens
+        Panproto.Migration
+        Panproto.Migration.Combinators
         Panproto.Native.Protocol
         Panproto.Native.Schema
+        Panproto.Protocol
+        Panproto.Schema
+        Panproto.Vcs
+    other-modules:
+        Panproto.Json
     build-depends:
-        base               >=4.21 && <5,
-        bytestring         >=0.12 && <0.13,
-        cborg              >=0.2  && <0.3,
-        containers         >=0.7  && <0.9,
-        deepseq            >=1.5  && <1.7,
-        text               >=2.1  && <2.3
+        aeson                >=2.1  && <2.3,
+        base                 >=4.21 && <5,
+        bytestring           >=0.12 && <0.13,
+        cborg                >=0.2  && <0.3,
+        containers           >=0.7  && <0.9,
+        deepseq              >=1.5  && <1.7,
+        hashable             >=1.4  && <1.6,
+        mtl                  >=2.3  && <2.4,
+        scientific           >=0.3  && <0.4,
+        text                 >=2.1  && <2.3,
+        transformers         >=0.6  && <0.7,
+        unordered-containers >=0.2  && <0.3,
+        vector               >=0.13 && <0.14
+
+    if flag(effectful)
+        cpp-options:    -DPANPROTO_EFFECTFUL
+        build-depends:  effectful-core >=2.3 && <2.6
+
+    if flag(optics-adaptors)
+        build-depends:  optics-core >=0.4 && <0.5
+
+    if flag(lens-adaptors)
+        build-depends:  lens >=5.2 && <5.4
+
+    if flag(optics-adaptors) || flag(lens-adaptors)
+        cpp-options:    -DPANPROTO_LENS_ADAPTORS
+        exposed-modules:
+            Panproto.Lens.Optics
+
+    if flag(parse)
+        cpp-options:    -DPANPROTO_PARSE
+        exposed-modules:
+            Panproto.Parse
+
+    if flag(project)
+        cpp-options:    -DPANPROTO_PROJECT
+        exposed-modules:
+            Panproto.Project
+
+    if flag(git)
+        cpp-options:    -DPANPROTO_GIT
+        exposed-modules:
+            Panproto.Git
 
     if flag(rust) && !flag(native-only)
         cpp-options:        -DPANPROTO_RUST_BACKEND
         exposed-modules:
             Panproto.Rust
+            Panproto.Rust.Check
+            Panproto.Rust.Data
+            Panproto.Rust.Enriched
+            Panproto.Rust.Expr
             Panproto.Rust.FFI
+            Panproto.Rust.Gat
+            Panproto.Rust.Graph
             Panproto.Rust.Handle
+            Panproto.Rust.Hom
+            Panproto.Rust.Instance
+            Panproto.Rust.Io
+            Panproto.Rust.Lens
+            Panproto.Rust.Migration
+            Panproto.Rust.Vcs
         include-dirs:       cbits
         includes:           panproto.h, panproto_glue.h
         -- The C glue (`panproto_glue.c`) is intentionally NOT
@@ -118,6 +218,18 @@ library
         -- refuses anything but absolute paths; an absolute path in
         -- a generated, gitignored `.local` file sidesteps that.
 
+    -- The feature-gated Rust instance modules need both the FFI
+    -- backend and the corresponding feature flag (which turns on the
+    -- gated FFI imports library-wide).
+    if flag(rust) && !flag(native-only) && flag(parse)
+        exposed-modules:    Panproto.Rust.Parse
+
+    if flag(rust) && !flag(native-only) && flag(project)
+        exposed-modules:    Panproto.Rust.Project
+
+    if flag(rust) && !flag(native-only) && flag(git)
+        exposed-modules:    Panproto.Rust.Git
+
 test-suite panproto-test
     import:           common-options
     type:             exitcode-stdio-1.0
@@ -126,19 +238,36 @@ test-suite panproto-test
     other-modules:
         Spec.CanonicalRoundtrip
         Spec.Errors
+        Spec.InstanceRoundtrip
+        Spec.Laws
         Spec.NativeProtocol
-        Spec.SchemaRoundtrip
+        Spec.StructuredSchema
     build-depends:
+        aeson,
         base,
         bytestring,
         cborg,
         containers,
+        directory,
+        filepath,
         panproto,
-        tasty             >=1.4  && <1.6,
-        tasty-hunit       >=0.10 && <0.11
+        tasty                >=1.4  && <1.6,
+        tasty-hunit          >=0.10 && <0.11,
+        text,
+        unordered-containers
 
+    -- The Rust-dependent specs import "Panproto.Rust", which only exists
+    -- under the FFI backend, so they are gated alongside the
+    -- @PANPROTO_RUST_BACKEND@ define that @test/Main.hs@ keys on.
+    -- @Spec.SchemaRoundtrip@ and @Spec.EngineRoundtrip@ both link the
+    -- backend, so they live here, not in the unconditional list above
+    -- (otherwise @-f native-only@ would try to compile a module that
+    -- imports the absent "Panproto.Rust").
     if flag(rust) && !flag(native-only)
         cpp-options:    -DPANPROTO_RUST_BACKEND
         other-modules:
             Spec.RustRoundtrip
+            Spec.SchemaRoundtrip
+            Spec.EngineRoundtrip
+            Spec.WireRoundtrip
         extra-libraries: panproto_c

@@ -55,7 +55,7 @@ The `panproto-*` crates in the workspace, with one-line descriptions and depende
 | `panproto-cli` | The `schema` binary. |
 | `panproto-wasm` | WebAssembly bindings; consumed by the TypeScript SDK. |
 | `panproto-py` | Native Python bindings via PyO3. |
-| `panproto-c` | C ABI for non-Rust language bindings (Haskell first). |
+| `panproto-c` | C ABI for non-Rust language bindings; the Haskell binding consumes its 112-entry surface. |
 | `panproto-repl` | REPL engine for theories, terms, and morphisms. |
 
 ## Acceleration

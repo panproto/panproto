@@ -44,8 +44,18 @@ if command -v ld >/dev/null 2>&1; then
     esac
 fi
 
-echo "building panproto-c (release)..."
-( cd "$REPO_ROOT" && cargo build -p panproto-c --release )
+# Optional feature set forwarded to panproto-c. Set PANPROTO_C_FEATURES to a
+# comma-separated cargo feature list (e.g. "full" or "parse,project,git") to
+# build and link the gated cold-path surfaces. The matching cabal flags
+# (-f parse, -f project, -f git) must be passed to cabal in the same run.
+FEATURES="${PANPROTO_C_FEATURES:-}"
+CARGO_FEATURE_ARGS=()
+if [ -n "$FEATURES" ]; then
+    CARGO_FEATURE_ARGS=(--features "$FEATURES")
+fi
+
+echo "building panproto-c (release${FEATURES:+, features: $FEATURES})..."
+( cd "$REPO_ROOT" && cargo build -p panproto-c --release "${CARGO_FEATURE_ARGS[@]+"${CARGO_FEATURE_ARGS[@]}"}" )
 
 mkdir -p "$HASKELL_DIR/.panproto-c/lib" "$HASKELL_DIR/.panproto-c/include"
 
@@ -59,6 +69,17 @@ for f in libpanproto_c.a libpanproto_c.dylib libpanproto_c.so panproto_c.lib pan
     fi
 done
 
+# The glue wraps the gated cold-path entry points behind the same cpp
+# guards the cabal flags set, so a feature build needs the matching -D
+# defines. `cbits/panproto.h` ships the full superset declarations, so the
+# guards select which wrappers compile in. Derive the defines from
+# PANPROTO_C_FEATURES (`full` expands to all three).
+GLUE_DEFINES=()
+case ",$FEATURES," in *,full,*) FEATURES="full-parse,project,git,format-preserving";; esac
+case ",$FEATURES," in *,full-parse,*|*,parse,*|*,project,*|*,git,*) GLUE_DEFINES+=(-DPANPROTO_PARSE);; esac
+case ",$FEATURES," in *,project,*|*,git,*) GLUE_DEFINES+=(-DPANPROTO_PROJECT);; esac
+case ",$FEATURES," in *,git,*) GLUE_DEFINES+=(-DPANPROTO_GIT);; esac
+
 # Build panproto_glue as a standalone static library so the cabal
 # package does not need to ship `c-sources`. We invoke the system C
 # compiler directly; on every supported platform (gcc, clang) the
@@ -71,6 +92,7 @@ GLUE_LIB="$HASKELL_DIR/.panproto-c/lib/libpanproto_glue.a"
     -fPIC \
     -O2 \
     -Wall -Wextra \
+    "${GLUE_DEFINES[@]+"${GLUE_DEFINES[@]}"}" \
     -I"$HASKELL_DIR/cbits" \
     -I"$HASKELL_DIR/.panproto-c/include" \
     "$HASKELL_DIR/cbits/panproto_glue.c" \

@@ -21,20 +21,21 @@ module Panproto.Rust
     ( -- * Protocol backend
       RustProtocol (..)
     , withRustProtocol
+    , protocolRepHandle
+    , mkProtocolRep
 
       -- * Schema backend
     , RustSchema (..)
     , withRustSchema
+    , schemaRepHandle
+    , mkSchemaRep
     ) where
 
 import Control.Exception (bracket, throwIO)
 import Data.ByteString.Lazy qualified as LBS
-import Data.ByteString.Unsafe qualified as BSU
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word32)
-import Foreign (alloca, peek)
-import Foreign.Ptr (castPtr)
 
 import Codec.CBOR.Decoding qualified as Dec
 import Codec.CBOR.Read qualified as CBOR
@@ -64,7 +65,12 @@ import Panproto.Rust.FFI
     , pp_schema_to_cbor
     , pp_schema_validate
     )
-import Panproto.Rust.Handle (checkStatus, consumeVecU8, withVecU8Out)
+import Panproto.Rust.Handle
+    ( callHandleOut
+    , callVecOut
+    , checkStatus
+    , withSliceIn
+    )
 
 -- ---------------------------------------------------------------------------
 -- Protocol
@@ -86,31 +92,16 @@ withRustProtocol :: CanonicalProtocol -> (RustProtocol -> IO a) -> IO a
 withRustProtocol p = bracket (defineRustProtocol p) freeRustProtocol
 
 defineRustProtocol :: CanonicalProtocol -> IO RustProtocol
-defineRustProtocol p = do
-    let bs = LBS.toStrict (encodeProtocol p)
-    BSU.unsafeUseAsCStringLen bs $ \(ptr, len) ->
-        alloca $ \pHandle -> do
-            status <-
-                pp_protocol_define_at
-                    (castPtr ptr)
-                    (fromIntegral len)
-                    pHandle
-            checkStatus status
-            RustProtocol <$> peek pHandle
+defineRustProtocol p =
+    withSliceIn (encodeProtocol p) $ \ptr len ->
+        RustProtocol <$> callHandleOut (pp_protocol_define_at ptr len)
 
 serializeRustProtocol :: RustProtocol -> IO CanonicalProtocol
-serializeRustProtocol (RustProtocol h) = withVecU8Out populate inspect
-  where
-    populate pOut = do
-        status <- pp_protocol_serialize h pOut
-        checkStatus status
-
-    inspect v = do
-        bs <- consumeVecU8 v
-        case decodeProtocol bs of
-            Right p -> pure p
-            Left err ->
-                throwIO $ hostDecodeError "pp_protocol_serialize" err
+serializeRustProtocol (RustProtocol h) = do
+    bs <- callVecOut (pp_protocol_serialize h)
+    case decodeProtocol bs of
+        Right p -> pure p
+        Left err -> throwIO $ hostDecodeError "pp_protocol_serialize" err
 
 freeRustProtocol :: RustProtocol -> IO ()
 freeRustProtocol (RustProtocol h) = do
@@ -132,19 +123,39 @@ instance SchemaBackend Rust where
     releaseSchema (RustSchemaRep s) = freeRustSchema s
 
 instance SchemaValidate Rust where
-    validateSchema (RustSchemaRep (RustSchema sh)) (RustProtocolRep (RustProtocol ph)) =
-        withVecU8Out
-            (\pOut -> do
-                status <- pp_schema_validate sh ph pOut
-                checkStatus status
-            )
-            (\v -> do
-                bs <- consumeVecU8 v
-                case decodeMessages bs of
-                    Right msgs -> pure msgs
-                    Left err ->
-                        throwIO $ hostDecodeError "pp_schema_validate" err
-            )
+    validateSchema (RustSchemaRep (RustSchema sh)) (RustProtocolRep (RustProtocol ph)) = do
+        bs <- callVecOut (pp_schema_validate sh ph)
+        case decodeMessages bs of
+            Right msgs -> pure msgs
+            Left err -> throwIO $ hostDecodeError "pp_schema_validate" err
+
+-- | The raw slab handle backing a @SchemaRep Rust@.
+--
+-- Sibling Rust backend modules (the instance, migration, lens, … domains)
+-- anchor their operations to a schema handle but cannot pattern-match the
+-- 'RustSchemaRep' data-family constructor without it being in scope. This
+-- accessor gives those modules the @Word32@ they pass to @pp_*@ entry
+-- points, without forcing a round trip through 'toCanonicalSchema'.
+schemaRepHandle :: SchemaRep Rust -> Word32
+schemaRepHandle (RustSchemaRep (RustSchema h)) = h
+
+-- | Wrap a raw slab handle returned by an engine @pp_*@ entry point as a
+-- @SchemaRep Rust@. The caller takes ownership of the slot (release it via
+-- 'releaseSchema' or 'withRustSchema'-style brackets). Sibling Rust
+-- backend modules use this to rewrap a freshly-allocated schema handle
+-- without a round trip through 'fromCanonicalSchema'.
+mkSchemaRep :: Word32 -> SchemaRep Rust
+mkSchemaRep = RustSchemaRep . RustSchema
+
+-- | The raw slab handle backing a @ProtocolRep Rust@. The protocol
+-- counterpart of 'schemaRepHandle'.
+protocolRepHandle :: ProtocolRep Rust -> Word32
+protocolRepHandle (RustProtocolRep (RustProtocol h)) = h
+
+-- | Wrap a raw slab handle as a @ProtocolRep Rust@. The protocol
+-- counterpart of 'mkSchemaRep'.
+mkProtocolRep :: Word32 -> ProtocolRep Rust
+mkProtocolRep = RustProtocolRep . RustProtocol
 
 -- | Bracket a 'RustSchema' so its slot is released even when the
 -- inner action throws.
@@ -152,26 +163,13 @@ withRustSchema :: CanonicalSchema -> (RustSchema -> IO a) -> IO a
 withRustSchema s = bracket (ingestRustSchema s) freeRustSchema
 
 ingestRustSchema :: CanonicalSchema -> IO RustSchema
-ingestRustSchema (CanonicalSchema bs) = do
-    let strict = LBS.toStrict bs
-    BSU.unsafeUseAsCStringLen strict $ \(ptr, len) ->
-        alloca $ \pHandle -> do
-            status <-
-                pp_schema_from_cbor_at
-                    (castPtr ptr)
-                    (fromIntegral len)
-                    pHandle
-            checkStatus status
-            RustSchema <$> peek pHandle
+ingestRustSchema (CanonicalSchema bs) =
+    withSliceIn bs $ \ptr len ->
+        RustSchema <$> callHandleOut (pp_schema_from_cbor_at ptr len)
 
 serializeRustSchema :: RustSchema -> IO CanonicalSchema
-serializeRustSchema (RustSchema h) = withVecU8Out populate inspect
-  where
-    populate pOut = do
-        status <- pp_schema_to_cbor h pOut
-        checkStatus status
-
-    inspect v = CanonicalSchema <$> consumeVecU8 v
+serializeRustSchema (RustSchema h) =
+    CanonicalSchema <$> callVecOut (pp_schema_to_cbor h)
 
 freeRustSchema :: RustSchema -> IO ()
 freeRustSchema (RustSchema h) = do
