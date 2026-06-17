@@ -365,7 +365,8 @@ static SLAB: Mutex<Vec<Option<Resource>>> = Mutex::new(Vec::new());
 /// structurally sound, so taking the inner guard is safe and keeps the
 /// table usable for subsequent calls.
 fn lock_slab() -> MutexGuard<'static, Vec<Option<Resource>>> {
-    SLAB.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    SLAB.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// Project a live resource out of a locked slab, or [`FfiError::InvalidHandle`].
@@ -736,5 +737,44 @@ mod tests {
         let result = with_three_resources(h, 9999, h, |_, _, _| Ok(()));
         assert!(matches!(result, Err(FfiError::InvalidHandle { .. })));
         free(h);
+    }
+
+    #[test]
+    fn handle_allocated_on_another_thread_is_valid() {
+        // The slab is process-global, not thread-local: a handle made on
+        // one OS thread must be usable from another. A regression to a
+        // `thread_local!` slab would make this fail, and would silently
+        // corrupt any host runtime that migrates calls across OS threads
+        // (GHC's threaded RTS does, across `safe` foreign calls).
+        let h = std::thread::spawn(|| alloc(Resource::Protocol(Box::new(test_protocol()))))
+            .join()
+            .unwrap();
+        let name =
+            with_resource(h, |r| Ok(r.as_protocol()?.name.clone())).expect("handle valid here");
+        assert_eq!(name, "test");
+        free(h);
+    }
+
+    #[test]
+    fn concurrent_alloc_use_free_is_consistent() {
+        // Many threads allocating, projecting, and freeing in parallel
+        // must never see another thread's slot or a freed slot: the
+        // global lock keeps every distinct live handle isolated.
+        let workers: Vec<_> = (0..16)
+            .map(|_| {
+                std::thread::spawn(|| {
+                    for _ in 0..500 {
+                        let h = alloc(Resource::Schema(Arc::new(test_schema())));
+                        let ok = with_resource(h, |r| Ok(r.as_schema()?.protocol.clone()))
+                            .expect("own handle valid");
+                        assert_eq!(ok, "test");
+                        free(h);
+                    }
+                })
+            })
+            .collect();
+        for w in workers {
+            w.join().expect("worker thread panicked");
+        }
     }
 }
