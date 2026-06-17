@@ -19,6 +19,7 @@ module Spec.Laws (tests) where
 
 import Control.Category qualified as Cat
 import Control.Exception (Exception, fromException, toException)
+import Data.HashMap.Strict qualified as HM
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
@@ -58,6 +59,7 @@ import Panproto.Migration
     , mapVertex
     , resolve
     )
+import Panproto.Hom (ByQuality (..), FoundMorphism (..))
 import Panproto.Migration.Combinators (pipeline)
 import Panproto.Schema qualified as S
 
@@ -69,7 +71,29 @@ tests =
         , chainLaws
         , stringencyLaws
         , opticKindLaws
+        , byQualityLaws
         , exceptionLaws
+        ]
+
+-- ---------------------------------------------------------------------------
+-- ByQuality: Eq/Ord must agree (so it is a safe Set/Map key)
+
+-- | Two morphisms with the same quality score but different maps.
+sameScore1, sameScore2, higherScore :: ByQuality
+sameScore1 = ByQuality FoundMorphism {vertexMap = HM.fromList [("a", "b")], edgeMap = HM.empty, quality = 0.5}
+sameScore2 = ByQuality FoundMorphism {vertexMap = HM.fromList [("c", "d")], edgeMap = HM.empty, quality = 0.5}
+higherScore = ByQuality FoundMorphism {vertexMap = HM.empty, edgeMap = HM.empty, quality = 0.9}
+
+byQualityLaws :: TestTree
+byQualityLaws =
+    testGroup
+        "ByQuality (Eq/Ord agreement)"
+        [ testCase "equal scores compare EQ and ==, even with different maps" $ do
+            compare sameScore1 sameScore2 @?= EQ
+            assertBool "== agrees with compare EQ" (sameScore1 == sameScore2)
+        , testCase "different scores order by score and are /=" $ do
+            compare sameScore1 higherScore @?= LT
+            assertBool "/= agrees with compare /= EQ" (sameScore1 /= higherScore)
         ]
 
 -- ---------------------------------------------------------------------------

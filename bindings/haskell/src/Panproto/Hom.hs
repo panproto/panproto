@@ -233,22 +233,24 @@ data FoundMorphism = FoundMorphism
     deriving anyclass (NFData, ToJSON, FromJSON)
 
 -- | A 'FoundMorphism' ordered by its 'quality' score, for use with
--- @Data.List.sortOn@ and @Data.List.maximumBy@. The 'Ord' instance
--- compares 'quality' alone; structural fields are not consulted, so
--- two morphisms of equal quality compare 'EQ' even when their maps
--- differ. 'FoundMorphism' itself carries only structural 'Eq' so a
--- value comparison never silently collapses to a score comparison.
+-- @Data.List.sortOn@ and @Data.List.maximumBy@. Both its 'Eq' and 'Ord'
+-- compare 'quality' alone (and agree with each other, so it is a valid
+-- 'Data.Set.Set' \/ 'Data.Map.Map' key): two morphisms of equal quality
+-- are 'EQ' and '==' even when their maps differ. For structural
+-- comparison use the wrapped 'FoundMorphism', which carries its own
+-- structural 'Eq'.
 newtype ByQuality = ByQuality FoundMorphism
     deriving stock (Show, Generic)
     deriving anyclass (NFData)
 
--- | Equality on the underlying 'FoundMorphism' is structural, matching
--- 'FoundMorphism'\'s own 'Eq': two 'ByQuality' values are equal exactly
--- when they wrap equal morphisms. (This is finer than the 'Ord'
--- instance's score-only comparison; @compare@ may return 'EQ' where
--- '==' returns 'False'.)
+-- | Equality by 'quality' score, consistent with the 'Ord' instance
+-- (@compare x y == EQ@ iff @x == y@), so 'ByQuality' is safe to use as
+-- a 'Data.Set.Set' \/ 'Data.Map.Map' key. This is an /ordering/ wrapper:
+-- it compares the score, not the morphism. For structural equality
+-- ("are these the same morphism?") compare the wrapped 'FoundMorphism'
+-- directly, which carries its own structural 'Eq'.
 instance Eq ByQuality where
-    ByQuality a == ByQuality b = a == b
+    ByQuality a == ByQuality b = a.quality == b.quality
 
 -- | Order by 'quality' score only. Ties on quality compare 'EQ'.
 instance Ord ByQuality where
