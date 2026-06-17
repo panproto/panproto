@@ -10,14 +10,26 @@
 //! variant. Each entry point validates the resource type at the slab
 //! boundary and returns [`FfiError::TypeMismatch`] on mismatch.
 //!
-//! Slab state is thread-local: each OS thread sees its own resource
-//! table. Tests rely on `cargo nextest`'s per-test process isolation
-//! to avoid cross-test interference; running under `cargo test` (which
-//! shares threads) can cause spurious failures in handle-equality
-//! assertions, so the project's CI uses nextest.
+//! Slab state is process-global and guarded by a [`Mutex`]: a handle
+//! allocated by one OS thread is valid from any other. This is required
+//! for correctness, not just throughput. Host runtimes call across the
+//! C ABI on a pool of OS threads (GHC's threaded RTS migrates a Haskell
+//! thread between OS threads across `safe` foreign calls), so a
+//! thread-local table would make a handle created on one call invisible
+//! on the next. The lock is held only for the duration of the slab
+//! access (a short clone/projection, or an engine call that never
+//! re-enters the slab), so it never deadlocks and serializes only the
+//! handle-table operations themselves. Each entry point's `Mutex::lock`
+//! recovers from poisoning (a panic caught by [`crate::panic::guard`]
+//! leaves the `Vec` structurally intact), so one panicking operation
+//! cannot brick the table.
+//!
+//! Tests rely on `cargo nextest`'s per-test process isolation for a
+//! fresh table per test; running under `cargo test` (one process,
+//! shared global table) can cause spurious handle-equality failures, so
+//! the project's CI uses nextest.
 
-use std::cell::RefCell;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use panproto_core::gat::{Model, Theory};
 use panproto_core::inst::CompiledMigration;
@@ -345,8 +357,29 @@ impl Resource {
     }
 }
 
-thread_local! {
-    static SLAB: RefCell<Vec<Option<Resource>>> = const { RefCell::new(Vec::new()) };
+static SLAB: Mutex<Vec<Option<Resource>>> = Mutex::new(Vec::new());
+
+/// Lock the global slab, recovering the guard if a previous holder
+/// panicked. A panic inside an access closure (caught by
+/// [`crate::panic::guard`]) poisons the mutex, but the `Vec` of slots is
+/// structurally sound, so taking the inner guard is safe and keeps the
+/// table usable for subsequent calls.
+fn lock_slab() -> MutexGuard<'static, Vec<Option<Resource>>> {
+    SLAB.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Project a live resource out of a locked slab, or [`FfiError::InvalidHandle`].
+fn slot(slab: &[Option<Resource>], handle: u32) -> Result<&Resource, FfiError> {
+    slab.get(handle as usize)
+        .and_then(Option::as_ref)
+        .ok_or(FfiError::InvalidHandle { handle })
+}
+
+/// Mutable counterpart of [`slot`].
+fn slot_mut(slab: &mut [Option<Resource>], handle: u32) -> Result<&mut Resource, FfiError> {
+    slab.get_mut(handle as usize)
+        .and_then(Option::as_mut)
+        .ok_or(FfiError::InvalidHandle { handle })
 }
 
 /// Allocate a resource and return its handle.
@@ -356,17 +389,16 @@ thread_local! {
 #[must_use]
 #[allow(clippy::cast_possible_truncation)] // u32 indices; >4B resources is unrealistic.
 pub fn alloc(resource: Resource) -> u32 {
-    SLAB.with_borrow_mut(|slab| {
-        for (i, slot) in slab.iter_mut().enumerate() {
-            if slot.is_none() {
-                *slot = Some(resource);
-                return i as u32;
-            }
+    let mut slab = lock_slab();
+    for (i, slot) in slab.iter_mut().enumerate() {
+        if slot.is_none() {
+            *slot = Some(resource);
+            return i as u32;
         }
-        let handle = slab.len() as u32;
-        slab.push(Some(resource));
-        handle
-    })
+    }
+    let handle = slab.len() as u32;
+    slab.push(Some(resource));
+    handle
 }
 
 /// Read access to a resource by handle.
@@ -379,16 +411,11 @@ pub fn with_resource<T>(
     handle: u32,
     f: impl FnOnce(&Resource) -> Result<T, FfiError>,
 ) -> Result<T, FfiError> {
-    SLAB.with_borrow(|slab| {
-        let resource = slab
-            .get(handle as usize)
-            .and_then(Option::as_ref)
-            .ok_or(FfiError::InvalidHandle { handle })?;
-        f(resource)
-    })
+    let slab = lock_slab();
+    f(slot(&slab, handle)?)
 }
 
-/// Read access to two resources by handle, in a single slab borrow.
+/// Read access to two resources by handle, under one slab lock.
 ///
 /// # Errors
 ///
@@ -399,17 +426,8 @@ pub fn with_two_resources<T>(
     h2: u32,
     f: impl FnOnce(&Resource, &Resource) -> Result<T, FfiError>,
 ) -> Result<T, FfiError> {
-    SLAB.with_borrow(|slab| {
-        let r1 = slab
-            .get(h1 as usize)
-            .and_then(Option::as_ref)
-            .ok_or(FfiError::InvalidHandle { handle: h1 })?;
-        let r2 = slab
-            .get(h2 as usize)
-            .and_then(Option::as_ref)
-            .ok_or(FfiError::InvalidHandle { handle: h2 })?;
-        f(r1, r2)
-    })
+    let slab = lock_slab();
+    f(slot(&slab, h1)?, slot(&slab, h2)?)
 }
 
 /// Mutable access to a resource by handle.
@@ -425,13 +443,8 @@ pub fn with_resource_mut<T>(
     handle: u32,
     f: impl FnOnce(&mut Resource) -> Result<T, FfiError>,
 ) -> Result<T, FfiError> {
-    SLAB.with_borrow_mut(|slab| {
-        let resource = slab
-            .get_mut(handle as usize)
-            .and_then(Option::as_mut)
-            .ok_or(FfiError::InvalidHandle { handle })?;
-        f(resource)
-    })
+    let mut slab = lock_slab();
+    f(slot_mut(&mut slab, handle)?)
 }
 
 /// Read access to three resources by handle, in a single slab borrow.
@@ -449,21 +462,8 @@ pub fn with_three_resources<T>(
     h3: u32,
     f: impl FnOnce(&Resource, &Resource, &Resource) -> Result<T, FfiError>,
 ) -> Result<T, FfiError> {
-    SLAB.with_borrow(|slab| {
-        let r1 = slab
-            .get(h1 as usize)
-            .and_then(Option::as_ref)
-            .ok_or(FfiError::InvalidHandle { handle: h1 })?;
-        let r2 = slab
-            .get(h2 as usize)
-            .and_then(Option::as_ref)
-            .ok_or(FfiError::InvalidHandle { handle: h2 })?;
-        let r3 = slab
-            .get(h3 as usize)
-            .and_then(Option::as_ref)
-            .ok_or(FfiError::InvalidHandle { handle: h3 })?;
-        f(r1, r2, r3)
-    })
+    let slab = lock_slab();
+    f(slot(&slab, h1)?, slot(&slab, h2)?, slot(&slab, h3)?)
 }
 
 /// Free a resource, marking the slot reusable.
@@ -471,18 +471,17 @@ pub fn with_three_resources<T>(
 /// Calling on an out-of-range or already-freed handle is a no-op
 /// (double-free is safe).
 pub fn free(handle: u32) {
-    SLAB.with_borrow_mut(|slab| {
-        let idx = handle as usize;
-        if idx < slab.len() {
-            slab[idx] = None;
-        }
-    });
+    let mut slab = lock_slab();
+    let idx = handle as usize;
+    if idx < slab.len() {
+        slab[idx] = None;
+    }
 }
 
 /// Test-only: drop every resource in the slab and reset its length.
 #[cfg(test)]
 pub fn reset() {
-    SLAB.with_borrow_mut(Vec::clear);
+    lock_slab().clear();
 }
 
 #[cfg(test)]
