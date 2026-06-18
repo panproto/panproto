@@ -43,7 +43,7 @@
 //! stealing a child (`int_literal`) that belongs to a later mandatory
 //! member, while still admitting genuine supertype dispatch.
 
-use super::{Grammar, Production, collect_field_names};
+use super::{Grammar, Production, collect_field_names, is_newline_alt};
 
 /// Does an abstract child of surface kind `k` satisfy a concrete
 /// grammar `SYMBOL`/`ALIAS` target named `name`?
@@ -1171,6 +1171,18 @@ pub(crate) fn select_choice_with_trace(
             return winner;
         }
     }
+    // A newline-bearing terminator slot is invisible to the literal tie-break:
+    // `alt_literals_resolved` collects only STRING literals, so a hidden
+    // `_terminator` whose newline form is a PATTERN (`\r?\n`) contributes no
+    // literal and scores zero overlap, even though the parser recorded the
+    // newline it emitted as a bare-newline trace token. When this is an
+    // optional separator slot, the trace attests a bare newline, and a
+    // candidate IS the newline alternative, prefer it over `BLANK` so a clause
+    // body lands on its own line (julia `if`/`elseif`/`else`: without it
+    // `elseif x < 0` glues onto its body `-1`, re-lexing as one expression and
+    // dropping the clause's block). Gated on the trace genuinely containing a
+    // bare newline, so `;`-terminator / ASI slots (recorded as `T;`, never a
+    // bare newline) keep their existing resolution.
     // No variant tag resolved the tie and no candidate consumes a child
     // (`best_len == 0`): this is an OPTIONAL production — an optional
     // token / separator with nothing structural demanding it. The
@@ -1180,12 +1192,28 @@ pub(crate) fn select_choice_with_trace(
     // this only fires for genuinely-absent optionals (kotlin's optional
     // `;` / trailing `,`, which the lossy heuristics otherwise emit
     // spuriously on a complement-free schema).
+    //
+    // EXCEPTION: when a candidate is a newline terminator (julia
+    // `if`/`elseif`/`else` body separator, `_terminator = CHOICE[\r?\n, ;]`),
+    // do NOT short-circuit to `BLANK`. The emitted newline is not recorded as
+    // a trace token (it rode the interstitial fibre, stripped on this path),
+    // so the tie-break above never sees it; defaulting to `BLANK` would glue
+    // the clause body onto the keyword/condition line and re-lex it as one
+    // expression, dropping the clause's `block`. Defer (return `None`) so the
+    // caller's downstream pure-separator newline preference — which fires
+    // exactly when a separator is structurally needed and every alternative
+    // is non-consuming — supplies the canonical newline.
     if best_len == 0 {
-        if let Some(b) = alternatives
+        let has_newline_alt = cands
             .iter()
-            .position(|a| matches!(a, Production::Blank))
-        {
-            return Some(b);
+            .any(|&i| is_newline_alt(grammar, &alternatives[i]));
+        if !has_newline_alt {
+            if let Some(b) = alternatives
+                .iter()
+                .position(|a| matches!(a, Production::Blank))
+            {
+                return Some(b);
+            }
         }
     }
     None
