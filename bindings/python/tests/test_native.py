@@ -1180,3 +1180,85 @@ class TestRepositoryDataAccess:
 
         # With no caller key, the source path is the key.
         assert repo.data_at("HEAD")[0]["key"] == str(data_file)
+
+
+# ---------------------------------------------------------------------------
+# emit_pretty: relocated (grafted) subtree separation
+# ---------------------------------------------------------------------------
+
+
+class TestEmitPrettyGraft:
+    """A parsed subtree grafted beside another statement must not concatenate."""
+
+    def test_grafted_class_separates_from_sibling(self) -> None:
+        import ast
+
+        reg = panproto.AstParserRegistry()
+        if "python" not in reg.protocol_names():
+            import pytest
+
+            pytest.skip("python grammar not built into this wheel")
+
+        proto = panproto.Protocol.from_theories(
+            name="python", schema_theory="python", obj_kinds=[]
+        )
+        src = (
+            b"class A:\n    def m(self):\n        return self.x.y(1 + 2)\n"
+            b"\ndef f():\n    return 2\n"
+        )
+        parsed = reg.parse_with_protocol("python", src, "src.py")
+
+        # Standalone round-trip is valid Python (the consistent case the fix
+        # must not disturb).
+        ast.parse(reg.emit_pretty("python", parsed).decode())
+
+        # Collect the class_definition subtree.
+        class_root = next(
+            v.id for v in parsed.vertices if v.kind == "class_definition"
+        )
+        kind_of = {v.id: v.kind for v in parsed.vertices}
+        seen = {class_root}
+        frontier = [class_root]
+        while frontier:
+            s = frontier.pop()
+            for e in parsed.edges:
+                if e.src == s and e.tgt not in seen:
+                    seen.add(e.tgt)
+                    frontier.append(e.tgt)
+
+        # Graft the class onto a fresh module beside a hand-built `def f()`.
+        sb = proto.schema()
+        sb.vertex("mod", "module")
+        id_map = {}
+        for i, old in enumerate(seen):
+            new = f"g_{i}"
+            id_map[old] = new
+            sb.vertex(new, kind_of[old])
+            for c in parsed.constraints_for(old):
+                sb.constraint(new, c.sort, c.value)
+        for e in parsed.edges:
+            if e.src in id_map and e.tgt in id_map:
+                sb.edge(id_map[e.src], id_map[e.tgt], e.kind)
+        sb.edge("mod", id_map[class_root], "child_of")
+
+        sb.vertex("f", "function_definition")
+        sb.vertex("f_name", "identifier")
+        sb.constraint("f_name", "literal-value", "f")
+        sb.vertex("f_params", "parameters")
+        sb.vertex("f_body", "block")
+        sb.vertex("f_ret", "return_statement")
+        sb.vertex("f_two", "integer")
+        sb.constraint("f_two", "literal-value", "2")
+        sb.edge("f_ret", "f_two", "child_of")
+        sb.edge("f_body", "f_ret", "child_of")
+        sb.edge("f", "f_name", "name")
+        sb.edge("f", "f_params", "parameters")
+        sb.edge("f", "f_body", "body")
+        sb.edge("mod", "f", "child_of")
+
+        out = reg.emit_pretty("python", sb.build()).decode()
+
+        # The grafted class no longer runs straight into the following def,
+        # and the whole module is valid Python.
+        assert ")def" not in out, out
+        ast.parse(out)

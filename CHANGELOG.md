@@ -2,6 +2,17 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [0.56.1] - 2026-06-18
+
+### Fixed
+
+- **`emit_pretty` no longer glues a relocated subtree onto its sibling** (`panproto-parse`): when a parsed subtree (e.g. a Python `class_definition`) is grafted onto a fresh schema beside another top-level statement, it keeps the `[start-byte, end-byte)` span it had in its original source. The byte-faithful replay path tiled that stale span and emitted the subtree as raw bytes, which bypasses the separator its new context needs: the class body's last token ran straight into the next `def` (`…(1 + 2)def f():`), invalid Python. The replay path now detects a relocated subtree (one whose recorded span is not contained by its new parent's) and restores a line break on each edge of the verbatim blob, keeping the body byte-faithful while preventing the glue. Line breaks are idempotent at a line start, and a freshly parsed schema (every child's span nested in its parent's) is never relocated, so the canonical corpus replay is byte-identical. Closes #202.
+- **De-novo emit keeps a julia `if`/`elseif`/`else` clause body on its own line** (`panproto-parse`): on the by-construction path (no layout fibre), a clause's body separator is the optional `_terminator` slot, whose newline form is a `\r?\n` pattern. The choice tie-break matches only string literals, never a pattern, so the slot fell through to `BLANK` and the body glued onto the keyword line (`elseif x < 0` ran into `-1`, re-lexing as one expression and dropping the clause's `block`). An optional separator CHOICE that offers a newline alternative now defers instead of forcing `BLANK`, so the existing pure-separator newline preference supplies the canonical newline. `;`-terminator / ASI slots are unaffected.
+
+### Changed
+
+- **`ruby` emit verification status is `Verified`** (`panproto-parse` test suite): `ruby` is in `VERIFIED_EMIT_PROTOCOLS` (its full upstream `test/corpus` round-trips under the strict oracle), so the status test now asserts `Verified` rather than the stale `Generic`.
+
 ## [0.56.0] - 2026-06-17
 
 ### Added

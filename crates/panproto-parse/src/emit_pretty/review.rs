@@ -28,19 +28,19 @@ use super::{
     ChildCursor, EMIT_DEPTH, EMIT_MU_FRAMES, Edge, Grammar, Output, ParseError, Production, Schema,
     Token, TokenRole, accepts_first_edge, alias_content_is_terminal_pattern,
     aliased_source_literals, alt_satisfies_field_token_restrictions,
-    alt_satisfies_pre_alias_constraints, children_for, classify_seq_positions, clear_field_context,
-    collect_field_names, collect_inner_field_names_expanded, contains_newline_pattern,
-    current_field_context, first_unconsumed_target_fingerprint, has_field_in,
-    has_relevant_constraint, has_repeat_in, is_blank_line_rule, is_connector_punctuation,
-    is_immediate_token, is_newline_alt, is_newline_like_pattern, is_no_space_external,
-    is_whitespace_external, is_whitespace_only_pattern, is_word_like, leaf_terminal_role,
-    left_recursive_alts, literal_strings, literal_value, mandatory_field_names,
-    member_has_leading_bracket, pattern_absorbs_leading_space, placeholder_for_pattern,
-    pre_alias_symbol, prec_value, push_field_context, reconstruct_subtree_bytes,
-    reduces_to_immediate_token, referenced_symbols, repeat_body_is_whole_vertex_item,
-    repeat_has_bracket_keyed_member, seq_bracket_triggers_indent, seq_open_bracket_index,
-    unbounded_negated_class, unwrap_prec, unwrap_to_string, vertex_has_byte_span, vertex_id_kind,
-    yield_of_production,
+    alt_satisfies_pre_alias_constraints, byte_span_consistent_with_parent, children_for,
+    classify_seq_positions, clear_field_context, collect_field_names,
+    collect_inner_field_names_expanded, contains_newline_pattern, current_field_context,
+    first_unconsumed_target_fingerprint, has_field_in, has_relevant_constraint, has_repeat_in,
+    is_blank_line_rule, is_connector_punctuation, is_immediate_token, is_newline_alt,
+    is_newline_like_pattern, is_no_space_external, is_whitespace_external,
+    is_whitespace_only_pattern, is_word_like, leaf_terminal_role, left_recursive_alts,
+    literal_strings, literal_value, mandatory_field_names, member_has_leading_bracket,
+    pattern_absorbs_leading_space, placeholder_for_pattern, pre_alias_symbol, prec_value,
+    push_field_context, reconstruct_subtree_bytes, reduces_to_immediate_token, referenced_symbols,
+    repeat_body_is_whole_vertex_item, repeat_has_bracket_keyed_member, seq_bracket_triggers_indent,
+    seq_open_bracket_index, unbounded_negated_class, unwrap_prec, unwrap_to_string,
+    vertex_has_byte_span, vertex_id_kind, yield_of_production,
 };
 
 pub(crate) fn collect_roots(schema: &Schema) -> Vec<&panproto_gat::Name> {
@@ -484,7 +484,23 @@ pub(crate) fn emit_vertex(
     // role table got wrong, never corrupt one it got right.
     if vertex_has_byte_span(schema, vertex_id) {
         if let Some(bytes) = reconstruct_subtree_bytes(schema, vertex_id) {
+            // A RELOCATED subtree (grafted under a parent that does not contain
+            // its recorded span) lost the separators that, in its original
+            // source, lived in the surrounding parent's interstitials. Restore a
+            // line break on each edge so the byte-faithful body cannot glue onto
+            // an adjacent sibling (issue #202: a grafted Python `class` running
+            // into the next `def`). Line breaks are idempotent at a line start,
+            // so a body that already ends in a newline gains none; and a freshly
+            // parsed schema (every child's span nested in its parent's) is never
+            // relocated, so this leaves the canonical replay byte-identical.
+            let relocated = !byte_span_consistent_with_parent(schema, vertex_id);
+            if relocated {
+                out.newline();
+            }
             out.verbatim(&bytes);
+            if relocated {
+                out.newline();
+            }
             return Ok(());
         }
     }
@@ -2233,7 +2249,16 @@ pub(crate) fn emit_aliased_child(
     // byte anchors) and can never corrupt a boundary the role table got right.
     if vertex_has_byte_span(schema, child_id) {
         if let Some(bytes) = reconstruct_subtree_bytes(schema, child_id) {
+            // Restore a line break on each edge of a relocated aliased subtree;
+            // see the matching guard in `emit_vertex` for the rationale.
+            let relocated = !byte_span_consistent_with_parent(schema, child_id);
+            if relocated {
+                out.newline();
+            }
             out.verbatim(&bytes);
+            if relocated {
+                out.newline();
+            }
             return Ok(());
         }
     }

@@ -90,15 +90,15 @@ fn verified_for_quivers_javascript_backend() {
     );
 }
 
-/// Protocols whose grammar is registered but whose `emit_pretty` has
-/// no per-language test in panproto's suite. The API must report
-/// `Generic` so downstream tooling can opt into the safety check.
+/// `ruby` is corpus-verified: its entire upstream `test/corpus` round-trips
+/// under the strict emit oracle, so it is in `VERIFIED_EMIT_PROTOCOLS` and the
+/// API reports `Verified`.
 #[test]
 #[cfg(feature = "lang-ruby")]
-fn generic_for_untested_ruby() {
+fn verified_for_ruby() {
     let reg = ParserRegistry::new();
     assert_eq!(
         reg.emit_verification_status("ruby"),
-        EmitVerificationStatus::Generic
+        EmitVerificationStatus::Verified
     );
 }

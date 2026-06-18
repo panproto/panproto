@@ -547,6 +547,50 @@ pub(crate) fn vertex_has_byte_span(schema: &Schema, vertex_id: &panproto_gat::Na
     })
 }
 
+/// True iff `vertex_id`'s recorded `[start-byte, end-byte)` span is consistent
+/// with its CURRENT position: either the vertex is a structural root (no
+/// incoming edge) or some structural parent records a byte span that contains
+/// it. Returns `true` when consistency cannot be contradicted, so the layout
+/// fibre is trusted by default.
+///
+/// Every vertex the parse walker produces records a `start-byte` and `end-byte`
+/// from its node position, and a tree-sitter child's span always nests inside
+/// its parent's. So for a freshly parsed schema this holds for every vertex and
+/// the caller's behaviour is unchanged. It is contradicted only when a parsed
+/// subtree is RELOCATED (grafted) onto a different schema: the subtree keeps the
+/// span it had in its original source, but its new parent was built de-novo
+/// (records no span) or is a different node whose span does not contain the
+/// stale one. The verbatim replay path uses this to decide whether the recorded
+/// inter-token whitespace still describes the subtree's surroundings.
+pub(crate) fn byte_span_consistent_with_parent(
+    schema: &Schema,
+    vertex_id: &panproto_gat::Name,
+) -> bool {
+    let (Some(start), Some(end)) = (
+        byte_anchor(schema, vertex_id, "start-byte"),
+        byte_anchor(schema, vertex_id, "end-byte"),
+    ) else {
+        // No usable span to contradict: trust the fibre.
+        return true;
+    };
+    match schema.incoming.get(vertex_id) {
+        // Structural root (e.g. a standalone parsed module): trust its own span.
+        None => true,
+        Some(parents) if parents.is_empty() => true,
+        Some(parents) => parents.iter().any(|edge| {
+            match (
+                byte_anchor(schema, &edge.src, "start-byte"),
+                byte_anchor(schema, &edge.src, "end-byte"),
+            ) {
+                (Some(parent_start), Some(parent_end)) => {
+                    parent_start <= start && end <= parent_end
+                }
+                _ => false,
+            }
+        }),
+    }
+}
+
 /// Reconstruct the EXACT source bytes of the subtree rooted at `vertex_id`
 /// from the recorded layout fibre, returning `None` unless the reconstruction
 /// is provably complete (tiles the root's `[start-byte, end-byte)` span with no
