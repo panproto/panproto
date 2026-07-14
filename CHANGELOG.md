@@ -2,6 +2,17 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [0.58.0] - 2026-07-14
+
+### Added
+
+- **Refined scalar value kinds** (`panproto-gat`): `ValueKind` gains `DateTime`, `Date`, `Time`, `Decimal`, and `Uuid`, each with a canonical name (`date-time`, `date`, `time`, `decimal`, `uuid`). A record-to-theory encoder can now recover a datetime, date, time, decimal, or uuid field as such instead of collapsing it to `Str`; the Python SDK picks the kinds up automatically because its name-to-kind lookup is driven by `ValueKind::as_str`, and the Haskell and TypeScript bindings gain the variants for parity. The new variants are declared after `Any` so the existing kinds' discriminants are preserved. Closes #190.
+
+### Fixed
+
+- **Tree-sitter MISSING anonymous tokens surface as recovery markers** (`panproto-parse`): when tree-sitter recovers from an incomplete construct by inserting a zero-width MISSING token that is anonymous (a `]`, `}`, `)`, `,`, or keyword), the walker dropped it silently, leaving a recovered-incomplete parse with no `ERROR` vertex and no zero-width vertex — indistinguishable from a complete parse. The walker now scans every node's children for such tokens and emits a zero-width, `ERROR`-kinded marker vertex carrying a `missing` constraint, so a schema walker that rejects `ERROR` / zero-width vertices detects the recovery. Closes #214.
+- **De-novo bash `case` emits one `;;` per item** (`panproto-parse`): on the by-construction emit path a `case`/`esac` over-emitted the `;;` terminator (three per case item) and dropped the newlines between items, so the re-parse gained an `ERROR` node. A per-vertex `ptrace`-literal budget caps each recorded separator literal at its true source multiplicity across a single vertex's emit walk, so the single `;;` is matched once. Closes #204.
+
 ## [0.57.0] - 2026-07-13
 
 ### Added

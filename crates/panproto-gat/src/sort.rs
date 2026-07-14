@@ -665,6 +665,19 @@ pub enum ValueKind {
     Null,
     /// Any value kind (polymorphic).
     Any,
+    /// Refined string: an ISO 8601 date-time (`2026-07-14T09:47:12Z`).
+    ///
+    /// The refined scalar kinds are declared after `Any` so the discriminants
+    /// of the original kinds are preserved when new refinements are appended.
+    DateTime,
+    /// Refined string: an ISO 8601 calendar date (`2026-07-14`).
+    Date,
+    /// Refined string: an ISO 8601 wall-clock time (`09:47:12`).
+    Time,
+    /// Refined numeric: an exact base-10 decimal (no binary float rounding).
+    Decimal,
+    /// Refined string: an RFC 4122 UUID.
+    Uuid,
 }
 
 impl ValueKind {
@@ -679,6 +692,11 @@ impl ValueKind {
             Self::Bytes => "bytes",
             Self::Token => "token",
             Self::Null => "null",
+            Self::DateTime => "date-time",
+            Self::Date => "date",
+            Self::Time => "time",
+            Self::Decimal => "decimal",
+            Self::Uuid => "uuid",
             Self::Any => "any",
         }
     }
@@ -703,6 +721,11 @@ impl ValueKind {
                 | ValueKind::Bytes
                 | ValueKind::Token
                 | ValueKind::Null
+                | ValueKind::DateTime
+                | ValueKind::Date
+                | ValueKind::Time
+                | ValueKind::Decimal
+                | ValueKind::Uuid
                 | ValueKind::Any => {}
             }
         }
@@ -714,6 +737,11 @@ impl ValueKind {
             ValueKind::Bytes,
             ValueKind::Token,
             ValueKind::Null,
+            ValueKind::DateTime,
+            ValueKind::Date,
+            ValueKind::Time,
+            ValueKind::Decimal,
+            ValueKind::Uuid,
             ValueKind::Any,
         ];
         ALL
@@ -1413,6 +1441,29 @@ mod tests {
         let lhs = vec![SortParam::new("a", "Ob"), SortParam::new("b", "Ob")];
         let rhs = vec![SortParam::new("p", "Ob"), SortParam::new("q", "Ob")];
         assert!(sort_params_equivalent_modulo_rename(&lhs, &rhs));
+    }
+
+    #[test]
+    fn refined_value_kinds_are_distinct_and_named() {
+        // A record-to-theory encoder must be able to recover a
+        // `datetime` / `date` / `time` / `decimal` / `uuid` field as such
+        // rather than as a plain string: the refined scalar kinds carry a
+        // distinct identity and a canonical name, and appear in `all()` so
+        // exhaustive consumers (sample registries, coverage checks) see them.
+        for (kind, name) in [
+            (ValueKind::DateTime, "date-time"),
+            (ValueKind::Date, "date"),
+            (ValueKind::Time, "time"),
+            (ValueKind::Decimal, "decimal"),
+            (ValueKind::Uuid, "uuid"),
+        ] {
+            assert_ne!(kind, ValueKind::Str, "{kind:?} must not collapse to Str");
+            assert_eq!(kind.as_str(), name);
+            assert!(
+                ValueKind::all().contains(&kind),
+                "{kind:?} missing from all()"
+            );
+        }
     }
 
     #[test]

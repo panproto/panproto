@@ -60,7 +60,12 @@ const fn value_kind_ordinal(kind: ValueKind) -> u8 {
         ValueKind::Str => 4,
         ValueKind::Bytes => 5,
         ValueKind::Token => 6,
-        ValueKind::Any => 7,
+        ValueKind::DateTime => 7,
+        ValueKind::Date => 8,
+        ValueKind::Time => 9,
+        ValueKind::Decimal => 10,
+        ValueKind::Uuid => 11,
+        ValueKind::Any => 12,
     }
 }
 

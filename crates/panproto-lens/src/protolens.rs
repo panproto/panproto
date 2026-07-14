@@ -1131,6 +1131,11 @@ pub mod elementary {
             panproto_gat::ValueKind::Bytes => "bytes",
             panproto_gat::ValueKind::Token => "token",
             panproto_gat::ValueKind::Null => "null",
+            panproto_gat::ValueKind::DateTime => "datetime",
+            panproto_gat::ValueKind::Date => "date",
+            panproto_gat::ValueKind::Time => "time",
+            panproto_gat::ValueKind::Decimal => "decimal",
+            panproto_gat::ValueKind::Uuid => "uuid",
             panproto_gat::ValueKind::Any => "any",
         }
     }

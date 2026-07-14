@@ -168,6 +168,11 @@ data ValueKind
     | Bytes
     | Token
     | Null
+    | DateTime
+    | Date
+    | Time
+    | Decimal
+    | Uuid
     | Any
     deriving stock (Eq, Show, Generic, Bounded, Enum)
     deriving anyclass (NFData, Hashable, ToJSON, FromJSON)
@@ -1477,6 +1482,11 @@ valueKindTag = \case
     Bytes -> "Bytes"
     Token -> "Token"
     Null -> "Null"
+    DateTime -> "DateTime"
+    Date -> "Date"
+    Time -> "Time"
+    Decimal -> "Decimal"
+    Uuid -> "Uuid"
     Any -> "Any"
 
 valueKindTags :: [(Text, ValueKind)]
