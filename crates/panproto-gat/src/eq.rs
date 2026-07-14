@@ -656,59 +656,231 @@ fn match_pattern_inner(
 /// have been performed.
 #[must_use]
 pub fn normalize(term: &Term, directed_eqs: &[DirectedEquation], max_steps: usize) -> Term {
-    let mut current = term.clone();
-    let mut steps = 0;
-    loop {
-        let next = normalize_once(&current, directed_eqs, &mut steps, max_steps);
-        if next == current || steps >= max_steps {
-            return next;
-        }
-        current = next;
-    }
+    normalize_with_status(term, directed_eqs, max_steps).0
 }
 
+/// Normalize a term, also reporting whether the step budget was exhausted.
+///
+/// The boolean is `true` when normalization stopped because it reached
+/// `max_steps` while the term was still reducible, meaning the returned term
+/// may not be a normal form. It is `false` when a fixed point was reached.
+/// Callers that decide equality by normalization use this to distinguish a
+/// genuine inequality from an inconclusive, budget-truncated comparison.
+#[must_use]
+pub fn normalize_with_status(
+    term: &Term,
+    directed_eqs: &[DirectedEquation],
+    max_steps: usize,
+) -> (Term, bool) {
+    let mut steps = 0;
+    normalize_once(term, directed_eqs, &mut steps, max_steps)
+}
+
+/// Fully normalize `term`, returning the result and whether the step budget
+/// was exhausted (the result may then still be reducible).
+///
+/// Root rewrites and `let`/`case` contractions loop back rather than recurse,
+/// so stack depth stays bounded by the term's structure even when a rule set
+/// does not terminate within the budget. Genuine subterm normalization is still
+/// recursive, bounded by the term's depth.
 fn normalize_once(
     term: &Term,
     directed_eqs: &[DirectedEquation],
     steps: &mut usize,
     max_steps: usize,
-) -> Term {
-    if *steps >= max_steps {
-        return term.clone();
+) -> (Term, bool) {
+    // Outcome of one innermost-normalization pass over the current term: either
+    // a subterm-normalized term to try root rules on, or a term to re-process
+    // directly (a `let`/`case` contraction).
+    enum Step {
+        Root(Term),
+        Jump(Term),
     }
 
-    // Innermost first: normalize subterms before trying root.
-    let normalized_subterms = match term {
-        Term::Var(_) | Term::Hole { .. } => term.clone(),
+    let mut current = term.clone();
+    loop {
+        if *steps >= max_steps {
+            return (current, true);
+        }
+
+        // Innermost first: normalize subterms before trying the root. Subterm
+        // exhaustion drives `*steps` to the budget, which is re-checked below.
+        let step = match &current {
+            Term::Var(_) | Term::Hole { .. } => Step::Root(current.clone()),
+            Term::Let { name, bound, body } => {
+                let (new_bound, _) = normalize_once(bound, directed_eqs, steps, max_steps);
+                let mut subst = rustc_hash::FxHashMap::default();
+                subst.insert(Arc::clone(name), new_bound);
+                Step::Jump(body.substitute(&subst))
+            }
+            Term::App { op, args } => {
+                let new_args: Vec<Term> = args
+                    .iter()
+                    .map(|a| normalize_once(a, directed_eqs, steps, max_steps).0)
+                    .collect();
+                Step::Root(Term::App {
+                    op: Arc::clone(op),
+                    args: new_args,
+                })
+            }
+            Term::Case {
+                scrutinee,
+                branches,
+            } => {
+                let new_scrut =
+                    Box::new(normalize_once(scrutinee, directed_eqs, steps, max_steps).0);
+                // If the normalized scrutinee is a fully-applied constructor
+                // matching one of the branches, contract the case to that
+                // branch with its binders substituted by the constructor's
+                // argument terms.
+                let contracted = if let Term::App { op, args } = new_scrut.as_ref() {
+                    branches
+                        .iter()
+                        .find(|b| &b.constructor == op)
+                        .filter(|b| b.binders.len() == args.len())
+                        .map(|branch| {
+                            let mut subst = rustc_hash::FxHashMap::default();
+                            for (binder, arg) in branch.binders.iter().zip(args.iter()) {
+                                subst.insert(Arc::clone(binder), arg.clone());
+                            }
+                            branch.body.substitute(&subst)
+                        })
+                } else {
+                    None
+                };
+                contracted.map_or_else(
+                    || {
+                        let new_branches = branches
+                            .iter()
+                            .map(|b| CaseBranch {
+                                constructor: Arc::clone(&b.constructor),
+                                binders: b.binders.clone(),
+                                body: normalize_once(&b.body, directed_eqs, steps, max_steps).0,
+                            })
+                            .collect();
+                        Step::Root(Term::Case {
+                            scrutinee: new_scrut,
+                            branches: new_branches,
+                        })
+                    },
+                    Step::Jump,
+                )
+            }
+        };
+
+        let normalized_subterms = match step {
+            Step::Jump(next) => {
+                current = next;
+                continue;
+            }
+            Step::Root(t) => t,
+        };
+
+        // Try each directed equation at the root; a match loops back so a new
+        // redex exposed by the rewrite is normalized on the next iteration.
+        let mut rewritten = None;
+        for de in directed_eqs {
+            if let Some(subst) = match_pattern(&de.lhs, &normalized_subterms) {
+                *steps += 1;
+                rewritten = Some(de.rhs.substitute(&subst));
+                break;
+            }
+        }
+        // No rule applies: a fixed point, unless a subterm already spent the
+        // whole budget (in which case the result may still be reducible).
+        let Some(next) = rewritten else {
+            return (normalized_subterms, *steps >= max_steps);
+        };
+        current = next;
+    }
+}
+
+/// Normalize a term, returning its normal form together with an
+/// [`EqWitness`](crate::witness::EqWitness) proving the input equals it.
+///
+/// The witness mirrors the rewrite: each applied directed equation contributes
+/// an `Axiom` witness at its redex, lifted to the surrounding term by
+/// `Congruence` and chained across steps by `Transitivity`; a term already in
+/// normal form yields `Reflexivity`. `let`/`case` contractions are beta steps
+/// rather than directed-equation rewrites, so they are justified by a trusted
+/// `RuntimeChecked` witness carrying the correct endpoints. The returned term
+/// matches [`normalize`] exactly.
+#[must_use]
+pub fn normalize_with_witness(
+    term: &Term,
+    directed_eqs: &[DirectedEquation],
+    max_steps: usize,
+) -> (Term, crate::witness::EqWitness) {
+    let mut steps = 0;
+    norm_once_witness(term, directed_eqs, &mut steps, max_steps)
+}
+
+/// A trusted witness for a step that is not a directed-equation rewrite (a
+/// `let`/`case` contraction). Reflexivity when the endpoints coincide.
+fn runtime_witness(lhs: Term, rhs: Term) -> crate::witness::EqWitness {
+    use crate::witness::{EqWitness, WitnessJustification};
+    if lhs == rhs {
+        EqWitness::reflexivity(lhs)
+    } else {
+        EqWitness {
+            lhs,
+            rhs,
+            justification: WitnessJustification::RuntimeChecked {
+                description: "let/case contraction".to_owned(),
+            },
+        }
+    }
+}
+
+/// Witnessed counterpart of [`normalize_once`]: returns the normalized term and
+/// a witness proving `term` equals it.
+fn norm_once_witness(
+    term: &Term,
+    directed_eqs: &[DirectedEquation],
+    steps: &mut usize,
+    max_steps: usize,
+) -> (Term, crate::witness::EqWitness) {
+    use crate::witness::EqWitness;
+
+    if *steps >= max_steps {
+        return (term.clone(), EqWitness::reflexivity(term.clone()));
+    }
+
+    // Innermost first: normalize subterms, building a witness `term = subnormal`.
+    let (subnormal, sub_witness): (Term, EqWitness) = match term {
+        Term::Var(_) | Term::Hole { .. } => (term.clone(), EqWitness::reflexivity(term.clone())),
+        Term::App { op, args } => {
+            let mut new_args = Vec::with_capacity(args.len());
+            let mut arg_witnesses = Vec::with_capacity(args.len());
+            for a in args {
+                let (na, wa) = norm_once_witness(a, directed_eqs, steps, max_steps);
+                new_args.push(na);
+                arg_witnesses.push(wa);
+            }
+            let witness = EqWitness::congruence(Arc::clone(op), arg_witnesses);
+            (
+                Term::App {
+                    op: Arc::clone(op),
+                    args: new_args,
+                },
+                witness,
+            )
+        }
         Term::Let { name, bound, body } => {
-            let new_bound = normalize_once(bound, directed_eqs, steps, max_steps);
-            // Substitute the normalized bound into the body and
-            // continue normalization.
+            let (new_bound, _) = norm_once_witness(bound, directed_eqs, steps, max_steps);
             let mut subst = rustc_hash::FxHashMap::default();
             subst.insert(Arc::clone(name), new_bound);
             let substituted = body.substitute(&subst);
-            return normalize_once(&substituted, directed_eqs, steps, max_steps);
-        }
-        Term::App { op, args } => {
-            let new_args: Vec<Term> = args
-                .iter()
-                .map(|a| normalize_once(a, directed_eqs, steps, max_steps))
-                .collect();
-            Term::App {
-                op: Arc::clone(op),
-                args: new_args,
-            }
+            let (result, _) = norm_once_witness(&substituted, directed_eqs, steps, max_steps);
+            let witness = runtime_witness(term.clone(), result.clone());
+            return (result, witness);
         }
         Term::Case {
             scrutinee,
             branches,
         } => {
-            let new_scrut = Box::new(normalize_once(scrutinee, directed_eqs, steps, max_steps));
-            // If the normalized scrutinee is a fully-applied
-            // constructor matching one of the branches, contract the
-            // case to that branch with its binders substituted by the
-            // constructor's argument terms.
-            if let Term::App { op, args } = new_scrut.as_ref() {
+            let (new_scrut, _) = norm_once_witness(scrutinee, directed_eqs, steps, max_steps);
+            if let Term::App { op, args } = &new_scrut {
                 if let Some(branch) = branches.iter().find(|b| &b.constructor == op) {
                     if branch.binders.len() == args.len() {
                         let mut subst = rustc_hash::FxHashMap::default();
@@ -716,36 +888,49 @@ fn normalize_once(
                             subst.insert(Arc::clone(binder), arg.clone());
                         }
                         let body = branch.body.substitute(&subst);
-                        return normalize_once(&body, directed_eqs, steps, max_steps);
+                        let (result, _) = norm_once_witness(&body, directed_eqs, steps, max_steps);
+                        let witness = runtime_witness(term.clone(), result.clone());
+                        return (result, witness);
                     }
                 }
             }
             let new_branches = branches
                 .iter()
-                .map(|b| CaseBranch {
-                    constructor: Arc::clone(&b.constructor),
-                    binders: b.binders.clone(),
-                    body: normalize_once(&b.body, directed_eqs, steps, max_steps),
+                .map(|b| {
+                    let (body, _) = norm_once_witness(&b.body, directed_eqs, steps, max_steps);
+                    CaseBranch {
+                        constructor: Arc::clone(&b.constructor),
+                        binders: b.binders.clone(),
+                        body,
+                    }
                 })
                 .collect();
-            Term::Case {
-                scrutinee: new_scrut,
+            let result = Term::Case {
+                scrutinee: Box::new(new_scrut),
                 branches: new_branches,
-            }
+            };
+            let witness = runtime_witness(term.clone(), result.clone());
+            return (result, witness);
         }
     };
 
-    // Try each directed equation at the root.
+    // Try each directed equation at the root of the subnormalized term.
     for de in directed_eqs {
-        if let Some(subst) = match_pattern(&de.lhs, &normalized_subterms) {
+        if let Some(subst) = match_pattern(&de.lhs, &subnormal) {
             *steps += 1;
             let rewritten = de.rhs.substitute(&subst);
-            // Recursively normalize the result since new redexes may appear.
-            return normalize_once(&rewritten, directed_eqs, steps, max_steps);
+            let axiom =
+                EqWitness::axiom(Arc::clone(&de.name), subnormal.clone(), rewritten.clone());
+            let (final_term, rest_witness) =
+                norm_once_witness(&rewritten, directed_eqs, steps, max_steps);
+            // term =(sub) subnormal =(axiom) rewritten =(rest) final_term.
+            let step_and_rest = EqWitness::transitivity(axiom, rest_witness);
+            let full = EqWitness::transitivity(sub_witness, step_and_rest);
+            return (final_term, full);
         }
     }
 
-    normalized_subterms
+    (subnormal, sub_witness)
 }
 
 impl DirectedEquation {
@@ -1080,6 +1265,82 @@ mod tests {
     }
 
     #[test]
+    fn witness_normalization_multi_step_verifies() {
+        // Rules: add(zero, y) -> y ; f(x) -> g(x)
+        let rules = vec![
+            make_directed_eq(
+                "left_id",
+                Term::app("add", vec![Term::constant("zero"), Term::var("y")]),
+                Term::var("y"),
+            ),
+            make_directed_eq(
+                "f_to_g",
+                Term::app("f", vec![Term::var("x")]),
+                Term::app("g", vec![Term::var("x")]),
+            ),
+        ];
+        // f(add(zero, a)) -> f(a) -> g(a)
+        let term = Term::app(
+            "f",
+            vec![Term::app(
+                "add",
+                vec![Term::constant("zero"), Term::constant("a")],
+            )],
+        );
+        let (result, witness) = normalize_with_witness(&term, &rules, 100);
+        assert_eq!(result, Term::app("g", vec![Term::constant("a")]));
+        assert_eq!(result, normalize(&term, &rules, 100));
+        assert_eq!(witness.lhs, term);
+        assert_eq!(witness.rhs, result);
+        // The proof genuinely chains rewrite steps (not a single trusted node).
+        assert!(witness.depth() > 1);
+        let theory =
+            crate::theory::Theory::full("T", vec![], vec![], vec![], vec![], rules, vec![]);
+        assert!(witness.verify(&theory).is_ok());
+    }
+
+    #[test]
+    fn normalize_with_status_reports_exhaustion() {
+        // Non-terminating rule: f(x) -> f(f(x)).
+        let rule = make_directed_eq(
+            "expand",
+            Term::app("f", vec![Term::var("x")]),
+            Term::app("f", vec![Term::app("f", vec![Term::var("x")])]),
+        );
+        let term = Term::app("f", vec![Term::constant("a")]);
+        let (_, exhausted) = normalize_with_status(&term, &[rule], 5);
+        assert!(
+            exhausted,
+            "a looping rule set must report budget exhaustion"
+        );
+    }
+
+    #[test]
+    fn normalize_with_status_terminating_is_not_exhausted() {
+        let rule = make_directed_eq(
+            "left_id",
+            Term::app("add", vec![Term::constant("zero"), Term::var("y")]),
+            Term::var("y"),
+        );
+        let term = Term::app("add", vec![Term::constant("zero"), Term::var("x")]);
+        let (result, exhausted) = normalize_with_status(&term, &[rule], 100);
+        assert_eq!(result, Term::var("x"));
+        assert!(!exhausted);
+    }
+
+    #[test]
+    fn witness_normalization_no_rules_is_reflexive() {
+        let term = Term::app("f", vec![Term::var("x")]);
+        let (result, witness) = normalize_with_witness(&term, &[], 100);
+        assert_eq!(result, term);
+        assert_eq!(witness.lhs, term);
+        assert_eq!(witness.rhs, term);
+        let theory =
+            crate::theory::Theory::full("T", vec![], vec![], vec![], vec![], vec![], vec![]);
+        assert!(witness.verify(&theory).is_ok());
+    }
+
+    #[test]
     fn alpha_eq_var_vs_app() {
         let t1 = Term::var("x");
         let t2 = Term::constant("c");
@@ -1199,6 +1460,34 @@ mod tests {
             fn substitute_empty_is_identity(t in arb_term(3)) {
                 let empty = rustc_hash::FxHashMap::default();
                 prop_assert_eq!(t.substitute(&empty), t);
+            }
+
+            #[test]
+            fn witness_normalization_verifies_and_matches(t in arb_term(3)) {
+                // A terminating rule set drawn from the generator's signature.
+                let rules = vec![
+                    make_directed_eq(
+                        "f_to_g",
+                        Term::app("f", vec![Term::var("x")]),
+                        Term::app("g", vec![Term::var("x")]),
+                    ),
+                    make_directed_eq(
+                        "add_l",
+                        Term::app("add", vec![Term::var("x"), Term::var("y")]),
+                        Term::var("x"),
+                    ),
+                ];
+                let (result, witness) = normalize_with_witness(&t, &rules, 200);
+                // Endpoints match the input and the normal form.
+                prop_assert_eq!(&witness.lhs, &t);
+                prop_assert_eq!(&witness.rhs, &result);
+                // The witnessed normal form equals the plain normalizer's.
+                prop_assert_eq!(&result, &normalize(&t, &rules, 200));
+                // And the witness verifies against the theory of those rules.
+                let theory = crate::theory::Theory::full(
+                    "T", vec![], vec![], vec![], vec![], rules, vec![],
+                );
+                prop_assert!(witness.verify(&theory).is_ok());
             }
 
             #[test]

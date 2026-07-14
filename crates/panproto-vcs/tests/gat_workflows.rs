@@ -177,12 +177,21 @@ fn full_add_commit_cycle_with_gat_validation() -> Result<(), Box<dyn std::error:
     let s1 = make_schema(&[("a", "object")]);
     let index = repo.add(&s1)?;
     assert!(index.has_staged());
-    // First commit has no migration, so diagnostics should be None.
+    // The first commit has no migration, but the schema is still checked
+    // against its protocol equations, so diagnostics are present and, for
+    // an unregistered protocol, clean (only an advisory note).
     let staged = index
         .staged
         .as_ref()
         .ok_or("index should have staged schema")?;
-    assert!(staged.gat_diagnostics.is_none());
+    let first_diag = staged
+        .gat_diagnostics
+        .as_ref()
+        .ok_or("first commit should carry equation diagnostics")?;
+    assert!(
+        first_diag.is_clean(),
+        "unregistered protocol must not block"
+    );
     let c1 = repo.commit("initial", "alice")?;
 
     // Second commit: add a vertex, triggering a migration + GAT validation.
@@ -250,6 +259,7 @@ fn commit_blocked_by_equation_violation_then_skip_verify() -> Result<(), Box<dyn
             "equation 'assoc' violated when a=0, b=1, c=2: LHS=3, RHS=4".to_owned(),
         ],
         migration_warnings: vec![],
+        ..Default::default()
     };
 
     let index = panproto_vcs::Index {
@@ -850,6 +860,7 @@ fn acset_restrict_extend_across_all_shapes() -> Result<(), Box<dyn std::error::E
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        op_term_assignments: HashMap::new(),
         expansion_path: HashMap::new(),
     };
 
@@ -1045,22 +1056,26 @@ fn gat_validate_migration_with_schema_checking() {
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         expr_resolvers: HashMap::new(),
+        domain: None,
+        codomain: None,
     };
 
     let diag = gat_validate::validate_migration(&old_schema, &new_schema, &bad_migration);
-    // Should have warnings about the nonexistent source vertex.
+    // A vertex map referencing a nonexistent source vertex is a blocking
+    // migration error, not an advisory warning.
     assert!(
-        !diag.migration_warnings.is_empty(),
-        "expected warnings for nonexistent source vertex"
+        !diag.migration_errors.is_empty(),
+        "expected errors for nonexistent source vertex"
     );
-    let has_source_warning = diag
-        .migration_warnings
+    assert!(!diag.is_clean(), "a nonexistent source vertex must block");
+    let has_source_error = diag
+        .migration_errors
         .iter()
         .any(|w| w.contains("nonexistent") && w.contains("does not exist in source"));
     assert!(
-        has_source_warning,
-        "expected warning about 'nonexistent' not in source, got: {:?}",
-        diag.migration_warnings
+        has_source_error,
+        "expected error about 'nonexistent' not in source, got: {:?}",
+        diag.migration_errors
     );
 
     // Build a valid migration.
@@ -1075,6 +1090,8 @@ fn gat_validate_migration_with_schema_checking() {
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         expr_resolvers: HashMap::new(),
+        domain: None,
+        codomain: None,
     };
 
     let diag_good = gat_validate::validate_migration(&old_schema, &new_schema, &good_migration);

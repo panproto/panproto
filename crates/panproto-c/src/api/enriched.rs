@@ -39,7 +39,7 @@ struct PolicySpec {
 ///
 /// `schema_handle` is a [`Resource::Schema`](crate::handle::Resource)
 /// handle; `from_kind` and `to_kind` are the UTF-8 source/target vertex
-/// kind names; `expr` is a CBOR-encoded `panproto_expr::Expr` coercion
+/// kind names; `expr` is a CBOR-encoded `panproto_core::expr::Expr` coercion
 /// expression. On success, `out_handle` receives a fresh
 /// [`Resource::Schema`](crate::handle::Resource) handle with the
 /// coercion installed (as a `CoercionClass::Opaque` coercion with no
@@ -59,7 +59,7 @@ pub fn pp_schema_add_coercion(
         let from_kind = utf8(from_kind.as_slice(), "from_kind")?;
         let to_kind = utf8(to_kind.as_slice(), "to_kind")?;
 
-        // `forward` is `panproto_expr::Expr`; its concrete type is
+        // `forward` is `panproto_core::expr::Expr`; its concrete type is
         // inferred from the `CoercionSpec` literal below, so panproto-c
         // need not name `panproto-expr` (it is not a direct dependency).
         let forward = crate::canonical::decode(expr.as_slice())?;
@@ -424,7 +424,7 @@ mod tests {
     fn add_coercion_installs_coercion_entry() {
         let h = schema_handle(&schema_with_vertex("int_field"));
         // A trivial coercion expression: the variable `x`. Encode it as
-        // the externally-tagged `panproto_expr::Expr::Var` shape:
+        // the externally-tagged `panproto_core::expr::Expr::Var` shape:
         // `{ "Var": "x" }`.
         let expr_bytes = encode(&serde_json::json!({ "Var": "x" })).unwrap();
 

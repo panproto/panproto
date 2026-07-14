@@ -42,14 +42,19 @@ pub mod invert;
 pub mod lift;
 pub mod migration;
 pub mod overlap;
+pub mod schema_theory;
 
 pub use cascade::{induce_data_migration, induce_migration_from_theory, induce_schema_morphism};
 pub use chase::{
-    ChaseError, EmbeddedDependency, chase_functor, dependencies_from_schema,
-    dependencies_from_theory,
+    Atom, AtomTerm, ChaseBudget, ChaseError, ChaseOutcome, Dependency, EmbeddedDependency, chase,
+    dependencies_from_schema, dependencies_from_theory, saturate_row_existence,
+    term_dependencies_from_theory,
 };
 pub use compile::compile;
 pub use compose::compose;
+pub use compose::{
+    ComposeReport, OnMissing, RelabelComposition, compose_relabeling, compose_with_report,
+};
 pub use coverage::{CoverageReport, PartialFailure, PartialReason, check_coverage};
 pub use error::{ComposeError, ExistenceError, InvertError, LiftError, MigError};
 pub use existence::{ExistenceReport, check_existence};
@@ -58,9 +63,12 @@ pub use hom_search::{
     find_best_morphism_constrained, find_morphisms, find_morphisms_constrained,
 };
 pub use invert::invert;
-pub use lift::{lift_functor, lift_functor_pi, lift_wtype, lift_wtype_pi, lift_wtype_sigma};
+pub use lift::{
+    lift_functor, lift_functor_pi, lift_functor_sigma, lift_wtype, lift_wtype_pi, lift_wtype_sigma,
+};
 pub use migration::Migration;
 pub use overlap::discover_overlap;
+pub use schema_theory::{check_migration_morphism, induced_theory_morphism, schema_to_theory};
 
 pub use align::{
     AliasDict, Anchor, StrategyTag, alias_anchors, default_alias_dict, exact_anchors,

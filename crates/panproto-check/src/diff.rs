@@ -133,6 +133,39 @@ pub struct SchemaDiff {
     /// Policy keys (sort name) whose expression changed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub modified_policies: Vec<String>,
+
+    // --- Renames ---
+    /// Vertex renames as `(old_id, new_id)` pairs, populated by
+    /// [`apply_renames`] from an external rename detector. When set, the
+    /// classifier reports a single rename instead of a removal plus an
+    /// addition for the pair.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub renamed_vertices: Vec<(String, String)>,
+}
+
+/// Rewrite a [`SchemaDiff`] to recognise vertex renames.
+///
+/// For each `(old_id, new_id)` pair where `old_id` appears in
+/// [`removed_vertices`](SchemaDiff::removed_vertices) and `new_id` in
+/// [`added_vertices`](SchemaDiff::added_vertices), the pair is removed
+/// from those two lists and recorded in
+/// [`renamed_vertices`](SchemaDiff::renamed_vertices) instead, so a
+/// rename is reported once rather than as a deletion plus an insertion.
+///
+/// Pairs that do not correspond to a removed/added vertex pair are
+/// ignored. The rename detector itself lives in `panproto-vcs` (which
+/// depends on this crate); this hook lets callers feed detection results
+/// back into the diff without a dependency cycle.
+pub fn apply_renames(diff: &mut SchemaDiff, renames: &[(String, String)]) {
+    for (old_id, new_id) in renames {
+        let has_removed = diff.removed_vertices.iter().any(|v| v == old_id);
+        let has_added = diff.added_vertices.iter().any(|v| v == new_id);
+        if has_removed && has_added {
+            diff.removed_vertices.retain(|v| v != old_id);
+            diff.added_vertices.retain(|v| v != new_id);
+            diff.renamed_vertices.push((old_id.clone(), new_id.clone()));
+        }
+    }
 }
 
 /// Describes how constraints on a single vertex changed.
@@ -290,6 +323,15 @@ pub fn diff(old: &Schema, new: &Schema) -> SchemaDiff {
         .collect();
 
     for vid in all_constraint_vids {
+        // A constraint change is a *modification* only when its vertex
+        // exists in both schemas. Constraints on a newly-added vertex ride
+        // along with the addition (non-breaking), and constraints on a
+        // removed vertex vanish with it; neither is a modification of an
+        // existing vertex, which is what `modified_constraints` records.
+        if !old_verts.contains(vid) || !new_verts.contains(vid) {
+            continue;
+        }
+
         let old_cs = old.constraints.get(vid).cloned().unwrap_or_default();
         let new_cs = new.constraints.get(vid).cloned().unwrap_or_default();
 
@@ -799,6 +841,7 @@ impl SchemaDiff {
             && self.added_policies.is_empty()
             && self.removed_policies.is_empty()
             && self.modified_policies.is_empty()
+            && self.renamed_vertices.is_empty()
     }
 }
 
@@ -939,6 +982,34 @@ mod tests {
         assert_eq!(cdiff.changed.len(), 1);
         assert_eq!(cdiff.changed[0].old_value, "3000");
         assert_eq!(cdiff.changed[0].new_value, "300");
+    }
+
+    #[test]
+    fn diff_constraint_on_added_vertex_is_not_a_modification() {
+        // `title` is a newly-added vertex whose only constraint arrives
+        // with it. Adding a field cannot invalidate existing data, so the
+        // constraint must not surface as a *modified* constraint (which
+        // classify would report as a breaking `ConstraintAdded`).
+        let old = test_schema(&[("post", "record")], &[], HashMap::new());
+        let new_constraints = HashMap::from([(
+            Name::from("title"),
+            vec![Constraint {
+                sort: "maxLength".into(),
+                value: "120".into(),
+            }],
+        )]);
+        let new = test_schema(
+            &[("post", "record"), ("title", "string")],
+            &[],
+            new_constraints,
+        );
+
+        let d = diff(&old, &new);
+        assert_eq!(d.added_vertices, vec!["title"]);
+        assert!(
+            !d.modified_constraints.contains_key("title"),
+            "a constraint on a newly-added vertex is not a modification"
+        );
     }
 
     #[test]
@@ -1553,11 +1624,45 @@ mod tests {
                 modified_policies: vec!["a".into()],
                 ..Default::default()
             },
+            SchemaDiff {
+                renamed_vertices: vec![("a".into(), "b".into())],
+                ..Default::default()
+            },
         ];
 
         let _ = base; // suppress unused warning
         for (i, d) in cases.iter().enumerate() {
             assert!(!d.is_empty(), "case {i} should not be empty: {d:?}");
         }
+    }
+
+    #[test]
+    fn apply_renames_moves_pair_into_renamed_vertices() {
+        let mut d = SchemaDiff {
+            removed_vertices: vec!["root.text".into(), "root.gone".into()],
+            added_vertices: vec!["root.body".into(), "root.new".into()],
+            ..SchemaDiff::default()
+        };
+        apply_renames(&mut d, &[("root.text".into(), "root.body".into())]);
+
+        assert_eq!(
+            d.renamed_vertices,
+            vec![("root.text".into(), "root.body".into())]
+        );
+        assert_eq!(d.removed_vertices, vec!["root.gone".to_string()]);
+        assert_eq!(d.added_vertices, vec!["root.new".to_string()]);
+    }
+
+    #[test]
+    fn apply_renames_ignores_unmatched_pairs() {
+        let mut d = SchemaDiff {
+            removed_vertices: vec!["root.text".into()],
+            added_vertices: vec!["root.body".into()],
+            ..SchemaDiff::default()
+        };
+        // new id is not actually an added vertex: no rename recorded.
+        apply_renames(&mut d, &[("root.text".into(), "root.other".into())]);
+        assert!(d.renamed_vertices.is_empty());
+        assert_eq!(d.removed_vertices, vec!["root.text".to_string()]);
     }
 }

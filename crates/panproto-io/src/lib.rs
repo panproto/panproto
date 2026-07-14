@@ -36,6 +36,23 @@
 //! - [`error`]: Error types for parse and emit operations
 //! - [`arena`]: Arena allocation helpers for zero-copy hot paths
 //!
+//! ## Format-preservation limits
+//!
+//! Lossless round-trips (`emit(parse(bytes)) == bytes`) are available only for
+//! the **text** formats whose grammar the tree-sitter pathway captures as a
+//! concrete syntax tree: JSON, XML, YAML, TOML, CSV, and TSV, and only when the
+//! `tree-sitter` feature is enabled. The CST records the incidental layout
+//! (whitespace, key order, quoting, comments) that the abstract instance model
+//! discards, so it can be replayed on emit.
+//!
+//! **Binary** formats have no such CST pathway. `MessagePack`, Avro, Parquet,
+//! protobuf wire, and the other binary codecs parse to and emit from the
+//! abstract instance model directly, so their round-trip is preservation *up to
+//! the model*: the decoded values are faithful, but byte-level encoder choices
+//! (field ordering, integer width, optional-field presence, framing) are the
+//! emitter's, not the source's. Callers needing byte-identical binary output
+//! must retain the original bytes; panproto-io does not reconstruct them.
+//!
 //! ## Performance
 //!
 //! Parsing and emitting are designed to never be the bottleneck:
@@ -115,6 +132,10 @@ pub mod database;
 pub mod domain;
 /// Serialization protocols (Avro, FlatBuffers, ASN.1, Bond, MsgPack).
 pub mod serialization;
+/// Generic text serialization formats (YAML, TOML, CSV) with
+/// format-preserving codecs; requires the `tree-sitter` feature.
+#[cfg(feature = "tree-sitter")]
+pub mod text_format;
 /// Web and document protocols (ATProto, DOCX, ODF).
 pub mod web_document;
 
@@ -145,6 +166,8 @@ pub fn default_registry() -> ProtocolRegistry {
     database::register_all(&mut registry);
     domain::register_all(&mut registry);
     serialization::register_all(&mut registry);
+    #[cfg(feature = "tree-sitter")]
+    text_format::register_all(&mut registry);
     web_document::register_all(&mut registry);
     registry
 }
@@ -157,8 +180,10 @@ mod tests {
     fn default_registry_has_expected_protocols() {
         let registry = default_registry();
 
-        // All 50 protocols.
-        let expected = [
+        // 50 protocols in the default build, plus the three generic
+        // text-format protocols (yaml, toml, csv) when the tree-sitter
+        // feature enables their format-preserving codecs.
+        let base: &[&str] = &[
             // API (4)
             "openapi",
             "asyncapi",
@@ -222,18 +247,25 @@ mod tests {
             "edi_x12",
         ];
 
-        for name in &expected {
+        // The generic text-format codecs are format-preserving and thus
+        // only registered under the tree-sitter feature.
+        #[cfg(feature = "tree-sitter")]
+        let extra: &[&str] = &["yaml", "toml", "csv"];
+        #[cfg(not(feature = "tree-sitter"))]
+        let extra: &[&str] = &[];
+
+        for name in base.iter().chain(extra) {
             assert!(
                 registry.native_repr(name).is_ok(),
                 "protocol '{name}' should be registered in default_registry"
             );
         }
 
+        let expected_len = base.len() + extra.len();
         assert_eq!(
             registry.len(),
-            expected.len(),
+            expected_len,
             "registry should have exactly {expected_len} protocols, got {actual}",
-            expected_len = expected.len(),
             actual = registry.len(),
         );
     }

@@ -10,6 +10,7 @@ The pages here, in increasing order of formality:
 | Page | Tier |
 |---|---|
 | [What panproto solves](./what-panproto-solves.md) | Plain |
+| [The vocabulary in plain terms](./decoder-ring.md) | Plain; a one-line translation of every term of art |
 | [Schemas as theories](./schemas-as-theories.md) | Plain, with one formal section |
 | [Migrations as morphisms](./migrations-as-morphisms.md) | Plain, with one formal section |
 | [Lenses and round-trip laws](./lenses-roundtrip.md) | Plain, with the three laws stated formally |

@@ -7,7 +7,7 @@ use panproto_core::{
     inst::{self, CompiledMigration, WInstance},
     lens::{self},
     protocols,
-    schema::{self, Schema, SchemaBuilder},
+    schema::{self, Schema},
 };
 use std::collections::HashMap;
 
@@ -703,6 +703,7 @@ pub(super) fn compose_compiled(
         hyper_resolver: c2.hyper_resolver.clone(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        op_term_assignments: HashMap::new(),
         expansion_path: HashMap::new(),
     }
 }
@@ -948,17 +949,19 @@ pub(super) fn classify_complement(
 /// Returns `JsError` if tokenization or parsing fails.
 #[wasm_bindgen]
 pub fn parse_expr(source: &str) -> Result<Vec<u8>, JsError> {
-    let tokens = panproto_expr_parser::tokenize(source).map_err(|e| WasmError::ParseFailed {
-        reason: e.to_string(),
-    })?;
+    let tokens =
+        panproto_core::expr_parser::tokenize(source).map_err(|e| WasmError::ParseFailed {
+            reason: e.to_string(),
+        })?;
 
-    let expr = panproto_expr_parser::parse(&tokens).map_err(|errs| WasmError::ParseFailed {
-        reason: errs
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join("; "),
-    })?;
+    let expr =
+        panproto_core::expr_parser::parse(&tokens).map_err(|errs| WasmError::ParseFailed {
+            reason: errs
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join("; "),
+        })?;
 
     rmp_serde::to_vec_named(&expr).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
@@ -970,9 +973,9 @@ pub fn parse_expr(source: &str) -> Result<Vec<u8>, JsError> {
 
 /// Evaluate a functional expression with a given environment.
 ///
-/// The `expr_bytes` are `MessagePack`-encoded [`panproto_expr::Expr`].
-/// The `env_bytes` are `MessagePack`-encoded `Vec<(String, panproto_expr::Literal)>`.
-/// Returns the result as `MessagePack`-encoded [`panproto_expr::Literal`].
+/// The `expr_bytes` are `MessagePack`-encoded [`panproto_core::expr::Expr`].
+/// The `env_bytes` are `MessagePack`-encoded `Vec<(String, panproto_core::expr::Literal)>`.
+/// Returns the result as `MessagePack`-encoded [`panproto_core::expr::Literal`].
 ///
 /// This evaluates expressions from the pure functional language (lambda
 /// calculus with builtins), as opposed to `eval_expr` which evaluates
@@ -983,24 +986,24 @@ pub fn parse_expr(source: &str) -> Result<Vec<u8>, JsError> {
 /// Returns `JsError` if deserialization fails or evaluation errors.
 #[wasm_bindgen]
 pub fn eval_func_expr(expr_bytes: &[u8], env_bytes: &[u8]) -> Result<Vec<u8>, JsError> {
-    let expr: panproto_expr::Expr =
+    let expr: panproto_core::expr::Expr =
         rmp_serde::from_slice(expr_bytes).map_err(|e| WasmError::DeserializationFailed {
             reason: format!("expr: {e}"),
         })?;
 
-    let bindings: Vec<(String, panproto_expr::Literal)> = rmp_serde::from_slice(env_bytes)
+    let bindings: Vec<(String, panproto_core::expr::Literal)> = rmp_serde::from_slice(env_bytes)
         .map_err(|e| WasmError::DeserializationFailed {
             reason: format!("env: {e}"),
         })?;
 
-    let env: panproto_expr::Env = bindings
+    let env: panproto_core::expr::Env = bindings
         .into_iter()
         .map(|(k, v)| (std::sync::Arc::from(k.as_str()), v))
         .collect();
 
-    let config = panproto_expr::EvalConfig::default();
+    let config = panproto_core::expr::EvalConfig::default();
     let result =
-        panproto_expr::eval(&expr, &env, &config).map_err(|e| WasmError::ExprEvalFailed {
+        panproto_core::expr::eval(&expr, &env, &config).map_err(|e| WasmError::ExprEvalFailed {
             reason: e.to_string(),
         })?;
 
@@ -1012,19 +1015,47 @@ pub fn eval_func_expr(expr_bytes: &[u8], env_bytes: &[u8]) -> Result<Vec<u8>, Js
     })
 }
 
+/// Decode the schema argument for [`execute_query`].
+///
+/// Queries are schema-typed: a match's anchor must exist in the schema.
+/// An empty `schema_bytes` is therefore rejected rather than fabricated
+/// into a placeholder schema, so a caller cannot silently query against
+/// a schema it never supplied.
+///
+/// # Errors
+///
+/// Returns [`WasmError::DeserializationFailed`] when `schema_bytes` is
+/// empty or is not a valid `MessagePack`-encoded [`Schema`].
+fn decode_query_schema(schema_bytes: &[u8]) -> Result<Schema, WasmError> {
+    if schema_bytes.is_empty() {
+        return Err(WasmError::DeserializationFailed {
+            reason: "schema: query execution requires a schema, but schema_bytes was empty; \
+                     queries are schema-typed, so a match anchor must exist in the schema"
+                .to_owned(),
+        });
+    }
+    rmp_serde::from_slice(schema_bytes).map_err(|e| WasmError::DeserializationFailed {
+        reason: format!("schema: {e}"),
+    })
+}
+
 /// Execute a declarative query against a W-type instance.
 ///
 /// The `query_bytes` are `MessagePack`-encoded [`inst::InstanceQuery`].
 /// The `instance_bytes` are `MessagePack`-encoded [`WInstance`].
-/// The `schema_bytes` are `MessagePack`-encoded [`Schema`]. If empty,
-/// a minimal placeholder schema is used (sufficient for queries that
-/// do not require schema-aware operations).
+/// The `schema_bytes` are `MessagePack`-encoded [`Schema`] and must be
+/// non-empty. Queries are schema-typed: a match's anchor must exist in
+/// the schema, so a query cannot be interpreted without one. Empty
+/// `schema_bytes` are therefore rejected with a deserialization error
+/// rather than run against a fabricated placeholder that could return
+/// misleading matches.
 /// Returns `MessagePack`-encoded query results as a list of match objects,
 /// each containing `node_id`, `anchor`, `value`, and `fields`.
 ///
 /// # Errors
 ///
-/// Returns `JsError` if deserialization fails.
+/// Returns `JsError` if `query_bytes`, `instance_bytes`, or
+/// `schema_bytes` fail to deserialize, or if `schema_bytes` is empty.
 #[wasm_bindgen]
 pub fn execute_query(
     query_bytes: &[u8],
@@ -1041,21 +1072,7 @@ pub fn execute_query(
             reason: format!("instance: {e}"),
         })?;
 
-    let schema: Schema = if schema_bytes.is_empty() {
-        SchemaBuilder::new(&schema::Protocol::default())
-            .vertex("_", "record", None)
-            .map_err(|e| WasmError::DeserializationFailed {
-                reason: format!("placeholder schema: {e}"),
-            })?
-            .build()
-            .map_err(|e| WasmError::DeserializationFailed {
-                reason: format!("placeholder schema: {e}"),
-            })?
-    } else {
-        rmp_serde::from_slice(schema_bytes).map_err(|e| WasmError::DeserializationFailed {
-            reason: format!("schema: {e}"),
-        })?
-    };
+    let schema: Schema = decode_query_schema(schema_bytes)?;
 
     let matches = inst::execute_query(&query, &instance, &schema);
 
@@ -1086,4 +1103,77 @@ pub fn execute_query(
         }
         .into()
     })
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod smoke_tests {
+    use super::*;
+
+    #[test]
+    fn parse_expr_exported_entry_point() {
+        let bytes = parse_expr("add 1 2").unwrap();
+        assert!(!bytes.is_empty(), "parsed expression must encode to bytes");
+    }
+
+    fn single_node_schema_bytes() -> Vec<u8> {
+        use panproto_core::schema::{Protocol, SchemaBuilder};
+        let schema = SchemaBuilder::new(&Protocol::default())
+            .vertex("document", "record", None)
+            .unwrap()
+            .build()
+            .unwrap();
+        rmp_serde::to_vec_named(&schema).unwrap()
+    }
+
+    fn single_node_instance_bytes() -> Vec<u8> {
+        use panproto_core::gat::Name;
+        use panproto_core::inst::metadata::Node;
+        let mut nodes = HashMap::new();
+        nodes.insert(0u32, Node::new(0, "document"));
+        let instance = WInstance::new(nodes, vec![], vec![], 0, Name::from("document"));
+        rmp_serde::to_vec_named(&instance).unwrap()
+    }
+
+    fn anchor_query_bytes() -> Vec<u8> {
+        use panproto_core::gat::Name;
+        let query = inst::InstanceQuery {
+            anchor: Name::from("document"),
+            ..Default::default()
+        };
+        rmp_serde::to_vec_named(&query).unwrap()
+    }
+
+    #[test]
+    fn execute_query_rejects_empty_schema() {
+        // The empty-schema contract: rather than fabricate a
+        // placeholder, execute_query rejects an empty schema so a
+        // caller cannot silently query against a schema it never
+        // supplied. The check lives in decode_query_schema, tested
+        // directly here because constructing the JsError that
+        // execute_query would return is a no-op only on the wasm
+        // target.
+        let err = decode_query_schema(&[]).expect_err("empty schema_bytes must be rejected");
+        assert!(
+            matches!(err, WasmError::DeserializationFailed { .. }),
+            "empty schema_bytes must fail as a deserialization error, got {err:?}"
+        );
+        // The same decoder accepts real schema bytes.
+        decode_query_schema(&single_node_schema_bytes()).expect("valid schema bytes must decode");
+    }
+
+    #[test]
+    fn execute_query_runs_with_real_schema() {
+        let result = execute_query(
+            &anchor_query_bytes(),
+            &single_node_instance_bytes(),
+            &single_node_schema_bytes(),
+        );
+        let bytes = result.expect("query with a real schema must succeed");
+        // The result is a MessagePack-encoded match list; the single
+        // "document" node matches the anchor query.
+        let matches: Vec<serde_json::Value> =
+            rmp_serde::from_slice(&bytes).expect("results decode as a match list");
+        assert_eq!(matches.len(), 1, "the document node must match the anchor");
+    }
 }

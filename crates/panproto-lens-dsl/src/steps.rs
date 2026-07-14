@@ -9,17 +9,23 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use panproto_gat::{
-    CoercionClass, Equation, Name, TheoryConstraint, TheoryEndofunctor, TheoryMorphism,
-    TheoryTransform, ValueKind,
+    CoercionClass, DirectedEquation, Equation, Name, TheoryConstraint, TheoryEndofunctor,
+    TheoryMorphism, TheoryTransform, ValueKind,
 };
 use panproto_inst::FieldTransform;
 use panproto_inst::value::Value;
-use panproto_lens::{ProtolensChain, combinators, elementary};
+use panproto_lens::{ProtolensChain, coercion_laws, combinators, elementary};
 
-use crate::document::{CoercionKind, Step};
+/// Free-variable name under which a `coerce_sort` step binds the coerced
+/// value in its forward and inverse expressions. Matches the binding the
+/// instance-level coercion uses when it applies the expressions.
+const COERCION_VAR: &str = "v";
+
+use crate::document::{CoercionKind, DirectedEquationSpec, Step};
 use crate::error::LensDslError;
 
 /// Result of compiling a step pipeline.
+#[derive(Debug)]
 pub struct CompiledSteps {
     /// The schema-level protolens chain.
     pub chain: ProtolensChain,
@@ -286,7 +292,7 @@ fn compile_pullback(pullback: &crate::document::PullbackSpec, chains: &mut Vec<P
             .op_map
             .iter()
             .map(|(k, v)| (Arc::from(&**k), Arc::from(&**v)))
-            .collect(),
+            .collect::<std::collections::HashMap<Arc<str>, Arc<str>>>(),
     );
     chains.push(ProtolensChain::new(vec![elementary::pullback(morphism)]));
 }
@@ -385,6 +391,30 @@ fn compile_coerce_sort(
     let target_kind = parse_value_kind(&coerce_sort.target_kind);
     let class = coerce_sort.coercion.to_coercion_class();
 
+    // Reject a dishonest declaration at compile time: run the declared
+    // class's round-trip laws against sampled inputs of the source kind.
+    // A class that fails on the samples cannot round-trip, so the step is
+    // refused here rather than built and silently accepted. The check is
+    // evidence, not proof: it exercises the declared laws on the drawn
+    // samples only.
+    let source_kind = coerce_sort
+        .source_kind
+        .as_deref()
+        .map_or(ValueKind::Any, parse_value_kind);
+    let registry = coercion_laws::CoercionSampleRegistry::with_defaults();
+    coercion_laws::check_coercion_honesty(
+        &coercion_expr,
+        inverse_expr.as_ref(),
+        class,
+        source_kind,
+        COERCION_VAR,
+        &registry,
+    )
+    .map_err(|e| LensDslError::CoercionNotHonest {
+        step_desc: format!("coerce_sort[{index}]"),
+        message: e.to_string(),
+    })?;
+
     let sort_arc = Arc::from(&*coerce_sort.sort);
     let protolens = panproto_lens::Protolens {
         name: Name::from(format!("coerce_sort_{}", coerce_sort.sort)),
@@ -465,6 +495,55 @@ fn compile_merge_sorts(
     };
     chains.push(ProtolensChain::new(vec![protolens]));
     Ok(())
+}
+
+/// Compile a slice of [`DirectedEquationSpec`]s into a [`ProtolensChain`].
+///
+/// Each directed equation becomes a `directed_eq` protolens step: an
+/// oriented rewrite `lhs → rhs` with a computable forward implementation
+/// (and optional inverse). This is the DSL surface for the lens crate's
+/// directed-equation machinery.
+///
+/// # Errors
+///
+/// Returns [`LensDslError::ExprParse`] if an implementation or inverse
+/// expression cannot be parsed.
+pub fn compile_directed_equations(
+    equations: &[DirectedEquationSpec],
+) -> Result<ProtolensChain, LensDslError> {
+    let mut steps = Vec::with_capacity(equations.len());
+    for (i, spec) in equations.iter().enumerate() {
+        steps.push(elementary::directed_eq(directed_equation_from_spec(
+            spec, i,
+        )?));
+    }
+    Ok(ProtolensChain::new(steps))
+}
+
+/// Build a [`DirectedEquation`] from its DSL spec.
+fn directed_equation_from_spec(
+    spec: &DirectedEquationSpec,
+    index: usize,
+) -> Result<DirectedEquation, LensDslError> {
+    let impl_term = parse_expr(
+        &spec.impl_term,
+        &format!("directed_equations[{index}].impl"),
+    )?;
+    let inverse = spec
+        .inverse
+        .as_deref()
+        .map(|s| parse_expr(s, &format!("directed_equations[{index}].inverse")))
+        .transpose()?;
+    Ok(DirectedEquation {
+        name: Arc::from(&*spec.name),
+        lhs: parse_term(&spec.lhs),
+        rhs: parse_term(&spec.rhs),
+        impl_term,
+        inverse,
+        source_kind: spec.source_kind.as_deref().map(parse_value_kind),
+        target_kind: spec.target_kind.as_deref().map(parse_value_kind),
+        coercion_class: spec.coercion.to_coercion_class(),
+    })
 }
 
 /// Parse a panproto expression string.
@@ -590,4 +669,243 @@ fn split_top_level_commas(s: &str) -> Vec<&str> {
         parts.push(tail);
     }
     parts
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::document::{
+        AddFieldSpec, AddSortSpec, ApplyExprSpec, CoerceSortSpec, ComputeFieldSpec,
+        DirectedEquationSpec, RenameSpec,
+    };
+
+    const BODY: &str = "record:body";
+
+    #[test]
+    fn rename_field_step_compiles_to_chain() {
+        let steps = vec![Step::RenameField {
+            rename_field: RenameSpec {
+                old: "title".to_owned(),
+                new: "heading".to_owned(),
+            },
+        }];
+        let compiled = compile_steps(&steps, BODY).unwrap();
+        assert!(
+            !compiled.chain.steps.is_empty(),
+            "rename_field should emit at least one protolens step"
+        );
+        assert!(compiled.field_transforms.is_empty());
+    }
+
+    #[test]
+    fn remove_field_step_compiles_to_chain() {
+        let steps = vec![Step::RemoveField {
+            remove_field: "obsolete".to_owned(),
+        }];
+        let compiled = compile_steps(&steps, BODY).unwrap();
+        assert!(!compiled.chain.steps.is_empty());
+    }
+
+    #[test]
+    fn add_field_with_expr_emits_field_transform() {
+        let steps = vec![Step::AddField {
+            add_field: AddFieldSpec {
+                name: "slug".to_owned(),
+                kind: "string".to_owned(),
+                default: serde_json::Value::String(String::new()),
+                expr: Some("title".to_owned()),
+            },
+        }];
+        let compiled = compile_steps(&steps, BODY).unwrap();
+        // add_field emits a schema-level chain step ...
+        assert!(!compiled.chain.steps.is_empty());
+        // ... and, because `expr` is present, a value-level transform
+        // keyed by the body vertex.
+        let key = Name::from(BODY);
+        let transforms = compiled.field_transforms.get(&key).unwrap();
+        assert!(
+            transforms
+                .iter()
+                .any(|t| matches!(t, FieldTransform::ComputeField { target_key, .. } if target_key == "slug")),
+            "expected a ComputeField transform for `slug`"
+        );
+    }
+
+    #[test]
+    fn apply_expr_step_emits_field_transform_with_coercion() {
+        let steps = vec![Step::ApplyExpr {
+            apply_expr: ApplyExprSpec {
+                field: "count".to_owned(),
+                expr: "add count 1".to_owned(),
+                inverse: Some("sub count 1".to_owned()),
+                coercion: Some(CoercionKind::Iso),
+            },
+        }];
+        let compiled = compile_steps(&steps, BODY).unwrap();
+        let key = Name::from(BODY);
+        let transforms = compiled.field_transforms.get(&key).unwrap();
+        assert!(transforms.iter().any(|t| matches!(
+            t,
+            FieldTransform::ApplyExpr { key, coercion_class, inverse: Some(_), .. }
+                if key == "count" && coercion_class.is_lossless()
+        )));
+    }
+
+    #[test]
+    fn compute_field_defaults_to_projection() {
+        let steps = vec![Step::ComputeField {
+            compute_field: ComputeFieldSpec {
+                target: "derived".to_owned(),
+                expr: "count".to_owned(),
+                inverse: None,
+                coercion: None,
+            },
+        }];
+        let compiled = compile_steps(&steps, BODY).unwrap();
+        let key = Name::from(BODY);
+        let transforms = compiled.field_transforms.get(&key).unwrap();
+        assert!(transforms.iter().any(|t| matches!(
+            t,
+            FieldTransform::ComputeField { target_key, coercion_class, .. }
+                if target_key == "derived" && *coercion_class == CoercionClass::Projection
+        )));
+    }
+
+    #[test]
+    fn add_sort_and_drop_sort_are_theory_steps() {
+        let steps = vec![
+            Step::AddSort {
+                add_sort: AddSortSpec {
+                    name: "flag".to_owned(),
+                    kind: "boolean".to_owned(),
+                    default: serde_json::Value::Bool(false),
+                },
+            },
+            Step::DropSort {
+                drop_sort: "legacy".to_owned(),
+            },
+        ];
+        let compiled = compile_steps(&steps, BODY).unwrap();
+        assert_eq!(
+            compiled.chain.steps.len(),
+            2,
+            "add_sort + drop_sort should emit two chain steps"
+        );
+    }
+
+    #[test]
+    fn invalid_expr_reports_expr_parse_error() {
+        let steps = vec![Step::ApplyExpr {
+            apply_expr: ApplyExprSpec {
+                field: "x".to_owned(),
+                expr: "((((".to_owned(),
+                inverse: None,
+                coercion: None,
+            },
+        }];
+        let err = compile_steps(&steps, BODY).unwrap_err();
+        assert!(matches!(err, LensDslError::ExprParse { .. }));
+    }
+
+    #[test]
+    fn honest_coerce_sort_compiles() {
+        // `not v` is a boolean involution: `not (not b) == b` for both
+        // sample booleans, so the declared `Iso` class is honest and the
+        // step compiles to a chain.
+        let steps = vec![Step::CoerceSort {
+            coerce_sort: CoerceSortSpec {
+                sort: "flag".to_owned(),
+                source_kind: Some("boolean".to_owned()),
+                target_kind: "boolean".to_owned(),
+                expr: "not v".to_owned(),
+                inverse: Some("not v".to_owned()),
+                coercion: CoercionKind::Iso,
+            },
+        }];
+        let compiled = compile_steps(&steps, BODY).unwrap();
+        assert!(
+            !compiled.chain.steps.is_empty(),
+            "an honest coerce_sort should emit a chain step"
+        );
+    }
+
+    #[test]
+    fn dishonest_coerce_sort_is_rejected() {
+        // `upper v` forward with an identity inverse cannot be an `Iso`:
+        // `upper` is not invertible, so `v = inverse(upper(v))` fails on
+        // any string with lowercase content. The declared class is
+        // dishonest and the step is refused at compile time.
+        let steps = vec![Step::CoerceSort {
+            coerce_sort: CoerceSortSpec {
+                sort: "name".to_owned(),
+                source_kind: Some("string".to_owned()),
+                target_kind: "string".to_owned(),
+                expr: "upper v".to_owned(),
+                inverse: Some("v".to_owned()),
+                coercion: CoercionKind::Iso,
+            },
+        }];
+        let err = compile_steps(&steps, BODY).unwrap_err();
+        assert!(
+            matches!(err, LensDslError::CoercionNotHonest { .. }),
+            "dishonest coercion must be rejected, got {err:?}"
+        );
+        // The diagnostic carries the evidence-not-proof caveat.
+        assert!(
+            err.to_string().contains("evidence, not proof"),
+            "error text should carry the evidence-not-proof caveat: {err}"
+        );
+    }
+
+    #[test]
+    fn directed_equations_compile_to_chain_steps() {
+        let equations = vec![
+            DirectedEquationSpec {
+                name: "double".to_owned(),
+                lhs: "x".to_owned(),
+                rhs: "double(x)".to_owned(),
+                impl_term: "mul x 2".to_owned(),
+                inverse: Some("mul x 2".to_owned()),
+                source_kind: Some("integer".to_owned()),
+                target_kind: Some("integer".to_owned()),
+                coercion: CoercionKind::Iso,
+            },
+            DirectedEquationSpec {
+                name: "stringify".to_owned(),
+                lhs: "n".to_owned(),
+                rhs: "s".to_owned(),
+                impl_term: "int_to_str n".to_owned(),
+                inverse: None,
+                source_kind: None,
+                target_kind: None,
+                coercion: CoercionKind::Projection,
+            },
+        ];
+        let chain = compile_directed_equations(&equations).unwrap();
+        assert_eq!(chain.steps.len(), 2);
+        assert!(
+            chain
+                .steps
+                .iter()
+                .any(|s| s.name.as_str().contains("double")),
+            "expected a directed-eq step named for `double`"
+        );
+    }
+
+    #[test]
+    fn directed_equation_with_bad_impl_errors() {
+        let equations = vec![DirectedEquationSpec {
+            name: "broken".to_owned(),
+            lhs: "x".to_owned(),
+            rhs: "y".to_owned(),
+            impl_term: "((((".to_owned(),
+            inverse: None,
+            source_kind: None,
+            target_kind: None,
+            coercion: CoercionKind::Iso,
+        }];
+        let err = compile_directed_equations(&equations).unwrap_err();
+        assert!(matches!(err, LensDslError::ExprParse { .. }));
+    }
 }

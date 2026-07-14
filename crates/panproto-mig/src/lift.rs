@@ -48,12 +48,17 @@ pub fn lift_functor(
 
 /// Apply a compiled migration as a left Kan extension (`Sigma_F`) to a W-type instance.
 ///
-/// Delegates to [`panproto_inst::wtype_extend`], which pushes nodes forward
-/// along the migration morphism, remapping anchors and edges.
+/// Delegates to [`panproto_inst::wtype_extend`], which pushes every node
+/// forward along the migration morphism, remapping anchors and edges. This
+/// is a *total* operation: it requires each source node's anchor to be
+/// remapped or surviving, and reports an unmapped anchor rather than
+/// dropping the node silently.
 ///
 /// # Errors
 ///
-/// Returns `LiftError::Restrict` if the underlying extend operation fails.
+/// Returns `LiftError::Restrict` if the underlying extend operation fails,
+/// including when a source node's anchor is neither remapped nor surviving
+/// (`RestrictError::UnmappedAnchor`).
 pub fn lift_wtype_sigma(
     compiled: &CompiledMigration,
     tgt_schema: &Schema,
@@ -65,14 +70,19 @@ pub fn lift_wtype_sigma(
 
 /// Apply a compiled migration as a right Kan extension (`Pi_F`) to a W-type instance.
 ///
-/// Delegates to [`panproto_inst::wtype_pi`], which computes the product
-/// over fibers. Multi-element fibers produce subtree Cartesian products
-/// bounded by `max_product_nodes`.
+/// Delegates to [`panproto_inst::wtype_pi`], which is defined only for
+/// vertex-injective migrations: under that restriction it relabels anchors
+/// and edges without forming any product. A non-injective migration is
+/// rejected rather than silently producing `Sigma`-shaped output; the
+/// `max_product_nodes` argument is retained for signature compatibility and
+/// imposes no bound on this path.
 ///
 /// # Errors
 ///
-/// Returns `LiftError::Restrict` if the underlying pi operation fails
-/// (e.g., product size exceeded for multi-element fibers).
+/// Returns `LiftError::Restrict` if the underlying pi operation fails —
+/// notably `RestrictError::NonInjectiveVertexMap` when two source vertices
+/// map to one target, or `RestrictError::UnmappedAnchor` when a node's
+/// anchor is neither remapped nor surviving.
 pub fn lift_wtype_pi(
     compiled: &CompiledMigration,
     tgt_schema: &Schema,
@@ -81,6 +91,42 @@ pub fn lift_wtype_pi(
 ) -> Result<WInstance, LiftError> {
     let result = panproto_inst::wtype_pi(instance, tgt_schema, compiled, max_product_nodes)?;
     Ok(result)
+}
+
+/// Apply a compiled migration as a left Kan extension (`Sigma_F`) to a
+/// functor instance, then close it under a term-level chase.
+///
+/// This is the `Sigma` pipeline entry for set-valued instances: it runs
+/// `Sigma_F` ([`panproto_inst::functor_extend`]) and then saturates the
+/// result under `dependencies` with [`crate::chase::chase`], enforcing
+/// tuple- and equality-generating dependencies (with labeled nulls) that a
+/// pure extension cannot. Pass an empty `dependencies` slice to run
+/// `Sigma_F` alone.
+///
+/// # Errors
+///
+/// Returns `LiftError::Restrict` if the extension fails, or
+/// `LiftError::Chase` if the chase reports an equality conflict or exhausts
+/// its budget.
+pub fn lift_functor_sigma(
+    compiled: &CompiledMigration,
+    instance: &FInstance,
+    dependencies: &[crate::chase::Dependency],
+    budget: crate::chase::ChaseBudget,
+) -> Result<FInstance, LiftError> {
+    let extended = panproto_inst::functor_extend(instance, compiled)?;
+    if dependencies.is_empty() {
+        return Ok(extended);
+    }
+    match crate::chase::chase(&extended, dependencies, budget)? {
+        crate::chase::ChaseOutcome::Saturated(result) => Ok(result),
+        crate::chase::ChaseOutcome::NonTermination => Err(LiftError::Chase {
+            detail: format!(
+                "term-level chase did not terminate within {} iterations / {} nulls",
+                budget.max_iterations, budget.max_nulls
+            ),
+        }),
+    }
 }
 
 /// Apply a compiled migration as a right Kan extension (`Pi_F`) to a functor instance.
@@ -108,7 +154,7 @@ mod tests {
 
     use super::*;
     use panproto_inst::value::FieldPresence;
-    use panproto_inst::{Node, Value};
+    use panproto_inst::{Node, Value, WInstanceHom};
     use panproto_schema::{Edge, Vertex};
 
     fn test_schema(vertices: &[(&str, &str)], edges: &[Edge]) -> Schema {
@@ -228,6 +274,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            op_term_assignments: HashMap::new(),
             expansion_path: HashMap::new(),
         };
 
@@ -293,6 +340,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            op_term_assignments: HashMap::new(),
             expansion_path: HashMap::new(),
         };
 
@@ -366,6 +414,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            op_term_assignments: HashMap::new(),
             expansion_path: HashMap::new(),
         };
 
@@ -382,6 +431,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            op_term_assignments: HashMap::new(),
             expansion_path: HashMap::new(),
         };
 
@@ -406,44 +456,34 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            op_term_assignments: HashMap::new(),
             expansion_path: HashMap::new(),
         };
 
-        // Build instance on s1.
+        // Build instance on s1. Σ (left Kan extension) is total: it cannot
+        // extend a node whose anchor a migration drops, so the instance
+        // contains only nodes that survive every migration exercised below
+        // (m1 drops createdAt, so no createdAt node is present here). This
+        // keeps the test on the functoriality of Σ over renames, which is
+        // where Σ — as opposed to the projection Δ — is the right operation.
         let mut nodes = HashMap::new();
         nodes.insert(0, Node::new(0, "body"));
         nodes.insert(
             1,
             Node::new(1, "body.text")
-                .with_value(FieldPresence::Present(Value::Str("hello".into()))),
+                .with_value(FieldPresence::Present(Value::Str("hello".into())))
+                .with_extra_field("$lang", Value::Str("en".into())),
         );
-        nodes.insert(
-            2,
-            Node::new(2, "body.createdAt")
-                .with_value(FieldPresence::Present(Value::Str("2024-01-01".into()))),
-        );
-        let arcs = vec![
-            (
-                0,
-                1,
-                Edge {
-                    src: "body".into(),
-                    tgt: "body.text".into(),
-                    kind: "prop".into(),
-                    name: Some("text".into()),
-                },
-            ),
-            (
-                0,
-                2,
-                Edge {
-                    src: "body".into(),
-                    tgt: "body.createdAt".into(),
-                    kind: "prop".into(),
-                    name: Some("createdAt".into()),
-                },
-            ),
-        ];
+        let arcs = vec![(
+            0,
+            1,
+            Edge {
+                src: "body".into(),
+                tgt: "body.text".into(),
+                kind: "prop".into(),
+                name: Some("text".into()),
+            },
+        )];
         let instance = WInstance::new(nodes, arcs, vec![], 0, panproto_gat::Name::from("body"));
 
         // Sequential: lift_sigma(m2, lift_sigma(m1, I))
@@ -453,11 +493,37 @@ mod tests {
         // Direct: lift_sigma(m12, I)
         let direct = lift_wtype_sigma(&m12, &s3, &instance).unwrap();
 
-        // Both should have the same node count.
-        assert_eq!(
-            sequential.node_count(),
-            direct.node_count(),
-            "Σ functoriality: sequential and direct should have same node count"
+        // Σ preserves node ids, so the identity node map is the candidate
+        // isomorphism between the sequential and direct results. Asserting it
+        // is an isomorphism checks that anchors, arcs, fans, and the root all
+        // agree — far stronger than a node-count match.
+        let node_map: HashMap<u32, u32> = sequential.nodes.keys().map(|&id| (id, id)).collect();
+        let hom = WInstanceHom::new(node_map);
+        assert!(
+            hom.is_isomorphism(&sequential, &direct),
+            "Σ functoriality: sequential and direct results must be isomorphic"
+        );
+
+        // The isomorphism already enforces attribute preservation; assert the
+        // value and extra-field agreement explicitly as a regression guard.
+        for (&id, node) in &sequential.nodes {
+            let image = direct.nodes.get(&id).unwrap();
+            assert_eq!(node.value, image.value, "node {id} value must agree");
+            assert_eq!(
+                node.extra_fields, image.extra_fields,
+                "node {id} extra fields must agree"
+            );
+        }
+
+        // Flipping one anchor in the direct result must break the isomorphism,
+        // confirming the check is sensitive to anchor preservation.
+        let mut tampered = direct;
+        if let Some(root) = tampered.nodes.get_mut(&0) {
+            root.anchor = panproto_gat::Name::from("tampered");
+        }
+        assert!(
+            !hom.is_isomorphism(&sequential, &tampered),
+            "flipping an anchor must break the Σ-functoriality isomorphism"
         );
     }
 
@@ -494,6 +560,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            op_term_assignments: HashMap::new(),
             expansion_path: HashMap::new(),
         };
 
@@ -581,6 +648,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            op_term_assignments: HashMap::new(),
             expansion_path: HashMap::new(),
         };
 

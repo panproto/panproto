@@ -56,7 +56,6 @@ let new_instance = lift_wtype(&compiled, &src_schema, &tgt_schema, &old_instance
 | `align::description_anchors` / `description_similarity` | Anchors from token similarity over vertex descriptions when names diverge |
 | `align::neighborhood_anchors` | Anchors propagated from already-matched neighbors (Lenient+) |
 | `align::wl_anchors` | Weisfeiler-Leman structural-refinement anchors that match graph-locally-isomorphic vertices |
-| `align::embedding_anchors` / `Embedder` / `HashEmbedder` / `cosine_similarity` | Embedding-trait-based cosine anchors (feature-gated on `lm_embeddings`, scaffolded with a hash embedder by default) |
 | `align::type_signature_anchors` | Multiset-overlap anchors on edge-kind signatures with coerced variants |
 | `align::wrap_unwrap_anchors` | Record-flattening/nesting anchors |
 | `align::structural_anchors` | Degree-signature anchors (Exploratory only) |

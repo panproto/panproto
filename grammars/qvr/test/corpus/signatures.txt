@@ -1,0 +1,115 @@
+==================
+signature with all body sections
+==================
+
+signature Lam (E, T)
+    sorts
+        term : object
+        pos : index
+        emb : data [dim=64]
+    constructors
+        app : term, term -> term
+        unit : -> term
+    binders
+        lam : binds (x : term) in (body : term) -> term
+        anno : binds (x : term : a : emb) in (body : term) -> term
+    vertex_kinds
+        node : object
+        feat : data [dim=8]
+    edge_kinds
+        child : node -> node
+        sib : node -- node
+
+---
+
+(source_file
+  (signature_decl
+    (identifier)
+    (identifier)
+    (identifier)
+    (signature_sorts
+      (sort_decl
+        (identifier)
+        (sort_kind))
+      (sort_decl
+        (identifier)
+        (sort_kind))
+      (sort_decl
+        (identifier)
+        (sort_kind)
+        (option_block
+          (option_entry
+            (identifier)
+            (signed_number
+              (integer))))))
+    (signature_constructors
+      (constructor_decl
+        (identifier)
+        (identifier)
+        (identifier)
+        (identifier))
+      (constructor_decl
+        (identifier)
+        (identifier)))
+    (signature_binders
+      (binder_decl
+        (identifier)
+        (binder_var_decl
+          (identifier)
+          (identifier))
+        (binder_arg_decl
+          (identifier)
+          (identifier))
+        (identifier))
+      (binder_decl
+        (identifier)
+        (binder_var_decl
+          (identifier)
+          (identifier)
+          (identifier)
+          (identifier))
+        (binder_arg_decl
+          (identifier)
+          (identifier))
+        (identifier)))
+    (signature_vertex_kinds
+      (vertex_kind_decl
+        (identifier)
+        (sort_kind))
+      (vertex_kind_decl
+        (identifier)
+        (sort_kind)
+        (option_block
+          (option_entry
+            (identifier)
+            (signed_number
+              (integer))))))
+    (signature_edge_kinds
+      (edge_kind_decl
+        (identifier)
+        (identifier)
+        (edge_arrow)
+        (identifier))
+      (edge_kind_decl
+        (identifier)
+        (identifier)
+        (edge_arrow)
+        (identifier)))))
+
+==================
+signature without parameters
+==================
+
+signature Sig
+    sorts
+        E : object
+
+---
+
+(source_file
+  (signature_decl
+    (identifier)
+    (signature_sorts
+      (sort_decl
+        (identifier)
+        (sort_kind)))))

@@ -1,0 +1,84 @@
+==================
+outer and inner pragmas
+==================
+
+#![module_name = "demo", strict]
+#[jit = true, backend = "torch", tol = -1e-6]
+morphism f : A -> B
+
+---
+
+(source_file
+  (pragma_inner
+    (pragma_entry
+      (identifier)
+      (string))
+    (pragma_entry
+      (identifier)))
+  (pragma_outer
+    (pragma_entry
+      (identifier)
+      (identifier))
+    (pragma_entry
+      (identifier)
+      (string))
+    (pragma_entry
+      (identifier)
+      (signed_number
+        (float))))
+  (morphism_decl
+    (identifier)
+    (object_atom
+      (identifier))
+    (object_atom
+      (identifier))))
+
+==================
+doc comments attach to declarations
+==================
+
+#! Prior over responses.
+#! Second doc line.
+morphism g : A -> B ~ Normal(0.0, 1.0)
+
+---
+
+(source_file
+  (morphism_decl
+    (doc_comment_group
+      (doc_comment)
+      (doc_comment))
+    (identifier)
+    (object_atom
+      (identifier))
+    (object_atom
+      (identifier))
+    (morphism_init_family
+      (identifier)
+      (signed_number
+        (float))
+      (signed_number
+        (float)))))
+
+==================
+line and block comments
+==================
+
+# leading line comment
+category C  # trailing comment
+#{ multi-line
+   block comment }#
+object A : {a}
+
+---
+
+(source_file
+  (line_comment)
+  (category_decl
+    (identifier)
+    (line_comment))
+  (block_comment)
+  (object_decl
+    (identifier)
+    (enum_set_literal
+      (identifier))))

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::eq::Equation;
+use crate::eq::{DirectedEquation, Equation, alpha_equivalent_equation};
 use crate::error::GatError;
 use crate::op::Operation;
 use crate::sort::{Sort, SortParam};
@@ -160,19 +160,44 @@ fn build_rename_maps(
         sort_uf.union(a, b);
     }
 
-    // Verify sort arity compatibility.
+    // Verify that every member of a sort class agrees with the class
+    // representative on arity, kind, and closure. Identifying two sorts
+    // collapses them to a single representative, so any field that differs
+    // between members would be silently discarded; reject it instead.
     for (rep, members) in &sort_uf.classes() {
-        let rep_arity = get_sort(theory, rep)?.arity();
+        let rep_sort = get_sort(theory, rep)?;
+        let rep_arity = rep_sort.arity();
         for member in members {
             if member == rep {
                 continue;
             }
-            let member_arity = get_sort(theory, member)?.arity();
+            let member_sort = get_sort(theory, member)?;
+            let member_arity = member_sort.arity();
             if member_arity != rep_arity {
                 return Err(GatError::QuotientIncompatible {
                     name_a: rep.to_string(),
                     name_b: member.to_string(),
                     detail: format!("sort arities differ ({rep_arity} vs {member_arity})"),
+                });
+            }
+            if member_sort.kind != rep_sort.kind {
+                return Err(GatError::QuotientIncompatible {
+                    name_a: rep.to_string(),
+                    name_b: member.to_string(),
+                    detail: format!(
+                        "sort kinds differ ({:?} vs {:?})",
+                        rep_sort.kind, member_sort.kind
+                    ),
+                });
+            }
+            if member_sort.closure != rep_sort.closure {
+                return Err(GatError::QuotientIncompatible {
+                    name_a: rep.to_string(),
+                    name_b: member.to_string(),
+                    detail: format!(
+                        "sort closures differ ({:?} vs {:?})",
+                        rep_sort.closure, member_sort.closure
+                    ),
                 });
             }
         }
@@ -212,6 +237,15 @@ fn build_rename_maps(
 }
 
 /// Rebuild theory components using the computed rename maps.
+///
+/// Constructs the quotiented theory with [`Theory::full`] so that the
+/// directed equations and conflict policies survive quotienting. The
+/// directed equations have their op references renamed through
+/// `op_rename` (the `impl_term`, `inverse`, `source_kind`, `target_kind`,
+/// and `coercion_class` fields ride through unchanged), and are
+/// deduplicated by renamed lhs/rhs. Policies reference neither sorts nor
+/// ops, so they are carried through unchanged. `extends` is left empty:
+/// the quotiented theory declares no parents.
 fn rebuild_theory(
     theory: &Theory,
     sort_rename: &RenameMap,
@@ -220,11 +254,15 @@ fn rebuild_theory(
     let new_sorts = rebuild_sorts(theory, sort_rename)?;
     let new_ops = rebuild_ops(theory, sort_rename, op_rename)?;
     let new_eqs = rebuild_eqs(&theory.eqs, op_rename);
-    Ok(Theory::new(
+    let new_directed_eqs = rebuild_directed_eqs(&theory.directed_eqs, op_rename);
+    Ok(Theory::full(
         theory.name.clone(),
+        Vec::new(),
         new_sorts,
         new_ops,
         new_eqs,
+        new_directed_eqs,
+        theory.policies.clone(),
     ))
 }
 
@@ -290,26 +328,57 @@ fn rebuild_ops(
     Ok(result)
 }
 
-/// Rename ops in equations and deduplicate.
+/// Rename ops in equations and deduplicate modulo alpha-equivalence.
+///
+/// Two renamed equations that differ only in the names of their
+/// universally-quantified variables denote the same axiom, so the second
+/// is dropped. Undirected equations are symmetric (`lhs = rhs` and
+/// `rhs = lhs` denote the same axiom), so both orientations are compared.
 fn rebuild_eqs(eqs: &[Equation], op_rename: &RenameMap) -> Vec<Equation> {
     let op_rename_std: std::collections::HashMap<Arc<str>, Arc<str>> = op_rename
         .iter()
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
 
-    let mut result = Vec::new();
-    let mut seen: FxHashSet<(Arc<str>, Arc<str>)> = FxHashSet::default();
+    let mut result: Vec<Equation> = Vec::new();
     for eq in eqs {
         let renamed = eq.rename_ops(&op_rename_std);
-        let lhs_str: Arc<str> = Arc::from(format!("{:?}", renamed.lhs));
-        let rhs_str: Arc<str> = Arc::from(format!("{:?}", renamed.rhs));
-        // Normalize order for dedup (lhs=rhs and rhs=lhs are the same equation).
-        let key = if lhs_str <= rhs_str {
-            (lhs_str, rhs_str)
-        } else {
-            (rhs_str, lhs_str)
-        };
-        if seen.insert(key) {
+        let is_dup = result.iter().any(|kept| {
+            alpha_equivalent_equation(&kept.lhs, &kept.rhs, &renamed.lhs, &renamed.rhs)
+                || alpha_equivalent_equation(&kept.lhs, &kept.rhs, &renamed.rhs, &renamed.lhs)
+        });
+        if !is_dup {
+            result.push(renamed);
+        }
+    }
+    result
+}
+
+/// Rename ops in directed equations and deduplicate modulo
+/// alpha-equivalence, preserving orientation.
+///
+/// Mirrors [`rebuild_eqs`], but compares only the `lhs`-to-`rhs`
+/// orientation: directed equations are oriented (lhs rewrites to rhs), so
+/// unlike undirected equations their two sides are not interchangeable.
+/// The `impl_term`, `inverse`, `source_kind`, `target_kind`, and
+/// `coercion_class` fields are carried through unchanged by
+/// [`DirectedEquation::rename_ops`].
+fn rebuild_directed_eqs(
+    directed_eqs: &[DirectedEquation],
+    op_rename: &RenameMap,
+) -> Vec<DirectedEquation> {
+    let op_rename_std: std::collections::HashMap<Arc<str>, Arc<str>> = op_rename
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+
+    let mut result: Vec<DirectedEquation> = Vec::new();
+    for de in directed_eqs {
+        let renamed = de.rename_ops(&op_rename_std);
+        let is_dup = result.iter().any(|kept| {
+            alpha_equivalent_equation(&kept.lhs, &kept.rhs, &renamed.lhs, &renamed.rhs)
+        });
+        if !is_dup {
             result.push(renamed);
         }
     }
@@ -320,6 +389,12 @@ fn rebuild_eqs(eqs: &[Equation], op_rename: &RenameMap) -> Vec<Equation> {
 ///
 /// Each pair `(a, b)` specifies that names `a` and `b` should be merged.
 /// Transitive closure is computed automatically via union-find.
+///
+/// The quotiented theory preserves the input's directed equations and
+/// conflict policies: directed equations have their op references renamed
+/// through the op quotient (and are deduplicated by renamed lhs/rhs),
+/// while policies, which reference neither sorts nor ops, ride through
+/// unchanged.
 ///
 /// # Errors
 ///
@@ -354,7 +429,15 @@ mod tests {
             Term::app("f", vec![Term::app("f", vec![Term::var("x")])]),
             Term::app("f", vec![Term::var("x")]),
         );
-        Theory::new("TwoSort", vec![s_a, s_b], vec![op_f, op_g], vec![eq1])
+        Theory::full(
+            "TwoSort",
+            Vec::new(),
+            vec![s_a, s_b],
+            vec![op_f, op_g],
+            vec![eq1],
+            Vec::new(),
+            Vec::new(),
+        )
     }
 
     #[test]
@@ -388,7 +471,15 @@ mod tests {
         let s = Sort::simple("S");
         let op_f = Operation::unary("f", "x", "S", "S");
         let op_g = Operation::unary("g", "x", "S", "S");
-        let t = Theory::new("T", vec![s], vec![op_f, op_g], vec![]);
+        let t = Theory::full(
+            "T",
+            Vec::new(),
+            vec![s],
+            vec![op_f, op_g],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
         let ids = vec![(Arc::from("f"), Arc::from("g"))];
         let q = quotient(&t, &ids)?;
         assert_eq!(q.ops.len(), 1);
@@ -402,7 +493,15 @@ mod tests {
         let s_a = Sort::simple("A");
         let s_b = Sort::simple("B");
         let s_c = Sort::simple("C");
-        let t = Theory::new("T", vec![s_a, s_b, s_c], vec![], vec![]);
+        let t = Theory::full(
+            "T",
+            Vec::new(),
+            vec![s_a, s_b, s_c],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
         let ids = vec![
             (Arc::from("A"), Arc::from("B")),
             (Arc::from("B"), Arc::from("C")),
@@ -417,7 +516,15 @@ mod tests {
     fn incompatible_sort_arities_error() {
         let s_simple = Sort::simple("A");
         let s_dep = Sort::dependent("B", vec![SortParam::new("x", "A")]);
-        let t = Theory::new("T", vec![s_simple, s_dep], vec![], vec![]);
+        let t = Theory::full(
+            "T",
+            Vec::new(),
+            vec![s_simple, s_dep],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
         let ids = vec![(Arc::from("A"), Arc::from("B"))];
         let result = quotient(&t, &ids);
         assert!(result.is_err());
@@ -435,7 +542,15 @@ mod tests {
         let s_b = Sort::simple("B");
         let op_f = Operation::unary("f", "x", "A", "A");
         let op_g = Operation::unary("g", "x", "A", "B");
-        let t = Theory::new("T", vec![s_a, s_b], vec![op_f, op_g], vec![]);
+        let t = Theory::full(
+            "T",
+            Vec::new(),
+            vec![s_a, s_b],
+            vec![op_f, op_g],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
         let ids = vec![(Arc::from("f"), Arc::from("g"))];
         let result = quotient(&t, &ids);
         assert!(result.is_err());
@@ -454,7 +569,15 @@ mod tests {
         let op_g = Operation::unary("g", "x", "S", "S");
         let eq1 = Equation::new("eq_f", Term::app("f", vec![Term::var("x")]), Term::var("x"));
         let eq2 = Equation::new("eq_g", Term::app("g", vec![Term::var("x")]), Term::var("x"));
-        let t = Theory::new("T", vec![s], vec![op_f, op_g], vec![eq1, eq2]);
+        let t = Theory::full(
+            "T",
+            Vec::new(),
+            vec![s],
+            vec![op_f, op_g],
+            vec![eq1, eq2],
+            Vec::new(),
+            Vec::new(),
+        );
         let ids = vec![(Arc::from("f"), Arc::from("g"))];
         let q = quotient(&t, &ids)?;
         assert_eq!(q.eqs.len(), 1);
@@ -468,7 +591,15 @@ mod tests {
         let s_b = Sort::simple("B");
         let op_f = Operation::unary("f", "x", "A", "A");
         let op_g = Operation::unary("g", "x", "B", "B");
-        let t = Theory::new("T", vec![s_a, s_b], vec![op_f, op_g], vec![]);
+        let t = Theory::full(
+            "T",
+            Vec::new(),
+            vec![s_a, s_b],
+            vec![op_f, op_g],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
         let ids = vec![
             (Arc::from("A"), Arc::from("B")),
             (Arc::from("f"), Arc::from("g")),
@@ -486,12 +617,180 @@ mod tests {
         let s_a = Sort::simple("A");
         let s_b = Sort::simple("B");
         let s_dep = Sort::dependent("D", vec![SortParam::new("x", "B")]);
-        let t = Theory::new("T", vec![s_a, s_b, s_dep], vec![], vec![]);
+        let t = Theory::full(
+            "T",
+            Vec::new(),
+            vec![s_a, s_b, s_dep],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
         let ids = vec![(Arc::from("A"), Arc::from("B"))];
         let q = quotient(&t, &ids)?;
         assert_eq!(q.sorts.len(), 2);
         let d = q.find_sort("D").ok_or("sort D not found")?;
         assert_eq!(&**d.params[0].sort.head(), "A");
+        Ok(())
+    }
+
+    #[test]
+    fn directed_eqs_and_policies_survive_quotient() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::eq::DirectedEquation;
+        use crate::sort::ValueKind;
+        use crate::theory::{ConflictPolicy, ConflictStrategy};
+
+        // A theory with two ops f, g, one directed equation referencing g,
+        // and one conflict policy. Identifying f and g must not strip the
+        // directed equation or the policy.
+        let s = Sort::simple("S");
+        let op_f = Operation::unary("f", "x", "S", "S");
+        let op_g = Operation::unary("g", "x", "S", "S");
+        let de = DirectedEquation::new(
+            "g_to_x",
+            Term::app("g", vec![Term::var("x")]),
+            Term::var("x"),
+            panproto_expr::Expr::Var("_".into()),
+        );
+        let policy = ConflictPolicy {
+            name: "keep_left_str".into(),
+            value_kind: ValueKind::Str,
+            strategy: ConflictStrategy::KeepLeft,
+        };
+        let t = Theory::full(
+            "T",
+            Vec::new(),
+            vec![s],
+            vec![op_f, op_g],
+            Vec::new(),
+            vec![de],
+            vec![policy],
+        );
+
+        // f is alphabetically first, so g is renamed to f.
+        let ids = vec![(Arc::from("f"), Arc::from("g"))];
+        let q = quotient(&t, &ids)?;
+
+        // The directed equation survives, with its op reference renamed.
+        assert_eq!(q.directed_eqs.len(), 1);
+        let survived = q
+            .find_directed_eq("g_to_x")
+            .ok_or("directed equation g_to_x not found")?;
+        assert_eq!(survived.lhs, Term::app("f", vec![Term::var("x")]));
+        assert_eq!(survived.rhs, Term::var("x"));
+
+        // The policy survives unchanged.
+        assert_eq!(q.policies.len(), 1);
+        assert!(q.find_policy("keep_left_str").is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn identifying_sorts_with_differing_kind_fails() {
+        use crate::sort::{SortKind, ValueKind};
+
+        // A is a value sort, B is structural; both are nullary, so arity
+        // agrees but kind does not.
+        let s_a = Sort::with_kind("A", SortKind::Val(ValueKind::Str));
+        let s_b = Sort::simple("B");
+        let t = Theory::full(
+            "T",
+            Vec::new(),
+            vec![s_a, s_b],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
+        let ids = vec![(Arc::from("A"), Arc::from("B"))];
+        match quotient(&t, &ids) {
+            Err(GatError::QuotientIncompatible { detail, .. }) => {
+                assert!(detail.contains("kinds differ"), "got detail: {detail}");
+            }
+            other => panic!("expected QuotientIncompatible on kind mismatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn identifying_sorts_with_differing_closure_fails() {
+        use crate::sort::SortClosure;
+
+        // A is open, B is closed; both are nullary structural sorts, so
+        // only their closure differs.
+        let s_a = Sort::simple("A");
+        let s_b = Sort {
+            name: Arc::from("B"),
+            params: Vec::new(),
+            kind: crate::sort::SortKind::default(),
+            closure: SortClosure::Closed(vec![Arc::from("mk_b")]),
+        };
+        let t = Theory::full(
+            "T",
+            Vec::new(),
+            vec![s_a, s_b],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
+        let ids = vec![(Arc::from("A"), Arc::from("B"))];
+        match quotient(&t, &ids) {
+            Err(GatError::QuotientIncompatible { detail, .. }) => {
+                assert!(detail.contains("closures differ"), "got detail: {detail}");
+            }
+            other => panic!("expected QuotientIncompatible on closure mismatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn identifying_sorts_with_matching_kind_and_closure_succeeds()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use crate::sort::{SortKind, ValueKind};
+
+        // Both sorts share kind and closure, so the identification is
+        // accepted and collapses them to one representative.
+        let s_a = Sort::with_kind("A", SortKind::Val(ValueKind::Int));
+        let s_b = Sort::with_kind("B", SortKind::Val(ValueKind::Int));
+        let t = Theory::full(
+            "T",
+            Vec::new(),
+            vec![s_a, s_b],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
+        let ids = vec![(Arc::from("A"), Arc::from("B"))];
+        let q = quotient(&t, &ids)?;
+        assert_eq!(q.sorts.len(), 1);
+        assert!(q.find_sort("A").is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn alpha_variant_equations_deduplicated() -> Result<(), Box<dyn std::error::Error>> {
+        // Two equations that differ only in their bound variable name are
+        // alpha-variants of one axiom. A non-empty identification forces
+        // the rebuild path (an empty one short-circuits), after which the
+        // renamed equations must collapse to exactly one.
+        let sort_s = Sort::simple("S");
+        let sort_a = Sort::simple("A");
+        let sort_b = Sort::simple("B");
+        let op_f = Operation::unary("f", "z", "S", "S");
+        let eq_x = Equation::new("e1", Term::app("f", vec![Term::var("x")]), Term::var("x"));
+        let eq_y = Equation::new("e2", Term::app("f", vec![Term::var("y")]), Term::var("y"));
+        let theory = Theory::full(
+            "T",
+            Vec::new(),
+            vec![sort_s, sort_a, sort_b],
+            vec![op_f],
+            vec![eq_x, eq_y],
+            Vec::new(),
+            Vec::new(),
+        );
+        let ids = vec![(Arc::from("A"), Arc::from("B"))];
+        let quotiented = quotient(&theory, &ids)?;
+        assert_eq!(quotiented.eqs.len(), 1);
         Ok(())
     }
 }

@@ -220,7 +220,13 @@ impl Protolens {
     /// [`Lens`].
     ///
     /// This is Π-type elimination: applying the dependent function to a
-    /// specific schema.
+    /// specific schema. Callers that need the source precondition —
+    /// including any precondition retained from vertical composition with
+    /// an `Identity`-source protolens — enforced should gate on
+    /// [`Self::check_applicability`] first; `instantiate` itself applies
+    /// the transforms directly, so a not-applicable protolens (e.g. one
+    /// dropping a sort the schema lacks) instantiates to a no-op lens
+    /// rather than erroring.
     ///
     /// # Errors
     ///
@@ -500,6 +506,46 @@ pub fn theory_endofunctor_equiv(a: &TheoryEndofunctor, b: &TheoryEndofunctor) ->
     a.precondition == b.precondition && a.transform == b.transform
 }
 
+/// Fold two theory constraints into a conjunction, flattening nested
+/// `All`s, dropping `Unconstrained` operands, and deduplicating.
+///
+/// The result is order-stable — `base`'s atoms first, then `extra`'s —
+/// so conjoining preconditions during vertical composition stays
+/// associative: `(a·b)·c` and `a·(b·c)` yield the same flattened
+/// conjunction.
+fn conjoin_preconditions(
+    base: &panproto_gat::TheoryConstraint,
+    extra: &panproto_gat::TheoryConstraint,
+) -> panproto_gat::TheoryConstraint {
+    fn push_atoms(
+        c: &panproto_gat::TheoryConstraint,
+        out: &mut Vec<panproto_gat::TheoryConstraint>,
+    ) {
+        match c {
+            panproto_gat::TheoryConstraint::Unconstrained => {}
+            panproto_gat::TheoryConstraint::All(cs) => {
+                for sub in cs {
+                    push_atoms(sub, out);
+                }
+            }
+            other => {
+                if !out.iter().any(|x| x == other) {
+                    out.push(other.clone());
+                }
+            }
+        }
+    }
+
+    let mut atoms = Vec::new();
+    push_atoms(base, &mut atoms);
+    push_atoms(extra, &mut atoms);
+    match atoms.len() {
+        0 => panproto_gat::TheoryConstraint::Unconstrained,
+        1 => atoms.swap_remove(0),
+        _ => panproto_gat::TheoryConstraint::All(atoms),
+    }
+}
+
 /// Composability predicate for [`Protolens`] in vertical composition.
 ///
 /// Two protolenses `η : F ⟹ G` and `θ : H ⟹ K` are composable when
@@ -514,28 +560,27 @@ pub fn theory_endofunctor_equiv(a: &TheoryEndofunctor, b: &TheoryEndofunctor) ->
 ///
 /// Case (2) is a *schema-level* composability — it asserts that the
 /// resulting lens is well-typed at the schema boundary, but it is
-/// strictly weaker than the natural-transformation condition.
-/// Specifically:
-///
-/// * An `Identity`-source θ may carry a non-trivial
-///   `theta.source.precondition` (e.g. `HasSort`) that is *not*
-///   re-checked here, even though θ's source endofunctor structurally
-///   matches η's target only on the transform component.
-/// * Naturality squares are not certified to commute on every schema.
+/// strictly weaker than the natural-transformation condition on the
+/// transform component alone. An `Identity`-source θ may carry a
+/// non-trivial `theta.source.precondition` (e.g. `HasSort`); this
+/// predicate does not inspect it, but [`vertical_compose`] retains it
+/// by conjoining it into the composed source endofunctor's
+/// precondition, so the retained obligation is surfaced by
+/// [`Protolens::check_applicability`] (the gate the fleet and chain
+/// APIs consult) rather than silently dropped. Naturality squares are
+/// still not certified to commute on every schema.
 ///
 /// Code that relies on the *categorical* guarantee should use
 /// [`theory_endofunctor_equiv`] directly. Code that relies on the
-/// *operational* guarantee (the composed lens runs without error on
-/// a concrete schema, with all preconditions satisfied) must
-/// additionally call
+/// *operational* guarantee across a multi-step chain should use
 /// [`ProtolensChain::check_applicability_with`], which threads the
 /// running schema through every step and re-evaluates each step's
-/// precondition against it.
+/// precondition against the intermediate schema it is actually
+/// presented with.
 ///
 /// `vertical_compose` returning `Ok` means "the schema-level types
-/// align"; it does not certify naturality squares commute on every
-/// schema. The existing chain-applicability machinery is the
-/// load-bearing runtime check.
+/// align and θ's precondition is retained"; it does not certify
+/// naturality squares commute on every schema.
 #[must_use]
 pub fn protolens_composable(eta: &Protolens, theta: &Protolens) -> bool {
     matches!(theta.source.transform, TheoryTransform::Identity)
@@ -545,10 +590,17 @@ pub fn protolens_composable(eta: &Protolens, theta: &Protolens) -> bool {
 /// Vertical composition of protolenses: given `η : F ⟹ G` and
 /// `θ : G ⟹ H`, produce `θ ∘ η : F ⟹ H`.
 ///
-/// Composition requires `eta.target ≡ theta.source` as theory
-/// endofunctors (structural equality of `precondition` and `transform`,
-/// ignoring the human-readable `name` field). This is the standard
-/// natural transformation composition condition.
+/// Composition requires [`protolens_composable`]: either `eta.target ≡
+/// theta.source` as theory endofunctors (the standard natural
+/// transformation condition), or `theta.source.transform = Identity`
+/// (θ applied at the running schema).
+///
+/// In the `Identity`-source case θ carries its own source precondition.
+/// The composed protolens keeps `eta.source` as its source endofunctor,
+/// so that precondition is retained by conjoining it into the composed
+/// source precondition rather than dropped: [`Protolens::applicable_to`]
+/// / [`Protolens::check_applicability`] on the composite report `false` /
+/// `Err` at a schema that fails θ's precondition.
 ///
 /// # Errors
 ///
@@ -559,6 +611,15 @@ pub fn vertical_compose(eta: &Protolens, theta: &Protolens) -> Result<Protolens,
         return Err(LensError::CompositionMismatch);
     }
 
+    // Retain θ's source precondition in the `Identity`-source case; it
+    // would otherwise be silently discarded because the composite's
+    // source endofunctor is `eta.source`.
+    let mut source = eta.source.clone();
+    if matches!(theta.source.transform, TheoryTransform::Identity) {
+        source.precondition =
+            conjoin_preconditions(&eta.source.precondition, &theta.source.precondition);
+    }
+
     let complement = ComplementConstructor::Composite(vec![
         eta.complement_constructor.clone(),
         theta.complement_constructor.clone(),
@@ -566,7 +627,7 @@ pub fn vertical_compose(eta: &Protolens, theta: &Protolens) -> Result<Protolens,
 
     Ok(Protolens {
         name: Name::from(format!("{}.{}", theta.name, eta.name)),
-        source: eta.source.clone(),
+        source,
         target: theta.target.clone(),
         complement_constructor: complement,
     })
@@ -970,7 +1031,11 @@ fn lift_constraint(
             TC::HasSort(Arc::clone(lifted))
         }
         TC::HasOp(o) => {
-            let lifted = morphism.op_map.get(o).unwrap_or(o);
+            let lifted = morphism
+                .op_map
+                .get(o)
+                .and_then(panproto_gat::OpAssignment::as_op)
+                .unwrap_or(o);
             TC::HasOp(Arc::clone(lifted))
         }
         TC::HasEquation(e) => TC::HasEquation(Arc::clone(e)),
@@ -1470,6 +1535,40 @@ pub mod elementary {
         }
     }
 
+    /// Honesty-checked [`directed_eq`].
+    ///
+    /// Verifies the directed equation's declared
+    /// [`CoercionClass`](panproto_gat::CoercionClass) against samples drawn
+    /// from `registry` (using `deq.source_kind`) before building the
+    /// protolens.
+    ///
+    /// This is the construction-time coercion-honesty gate: a `directed_eq`
+    /// whose `impl_term` / `inverse` do not round-trip under its declared
+    /// class on the supplied samples is rejected here rather than being
+    /// silently accepted. The plain [`directed_eq`] remains the unchecked
+    /// escape hatch. The check is *evidence, not proof* — see
+    /// [`crate::coercion_laws::check_coercion_honesty`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::coercion_laws::CoercionHonestyError`] when the
+    /// declared class fails its round-trip laws on the drawn samples.
+    pub fn directed_eq_checked(
+        deq: DirectedEquation,
+        var_name: &str,
+        registry: &crate::coercion_laws::CoercionSampleRegistry,
+    ) -> Result<Protolens, crate::coercion_laws::CoercionHonestyError> {
+        let violations =
+            crate::coercion_laws::check_directed_equation_with_registry(&deq, registry, var_name);
+        if !violations.is_empty() {
+            return Err(crate::coercion_laws::CoercionHonestyError {
+                class: deq.coercion_class,
+                violations,
+            });
+        }
+        Ok(directed_eq(deq))
+    }
+
     /// Drop a directed equation.
     #[must_use]
     pub fn drop_directed_eq(deq_name: impl Into<Name>) -> Protolens {
@@ -1616,6 +1715,53 @@ pub mod elementary {
             },
             complement_constructor,
         }
+    }
+
+    /// Honesty-checked [`sort_coerce`].
+    ///
+    /// Verifies the declared
+    /// [`CoercionClass`](panproto_gat::CoercionClass) round-trips on samples
+    /// of `source_kind` (drawn from `registry`, bound under `var_name`)
+    /// before building the protolens.
+    ///
+    /// This is the construction-time coercion-honesty gate. A `CoerceSort`
+    /// declaring `Iso` with a non-invertible `coercion_expr` (or a
+    /// `Retraction` whose inverse is not a left inverse on the samples)
+    /// is rejected here rather than accepted everywhere. The plain
+    /// [`sort_coerce`] remains the unchecked escape hatch. The check is
+    /// *evidence, not proof* — see
+    /// [`crate::coercion_laws::check_coercion_honesty`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::coercion_laws::CoercionHonestyError`] when the
+    /// declared class fails its round-trip laws on the drawn samples.
+    #[allow(clippy::too_many_arguments)]
+    pub fn sort_coerce_checked(
+        sort_name: impl Into<Name>,
+        target_kind: panproto_gat::ValueKind,
+        coercion_expr: panproto_expr::Expr,
+        inverse_expr: Option<panproto_expr::Expr>,
+        coercion_class: panproto_gat::CoercionClass,
+        source_kind: panproto_gat::ValueKind,
+        var_name: &str,
+        registry: &crate::coercion_laws::CoercionSampleRegistry,
+    ) -> Result<Protolens, crate::coercion_laws::CoercionHonestyError> {
+        crate::coercion_laws::check_coercion_honesty(
+            &coercion_expr,
+            inverse_expr.as_ref(),
+            coercion_class,
+            source_kind,
+            var_name,
+            registry,
+        )?;
+        Ok(sort_coerce(
+            sort_name,
+            target_kind,
+            coercion_expr,
+            inverse_expr,
+            coercion_class,
+        ))
     }
 
     /// `η : Id ⟹ Scope(focus, inner)`: apply a protolens within the
@@ -1775,14 +1921,12 @@ pub mod combinators {
     /// [`elementary::drop_edge`]. Pass `None` as `old_edge_name` if the
     /// original edge had no label.
     ///
-    /// # Historical note
-    ///
-    /// Prior to this signature, `nest_field` silently assumed that the
-    /// child vertex id equalled the edge label (so a single `Name` stood
-    /// in for both), and dropped the original edge by edge *kind* rather
-    /// than by name. Neither assumption holds for schemas built via
-    /// `SchemaBuilder::add_prop`, `ATProto` lexicons, or any protocol where
-    /// edge labels are short JSON keys and vertex ids are path-qualified.
+    /// The `child` vertex id and the edge labels are independent: the child
+    /// vertex id need not equal the edge label, and the original edge is
+    /// dropped by name (via the triple above) rather than by edge *kind*.
+    /// This holds for schemas built via `SchemaBuilder::add_prop`, `ATProto`
+    /// lexicons, or any protocol where edge labels are short JSON keys and
+    /// vertex ids are path-qualified.
     #[must_use]
     #[allow(clippy::too_many_arguments)]
     pub fn nest_field(
@@ -1930,6 +2074,7 @@ fn compute_migration_between(src: &Schema, tgt: &Schema) -> CompiledMigration {
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        op_term_assignments: HashMap::new(),
         expansion_path,
     }
 }
@@ -2130,9 +2275,13 @@ fn apply_theory_transform_to_schema(
                     result = apply_rename_sort_to_schema(&result, old, new);
                 }
             }
-            for (old, new) in &morphism.op_map {
-                if old != new {
-                    result = apply_rename_op_to_schema(&result, old, new);
+            for (old, assignment) in &morphism.op_map {
+                // Renaming an operation renames its schema edge kind; a
+                // derived-term assignment is not a rename.
+                if let Some(new) = assignment.as_op() {
+                    if old != new {
+                        result = apply_rename_op_to_schema(&result, old, new);
+                    }
                 }
             }
             Ok(result)
@@ -2768,6 +2917,7 @@ fn identity_lens(schema: &Schema) -> Lens {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            op_term_assignments: HashMap::new(),
             expansion_path: HashMap::new(),
         },
         src_schema: schema.clone(),
@@ -2787,9 +2937,9 @@ mod tests {
 
     use super::{
         ComplementConstructor, ProtolensChain, elementary, horizontal_compose, identity_lens,
-        schema_to_implicit_theory, vertical_compose,
+        schema_to_implicit_theory, theory_endofunctor_equiv, vertical_compose,
     };
-    use crate::tests::three_node_schema;
+    use crate::tests::{three_node_instance, three_node_schema};
 
     fn test_protocol() -> Protocol {
         Protocol {
@@ -2922,6 +3072,274 @@ mod tests {
         let p2 = elementary::add_sort("tags", "array", Value::Null);
         let composed = vertical_compose(&p1, &p2).unwrap();
         assert_eq!(&*composed.name, "add_sort_tags.rename_sort_string_text");
+    }
+
+    #[test]
+    fn identity_source_precondition_enforced() {
+        let schema = three_node_schema();
+
+        // η renames an existing sort; θ is `Identity`-source but its own
+        // source precondition requires a sort the schema lacks.
+        let eta = elementary::rename_sort("string", "text");
+        let theta = elementary::rename_sort("missing", "gone");
+        assert!(
+            matches!(
+                theta.source.transform,
+                panproto_gat::TheoryTransform::Identity
+            ),
+            "θ must be Identity-source for this test to exercise the retention path"
+        );
+
+        // η alone is applicable at the schema (it has a `string` sort), so
+        // the composite would pass were θ's precondition dropped.
+        assert!(eta.applicable_to(&schema));
+
+        let composed = vertical_compose(&eta, &theta).unwrap();
+
+        // θ's precondition (`HasSort(missing)`) is conjoined into the
+        // composite's source, so the composite is inapplicable at a schema
+        // lacking that sort.
+        assert!(
+            !composed.applicable_to(&schema),
+            "composite must be inapplicable where θ's precondition is unmet"
+        );
+        let reasons = composed
+            .check_applicability(&schema)
+            .expect_err("composite must report the unmet retained precondition");
+        assert!(
+            reasons.iter().any(|r| r.contains("missing")),
+            "failure reasons must name the missing sort: {reasons:?}"
+        );
+    }
+
+    /// A small pool of composable elementary steps (all `Identity`-source,
+    /// so any two compose) whose target transforms apply cleanly to
+    /// [`three_node_schema`].
+    fn associativity_pool() -> Vec<super::Protolens> {
+        vec![
+            elementary::rename_sort("string", "text"),
+            elementary::rename_sort("object", "obj"),
+            elementary::add_sort("extra", "string", Value::Null),
+            elementary::rename_op("prop", "field"),
+        ]
+    }
+
+    /// `vertical_compose` is associative — `(h∘g)∘f` and
+    /// `h∘(g∘f)` agree both as theory endofunctors and as instantiated
+    /// lenses (equal target schemas and equal views), not merely by name.
+    #[test]
+    fn vertical_compose_associative() {
+        use std::collections::BTreeSet;
+
+        let step_a = elementary::rename_sort("object", "obj");
+        let step_b = elementary::add_sort("tags", "array", Value::Null);
+        let step_c = elementary::rename_sort("string", "text");
+
+        let left = vertical_compose(&vertical_compose(&step_a, &step_b).unwrap(), &step_c).unwrap();
+        let right =
+            vertical_compose(&step_a, &vertical_compose(&step_b, &step_c).unwrap()).unwrap();
+
+        // Endofunctor-level associativity (source and target agree).
+        assert!(
+            theory_endofunctor_equiv(&left.source, &right.source),
+            "source endofunctors must agree under re-association",
+        );
+        assert!(
+            theory_endofunctor_equiv(&left.target, &right.target),
+            "target endofunctors must agree under re-association",
+        );
+
+        // Instantiated-behavior associativity: equal target schemas.
+        let schema = three_node_schema();
+        let proto = test_protocol();
+        let lens_l = left.instantiate(&schema, &proto).unwrap();
+        let lens_r = right.instantiate(&schema, &proto).unwrap();
+
+        let lv: BTreeSet<_> = lens_l.tgt_schema.vertices.keys().cloned().collect();
+        let rv: BTreeSet<_> = lens_r.tgt_schema.vertices.keys().cloned().collect();
+        assert_eq!(lv, rv, "target vertex sets must match");
+        let le: BTreeSet<_> = lens_l.tgt_schema.edges.keys().cloned().collect();
+        let re: BTreeSet<_> = lens_r.tgt_schema.edges.keys().cloned().collect();
+        assert_eq!(le, re, "target edge sets must match");
+
+        // Equal views on a fixture instance.
+        let instance = three_node_instance();
+        let (lview, _) = crate::asymmetric::get(&lens_l, &instance).unwrap();
+        let (rview, _) = crate::asymmetric::get(&lens_r, &instance).unwrap();
+        assert!(
+            crate::laws::instances_equivalent(&lview, &rview),
+            "instantiated views must match under re-association",
+        );
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(64))]
+
+        /// Sampled-triple associativity over the elementary pool.
+        #[test]
+        fn vertical_compose_associative_sampled(
+            i in 0usize..4,
+            j in 0usize..4,
+            k in 0usize..4,
+        ) {
+            use proptest::prelude::*;
+            use std::collections::BTreeSet;
+
+            let pool = associativity_pool();
+            let (pa, pb, pc) = (pool[i].clone(), pool[j].clone(), pool[k].clone());
+
+            let left = vertical_compose(&vertical_compose(&pa, &pb).unwrap(), &pc).unwrap();
+            let right = vertical_compose(&pa, &vertical_compose(&pb, &pc).unwrap()).unwrap();
+
+            prop_assert!(theory_endofunctor_equiv(&left.source, &right.source));
+            prop_assert!(theory_endofunctor_equiv(&left.target, &right.target));
+
+            let schema = three_node_schema();
+            let proto = test_protocol();
+            let ll = left.instantiate(&schema, &proto);
+            let rr = right.instantiate(&schema, &proto);
+            prop_assert_eq!(ll.is_ok(), rr.is_ok());
+            if let (Ok(lens_l), Ok(lens_r)) = (&ll, &rr) {
+                let lv: BTreeSet<_> = lens_l.tgt_schema.vertices.keys().cloned().collect();
+                let rv: BTreeSet<_> = lens_r.tgt_schema.vertices.keys().cloned().collect();
+                prop_assert_eq!(lv, rv);
+                let le: BTreeSet<_> = lens_l.tgt_schema.edges.keys().cloned().collect();
+                let re: BTreeSet<_> = lens_r.tgt_schema.edges.keys().cloned().collect();
+                prop_assert_eq!(le, re);
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Construction-time coercion honesty checks.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn coercion_checked_sort_honest_iso_passes() {
+        use crate::coercion_laws::CoercionSampleRegistry;
+        use panproto_expr::{BuiltinOp, Expr, Literal};
+        use panproto_gat::{CoercionClass, ValueKind};
+
+        // forward = x + 1, inverse = x - 1: a genuine integer isomorphism.
+        let forward = Expr::Builtin(
+            BuiltinOp::Add,
+            vec![Expr::var("x"), Expr::Lit(Literal::Int(1))],
+        );
+        let inverse = Expr::Builtin(
+            BuiltinOp::Sub,
+            vec![Expr::var("x"), Expr::Lit(Literal::Int(1))],
+        );
+
+        // Use a registry with non-overflowing integer samples so the
+        // honest x±1 witness round-trips (the default set includes
+        // i64::MAX/MIN, where checked arithmetic errors by design).
+        let mut registry = CoercionSampleRegistry::new();
+        registry.register(
+            ValueKind::Int,
+            vec![
+                Literal::Int(0),
+                Literal::Int(1),
+                Literal::Int(-1),
+                Literal::Int(42),
+                Literal::Int(-100),
+            ],
+        );
+
+        let result = elementary::sort_coerce_checked(
+            "count",
+            ValueKind::Int,
+            forward,
+            Some(inverse),
+            CoercionClass::Iso,
+            ValueKind::Int,
+            "x",
+            &registry,
+        );
+        assert!(
+            result.is_ok(),
+            "honest x±1 iso should construct: {result:?}"
+        );
+    }
+
+    #[test]
+    fn coercion_checked_sort_dishonest_iso_fails() {
+        use crate::coercion_laws::CoercionSampleRegistry;
+        use panproto_expr::{BuiltinOp, Expr};
+        use panproto_gat::{CoercionClass, ValueKind};
+
+        // forward = upper(x) is lossy (collapses case); declaring it Iso
+        // with an identity inverse is dishonest: inverse(forward(s)) =
+        // upper(s) != s for any lower-cased sample.
+        let forward = Expr::Builtin(BuiltinOp::Upper, vec![Expr::var("x")]);
+        let inverse = Expr::var("x");
+        let registry = CoercionSampleRegistry::with_defaults();
+
+        let result = elementary::sort_coerce_checked(
+            "name",
+            ValueKind::Str,
+            forward,
+            Some(inverse),
+            CoercionClass::Iso,
+            ValueKind::Str,
+            "x",
+            &registry,
+        );
+        let Err(err) = result else {
+            panic!("dishonest upper-as-iso coercion must be rejected at construction");
+        };
+        assert_eq!(err.class, CoercionClass::Iso);
+        assert!(!err.violations.is_empty(), "must carry the violations");
+        // The rendered diagnostic must surface the evidence-not-proof caveat.
+        assert!(
+            err.to_string().contains("evidence, not proof"),
+            "diagnostic should carry the caveat: {err}"
+        );
+    }
+
+    #[test]
+    fn coercion_checked_directed_eq_honest_passes() {
+        use crate::coercion_laws::CoercionSampleRegistry;
+        use panproto_expr::Expr;
+        use panproto_gat::{CoercionClass, DirectedEquation, Term, ValueKind};
+        use std::sync::Arc;
+
+        let deq = DirectedEquation {
+            name: Arc::from("identity_str"),
+            lhs: Term::var("x"),
+            rhs: Term::var("x"),
+            impl_term: Expr::var("x"),
+            inverse: Some(Expr::var("x")),
+            source_kind: Some(ValueKind::Str),
+            target_kind: Some(ValueKind::Str),
+            coercion_class: CoercionClass::Iso,
+        };
+        let registry = CoercionSampleRegistry::with_defaults();
+        let result = elementary::directed_eq_checked(deq, "x", &registry);
+        assert!(result.is_ok(), "honest identity iso deq: {result:?}");
+    }
+
+    #[test]
+    fn coercion_checked_directed_eq_dishonest_fails() {
+        use crate::coercion_laws::CoercionSampleRegistry;
+        use panproto_expr::{BuiltinOp, Expr};
+        use panproto_gat::{CoercionClass, DirectedEquation, Term, ValueKind};
+        use std::sync::Arc;
+
+        let deq = DirectedEquation {
+            name: Arc::from("upper_lying_iso"),
+            lhs: Term::var("x"),
+            rhs: Term::app("upper", vec![Term::var("x")]),
+            impl_term: Expr::Builtin(BuiltinOp::Upper, vec![Expr::var("x")]),
+            inverse: Some(Expr::var("x")),
+            source_kind: Some(ValueKind::Str),
+            target_kind: Some(ValueKind::Str),
+            coercion_class: CoercionClass::Iso,
+        };
+        let registry = CoercionSampleRegistry::with_defaults();
+        let Err(err) = elementary::directed_eq_checked(deq, "x", &registry) else {
+            panic!("dishonest upper-as-iso directed equation must be rejected");
+        };
+        assert!(!err.violations.is_empty());
     }
 
     #[test]
@@ -3996,6 +4414,410 @@ mod tests {
         assert!(
             inc.is_none_or(SmallVec::is_empty),
             "incoming should be empty"
+        );
+    }
+}
+
+/// Law-check the panproto-lens realization
+/// of every DSL `Step` constructor.
+///
+/// The DSL `Step` enum (`panproto-lens-dsl::document::Step`) has 19
+/// variants; each compiles to a panproto-lens construct — an elementary
+/// protolens, a `combinators` chain, or a `CompiledMigration`
+/// `FieldTransform`. `panproto-lens` sits *below* `panproto-lens-dsl` in
+/// the dependency graph, so it cannot import the `Step` enum or
+/// `compile_steps` directly; the DSL-front-end test
+/// (`panproto-lens-dsl/tests/step_laws.rs`, which compiles real
+/// `LensDocument`s) is a follow-up for the lane that owns that crate.
+///
+/// This module instead instantiates each step's *compile target* against
+/// a fixture and runs [`crate::laws::check_get_put`], so every construct
+/// the DSL emits is law-checked where it lives. Coverage of the 19 step
+/// kinds:
+///
+/// - Structural/elementary steps are law-checked here: `rename_sort`,
+///   `add_sort`, `drop_sort` (= `remove_field`), `rename_op`, `add_op`,
+///   `drop_op`, `add_equation`, `drop_equation`, `rename_field`
+///   (= `rename_edge_name`), `coerce_sort`, `scoped`, `pullback`,
+///   `hoist_field`, `nest_field`, `add_field`, and `merge_sorts`
+///   (the lossy case, asserted via its complement).
+/// - The field-level steps `apply_expr` and `compute_field` are
+///   law-checked as proptests over generated instances in
+///   [`crate::laws`] (`field_apply_expr_satisfies_get_put`,
+///   `identity_lens_with_compute_field_satisfies_getput`), alongside the
+///   `RemoveField`/`RenameField`/`AddField` field-transform proptests.
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod step_laws {
+    use std::collections::HashMap;
+
+    use panproto_gat::{CoercionClass, Equation, Name, Term, TheoryMorphism, ValueKind};
+    use panproto_inst::value::{FieldPresence, Value};
+    use panproto_inst::{Node, WInstance};
+    use panproto_schema::{Edge, Protocol, Schema, Vertex};
+    use smallvec::SmallVec;
+
+    use super::{ComplementConstructor, Protolens, ProtolensChain, combinators, elementary};
+
+    fn step_protocol() -> Protocol {
+        Protocol {
+            name: "test".into(),
+            schema_theory: "ThGraph".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: vec![],
+            obj_kinds: vec!["object".into(), "string".into()],
+            constraint_sorts: vec![],
+            ..Protocol::default()
+        }
+    }
+
+    fn make_schema(verts: &[(&str, &str)], edge_list: &[Edge]) -> Schema {
+        let mut vertices = HashMap::new();
+        let mut edges = HashMap::new();
+        let mut outgoing: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+        let mut incoming: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+        let mut between: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();
+
+        for (id, kind) in verts {
+            vertices.insert(
+                Name::from(*id),
+                Vertex {
+                    id: Name::from(*id),
+                    kind: Name::from(*kind),
+                    nsid: None,
+                },
+            );
+        }
+        for e in edge_list {
+            edges.insert(e.clone(), e.kind.clone());
+            outgoing.entry(e.src.clone()).or_default().push(e.clone());
+            incoming.entry(e.tgt.clone()).or_default().push(e.clone());
+            between
+                .entry((e.src.clone(), e.tgt.clone()))
+                .or_default()
+                .push(e.clone());
+        }
+
+        Schema {
+            protocol: "test".into(),
+            vertices,
+            edges,
+            hyper_edges: HashMap::new(),
+            constraints: HashMap::new(),
+            required: HashMap::new(),
+            nsids: HashMap::new(),
+            entries: Vec::new(),
+            variants: HashMap::new(),
+            orderings: HashMap::new(),
+            recursion_points: HashMap::new(),
+            spans: HashMap::new(),
+            usage_modes: HashMap::new(),
+            nominal: HashMap::new(),
+            coercions: HashMap::new(),
+            mergers: HashMap::new(),
+            defaults: HashMap::new(),
+            policies: HashMap::new(),
+            outgoing,
+            incoming,
+            between,
+        }
+    }
+
+    fn edge(src: &str, tgt: &str, kind: &str, label: &str) -> Edge {
+        Edge {
+            src: Name::from(src),
+            tgt: Name::from(tgt),
+            kind: Name::from(kind),
+            name: Some(Name::from(label)),
+        }
+    }
+
+    /// Fixture: `doc` object with a `title` string child and a nested
+    /// `meta` object carrying an `author` string grandchild.
+    fn nested_fixture() -> (Schema, WInstance) {
+        let verts = [
+            ("doc", "object"),
+            ("doc.title", "string"),
+            ("doc.meta", "object"),
+            ("doc.author", "string"),
+        ];
+        let edges = vec![
+            edge("doc", "doc.title", "prop", "title"),
+            edge("doc", "doc.meta", "prop", "meta"),
+            edge("doc.meta", "doc.author", "prop", "author"),
+        ];
+        let schema = make_schema(&verts, &edges);
+
+        let mut nodes = HashMap::new();
+        nodes.insert(0, Node::new(0, "doc"));
+        nodes.insert(
+            1,
+            Node::new(1, "doc.title").with_value(FieldPresence::Present(Value::Str("T".into()))),
+        );
+        nodes.insert(2, Node::new(2, "doc.meta"));
+        nodes.insert(
+            3,
+            Node::new(3, "doc.author").with_value(FieldPresence::Present(Value::Str("A".into()))),
+        );
+        let arcs = vec![
+            (0, 1, edges[0].clone()),
+            (0, 2, edges[1].clone()),
+            (2, 3, edges[2].clone()),
+        ];
+        let instance = WInstance::new(nodes, arcs, vec![], 0, Name::from("doc"));
+        (schema, instance)
+    }
+
+    /// Fixture with a `ghost` vertex reachable by an `attr`-kind edge that
+    /// has *no* instance node. Dropping that edge or its op therefore does
+    /// not orphan any surviving node, so the drop round-trips cleanly.
+    fn detachable_fixture() -> (Schema, WInstance) {
+        let verts = [
+            ("doc", "object"),
+            ("doc.title", "string"),
+            ("doc.ghost", "string"),
+        ];
+        let edges = vec![
+            edge("doc", "doc.title", "prop", "title"),
+            edge("doc", "doc.ghost", "attr", "ghost"),
+        ];
+        let schema = make_schema(&verts, &edges);
+
+        let mut nodes = HashMap::new();
+        nodes.insert(0, Node::new(0, "doc"));
+        nodes.insert(
+            1,
+            Node::new(1, "doc.title").with_value(FieldPresence::Present(Value::Str("T".into()))),
+        );
+        // No node for `doc.ghost`: the attr edge is schema-only.
+        let arcs = vec![(0, 1, edges[0].clone())];
+        let instance = WInstance::new(nodes, arcs, vec![], 0, Name::from("doc"));
+        (schema, instance)
+    }
+
+    /// Instantiate a single protolens and check `GetPut` on the nested
+    /// fixture.
+    fn assert_step_law(p: Protolens) {
+        let (schema, instance) = nested_fixture();
+        assert_law(&ProtolensChain::new(vec![p]), &schema, &instance);
+    }
+
+    /// Instantiate a chain and check `GetPut` on the nested fixture.
+    fn assert_chain_law(chain: &ProtolensChain) {
+        let (schema, instance) = nested_fixture();
+        assert_law(chain, &schema, &instance);
+    }
+
+    /// Instantiate a single protolens and check `GetPut` on a supplied
+    /// fixture.
+    fn assert_step_law_on(p: Protolens, schema: &Schema, instance: &WInstance) {
+        assert_law(&ProtolensChain::new(vec![p]), schema, instance);
+    }
+
+    /// Instantiate a chain and check `GetPut` on a supplied fixture.
+    fn assert_law(chain: &ProtolensChain, schema: &Schema, instance: &WInstance) {
+        let proto = step_protocol();
+        let lens = chain
+            .instantiate(schema, &proto)
+            .expect("chain should instantiate on the fixture");
+        let result = crate::laws::check_get_put(&lens, instance);
+        assert!(result.is_ok(), "GetPut should hold: {result:?}");
+    }
+
+    // --- sort-level steps ---
+
+    #[test]
+    fn step_law_rename_sort() {
+        assert_step_law(elementary::rename_sort("string", "text"));
+    }
+
+    #[test]
+    fn step_law_add_sort() {
+        assert_step_law(elementary::add_sort("extra", "string", Value::Null));
+    }
+
+    #[test]
+    fn step_law_drop_sort() {
+        // Drop a single leaf vertex by id; the complement restores it.
+        assert_step_law(elementary::drop_sort("doc.title"));
+    }
+
+    #[test]
+    fn step_law_remove_field() {
+        assert_chain_law(&combinators::remove_field("doc.title"));
+    }
+
+    // --- op/edge-level steps ---
+
+    #[test]
+    fn step_law_rename_op() {
+        assert_step_law(elementary::rename_op("prop", "field"));
+    }
+
+    #[test]
+    fn step_law_add_op() {
+        assert_step_law(elementary::add_op("extra_op", "doc", "doc.title", "prop"));
+    }
+
+    #[test]
+    fn step_law_drop_op() {
+        // Drop the `attr` op, whose only edge targets a vertex with no
+        // instance node, so no surviving node is orphaned.
+        let (schema, instance) = detachable_fixture();
+        assert_step_law_on(elementary::drop_op("attr"), &schema, &instance);
+    }
+
+    #[test]
+    fn step_law_add_edge() {
+        assert_step_law(elementary::add_edge("doc", "doc.title", "alt", "prop"));
+    }
+
+    #[test]
+    fn step_law_drop_edge() {
+        // Drop the schema-only `attr` edge (its target has no instance
+        // node), which round-trips cleanly.
+        let (schema, instance) = detachable_fixture();
+        assert_step_law_on(
+            elementary::drop_edge("doc", "doc.ghost", Some(Name::from("ghost"))),
+            &schema,
+            &instance,
+        );
+    }
+
+    #[test]
+    fn step_law_rename_field() {
+        // The DSL `RenameField` step compiles to `rename_edge_name`.
+        assert_chain_law(&combinators::rename_field(
+            "doc",
+            "doc.title",
+            "title",
+            "heading",
+        ));
+    }
+
+    // --- equation-level steps ---
+
+    #[test]
+    fn step_law_add_equation() {
+        let eq = Equation::new("refl", Term::var("x"), Term::var("x"));
+        assert_step_law(elementary::add_equation(eq));
+    }
+
+    #[test]
+    fn step_law_drop_equation() {
+        // No such equation is present; the transform is a theory-level
+        // no-op with an empty complement, so the lens is the identity.
+        assert_step_law(elementary::drop_equation("nonexistent_eq"));
+    }
+
+    #[test]
+    fn step_law_directed_eq() {
+        let deq = panproto_gat::DirectedEquation {
+            name: std::sync::Arc::from("id_deq"),
+            lhs: Term::var("x"),
+            rhs: Term::var("x"),
+            impl_term: panproto_expr::Expr::var("x"),
+            inverse: Some(panproto_expr::Expr::var("x")),
+            source_kind: Some(ValueKind::Str),
+            target_kind: Some(ValueKind::Str),
+            coercion_class: CoercionClass::Iso,
+        };
+        assert_step_law(elementary::directed_eq(deq));
+    }
+
+    #[test]
+    fn step_law_drop_directed_eq() {
+        assert_step_law(elementary::drop_directed_eq("nonexistent_deq"));
+    }
+
+    // --- structural / higher-order steps ---
+
+    #[test]
+    fn step_law_scoped() {
+        // Scope a rename within the `doc.meta` sub-schema.
+        let inner = elementary::rename_sort("string", "text");
+        assert_step_law(elementary::scoped("doc.meta", inner));
+    }
+
+    #[test]
+    fn step_law_pullback() {
+        // Pullback along the identity morphism of the fixture's implicit
+        // theory is a lossless no-op.
+        let (schema, _) = nested_fixture();
+        let theory = super::schema_to_implicit_theory(&schema);
+        let morphism = TheoryMorphism::identity(&theory);
+        assert_step_law(elementary::pullback(morphism));
+    }
+
+    #[test]
+    fn step_law_coerce_sort() {
+        // An Iso identity coercion on the `string` sort is lossless.
+        assert_step_law(elementary::sort_coerce(
+            "string",
+            ValueKind::Str,
+            panproto_expr::Expr::var("x"),
+            Some(panproto_expr::Expr::var("x")),
+            CoercionClass::Iso,
+        ));
+    }
+
+    #[test]
+    fn step_law_hoist_field() {
+        // Hoist `doc.author` from under `doc.meta` up to `doc`.
+        assert_chain_law(&combinators::hoist_field("doc", "doc.meta", "doc.author"));
+    }
+
+    #[test]
+    fn step_law_nest_field() {
+        // Nest `doc.title` under a fresh intermediate object.
+        assert_chain_law(&combinators::nest_field(
+            "doc",
+            "doc.title",
+            "doc.wrapper",
+            "object",
+            "prop",
+            Some(Name::from("title")),
+            "wrapper",
+            "title",
+        ));
+    }
+
+    #[test]
+    fn step_law_add_field() {
+        assert_chain_law(&combinators::add_field(
+            "doc",
+            "doc.note",
+            "string",
+            Value::Str("default".into()),
+        ));
+    }
+
+    #[test]
+    fn step_law_merge_sorts() {
+        // The DSL `MergeSorts` step is the lossy case: merging distinct
+        // carriers into one is not generally invertible, so its compile
+        // target declares an `Opaque` coercion whose complement retains
+        // the pre-merge data. Rather than assert PutGet (which does not
+        // hold for the merged component), assert the honest lossy shape:
+        // the protolens is not lossless and its complement captures the
+        // coerced sort data.
+        let merge = elementary::sort_coerce(
+            "string",
+            ValueKind::Str,
+            panproto_expr::Expr::Lit(panproto_expr::Literal::Str("merged".into())),
+            None,
+            CoercionClass::Opaque,
+        );
+        assert!(!merge.is_lossless(), "a merge/opaque coercion is lossy");
+        assert!(
+            matches!(
+                merge.complement_constructor,
+                ComplementConstructor::CoercedSortData {
+                    class: CoercionClass::Opaque,
+                    ..
+                }
+            ),
+            "opaque coercion must retain coerced-sort complement data",
         );
     }
 }

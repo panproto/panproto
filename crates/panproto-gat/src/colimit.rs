@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::eq::alpha_equivalent_equation;
 use crate::error::GatError;
-use crate::morphism::TheoryMorphism;
+use crate::morphism::{TheoryMorphism, check_morphism};
 use crate::sort::signatures_equivalent_modulo_param_rename;
 use crate::theory::Theory;
 
@@ -64,8 +64,8 @@ impl ColimitResult {
                     equation: format!("cocone op {}", op.name),
                     detail: format!(
                         "j1∘i1 maps to {}, j2∘i2 maps to {}",
-                        l.map_or("(none)", |s| s.as_ref()),
-                        r.map_or("(none)", |s| s.as_ref()),
+                        l.map_or_else(|| "(none)".to_owned(), ToString::to_string),
+                        r.map_or_else(|| "(none)".to_owned(), ToString::to_string),
                     ),
                 });
             }
@@ -84,6 +84,24 @@ impl ColimitResult {
 /// The pushout identifies `i1(x)` with `i2(x)` for every sort and operation
 /// x in the shared theory.
 ///
+/// # Amalgamation convention
+///
+/// This construction is an *amalgamated union*, not the disjoint-union
+/// coproduct followed by a coequalizer. Beyond the shared elements the
+/// morphisms identify, two elements with the *same name* that are not in
+/// the image of the shared theory are also identified whenever their
+/// signatures are compatible; incompatible same-name elements raise
+/// [`GatError::SortConflict`] or [`GatError::OpConflict`]. This convention
+/// preserves the registered theory names that downstream code keys on,
+/// rather than freshening one side. Equations are additionally
+/// deduplicated by content: a T2 equation that is alpha-equivalent to one
+/// already present is dropped even under a different name.
+///
+/// The inclusion morphisms are built by construction and their cocone
+/// commutativity is checked at construction. The universal-property
+/// mediator is additionally validated with [`check_morphism`] in
+/// [`ColimitResult::verify_universal`].
+///
 /// # Errors
 ///
 /// Returns [`GatError::SortConflict`] if T1 and T2 both declare a sort with
@@ -97,13 +115,19 @@ impl ColimitResult {
 /// Returns [`GatError::EqConflict`] if T1 and T2 both declare an equation
 /// with the same name but different content and the equation is not identified
 /// via the morphisms.
+///
+/// Returns [`GatError::NonInjectiveIdentification`] if a morphism identifies
+/// two shared elements with a single element of the other theory whose
+/// preimages have distinct targets; such non-injective legs are rejected
+/// rather than quotiented (a true coequalizer over such a span is future
+/// work).
 pub fn colimit(
     t1: &Theory,
     t2: &Theory,
     i1: &TheoryMorphism,
     i2: &TheoryMorphism,
 ) -> Result<ColimitResult, GatError> {
-    let (sort_rename, op_rename) = build_rename_maps(i1, i2);
+    let (sort_rename, op_rename) = build_rename_maps(i1, i2)?;
 
     let sorts = merge_sorts(t1, t2, &sort_rename)?;
     let ops = merge_ops(t1, t2, &sort_rename, &op_rename)?;
@@ -132,6 +156,19 @@ pub fn colimit(
         inclusion2: j2,
     };
 
+    // The inclusions are not validated with check_morphism here, and
+    // `verify_universal_identity` is deliberately not run unconditionally:
+    // panproto's building-block instance theories reference sorts supplied
+    // only by the schema theory they are paired with (for example ThWType's
+    // `anchor` op targets `Vertex`, declared by ThGraph). A standalone colimit
+    // inclusion, and hence the universal-property mediator built over it, is
+    // therefore not a total morphism there, independent of equation
+    // preservation, so the check_morphism inside `verify_universal_identity`
+    // would false-positive on the missing `Vertex` mapping. Cocone
+    // commutativity is the enforced construction-time gate; callers that build
+    // standalone-total theories can invoke
+    // [`ColimitResult::verify_universal_identity`] explicitly to additionally
+    // gate on the universal property.
     verify_cocone(i1, i2, &result)?;
     Ok(result)
 }
@@ -148,12 +185,20 @@ impl ColimitResult {
     /// (and is sent to its image under k2). Cocone commutativity
     /// guarantees the two assignments agree on the shared image.
     ///
+    /// The constructed mediator is validated with [`check_morphism`]
+    /// against `q` before the factorization equations are compared, so a
+    /// cocone whose name maps commute but map an operation to one with an
+    /// incompatible signature in `q` is rejected rather than accepted on
+    /// the strength of the name maps alone.
+    ///
     /// # Errors
     ///
     /// Returns [`GatError::EquationNotPreserved`] when `(q, k1, k2)`
     /// is not a valid cocone (i.e. `k1` and `k2` disagree on a name
-    /// that the pushout identifies). The check is performed locally
-    /// via the cocone-commutativity comparison.
+    /// that the pushout identifies), or when the mediator fails to
+    /// factor `k1`/`k2` through the inclusions. Returns the relevant
+    /// signature or preservation error from [`check_morphism`] when the
+    /// mediator is not a well-formed morphism into `q`.
     pub fn verify_universal(
         &self,
         q: &Theory,
@@ -186,9 +231,15 @@ impl ColimitResult {
             "k2",
         )?;
 
+        // Colimit inclusions and cocone legs rename operations; the
+        // mediator is assembled from their operation-rename views.
         let mut op_map: HashMap<Arc<str>, Arc<str>> = HashMap::new();
-        merge_mediator_assignments(&mut op_map, &self.inclusion1.op_map, &k1.op_map, "op", "k1")?;
-        merge_mediator_assignments(&mut op_map, &self.inclusion2.op_map, &k2.op_map, "op", "k2")?;
+        let incl1_ops = self.inclusion1.op_rename_map();
+        let incl2_ops = self.inclusion2.op_rename_map();
+        let k1_ops = k1.op_rename_map();
+        let k2_ops = k2.op_rename_map();
+        merge_mediator_assignments(&mut op_map, &incl1_ops, &k1_ops, "op", "k1")?;
+        merge_mediator_assignments(&mut op_map, &incl2_ops, &k2_ops, "op", "k2")?;
 
         // Defensive coverage check: every sort/op present in the
         // pushout theory must have a mediator entry. Construction of
@@ -230,6 +281,12 @@ impl ColimitResult {
             sort_map,
             op_map,
         );
+
+        // Validate the mediator as a genuine morphism into q before the
+        // factorization comparisons: the name maps may commute while still
+        // sending an operation to one whose signature q does not preserve.
+        check_morphism(&mediator, &self.theory, q)?;
+
         let m_j1 = self.inclusion1.compose(&mediator)?;
         let m_j2 = self.inclusion2.compose(&mediator)?;
         if m_j1.sort_map != k1.sort_map || m_j1.op_map != k1.op_map {
@@ -245,6 +302,50 @@ impl ColimitResult {
             });
         }
         Ok(mediator)
+    }
+
+    /// Verify the universal property against the pushout's own canonical
+    /// cocone `(self.theory, self.inclusion1, self.inclusion2)` and confirm
+    /// the mediating morphism is the identity on the pushout.
+    ///
+    /// This is the universal property applied to the pushout itself: the
+    /// canonical cocone must factor through the pushout via the identity, so
+    /// any deviation signals that an inclusion image escapes the pushout's
+    /// own generators or that the two legs disagree on a name the pushout
+    /// identifies. The check delegates to [`ColimitResult::verify_universal`],
+    /// which validates the mediator with [`check_morphism`]; it therefore
+    /// requires the pushout theory to be a total signature, with every
+    /// operation's input and output sorts declared locally.
+    ///
+    /// # Errors
+    ///
+    /// Returns whatever [`ColimitResult::verify_universal`] returns when the
+    /// canonical cocone fails to factor, or [`GatError::EquationNotPreserved`]
+    /// if the mediator sends any sort or operation to a name other than
+    /// itself.
+    pub fn verify_universal_identity(&self) -> Result<(), GatError> {
+        let mediator = self.verify_universal(&self.theory, &self.inclusion1, &self.inclusion2)?;
+        for (from, to) in &mediator.sort_map {
+            if from != to {
+                return Err(GatError::EquationNotPreserved {
+                    equation: format!("universal identity sort {from}"),
+                    detail: format!(
+                        "mediator into the pushout maps sort `{from}` to `{to}`, not to itself",
+                    ),
+                });
+            }
+        }
+        for (from, to) in &mediator.op_map {
+            if to.as_op() != Some(from) {
+                return Err(GatError::EquationNotPreserved {
+                    equation: format!("universal identity op {from}"),
+                    detail: format!(
+                        "mediator into the pushout maps op `{from}` to `{to}`, not to itself",
+                    ),
+                });
+            }
+        }
+        Ok(())
     }
 }
 
@@ -292,20 +393,59 @@ type RenameMap = HashMap<Arc<str>, Arc<str>>;
 /// For each sort (or op) `s` in the shared theory, we have `i1(s)` in T1
 /// and `i2(s)` in T2; the pushout picks T1's name, so we rename `i2(s)`
 /// to `i1(s)`.
-fn build_rename_maps(i1: &TheoryMorphism, i2: &TheoryMorphism) -> (RenameMap, RenameMap) {
-    let mut sort_rename = HashMap::new();
-    for (shared_sort, t1_sort) in &i1.sort_map {
-        if let Some(t2_sort) = i2.sort_map.get(shared_sort) {
-            sort_rename.insert(Arc::clone(t2_sort), Arc::clone(t1_sort));
+///
+/// # Errors
+///
+/// Returns [`GatError::NonInjectiveIdentification`] when two shared
+/// elements map to the same T2 element under `i2` but to distinct T1
+/// elements under `i1`. Such a leg would require a non-injective rename
+/// (last-write-wins), so it is rejected deterministically here: the two
+/// conflicting T1 targets are reported in a fixed order so the error is
+/// identical regardless of map iteration order.
+fn build_rename_maps(
+    i1: &TheoryMorphism,
+    i2: &TheoryMorphism,
+) -> Result<(RenameMap, RenameMap), GatError> {
+    let sort_rename = build_one_rename_map(&i1.sort_map, &i2.sort_map, "sort")?;
+    // Colimit inclusions rename operations; the rename map is built from
+    // their operation-rename views.
+    let op_rename = build_one_rename_map(&i1.op_rename_map(), &i2.op_rename_map(), "op")?;
+    Ok((sort_rename, op_rename))
+}
+
+/// Build one T2 → T1 rename map (for sorts or ops), rejecting the
+/// non-injective case.
+fn build_one_rename_map(
+    i1_map: &HashMap<Arc<str>, Arc<str>>,
+    i2_map: &HashMap<Arc<str>, Arc<str>>,
+    kind: &'static str,
+) -> Result<RenameMap, GatError> {
+    let mut rename: RenameMap = HashMap::new();
+    for (shared, t1_name) in i1_map {
+        if let Some(t2_name) = i2_map.get(shared) {
+            if let Some(existing) = rename.get(t2_name) {
+                if existing != t1_name {
+                    // Report the two conflicting T1 targets in a fixed
+                    // order so the message does not depend on which
+                    // shared element was visited first.
+                    let (first, second) = if existing <= t1_name {
+                        (existing.to_string(), t1_name.to_string())
+                    } else {
+                        (t1_name.to_string(), existing.to_string())
+                    };
+                    return Err(GatError::NonInjectiveIdentification {
+                        kind,
+                        shared_image: t2_name.to_string(),
+                        first,
+                        second,
+                    });
+                }
+            } else {
+                rename.insert(Arc::clone(t2_name), Arc::clone(t1_name));
+            }
         }
     }
-    let mut op_rename = HashMap::new();
-    for (shared_op, t1_op) in &i1.op_map {
-        if let Some(t2_op) = i2.op_map.get(shared_op) {
-            op_rename.insert(Arc::clone(t2_op), Arc::clone(t1_op));
-        }
-    }
-    (sort_rename, op_rename)
+    Ok(rename)
 }
 
 /// Merge T2's sorts into T1's, resolving identifications via `sort_rename`.
@@ -418,8 +558,8 @@ fn verify_cocone(
                 equation: format!("cocone op {shared_op}"),
                 detail: format!(
                     "j1∘i1 maps to {}, j2∘i2 maps to {}",
-                    l.map_or("(none)", |s| s.as_ref()),
-                    r.map_or("(none)", |s| s.as_ref()),
+                    l.map_or_else(|| "(none)".to_owned(), ToString::to_string),
+                    r.map_or_else(|| "(none)".to_owned(), ToString::to_string),
                 ),
             });
         }
@@ -470,6 +610,14 @@ fn rename_op_sort_refs(
     crate::op::Operation::with_implicit(Arc::clone(&op.name), inputs, output)
 }
 
+/// Merge T2's equations into T1's, applying `op_rename` to T2's terms.
+///
+/// A T2 equation whose name already occurs in T1 must be alpha-equivalent
+/// to T1's, otherwise [`GatError::EqConflict`] is raised. A T2 equation
+/// with a name absent from T1 is deduplicated by *content*: it is dropped
+/// when it is alpha-equivalent (in either orientation) to an equation
+/// already present, so the same axiom carried under two different names
+/// contributes a single equation to the pushout.
 fn merge_equations(
     t1: &Theory,
     t2: &Theory,
@@ -484,7 +632,10 @@ fn merge_equations(
                     name: eq.name.to_string(),
                 });
             }
-        } else {
+        } else if !eqs.iter().any(|kept| {
+            alpha_equivalent_equation(&kept.lhs, &kept.rhs, &renamed.lhs, &renamed.rhs)
+                || alpha_equivalent_equation(&kept.lhs, &kept.rhs, &renamed.rhs, &renamed.lhs)
+        }) {
             eqs.push(renamed);
         }
     }
@@ -494,6 +645,9 @@ fn merge_equations(
 /// Merge directed equations from t2 into t1's directed equations.
 ///
 /// Applies `op_rename` to T2's directed equation terms before comparison.
+/// A differently-named T2 directed equation is deduplicated by content
+/// when it is alpha-equivalent to one already present. Directed equations
+/// are oriented, so only the `lhs`-to-`rhs` orientation is compared.
 fn merge_directed_equations(
     t1: &Theory,
     t2: &Theory,
@@ -508,7 +662,10 @@ fn merge_directed_equations(
                     name: de.name.to_string(),
                 });
             }
-        } else {
+        } else if !directed_eqs
+            .iter()
+            .any(|kept| alpha_equivalent_equation(&kept.lhs, &kept.rhs, &renamed.lhs, &renamed.rhs))
+        {
             directed_eqs.push(renamed);
         }
     }
@@ -638,15 +795,91 @@ fn identity_inclusion(
     ))
 }
 
-/// Theory-only convenience wrapper around [`pushout_by_name`].
+/// Merge t2's equations into t1's for the by-name colimit path.
 ///
-/// Returns the pushout's underlying [`Theory`]; callers that need
-/// the inclusion morphisms or want to verify the universal property
-/// should use [`pushout_by_name`] directly.
+/// Equations present in `shared` are already carried by t1 and skipped.
+/// A same-name equation must be alpha-equivalent to t1's, otherwise
+/// [`GatError::EqConflict`]; a differently-named equation is deduplicated
+/// by content in either orientation.
+fn merge_eqs_by_name(
+    t1: &Theory,
+    t2: &Theory,
+    shared: &Theory,
+) -> Result<Vec<crate::eq::Equation>, GatError> {
+    let mut eqs = t1.eqs.clone();
+    for eq in &t2.eqs {
+        if let Some(t1_eq) = t1.find_eq(&eq.name) {
+            if shared.find_eq(&eq.name).is_some() {
+                continue;
+            }
+            if !alpha_equivalent_equation(&t1_eq.lhs, &t1_eq.rhs, &eq.lhs, &eq.rhs) {
+                return Err(GatError::EqConflict {
+                    name: eq.name.to_string(),
+                });
+            }
+        } else if !eqs.iter().any(|kept| {
+            alpha_equivalent_equation(&kept.lhs, &kept.rhs, &eq.lhs, &eq.rhs)
+                || alpha_equivalent_equation(&kept.lhs, &kept.rhs, &eq.rhs, &eq.lhs)
+        }) {
+            eqs.push(eq.clone());
+        }
+    }
+    Ok(eqs)
+}
+
+/// Merge t2's directed equations into t1's for the by-name colimit path.
+///
+/// Mirrors [`merge_eqs_by_name`], but compares only the oriented
+/// `lhs`-to-`rhs` direction when deduplicating differently-named copies.
+fn merge_directed_eqs_by_name(
+    t1: &Theory,
+    t2: &Theory,
+    shared: &Theory,
+) -> Result<Vec<crate::eq::DirectedEquation>, GatError> {
+    let mut directed_eqs = t1.directed_eqs.clone();
+    for de in &t2.directed_eqs {
+        if let Some(t1_de) = t1.find_directed_eq(&de.name) {
+            if shared.find_directed_eq(&de.name).is_some() {
+                continue;
+            }
+            if !alpha_equivalent_equation(&t1_de.lhs, &t1_de.rhs, &de.lhs, &de.rhs) {
+                return Err(GatError::DirectedEqConflict {
+                    name: de.name.to_string(),
+                });
+            }
+        } else if !directed_eqs
+            .iter()
+            .any(|kept| alpha_equivalent_equation(&kept.lhs, &kept.rhs, &de.lhs, &de.rhs))
+        {
+            directed_eqs.push(de.clone());
+        }
+    }
+    Ok(directed_eqs)
+}
+
+/// Compute the pushout of two theories that both contain a `shared`
+/// theory by name, returning only the resulting [`Theory`].
+///
+/// Elements whose names appear in `shared` are identified across `t1` and
+/// `t2`. Callers that need the inclusion morphisms or want to verify the
+/// universal property should use [`pushout_by_name`] instead.
+///
+/// # Amalgamation convention
+///
+/// Like [`colimit`], this is an *amalgamated union* rather than a
+/// disjoint-union coproduct followed by a coequalizer. Same-name sorts and
+/// operations outside `shared` are identified when their signatures are
+/// compatible and raise [`GatError::SortConflict`] or
+/// [`GatError::OpConflict`] otherwise. Equations are deduplicated by
+/// content: an equation carried under different names in `t1` and `t2` is
+/// identified when alpha-equivalent, so it appears once in the result.
 ///
 /// # Errors
 ///
-/// Same as [`pushout_by_name`].
+/// Returns [`GatError::SortConflict`], [`GatError::OpConflict`],
+/// [`GatError::EqConflict`], [`GatError::DirectedEqConflict`], or
+/// [`GatError::PolicyConflict`] when `t1` and `t2` declare an element with
+/// the same name but incompatible content outside `shared`.
 pub fn colimit_by_name(t1: &Theory, t2: &Theory, shared: &Theory) -> Result<Theory, GatError> {
     // Start with all sorts from t1.
     let mut sorts = t1.sorts.clone();
@@ -703,41 +936,10 @@ pub fn colimit_by_name(t1: &Theory, t2: &Theory, shared: &Theory) -> Result<Theo
         }
     }
 
-    // Same for equations.
-    let mut eqs = t1.eqs.clone();
-
-    for eq in &t2.eqs {
-        if let Some(t1_eq) = t1.find_eq(&eq.name) {
-            if shared.find_eq(&eq.name).is_some() {
-                continue;
-            }
-            if !alpha_equivalent_equation(&t1_eq.lhs, &t1_eq.rhs, &eq.lhs, &eq.rhs) {
-                return Err(GatError::EqConflict {
-                    name: eq.name.to_string(),
-                });
-            }
-        } else {
-            eqs.push(eq.clone());
-        }
-    }
-
-    // Same for directed equations.
-    let mut directed_eqs = t1.directed_eqs.clone();
-
-    for de in &t2.directed_eqs {
-        if let Some(t1_de) = t1.find_directed_eq(&de.name) {
-            if shared.find_directed_eq(&de.name).is_some() {
-                continue;
-            }
-            if !alpha_equivalent_equation(&t1_de.lhs, &t1_de.rhs, &de.lhs, &de.rhs) {
-                return Err(GatError::DirectedEqConflict {
-                    name: de.name.to_string(),
-                });
-            }
-        } else {
-            directed_eqs.push(de.clone());
-        }
-    }
+    // Equations and directed equations: identify by name against the
+    // shared base and deduplicate differently-named copies by content.
+    let eqs = merge_eqs_by_name(t1, t2, shared)?;
+    let directed_eqs = merge_directed_eqs_by_name(t1, t2, shared)?;
 
     // Same for conflict policies.
     let mut policies = t1.policies.clone();
@@ -903,6 +1105,9 @@ mod tests {
         assert_eq!(result.eqs.len(), 1);
     }
 
+    /// Pins the amalgamation convention: two theories that each declare a
+    /// same-name sort outside the shared theory have that sort identified
+    /// (not disjointly duplicated) when their signatures are compatible.
     #[test]
     fn compatible_non_shared_duplicates_allowed() {
         let shared = Theory::new("Empty", Vec::new(), Vec::new(), Vec::new());
@@ -1372,7 +1577,7 @@ mod tests {
                     prop_assert_eq!(k, v, "identity mediator must be identity on sorts");
                 }
                 for (k, v) in &m.op_map {
-                    prop_assert_eq!(k, v, "identity mediator must be identity on ops");
+                    prop_assert_eq!(v.as_op(), Some(k), "identity mediator must be identity on ops");
                 }
             }
         }
@@ -1452,5 +1657,238 @@ mod tests {
             mediator.sort_map.get("Constraint").map(AsRef::as_ref),
             Some("Constraint")
         );
+    }
+
+    /// A cocone whose name maps commute but whose target theory declares
+    /// an operation with an incompatible signature must be rejected when
+    /// the mediator is validated as a morphism, not accepted on the
+    /// strength of the name maps alone.
+    #[test]
+    fn verify_universal_rejects_signature_incompatible_mediator() {
+        let shared = Theory::new(
+            "ThVertex",
+            vec![Sort::simple("Vertex")],
+            Vec::new(),
+            Vec::new(),
+        );
+        let th_graph = Theory::new(
+            "ThGraph",
+            vec![Sort::simple("Vertex"), Sort::simple("Edge")],
+            vec![Operation::unary("src", "e", "Edge", "Vertex")],
+            Vec::new(),
+        );
+        let th_constraint = Theory::new(
+            "ThConstraint",
+            vec![Sort::simple("Vertex"), Sort::simple("Constraint")],
+            vec![Operation::unary("target", "c", "Constraint", "Vertex")],
+            Vec::new(),
+        );
+        let pushout = pushout_by_name(&th_graph, &th_constraint, &shared).unwrap();
+
+        // Q declares `src` with a reversed signature (Vertex -> Edge). The
+        // name maps below still commute over the shared Vertex, so the
+        // mediator is constructed, but it is not a valid morphism into Q.
+        let q = Theory::new(
+            "Q",
+            vec![
+                Sort::simple("Vertex"),
+                Sort::simple("Edge"),
+                Sort::simple("Constraint"),
+            ],
+            vec![
+                Operation::unary("src", "v", "Vertex", "Edge"),
+                Operation::unary("target", "c", "Constraint", "Vertex"),
+            ],
+            Vec::new(),
+        );
+
+        let mut k1_sort_map = HashMap::new();
+        k1_sort_map.insert(Arc::from("Vertex"), Arc::from("Vertex"));
+        k1_sort_map.insert(Arc::from("Edge"), Arc::from("Edge"));
+        let mut k1_op_map = HashMap::new();
+        k1_op_map.insert(Arc::from("src"), Arc::from("src"));
+        let k1 = TheoryMorphism::new("k1", "ThGraph", "Q", k1_sort_map, k1_op_map);
+
+        let mut k2_sort_map = HashMap::new();
+        k2_sort_map.insert(Arc::from("Vertex"), Arc::from("Vertex"));
+        k2_sort_map.insert(Arc::from("Constraint"), Arc::from("Constraint"));
+        let mut k2_op_map = HashMap::new();
+        k2_op_map.insert(Arc::from("target"), Arc::from("target"));
+        let k2 = TheoryMorphism::new("k2", "ThConstraint", "Q", k2_sort_map, k2_op_map);
+
+        let result = pushout.verify_universal(&q, &k1, &k2);
+        assert!(
+            matches!(result, Err(GatError::OpTypeMismatch { .. })),
+            "expected the mediator's signature violation to be rejected, got {result:?}"
+        );
+    }
+
+    /// A colimit leg that identifies two shared elements with a single
+    /// element of the other theory (whose preimages have distinct targets)
+    /// is rejected deterministically, with a stable error message across
+    /// runs regardless of map iteration order.
+    #[test]
+    fn non_injective_colimit_leg_rejected_deterministically() {
+        // The morphisms below carry the shared theory's names directly, so
+        // no explicit shared `Theory` value is needed to build the legs.
+        let t1 = Theory::new(
+            "T1",
+            vec![Sort::simple("X"), Sort::simple("Y")],
+            Vec::new(),
+            Vec::new(),
+        );
+        let t2 = Theory::new("T2", vec![Sort::simple("Z")], Vec::new(), Vec::new());
+
+        // i1 sends A -> X and B -> Y; i2 sends both A and B to Z.
+        let i1 = TheoryMorphism::new(
+            "i1",
+            "S",
+            "T1",
+            HashMap::from([
+                (Arc::from("A"), Arc::from("X")),
+                (Arc::from("B"), Arc::from("Y")),
+            ]),
+            HashMap::<Arc<str>, Arc<str>>::new(),
+        );
+        let i2 = TheoryMorphism::new(
+            "i2",
+            "S",
+            "T2",
+            HashMap::from([
+                (Arc::from("A"), Arc::from("Z")),
+                (Arc::from("B"), Arc::from("Z")),
+            ]),
+            HashMap::<Arc<str>, Arc<str>>::new(),
+        );
+
+        let mut displays = std::collections::HashSet::new();
+        for _ in 0..10 {
+            match colimit(&t1, &t2, &i1, &i2) {
+                Err(e @ GatError::NonInjectiveIdentification { .. }) => {
+                    displays.insert(e.to_string());
+                }
+                other => panic!("expected NonInjectiveIdentification, got {other:?}"),
+            }
+        }
+        assert_eq!(
+            displays.len(),
+            1,
+            "error Display must be identical across runs: {displays:?}"
+        );
+        let d = displays.into_iter().next().unwrap();
+        assert!(d.contains("non-injective"), "got: {d}");
+        assert!(
+            d.contains('Z'),
+            "message should name the shared image Z: {d}"
+        );
+    }
+
+    /// Two theories carrying the same axiom under different names collapse
+    /// to a single equation in the colimit: dedup is by content, not name.
+    #[test]
+    fn colimit_by_name_dedups_alpha_equivalent_eqs_under_different_names() {
+        let shared = Theory::new("Empty", Vec::new(), Vec::new(), Vec::new());
+        let t1 = Theory::new(
+            "T1",
+            vec![Sort::simple("A")],
+            vec![Operation::unary("f", "x", "A", "A")],
+            vec![Equation::new(
+                "t1_ax",
+                Term::app("f", vec![Term::var("x")]),
+                Term::var("x"),
+            )],
+        );
+        let t2 = Theory::new(
+            "T2",
+            vec![Sort::simple("A")],
+            vec![Operation::unary("f", "x", "A", "A")],
+            vec![Equation::new(
+                "t2_ax",
+                Term::app("f", vec![Term::var("y")]),
+                Term::var("y"),
+            )],
+        );
+        let result = colimit_by_name(&t1, &t2, &shared).unwrap();
+        assert_eq!(
+            result.eqs.len(),
+            1,
+            "alpha-equivalent axioms under different names must dedup to one, got {:?}",
+            result.eqs
+        );
+    }
+
+    /// The universal-identity check rejects a hand-built [`ColimitResult`]
+    /// whose pushout theory declares a sort that neither inclusion covers:
+    /// no mediator can be defined on such an orphan generator, so the
+    /// canonical cocone cannot factor through the identity.
+    #[test]
+    fn colimit_result_rejects_uncovered_pushout_sort() {
+        let theory = Theory::new(
+            "P",
+            vec![Sort::simple("Covered"), Sort::simple("Orphan")],
+            Vec::new(),
+            Vec::new(),
+        );
+        let inclusion1 = TheoryMorphism::new(
+            "j1",
+            "T1",
+            "P",
+            HashMap::from([(Arc::from("Covered"), Arc::from("Covered"))]),
+            HashMap::<Arc<str>, Arc<str>>::new(),
+        );
+        let inclusion2 = TheoryMorphism::new(
+            "j2",
+            "T2",
+            "P",
+            HashMap::new(),
+            HashMap::<Arc<str>, Arc<str>>::new(),
+        );
+        let result = ColimitResult {
+            theory,
+            inclusion1,
+            inclusion2,
+        };
+        let err = result
+            .verify_universal_identity()
+            .expect_err("orphan pushout sort must be rejected");
+        assert!(
+            matches!(err, GatError::EquationNotPreserved { .. }),
+            "expected EquationNotPreserved for the uncovered sort, got {err:?}",
+        );
+    }
+
+    /// A colimit of two standalone-total theories passes the
+    /// universal-identity check: the canonical cocone factors through the
+    /// pushout via the identity mediator, and every operation's sorts are
+    /// declared locally so the mediator validates as a total morphism.
+    #[test]
+    fn colimit_runs_universal_identity_check() {
+        // Base carrier shared by both extensions.
+        let shared = Theory::new("Base", vec![Sort::simple("M")], Vec::new(), Vec::new());
+        // A monoid-like extension: mul and unit over the shared carrier.
+        let t1 = Theory::new(
+            "T1",
+            vec![Sort::simple("M")],
+            vec![
+                Operation::new(
+                    "mul",
+                    vec![("a".into(), "M".into()), ("b".into(), "M".into())],
+                    "M",
+                ),
+                Operation::nullary("unit", "M"),
+            ],
+            Vec::new(),
+        );
+        // A pointed extension over the same carrier.
+        let t2 = Theory::new(
+            "T2",
+            vec![Sort::simple("M")],
+            vec![Operation::nullary("point", "M")],
+            Vec::new(),
+        );
+        let result = pushout_by_name(&t1, &t2, &shared).expect("standalone-total colimit succeeds");
+        result
+            .verify_universal_identity()
+            .expect("canonical cocone factors via the identity mediator");
     }
 }

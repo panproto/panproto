@@ -93,4 +93,91 @@ pub enum LensDslError {
         /// Human-readable error.
         message: String,
     },
+
+    /// An `auto` (or `from_diff`) body was compiled without schema
+    /// context. Auto-generation and diff-based generation both require
+    /// the source and target schemas plus a protocol; use
+    /// [`compile_with_schemas`](crate::compile::compile_with_schemas)
+    /// instead of the schema-less [`compile`](crate::compile::compile).
+    #[error(
+        "lens document '{id}' has an auto/from_diff body but was compiled without schemas: use compile_with_schemas"
+    )]
+    #[diagnostic(code(panproto_lens_dsl::auto_requires_schemas))]
+    AutoRequiresSchemas {
+        /// The lens document ID.
+        id: String,
+    },
+
+    /// The compiled chain, applied to the source schema, produced a
+    /// schema whose NSID does not match the document's declared
+    /// `target`. Raised only by the schema-aware entry point
+    /// [`compile_with_schemas`](crate::compile::compile_with_schemas);
+    /// the schema-less [`compile`](crate::compile::compile) cannot
+    /// perform this check.
+    #[error(
+        "lens document '{id}': declared target '{declared}' but the compiled chain produces '{actual}'"
+    )]
+    #[diagnostic(code(panproto_lens_dsl::target_mismatch))]
+    TargetMismatch {
+        /// The lens document ID.
+        id: String,
+        /// The `target` NSID declared in the document.
+        declared: String,
+        /// The NSID of the schema the compiled chain actually produces.
+        actual: String,
+    },
+
+    /// The document declared `invertible: true` but the compiled chain
+    /// contains a lossy element (a non-`Iso` step or field transform),
+    /// so the lens cannot round-trip.
+    #[error("lens document '{id}' declares invertible but contains a lossy element: {element}")]
+    #[diagnostic(code(panproto_lens_dsl::not_invertible))]
+    NotInvertible {
+        /// The lens document ID.
+        id: String,
+        /// A description of the first lossy element found.
+        element: String,
+    },
+
+    /// Auto-generation or diff-based generation of the chain failed
+    /// inside the schema-aware entry point.
+    #[error("lens document '{id}': schema-aware generation failed: {message}")]
+    #[diagnostic(code(panproto_lens_dsl::generation))]
+    Generation {
+        /// The lens document ID.
+        id: String,
+        /// Human-readable error from the lens engine.
+        message: String,
+    },
+
+    /// A `coerce_sort` step declares a coercion class whose forward and
+    /// inverse expressions do not satisfy the class's round-trip laws on
+    /// the sampled inputs, so the declaration cannot be honest. The check
+    /// is evidence, not proof: the sampled inputs that fail to round-trip
+    /// are enough to reject the declaration, though passing them would not
+    /// prove honesty for every input.
+    #[error("coerce_sort step {step_desc}: dishonest coercion declaration: {message}")]
+    #[diagnostic(code(panproto_lens_dsl::coercion_not_honest))]
+    CoercionNotHonest {
+        /// Description of the step whose declared coercion failed
+        /// verification (e.g. `coerce_sort[2]`).
+        step_desc: String,
+        /// The honesty check's rendering, carrying the per-sample
+        /// violations and the evidence-not-proof caveat.
+        message: String,
+    },
+}
+
+impl From<panproto_dsl_eval::DslEvalError> for LensDslError {
+    fn from(err: panproto_dsl_eval::DslEvalError) -> Self {
+        match err {
+            panproto_dsl_eval::DslEvalError::NickelEval { message }
+            | panproto_dsl_eval::DslEvalError::NickelEvalSpanned { message, .. } => {
+                Self::NickelEval { message }
+            }
+            panproto_dsl_eval::DslEvalError::Json(e) => Self::Json(e),
+            panproto_dsl_eval::DslEvalError::Yaml { message } => Self::Yaml { message },
+            panproto_dsl_eval::DslEvalError::Io(e) => Self::Io(e),
+        }
+    }
 }

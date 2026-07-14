@@ -31,7 +31,17 @@ Each step is a single-key object. The key picks the variant; the value carries i
 
 ### Compile a chain
 
-`schema lens` does not consume `.ncl`/`.json`/`.yaml` lens documents directly through the CLI. The DSL is compiled by the `panproto-lens-dsl` library; the CLI works on the compiled `ProtolensChain` it produces. To go from a pair of schemas to a chain via the CLI, use:
+`schema lens compile` loads a lens DSL document and compiles it to a `ProtolensChain`, writing the chain JSON to stdout or to `--out`:
+
+```sh
+schema lens compile lenses/user-v1-to-v2.ncl \
+  --body-vertex record:body \
+  --out lenses/user-v1-to-v2.json
+```
+
+`--body-vertex` names the parent vertex under which field-level steps attach (default `record:body`). The command compiles the schema-parametric bodies (`steps`, `rules`, `compose`, `symmetric`) and resolves `compose` references by lens `id` against sibling documents in the same directory. The `auto` and `from_diff` bodies need a concrete source and target schema, so they compile through the library entry point `compile_with_schemas` or the SDK bindings rather than this command.
+
+To auto-derive a chain from a pair of schemas instead of authoring a document, use `schema lens generate`:
 
 ```sh
 schema lens generate \
@@ -40,8 +50,6 @@ schema lens generate \
   schemas/user-v2.json \
   --save lenses/user-v1-to-v2.json
 ```
-
-This auto-derives a chain. To author a chain by hand, write the lens DSL and call `panproto_lens_dsl::load` and `panproto_lens_dsl::compile` from Rust (or the equivalent SDK calls).
 
 ### Apply
 

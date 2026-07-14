@@ -38,6 +38,7 @@
   "dagger"
   "decoder"
   "deduction"
+  "define"
   "depth"
   "dim"
   "edge_kinds"
@@ -60,14 +61,15 @@
   "message"
   "morphism"
   "observe"
+  "op"
   "ops"
-  "over"
   "primitive"
   "program"
   "readout"
   "recurrent"
   "recursive"
   "return"
+  "rule"
   "rules"
   "sample"
   "schema"
@@ -85,23 +87,12 @@
   "where"
 ] @keyword
 
-; Composition levels.
-[
-  "algebra"
-  "bilinear_form"
-  "rule"
-  "semigroupoid"
-] @keyword.modifier
-
 ; Sort kinds in structural-compression signatures.
 [
   "data"
   "index"
   "object"
 ] @type.qualifier
-
-; Effect tokens carried by option-block values; not grammar literals.
-"!" @operator.special
 
 ; ---------------------------------------------------------------------------
 ; builtin types (constructor / param-kind heads)
@@ -150,13 +141,8 @@
 ; ---------------------------------------------------------------------------
 
 [
-  "$>"
-  "%>"
-  "&&>"
   "*"
-  "*>"
   "+"
-  "+>"
   "-"
   "--"
   "->"
@@ -166,18 +152,13 @@
   "<-"
   "<<"
   "="
-  "=>"
-  ">=>"
   ">>"
   ">>>"
-  "?>"
   "@"
-  "\"
+  "\\"
   "|-"
   "|->"
-  "||>"
   "~"
-  "~>"
   "⊢"
 ] @operator
 
@@ -186,13 +167,13 @@
 ; ---------------------------------------------------------------------------
 
 (category_decl    names: (identifier) @type)
-(object_decl      name: (identifier) @type)
+(object_decl      names: (identifier) @type)
 (rule_decl        name: (identifier) @function)
 (rule_decl        variables: (identifier) @variable.parameter)
 (schema_decl      name: (identifier) @function)
 (schema_parameter names: (identifier) @variable.parameter)
-(morphism_decl    name: (identifier) @function)
-(let_decl         name: (identifier) @function)
+(morphism_decl    names: (identifier) @function)
+(define_decl      name: (identifier) @function)
 (program_decl     name: (identifier) @function)
 (bundle_decl      name: (identifier) @function)
 (contraction_decl name: (identifier) @function)
@@ -220,13 +201,12 @@
 (deduction_atoms  atoms: (identifier) @constant)
 (deduction_rule   name: (identifier) @function)
 (deduction_lexicon_from_file path: (string) @string)
-(lexicon_entry    word: (string) @string)
+(lexicon_entry    words: (string) @string)
 
 ; Structural-compression declarations.
 (signature_decl   name: (identifier) @type)
 (signature_decl   params: (identifier) @type.parameter)
 (sort_decl        name: (identifier) @type)
-(sort_decl        dim: (integer) @number)
 (constructor_decl name: (identifier) @constructor)
 (constructor_decl domain: (identifier) @type)
 (constructor_decl codomain: (identifier) @type)
@@ -242,6 +222,7 @@
 (edge_kind_decl   tgt: (identifier) @type)
 (encoder_decl     name: (identifier) @function)
 (encoder_decl     signature: (identifier) @type)
+(encoder_op_rule  op: (identifier) @function)
 (decoder_decl     name: (identifier) @function)
 (decoder_decl     signature: (identifier) @type)
 (loss_decl        name: (identifier) @function)

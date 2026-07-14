@@ -39,6 +39,12 @@ pub struct ScopeChange {
     pub anonymous_added: usize,
     /// Number of anonymous child vertices removed within this scope.
     pub anonymous_removed: usize,
+    /// Number of vertices in this scope whose constraints changed.
+    #[serde(default)]
+    pub constraint_changes: usize,
+    /// Number of vertices in this scope whose kind changed.
+    #[serde(default)]
+    pub kind_changes: usize,
     /// Start line (from start-byte constraint), if available.
     pub start_line: Option<usize>,
     /// End line (from end-byte constraint), if available.
@@ -168,12 +174,41 @@ fn count_anonymous(vertices: &[&str]) -> usize {
         .count()
 }
 
+/// Build the summary line for a body-modified scope, folding in
+/// anonymous-node and constraint-change counts.
+fn scope_body_summary(
+    name: &str,
+    anon_added: usize,
+    anon_removed: usize,
+    constraint_changes: usize,
+) -> String {
+    let anon_total = anon_added + anon_removed;
+    let mut parts: Vec<String> = Vec::new();
+    if anon_total > 0 {
+        parts.push(format!(
+            "{anon_total} anonymous node{}",
+            if anon_total == 1 { "" } else { "s" },
+        ));
+    }
+    if constraint_changes > 0 {
+        parts.push(format!(
+            "{constraint_changes} constraint change{}",
+            if constraint_changes == 1 { "" } else { "s" },
+        ));
+    }
+    if parts.is_empty() {
+        parts.push("no anonymous nodes".to_string());
+    }
+    format!("{name} body modified ({})", parts.join(", "))
+}
+
 /// Build a scope-level diff report from a flat [`SchemaDiff`].
 ///
 /// Groups vertex additions and removals by their nearest named scope,
 /// classifies each scope as added/removed/signature-changed/body-modified,
 /// and optionally resolves line numbers from source bytes.
 #[must_use]
+#[allow(clippy::too_many_lines)]
 pub fn report_by_scope(
     diff: &SchemaDiff,
     old_schema: &Schema,
@@ -215,6 +250,21 @@ pub fn report_by_scope(
         all_scopes.insert(nearest_named_scope(&edge.tgt));
     }
 
+    // Constraint and kind changes also identify a changed scope, even
+    // when nothing was added or removed structurally.
+    let mut scope_constraint_changes: FxHashMap<&str, usize> = FxHashMap::default();
+    for vid in diff.modified_constraints.keys() {
+        let scope = nearest_named_scope(vid);
+        all_scopes.insert(scope);
+        *scope_constraint_changes.entry(scope).or_default() += 1;
+    }
+    let mut scope_kind_changes: FxHashMap<&str, usize> = FxHashMap::default();
+    for kc in &diff.kind_changes {
+        let scope = nearest_named_scope(&kc.vertex_id);
+        all_scopes.insert(scope);
+        *scope_kind_changes.entry(scope).or_default() += 1;
+    }
+
     // Build edge change sets for named-edge detection.
     let edges_added_for = count_named_edge_changes(&diff.added_edges);
     let edges_removed_for = count_named_edge_changes(&diff.removed_edges);
@@ -232,6 +282,9 @@ pub fn report_by_scope(
         let anon_added = count_anonymous(added);
         let anon_removed = count_anonymous(removed);
 
+        let constraint_changes = scope_constraint_changes.get(scope_id).copied().unwrap_or(0);
+        let kind_changes = scope_kind_changes.get(scope_id).copied().unwrap_or(0);
+
         let scope_itself_added = added_set.contains(scope_id);
         let scope_itself_removed = removed_set.contains(scope_id);
         let has_named_edge_changes =
@@ -241,7 +294,8 @@ pub fn report_by_scope(
             ScopeChangeKind::Added
         } else if scope_itself_removed {
             ScopeChangeKind::Removed
-        } else if has_named_edge_changes {
+        } else if has_named_edge_changes || kind_changes > 0 {
+            // A vertex kind change is a signature-level change.
             ScopeChangeKind::SignatureChanged
         } else {
             ScopeChangeKind::BodyModified
@@ -253,14 +307,12 @@ pub fn report_by_scope(
             ScopeChangeKind::SignatureChanged => {
                 format!("{} signature changed", scope_display_name(scope_id))
             }
-            ScopeChangeKind::BodyModified => {
-                let total = anon_added + anon_removed;
-                format!(
-                    "{} body modified ({total} anonymous node{})",
-                    scope_display_name(scope_id),
-                    if total == 1 { "" } else { "s" },
-                )
-            }
+            ScopeChangeKind::BodyModified => scope_body_summary(
+                scope_display_name(scope_id),
+                anon_added,
+                anon_removed,
+                constraint_changes,
+            ),
         };
 
         // Resolve line numbers from start-byte/end-byte constraints.
@@ -275,6 +327,8 @@ pub fn report_by_scope(
             summary,
             anonymous_added: anon_added,
             anonymous_removed: anon_removed,
+            constraint_changes,
+            kind_changes,
             start_line,
             end_line,
         });
@@ -621,5 +675,57 @@ mod tests {
         let text = report_scope_text(&report);
         assert!(text.contains("fn_a"));
         assert!(text.contains("BodyModified"));
+    }
+
+    #[test]
+    fn constraint_only_change_appears_in_scope_report() {
+        // The only change is a tightened constraint on a named scope; the
+        // owning scope must still appear in the report.
+        let schema = test_schema(&[("file.rs", "source_file"), ("file.rs::fn_a", "function")]);
+        let diff = SchemaDiff {
+            modified_constraints: HashMap::from([(
+                "file.rs::fn_a".to_string(),
+                crate::diff::ConstraintDiff {
+                    added: vec![],
+                    removed: vec![],
+                    changed: vec![crate::diff::ConstraintChange {
+                        sort: "maxLength".into(),
+                        old_value: "10".into(),
+                        new_value: "5".into(),
+                    }],
+                },
+            )]),
+            ..SchemaDiff::default()
+        };
+
+        let report = report_by_scope(&diff, &schema, &schema, None, None);
+        let scope = report.scopes.iter().find(|s| s.scope_id == "file.rs::fn_a");
+        assert!(
+            scope.is_some(),
+            "a scope whose only change is a constraint must appear"
+        );
+        assert_eq!(scope.map(|s| s.constraint_changes), Some(1));
+    }
+
+    #[test]
+    fn kind_change_only_appears_as_signature_change() {
+        let schema = test_schema(&[("file.rs", "source_file"), ("file.rs::fn_a", "function")]);
+        let diff = SchemaDiff {
+            kind_changes: vec![crate::diff::KindChange {
+                vertex_id: "file.rs::fn_a".into(),
+                old_kind: "function".into(),
+                new_kind: "method".into(),
+            }],
+            ..SchemaDiff::default()
+        };
+
+        let report = report_by_scope(&diff, &schema, &schema, None, None);
+        let scope = report.scopes.iter().find(|s| s.scope_id == "file.rs::fn_a");
+        assert!(scope.is_some());
+        assert_eq!(scope.map(|s| s.kind_changes), Some(1));
+        assert_eq!(
+            scope.map(|s| s.kind.clone()),
+            Some(ScopeChangeKind::SignatureChanged)
+        );
     }
 }

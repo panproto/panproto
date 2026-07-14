@@ -95,7 +95,10 @@ fn inclusion_morphism_into_colimit() -> Result<(), Box<dyn std::error::Error>> {
             ("Vertex".into(), "Vertex".into()),
             ("Edge".into(), "Edge".into()),
         ]),
-        HashMap::from([("src".into(), "src".into()), ("tgt".into(), "tgt".into())]),
+        HashMap::<std::sync::Arc<str>, std::sync::Arc<str>>::from([
+            ("src".into(), "src".into()),
+            ("tgt".into(), "tgt".into()),
+        ]),
     );
     check_morphism(&graph_inclusion, &th_graph, &colimit_theory)?;
 
@@ -108,7 +111,10 @@ fn inclusion_morphism_into_colimit() -> Result<(), Box<dyn std::error::Error>> {
             ("Vertex".into(), "Vertex".into()),
             ("Constraint".into(), "Constraint".into()),
         ]),
-        HashMap::from([("target".into(), "target".into())]),
+        HashMap::<std::sync::Arc<str>, std::sync::Arc<str>>::from([(
+            "target".into(),
+            "target".into(),
+        )]),
     );
     check_morphism(&constraint_inclusion, &th_constraint, &colimit_theory)?;
 
@@ -152,7 +158,10 @@ fn model_migration_across_colimit() -> Result<(), Box<dyn std::error::Error>> {
             ("Vertex".into(), "Vertex".into()),
             ("Edge".into(), "Edge".into()),
         ]),
-        HashMap::from([("src".into(), "src".into()), ("tgt".into(), "tgt".into())]),
+        HashMap::<std::sync::Arc<str>, std::sync::Arc<str>>::from([
+            ("src".into(), "src".into()),
+            ("tgt".into(), "tgt".into()),
+        ]),
     );
 
     let migrated = migrate_model(&identity, &graph_model)?;

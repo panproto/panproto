@@ -17,7 +17,7 @@ cmd      ::= "load" | "theories" | "use" | "sorts" | "ops"
 args     ::= /* command-specific, see table below */
 ```
 
-A line that does not begin with `:` is treated as a term and routed through the typecheck path under the active theory. Comments and blank lines are ignored. The grammar lives in `crates/panproto-repl/src/lib.rs`.
+A line that does not begin with `:` is treated as a term and routed through the typecheck path under the active theory. Comments and blank lines are ignored. The grammar lives in `crates/panproto-cli/src/repl/engine.rs`.
 
 ## Abstract syntax
 
@@ -105,7 +105,7 @@ $$
 
 When $a = \bot$ (no active theory), all $\theta(a)$-dependent equations short-circuit to $(\sigma, \mathsf{NoActiveTheory})$. When any auxiliary (`compile`, `typecheck_term`, `normalize`, `free_model`, `compile_instance`) returns an error, the outcome is $\mathsf{Error}(e)$ and the state is unchanged.
 
-`Repl::handle_command` and `Repl::handle_term_typecheck` in [`crates/panproto-repl/src/lib.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-repl/src/lib.rs) implement these equations pointwise.
+`Repl::handle_command` and `Repl::handle_term_typecheck` in [`crates/panproto-cli/src/repl/engine.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-cli/src/repl/engine.rs) implement these equations pointwise.
 
 ## Soundness
 
@@ -129,5 +129,5 @@ The bare-term path is total in the technical sense: every input string either pa
 ## See also
 
 - [Theory DSL: denotational semantics](./theory-dsl.md) for what `:load` consumes.
-- [Reference: CLI](../../reference/cli.md) for the `schema repl` invocation that wraps this.
-- [Crate map](../../reference/crate-map.md) for `panproto-repl`.
+- [Reference: CLI](../../reference/cli.md) for the `schema theory repl` invocation that wraps this.
+- [Crate map](../../reference/crate-map.md) for `panproto-cli`, which hosts the REPL.

@@ -2193,6 +2193,18 @@ mod tests {
 
     #[test]
     fn alignment_to_theory_morphism_is_deterministic_across_hash_iterations() {
+        // Sort a name map into a stable `Vec<(k, v)>` for order-independent
+        // comparison. Both map value types (`Arc<str>` and `OpAssignment`)
+        // are `Display`.
+        fn to_sorted<V: std::fmt::Display>(m: &HashMap<Arc<str>, V>) -> Vec<(String, String)> {
+            let mut out: Vec<_> = m
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect();
+            out.sort();
+            out
+        }
+
         // Build two `FoundMorphism` values whose `vertex_map` and
         // `edge_map` carry the same entries inserted in opposite orders.
         // The resulting `TheoryMorphism.sort_map` / `op_map` must be
@@ -2250,14 +2262,6 @@ mod tests {
         let mb = alignment_to_theory_morphism_mode(&fm_b, &src, &tgt, false);
 
         // sort_map/op_map are HashMaps, so compare as sorted Vec<(k,v)>.
-        let to_sorted = |m: &HashMap<Arc<str>, Arc<str>>| -> Vec<(String, String)> {
-            let mut out: Vec<_> = m
-                .iter()
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .collect();
-            out.sort();
-            out
-        };
         assert_eq!(
             to_sorted(&ma.sort_map),
             to_sorted(&mb.sort_map),

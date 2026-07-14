@@ -29,6 +29,14 @@ panproto-vcs is structured exactly like git: a content-addressed DAG of immutabl
 
 Every object is content-addressed with a blake3 hash of its canonical serialisation. Refs (branches under `refs/heads/`, tags under `refs/tags/`) live under `.panproto/refs/`. Objects live under `.panproto/objects/`. The structural similarity to `.git/` is intentional: the existing mental model transfers.
 
+## Validation at stage, commit, and merge
+
+A commit records a schema, and usually a migration from the previous schema together with the data carried forward through it. Before any of these is written, panproto-vcs checks the schema and the migration, and the checks block the operation rather than warn.
+
+A migration is checked as a theory morphism on the fragment it maps: its vertex map must reference vertices that exist in the source and target schemas, and each mapped edge must land on the images of its own endpoints rather than on any pair of mapped vertices. A migration that violates this is recorded as a migration error, which marks the staged schema invalid and makes `commit` and `merge` fail with `VcsError::ValidationFailed`. The same morphism obligation is enforced earlier, at migration compile time, where `mig::compile` derives the induced theory morphism and validates it with `check_morphism`, failing with `NotAMorphism` when the mapped fragment is not structure-preserving. The single bypass is `CommitOptions.skip_verify`, which suppresses the staged check for a deliberate override.
+
+Schemas are also checked against their protocol's equations. When the schema's protocol is registered with a theory carrying equations, as `atproto` is on the CLI path, the schema is read as a set-theoretic model and its equations are checked at commit and at merge; a violation blocks with `VcsError::ValidationFailed`. The equation check is bounded: it enumerates at most 10,000 variable assignments per equation, and an equation whose assignment space exceeds that bound raises `ModelCheckLimitExceeded` naming the equation rather than passing as if satisfied. When no theory is registered for the protocol, the commit records an advisory note that no equations were checked, and the structural checks still run.
+
 ## Merge as pushout
 
 A three-way merge in git is: take base $B$, ours $O$, theirs $T$, and produce a result $M$ that contains the changes from $O$ relative to $B$ and the changes from $T$ relative to $B$. When the changes overlap on the same line, conflict.
@@ -45,7 +53,7 @@ The schema analogue: $B$, $O$, $T$ are schemas; $O$ and $T$ are both descendants
 
 The pushout is the *unique smallest* schema containing both $O$ and $T$ and respecting their shared structure from $B$. "Unique smallest" is made precise by a *universal property*: any other schema $M'$ that also contains $O$ and $T$ admits a unique morphism from $M$ to $M'$.
 
-panproto-vcs does not just compute the pushout: it *verifies* the universal property. `vcs::merge::verify_pushout_universal` checks that the merge result mediates uniquely from any alternative cocone, returning the mediator vertex map. If the universal-property check fails, the merge raises `PushoutError::UniversalFactorizationFailure` rather than producing a wrong result.
+panproto-vcs does not just compute the pushout: at merge time it runs `vcs::merge::verify_pushout`, a cocone-level check that the generated migrations are total and that the two legs agree on every base vertex. A failure returns `VcsError::PushoutVerification` rather than a wrong result. The stronger vertex-level universal property, that the result mediates uniquely to a caller-supplied alternative cocone, is available on demand through `vcs::merge::verify_pushout_universal`, which schema merge does not itself call. The merge-time check is vertex level; coverage, deletion, and edge-level strengthening are planned (see [What panproto verifies](./what-is-verified.md)).
 
 For the formal pushout construction, the cocone definition, and exactly what is checked, see [Pushouts and merge](./semantics/pushouts-and-merge.md).
 
@@ -53,11 +61,13 @@ For the formal pushout construction, the cocone definition, and exactly what is 
 
 A merge conflict arises when the pushout would introduce an inconsistency: two branches add a field with the same name but incompatible types, or one branch removes a vertex the other branch still references. Conflicts are reported as explicit objects (rather than text markers) and resolved by editing the conflict descriptor.
 
+Resolution is exhaustive over the conflict variants. Choosing a side for a conflict copies that side's element into the resolved schema, or deletes it, for every conflict kind the merge can raise; there is no silent fall-through that would return a resolved conflict at its base value. Where a merge computes the pullback overlap of the two branches to detect shared additions, a failure of that computation is recorded on the merge result (`pullback_error`) and surfaced by the CLI, rather than folded into an empty overlap that would read as "no shared additions".
+
 ## Data versioning
 
 Commits can carry data instances. When a branch's schema migrates, the data carried by its commits is automatically lifted forward by the migration's lens. Branches can therefore diverge in both schema and data; merging both kinds of divergence in one operation is what `schema merge` does.
 
-A consequence: history rewriting (rebase, amend) on a branch carrying data must lift the data through the rewritten history. panproto-vcs does this; the data is *not* a passive blob.
+A consequence: history rewriting on a branch carrying data must lift the data through the rewritten history rather than copy it verbatim. This is what `rebase`, `merge`, and `cherry-pick` do, and what `amend` and `commit` preserve: each carries versioned data through the schema change by running the forward migration generated from that change's lens, applying `data_mig::migrate_forward` with the stored complements to lift every affected record. The data moves with the schema; it does not sit inert.
 
 ## Related work
 
@@ -69,4 +79,4 @@ Two threads sit directly behind panproto-vcs. The categorical-VCS lineage (Mimra
 - [Branch and merge](../how-to/schema-vcs/branch-and-merge.md).
 - [Bridge to git](../how-to/schema-vcs/git-bridge.md) for using panproto-vcs alongside git.
 - [Pushouts and merge](./semantics/pushouts-and-merge.md) for the formal model.
-- [What panproto verifies](./what-is-verified.md) for the universal-property guarantee.
+- [What panproto verifies](./what-is-verified.md) for what schema merge checks at merge time.

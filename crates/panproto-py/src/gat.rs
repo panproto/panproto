@@ -13,7 +13,7 @@ use pyo3::prelude::*;
 use panproto_core::gat::{
     self, Equation, FreeModelConfig, Model, Operation, Sort, SortExpr, Theory, TheoryMorphism,
 };
-use panproto_theory_dsl::{
+use panproto_core::theory_dsl::{
     TheoryBody, TheoryDocument,
     compile_class::compile_class,
     compile_inductive::compile_inductive,
@@ -262,7 +262,7 @@ impl PyModel {
 }
 
 /// Map a `panproto-theory-dsl` error to a Python exception.
-fn dsl_err(e: &panproto_theory_dsl::TheoryDslError) -> PyErr {
+fn dsl_err(e: &panproto_core::theory_dsl::TheoryDslError) -> PyErr {
     crate::error::GatError::new_err(format!("theory DSL error: {e}"))
 }
 
@@ -277,7 +277,7 @@ fn dsl_err(e: &panproto_theory_dsl::TheoryDslError) -> PyErr {
 fn compile_dsl_to_theory(doc: TheoryDocument) -> PyResult<PyTheory> {
     let theory = match doc.body {
         TheoryBody::Theory(spec) => {
-            let resolver = panproto_theory_dsl::builtin_resolver();
+            let resolver = panproto_core::theory_dsl::builtin_resolver();
             compile_theory_with_resolver(&spec, &resolver).map_err(|e| dsl_err(&e))?
         }
         TheoryBody::Class(spec) => compile_class(&spec).map_err(|e| dsl_err(&e))?,

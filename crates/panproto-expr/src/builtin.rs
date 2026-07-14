@@ -161,7 +161,9 @@ fn apply_arithmetic(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprErro
             Literal::Float(f) => float_to_i64(f.round()),
             other => Err(type_err("float", other)),
         },
-        _ => unreachable!(),
+        _ => Err(ExprError::InternalDispatch {
+            op: format!("{op:?}"),
+        }),
     }
 }
 
@@ -174,7 +176,9 @@ fn apply_comparison(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprErro
         BuiltinOp::Lte => compare(&args[0], &args[1], std::cmp::Ordering::is_le),
         BuiltinOp::Gt => compare(&args[0], &args[1], std::cmp::Ordering::is_gt),
         BuiltinOp::Gte => compare(&args[0], &args[1], std::cmp::Ordering::is_ge),
-        _ => unreachable!(),
+        _ => Err(ExprError::InternalDispatch {
+            op: format!("{op:?}"),
+        }),
     }
 }
 
@@ -193,7 +197,9 @@ fn apply_boolean(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError> 
             Literal::Bool(b) => Ok(Literal::Bool(!b)),
             other => Err(type_err("bool", other)),
         },
-        _ => unreachable!(),
+        _ => Err(ExprError::InternalDispatch {
+            op: format!("{op:?}"),
+        }),
     }
 }
 
@@ -272,7 +278,9 @@ fn apply_string(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError> {
             (Literal::Str(s), Literal::Str(substr)) => Ok(Literal::Bool(s.contains(&**substr))),
             _ => Err(type_err("(string, string)", &args[0])),
         },
-        _ => unreachable!(),
+        _ => Err(ExprError::InternalDispatch {
+            op: format!("{op:?}"),
+        }),
     }
 }
 
@@ -321,7 +329,9 @@ fn apply_list(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError> {
             Literal::List(items) => Ok(Literal::Int(items.len() as i64)),
             other => Err(type_err("list", other)),
         },
-        _ => unreachable!(),
+        _ => Err(ExprError::InternalDispatch {
+            op: format!("{op:?}"),
+        }),
     }
 }
 
@@ -363,7 +373,9 @@ fn apply_record(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError> {
             )),
             _ => Err(type_err("(record, string)", &args[0])),
         },
-        _ => unreachable!(),
+        _ => Err(ExprError::InternalDispatch {
+            op: format!("{op:?}"),
+        }),
     }
 }
 
@@ -409,7 +421,9 @@ fn apply_coercion(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError>
             }
             other => Err(type_err("string", other)),
         },
-        _ => unreachable!(),
+        _ => Err(ExprError::InternalDispatch {
+            op: format!("{op:?}"),
+        }),
     }
 }
 
@@ -419,7 +433,9 @@ fn apply_inspection(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprErro
         BuiltinOp::TypeOf => Ok(Literal::Str(args[0].type_name().to_string())),
         BuiltinOp::IsNull => Ok(Literal::Bool(args[0].is_null())),
         BuiltinOp::IsList => Ok(Literal::Bool(matches!(args[0], Literal::List(_)))),
-        _ => unreachable!(),
+        _ => Err(ExprError::InternalDispatch {
+            op: format!("{op:?}"),
+        }),
     }
 }
 
@@ -470,7 +486,9 @@ fn apply_utility(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError> 
             }
             _ => Err(type_err("(string, int)", &args[0])),
         },
-        _ => unreachable!(),
+        _ => Err(ExprError::InternalDispatch {
+            op: format!("{op:?}"),
+        }),
     }
 }
 
@@ -620,5 +638,17 @@ mod tests {
             &[Literal::Float(f64::NAN), Literal::Float(1.0)],
         );
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn misrouted_op_returns_internal_dispatch_error() {
+        // Calling a category handler with an op outside its category
+        // returns an error rather than panicking. `Add` is arithmetic,
+        // so routing it to the comparison handler must be rejected.
+        let result = apply_comparison(BuiltinOp::Add, &[Literal::Int(1), Literal::Int(2)]);
+        assert!(matches!(
+            result,
+            Err(ExprError::InternalDispatch { ref op }) if op == "Add"
+        ));
     }
 }

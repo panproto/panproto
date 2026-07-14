@@ -400,6 +400,7 @@ fn put_preserves_view_edit_with_handcrafted_compiled_migration() {
         hyper_resolver: HashMap::new(),
         field_transforms,
         conditional_survival: HashMap::new(),
+        op_term_assignments: HashMap::new(),
         expansion_path: HashMap::new(),
     };
 

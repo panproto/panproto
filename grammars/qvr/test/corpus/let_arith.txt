@@ -1,0 +1,199 @@
+==================
+arithmetic precedence
+==================
+
+loss arith
+    a + b * c - d / e
+
+---
+
+(source_file
+  (loss_decl
+    (identifier)
+    (let_binop
+      (let_binop
+        (let_var
+          (identifier))
+        (let_binop
+          (let_var
+            (identifier))
+          (let_var
+            (identifier))))
+      (let_binop
+        (let_var
+          (identifier))
+        (let_var
+          (identifier))))))
+
+==================
+unary minus
+==================
+
+loss neg
+    -x + 1.0
+
+---
+
+(source_file
+  (loss_decl
+    (identifier)
+    (let_binop
+      (let_unary
+        (let_var
+          (identifier)))
+      (let_literal
+        (float)))))
+
+==================
+lambda
+==================
+
+loss lam
+    x -> x + 1.0
+
+---
+
+(source_file
+  (loss_decl
+    (identifier)
+    (let_lambda
+      (identifier)
+      (let_binop
+        (let_var
+          (identifier))
+        (let_literal
+          (float))))))
+
+==================
+factor with body
+==================
+
+loss fac
+    factor i : Item, j : Slot in w[i, j]
+
+---
+
+(source_file
+  (loss_decl
+    (identifier)
+    (let_factor
+      (let_factor_binder
+        (identifier)
+        (object_atom
+          (identifier)))
+      (let_factor_binder
+        (identifier)
+        (object_atom
+          (identifier)))
+      (let_index
+        (let_var
+          (identifier))
+        (let_var
+          (identifier))
+        (let_var
+          (identifier))))))
+
+==================
+factor with case block
+==================
+
+loss faccase
+    factor c : FinSet 3 in {0 -> 1.0, 1 -> 0.5, 2 -> 0.1}
+
+---
+
+(source_file
+  (loss_decl
+    (identifier)
+    (let_factor
+      (let_factor_binder
+        (identifier)
+        (discrete_constructor
+          (integer)))
+      (let_factor_case
+        (integer)
+        (let_literal
+          (float)))
+      (let_factor_case
+        (integer)
+        (let_literal
+          (float)))
+      (let_factor_case
+        (integer)
+        (let_literal
+          (float))))))
+
+==================
+method call and indexing
+==================
+
+loss meth
+    h.sum(0) + m[i, j]
+
+---
+
+(source_file
+  (loss_decl
+    (identifier)
+    (let_binop
+      (let_method_call
+        (let_var
+          (identifier))
+        (identifier)
+        (let_literal
+          (integer)))
+      (let_index
+        (let_var
+          (identifier))
+        (let_var
+          (identifier))
+        (let_var
+          (identifier))))))
+
+==================
+lists and strings
+==================
+
+loss lists
+    concat([1.0, 2.0], [], ["a", "b"])
+
+---
+
+(source_file
+  (loss_decl
+    (identifier)
+    (let_call
+      (identifier)
+      (let_list
+        (let_literal
+          (float))
+        (let_literal
+          (float)))
+      (let_list)
+      (let_list
+        (let_string
+          (string))
+        (let_string
+          (string))))))
+
+==================
+parenthesized grouping
+==================
+
+loss grouped
+    (a + b) * c
+
+---
+
+(source_file
+  (loss_decl
+    (identifier)
+    (let_binop
+      (let_paren
+        (let_binop
+          (let_var
+            (identifier))
+          (let_var
+            (identifier))))
+      (let_var
+        (identifier)))))

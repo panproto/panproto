@@ -173,6 +173,8 @@ impl NodeClient {
     ///
     /// Returns [`XrpcError::InvalidUrl`] if the URL format is invalid.
     pub fn from_url(url: &str) -> Result<Self, XrpcError> {
+        // `cospan://` is a legacy URL alias from the pre-rename era, accepted
+        // for backward compatibility; remove once no cospan:// remotes remain.
         let path = url
             .strip_prefix("panproto://")
             .or_else(|| url.strip_prefix("cospan://"))

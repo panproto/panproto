@@ -11,7 +11,6 @@ graph TD
         WASM[panproto-wasm]
         PY[panproto-py]
         C[panproto-c]
-        REPL[panproto-repl]
     end
 
     subgraph "Facade"
@@ -25,11 +24,6 @@ graph TD
         GITREMOTE[panproto-git-remote]
         PROJ[panproto-project]
         CHECK[panproto-check]
-    end
-
-    subgraph "Codegen"
-        LLVM[panproto-llvm]
-        JIT[panproto-jit]
     end
 
     subgraph "Pipeline"
@@ -59,7 +53,6 @@ graph TD
     WASM --> CORE
     PY --> CORE
     C --> CORE
-    REPL --> CORE
 
     CORE --> VCS
     CORE --> GIT
@@ -69,8 +62,6 @@ graph TD
     CORE --> LENS
     CORE --> IO
     CORE --> PARSE
-    CORE --> LLVM
-    CORE --> JIT
 
     VCS --> MIG
     GIT --> VCS
@@ -89,10 +80,6 @@ graph TD
     PARSE --> INST
     PARSE --> LENS
     PARSE --> GRAMMARS
-
-    LLVM --> PROTOS
-    LLVM --> SCHEMA
-    JIT --> EXPR
 
     LENS --> EXPR
     MIG --> EXPR

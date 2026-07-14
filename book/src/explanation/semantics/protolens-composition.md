@@ -72,7 +72,7 @@ The structural-equality check on intermediate functors is the *necessary* condit
 
 ## What is intentionally not modelled
 
-- **Horizontal composition of protolenses.** Naturality also supports horizontal composition (whiskering), but the implementation does not currently expose it. Adding it would require a notion of natural transformation between protolens-shaped functors, which is not yet defined in the codebase.
+- **Verified naturality of horizontal composites.** Horizontal composition (whiskering) is exposed as `horizontal_compose` and has a structural test (`horizontal_compose_works`), but the naturality of the composite protolens is not itself property-tested; only the structural construction is checked.
 - **Identity-sourced protolens equivalence beyond structural.** Two protolenses that compute the same transform via different intermediate forms are treated as distinct.
 - **Performance characteristics of fused vs sequential.** The choice is semantic-equivalent; fused is preferred for metadata reasons, not performance.
 

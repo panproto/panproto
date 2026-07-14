@@ -14,8 +14,8 @@ use panproto_inst::value::Value;
 use panproto_inst::{FInstance, Node, WInstance};
 use panproto_mig::hom_search::morphism_to_migration;
 use panproto_mig::{
-    Migration, SearchOptions, chase_functor, compile, dependencies_from_schema, discover_overlap,
-    find_best_morphism, lift_wtype, lift_wtype_sigma,
+    Migration, SearchOptions, compile, dependencies_from_schema, discover_overlap,
+    find_best_morphism, lift_wtype, lift_wtype_sigma, saturate_row_existence,
 };
 use panproto_schema::{Edge, Protocol, Schema, SchemaBuilder, Vertex, schema_pushout};
 use panproto_vcs::Repository;
@@ -297,6 +297,8 @@ fn sigma_then_chase_workflow() {
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         expr_resolvers: HashMap::new(),
+        domain: None,
+        codomain: None,
     };
 
     // Compile and apply Sigma_F (extend)
@@ -315,7 +317,7 @@ fn sigma_then_chase_workflow() {
     );
 
     // Run chase to add missing profile rows
-    let chased = chase_functor(&extended, &deps, 10).unwrap();
+    let chased = saturate_row_existence(&extended, &deps, 10).unwrap();
     assert!(
         chased.row_count("profile") >= 1,
         "chase should add a profile row for the existing user"
@@ -354,6 +356,7 @@ fn pi_functor_product_workflow() {
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        op_term_assignments: HashMap::new(),
         expansion_path: HashMap::new(),
     };
 
@@ -607,6 +610,8 @@ fn schema_pushout_with_overlap_and_lift() {
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         expr_resolvers: HashMap::new(),
+        domain: None,
+        codomain: None,
     };
 
     let compiled = compile(&schema_a, &pushout, &left_mig).unwrap();

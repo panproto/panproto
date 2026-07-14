@@ -71,6 +71,7 @@
 
   CoerceSortSpec = {
     sort | String,
+    source_kind | String | optional,
     target_kind | String,
     expr | String,
     inverse | String | optional,

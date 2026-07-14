@@ -1,16 +1,146 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::eq::{Term, alpha_equivalent_equation};
+use rustc_hash::FxHashMap;
+
+use crate::eq::{
+    Term, alpha_equivalent, alpha_equivalent_equation, normalize_with_status,
+    normalize_with_witness,
+};
 use crate::error::GatError;
 use crate::ident::{NameSite, SiteRename};
 use crate::sort::positional_param_rename;
 use crate::theory::Theory;
+use crate::typecheck::{VarContext, typecheck_term};
+use crate::witness::{EqWitness, WitnessJustification};
+
+/// The image of a domain operation under a [`TheoryMorphism`].
+///
+/// A morphism sends each domain operation either to a single codomain
+/// operation (a plain rename) or to a derived term built from the
+/// codomain's operations. The term form expresses a computed operation:
+/// an operation `f : (x1 : S1, …, xn : Sn) → S` is assigned a term `t`
+/// that is well-typed in the context `x1 : F(S1), …, xn : F(Sn)` and
+/// produces the sort `F(S)`, where `F` is the sort image of the morphism.
+///
+/// The free variables of a `Term` assignment are exactly the domain
+/// operation's declared parameter names. Applying the morphism to a
+/// use-site `f(a1, …, an)` substitutes each parameter by the
+/// correspondingly mapped argument (see
+/// [`TheoryMorphism::apply_to_term_substituting`]).
+///
+/// # Serialized form
+///
+/// An `Op` assignment serializes to a bare string, matching the legacy
+/// wire form where an operation map was `name → name`; a bare string
+/// therefore deserializes back to `Op`. A `Term` assignment serializes to
+/// an object with a single `term` field.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OpAssignment {
+    /// A rename to a single codomain operation.
+    Op(Arc<str>),
+    /// A derived term over the codomain's operations.
+    Term(Term),
+}
+
+impl OpAssignment {
+    /// Construct an operation-rename assignment.
+    #[must_use]
+    pub fn op(name: impl Into<Arc<str>>) -> Self {
+        Self::Op(name.into())
+    }
+
+    /// The target operation name when this is a plain rename, or `None`
+    /// for a derived-term assignment.
+    #[must_use]
+    pub const fn as_op(&self) -> Option<&Arc<str>> {
+        match self {
+            Self::Op(name) => Some(name),
+            Self::Term(_) => None,
+        }
+    }
+
+    /// The derived term when this is a term assignment, or `None` for a
+    /// plain rename.
+    #[must_use]
+    pub const fn as_term(&self) -> Option<&Term> {
+        match self {
+            Self::Term(term) => Some(term),
+            Self::Op(_) => None,
+        }
+    }
+
+    /// Whether this assignment is a plain operation rename.
+    #[must_use]
+    pub const fn is_op(&self) -> bool {
+        matches!(self, Self::Op(_))
+    }
+}
+
+impl From<Arc<str>> for OpAssignment {
+    fn from(name: Arc<str>) -> Self {
+        Self::Op(name)
+    }
+}
+
+impl From<&str> for OpAssignment {
+    fn from(name: &str) -> Self {
+        Self::Op(Arc::from(name))
+    }
+}
+
+impl From<Term> for OpAssignment {
+    fn from(term: Term) -> Self {
+        Self::Term(term)
+    }
+}
+
+impl std::fmt::Display for OpAssignment {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Op(name) => f.write_str(name),
+            Self::Term(term) => write!(f, "{term}"),
+        }
+    }
+}
+
+impl serde::Serialize for OpAssignment {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Op(name) => serializer.serialize_str(name),
+            Self::Term(term) => {
+                use serde::ser::SerializeStruct;
+                let mut st = serializer.serialize_struct("OpAssignment", 1)?;
+                st.serialize_field("term", term)?;
+                st.end()
+            }
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for OpAssignment {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // A bare string deserializes to an operation rename (the legacy
+        // wire form); an object carrying a `term` field deserializes to a
+        // derived-term assignment.
+        #[derive(serde::Deserialize)]
+        #[serde(untagged)]
+        enum Repr {
+            Op(Arc<str>),
+            Term { term: Term },
+        }
+        Ok(match Repr::deserialize(deserializer)? {
+            Repr::Op(name) => Self::Op(name),
+            Repr::Term { term } => Self::Term(term),
+        })
+    }
+}
 
 /// A structure-preserving map between two theories.
 ///
-/// Maps sorts to sorts and operations to operations. A valid morphism
-/// must preserve sort arities, operation type signatures, and equations.
+/// Maps sorts to sorts and operations to operations (or to derived terms;
+/// see [`OpAssignment`]). A valid morphism must preserve sort arities,
+/// operation type signatures, and equations.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TheoryMorphism {
     /// A human-readable name for this morphism.
@@ -21,36 +151,61 @@ pub struct TheoryMorphism {
     pub codomain: Arc<str>,
     /// Mapping from domain sort names to codomain sort names.
     pub sort_map: HashMap<Arc<str>, Arc<str>>,
-    /// Mapping from domain operation names to codomain operation names.
-    pub op_map: HashMap<Arc<str>, Arc<str>>,
+    /// Mapping from domain operation names to their codomain image, each
+    /// either a renamed operation or a derived term (see [`OpAssignment`]).
+    pub op_map: HashMap<Arc<str>, OpAssignment>,
 }
 
 impl TheoryMorphism {
     /// Create a new theory morphism.
+    ///
+    /// Each operation-map value is converted into an [`OpAssignment`]; a
+    /// plain `Arc<str>` becomes an [`OpAssignment::Op`] rename, so callers
+    /// that build an op-to-op rename map pass it unchanged.
     #[must_use]
-    pub fn new(
+    pub fn new<O, S>(
         name: impl Into<Arc<str>>,
         domain: impl Into<Arc<str>>,
         codomain: impl Into<Arc<str>>,
         sort_map: HashMap<Arc<str>, Arc<str>>,
-        op_map: HashMap<Arc<str>, Arc<str>>,
-    ) -> Self {
+        op_map: HashMap<Arc<str>, O, S>,
+    ) -> Self
+    where
+        O: Into<OpAssignment>,
+        S: std::hash::BuildHasher,
+    {
         Self {
             name: name.into(),
             domain: domain.into(),
             codomain: codomain.into(),
             sort_map,
-            op_map,
+            op_map: op_map.into_iter().map(|(k, v)| (k, v.into())).collect(),
         }
+    }
+
+    /// The operation-rename view of this morphism: the `Op` assignments as
+    /// a name-to-name map, with derived-term assignments omitted.
+    ///
+    /// Callers that only rename operations (schema-level renames, sort
+    /// argument-term renaming) use this view; derived-term assignments do
+    /// not induce a simple rename and are therefore left out.
+    #[must_use]
+    pub fn op_rename_map(&self) -> HashMap<Arc<str>, Arc<str>> {
+        self.op_map
+            .iter()
+            .filter_map(|(k, v)| v.as_op().map(|name| (Arc::clone(k), Arc::clone(name))))
+            .collect()
     }
 
     /// Apply this morphism to a term, renaming operations.
     ///
     /// Walks every op-bearing position of the term and substitutes the
-    /// mapped op name where `op_map` has an entry. This covers the
-    /// `App` head, every [`Term::Case`] branch's `constructor`, and
-    /// recursively the scrutinee and branch bodies. Bindings, variable
-    /// names, and hole identifiers pass through unchanged.
+    /// mapped op name where `op_map` has an [`OpAssignment::Op`] entry.
+    /// This covers the `App` head, every [`Term::Case`] branch's
+    /// `constructor`, and recursively the scrutinee and branch bodies.
+    /// Bindings, variable names, and hole identifiers pass through
+    /// unchanged. Derived-term assignments are left as-is here; use
+    /// [`Self::apply_to_term_substituting`] to expand them by substitution.
     ///
     /// **Limitation**: `Term` is untyped at the sort level, so this
     /// method does not apply `sort_map`. Sort-level information is
@@ -59,7 +214,80 @@ impl TheoryMorphism {
     /// sort annotations, this method must also rename sorts.
     #[must_use]
     pub fn apply_to_term(&self, term: &Term) -> Term {
-        term.rename_ops(&self.op_map)
+        term.rename_ops(&self.op_rename_map())
+    }
+
+    /// Apply this morphism to a term, expanding derived-term assignments.
+    ///
+    /// Like [`Self::apply_to_term`] for [`OpAssignment::Op`] entries, but
+    /// an [`OpAssignment::Term`] entry for an operation `f` is expanded:
+    /// at each `f(a1, …, an)`, the arguments are mapped recursively and
+    /// then substituted for `f`'s declared parameter names in the assigned
+    /// term. `domain` supplies those parameter names via
+    /// [`Theory::find_op`].
+    #[must_use]
+    pub fn apply_to_term_substituting(&self, term: &Term, domain: &Theory) -> Term {
+        self.map_term(term, domain)
+    }
+
+    fn map_term(&self, term: &Term, domain: &Theory) -> Term {
+        match term {
+            Term::Var(_) | Term::Hole { .. } => term.clone(),
+            Term::App { op, args } => {
+                let mapped_args: Vec<Term> =
+                    args.iter().map(|a| self.map_term(a, domain)).collect();
+                match self.op_map.get(op) {
+                    None => Term::App {
+                        op: Arc::clone(op),
+                        args: mapped_args,
+                    },
+                    Some(OpAssignment::Op(new_op)) => Term::App {
+                        op: Arc::clone(new_op),
+                        args: mapped_args,
+                    },
+                    Some(OpAssignment::Term(assigned)) => {
+                        let Some(operation) = domain.find_op(op) else {
+                            return Term::App {
+                                op: Arc::clone(op),
+                                args: mapped_args,
+                            };
+                        };
+                        let subst: FxHashMap<Arc<str>, Term> = operation
+                            .inputs
+                            .iter()
+                            .map(|(pname, _, _)| Arc::clone(pname))
+                            .zip(mapped_args)
+                            .collect();
+                        assigned.substitute(&subst)
+                    }
+                }
+            }
+            Term::Case {
+                scrutinee,
+                branches,
+            } => {
+                let rename = self.op_rename_map();
+                Term::Case {
+                    scrutinee: Box::new(self.map_term(scrutinee, domain)),
+                    branches: branches
+                        .iter()
+                        .map(|b| crate::eq::CaseBranch {
+                            constructor: rename
+                                .get(&b.constructor)
+                                .cloned()
+                                .unwrap_or_else(|| Arc::clone(&b.constructor)),
+                            binders: b.binders.clone(),
+                            body: self.map_term(&b.body, domain),
+                        })
+                        .collect(),
+                }
+            }
+            Term::Let { name, bound, body } => Term::Let {
+                name: Arc::clone(name),
+                bound: Box::new(self.map_term(bound, domain)),
+                body: Box::new(self.map_term(body, domain)),
+            },
+        }
     }
 
     /// Create the identity morphism on a theory.
@@ -72,10 +300,10 @@ impl TheoryMorphism {
             .iter()
             .map(|s| (Arc::clone(&s.name), Arc::clone(&s.name)))
             .collect();
-        let op_map: HashMap<Arc<str>, Arc<str>> = theory
+        let op_map: HashMap<Arc<str>, OpAssignment> = theory
             .ops
             .iter()
-            .map(|o| (Arc::clone(&o.name), Arc::clone(&o.name)))
+            .map(|o| (Arc::clone(&o.name), OpAssignment::Op(Arc::clone(&o.name))))
             .collect();
         Self {
             name: Arc::from(format!("id_{}", theory.name)),
@@ -89,7 +317,10 @@ impl TheoryMorphism {
     /// Compose two morphisms: `self: A → B` followed by `other: B → C`, producing `A → C`.
     ///
     /// The sort and operation maps are composed: for each `a ↦ b` in `self` and
-    /// `b ↦ c` in `other`, the composed map has `a ↦ c`.
+    /// `b ↦ c` in `other`, the composed map has `a ↦ c`. When `self` assigns an
+    /// operation a derived term, the operations inside that term (which name
+    /// `self`'s codomain, i.e. `other`'s domain) are renamed through `other`'s
+    /// operation-rename view to land in `C`.
     ///
     /// # Errors
     ///
@@ -115,17 +346,20 @@ impl TheoryMorphism {
                     })?;
             sort_map.insert(Arc::clone(a), Arc::clone(c));
         }
+        let other_rename = other.op_rename_map();
         let mut op_map = HashMap::with_capacity(self.op_map.len());
-        for (a, b) in &self.op_map {
-            let c = other
-                .op_map
-                .get(b)
-                .ok_or_else(|| crate::error::GatError::ComposeUnmapped {
-                    kind: "op",
-                    name: a.to_string(),
-                    image: b.to_string(),
-                })?;
-            op_map.insert(Arc::clone(a), Arc::clone(c));
+        for (a, assignment) in &self.op_map {
+            let composed = match assignment {
+                OpAssignment::Op(b) => other.op_map.get(b).cloned().ok_or_else(|| {
+                    crate::error::GatError::ComposeUnmapped {
+                        kind: "op",
+                        name: a.to_string(),
+                        image: b.to_string(),
+                    }
+                })?,
+                OpAssignment::Term(term) => OpAssignment::Term(term.rename_ops(&other_rename)),
+            };
+            op_map.insert(Arc::clone(a), composed);
         }
         Ok(Self {
             name: Arc::from(format!("{};{}", self.name, other.name)),
@@ -154,13 +388,17 @@ impl TheoryMorphism {
                 ));
             }
         }
-        for (old_op, new_op) in &self.op_map {
-            if old_op != new_op {
-                renames.push(SiteRename::new(
-                    NameSite::EdgeKind,
-                    Arc::clone(old_op),
-                    Arc::clone(new_op),
-                ));
+        for (old_op, assignment) in &self.op_map {
+            // Only operation renames induce an edge-kind rename; a
+            // derived-term assignment is not a rename.
+            if let Some(new_op) = assignment.as_op() {
+                if old_op != new_op {
+                    renames.push(SiteRename::new(
+                        NameSite::EdgeKind,
+                        Arc::clone(old_op),
+                        Arc::clone(new_op),
+                    ));
+                }
             }
         }
         renames
@@ -169,17 +407,20 @@ impl TheoryMorphism {
 
 /// # Soundness note on equation preservation
 ///
-/// Equation preservation is checked syntactically. For every domain
-/// equation `lhs = rhs`, the mapped pair `F(lhs) = F(rhs)` must appear
-/// alpha-equivalent to some equation already present in the codomain's
-/// equation list. This is a conservative approximation of the true
-/// mathematical criterion, which is that `F(lhs) = F(rhs)` hold in the
-/// codomain's full equational theory. The current check rejects any
-/// morphism whose image is derivable in the codomain via directed
-/// rewrites or via chains of other equations but is not literally
-/// listed, and this is a known incompleteness: complete preservation
-/// via normalization or congruence closure against the codomain's
-/// equational theory is a queued follow-up.
+/// For every domain equation `lhs = rhs`, the mapped pair `F(lhs) = F(rhs)` is
+/// preserved when it is alpha-equivalent to an equation already listed in the
+/// codomain (syntactic membership) or, failing that, when its two sides are
+/// provably equal in the codomain's equational theory: both sides are
+/// normalized with the codomain's directed equations, and then, if that does
+/// not decide it, with the congruence closure over all codomain equations
+/// (undirected equations oriented both ways). Equal normal forms establish the
+/// equation; distinct normal forms reject it with
+/// [`GatError::EquationNotPreserved`]. When normalization exhausts its step
+/// budget the result is inconclusive and the morphism is rejected with
+/// [`GatError::EquationPreservationUnknown`] rather than accepted. The check is
+/// therefore sound (it never accepts an unpreserved equation) but, like any
+/// rewriting-based decision procedure, incomplete for theories whose equality
+/// is undecidable within the budget.
 ///
 /// Check that a theory morphism is valid.
 ///
@@ -199,6 +440,10 @@ pub fn check_morphism(
     domain: &Theory,
     codomain: &Theory,
 ) -> Result<(), GatError> {
+    // The operation-rename view drives sort argument-term renaming; a
+    // derived-term assignment does not rename argument terms of a sort.
+    let op_rename = m.op_rename_map();
+
     // 1. All domain sorts must be mapped.
     for sort in &domain.sorts {
         let target_name = m
@@ -239,7 +484,7 @@ pub fn check_morphism(
         for (i, param) in sort.params.iter().enumerate() {
             let mapped_param_sort = param
                 .sort
-                .apply_maps(&m.sort_map, &m.op_map)
+                .apply_maps(&m.sort_map, &op_rename)
                 .subst(&sort_param_rename);
             if !mapped_param_sort.alpha_eq(&target_sort.params[i].sort) {
                 return Err(GatError::SortParamMismatch {
@@ -257,79 +502,211 @@ pub fn check_morphism(
 
     // 2. All domain ops must be mapped.
     for op in &domain.ops {
-        let target_name = m
+        let assignment = m
             .op_map
             .get(&op.name)
             .ok_or_else(|| GatError::MissingOpMapping(op.name.to_string()))?;
 
-        let target_op = codomain
-            .find_op(target_name)
-            .ok_or_else(|| GatError::OpNotFound(target_name.to_string()))?;
-
-        // 4. Operation type signatures must be preserved under sort mapping.
-        if op.inputs.len() != target_op.inputs.len() {
-            return Err(GatError::OpTypeMismatch {
-                op: op.name.to_string(),
-                detail: format!(
-                    "arity mismatch: domain has {} inputs, codomain has {}",
-                    op.inputs.len(),
-                    target_op.inputs.len()
-                ),
-            });
-        }
-
-        // Parameter names are local binders at the operation's
-        // declaration site, in scope in every later input sort and in
-        // the output sort. When comparing the mapped signature against
-        // the codomain operation we rename the domain's parameter names
-        // to the codomain's positionally, so that a morphism from
-        // `f : (a : A) -> Hom(a, a)` to `f : (x : A) -> Hom(x, x)` is
-        // accepted.
-        let op_param_rename = positional_param_rename(
-            op.inputs.iter().map(|(n, _, _)| Arc::clone(n)),
-            target_op.inputs.iter().map(|(n, _, _)| Arc::clone(n)),
-        );
-
-        for (i, (_, sort_expr, _)) in op.inputs.iter().enumerate() {
-            // The head of every input sort must have a mapping (this is
-            // a structural prerequisite); argument-term renames flow
-            // through the op_map.
-            if !m.sort_map.contains_key(sort_expr.head()) {
-                return Err(GatError::MissingSortMapping(sort_expr.head().to_string()));
+        match assignment {
+            OpAssignment::Op(target_name) => {
+                check_op_rename(op, target_name, m, &op_rename, codomain)?;
             }
-            let mapped_sort = sort_expr
-                .apply_maps(&m.sort_map, &m.op_map)
-                .subst(&op_param_rename);
-            let (_, target_sort, _) = &target_op.inputs[i];
-            if !mapped_sort.alpha_eq(target_sort) {
-                return Err(GatError::OpTypeMismatch {
-                    op: op.name.to_string(),
-                    detail: format!("input {i}: expected sort {mapped_sort}, got {target_sort}"),
-                });
+            OpAssignment::Term(term) => {
+                check_op_term_assignment(op, term, m, &op_rename, codomain)?;
             }
-        }
-
-        if !m.sort_map.contains_key(op.output.head()) {
-            return Err(GatError::MissingSortMapping(op.output.head().to_string()));
-        }
-        let mapped_output = op
-            .output
-            .apply_maps(&m.sort_map, &m.op_map)
-            .subst(&op_param_rename);
-        if !mapped_output.alpha_eq(&target_op.output) {
-            return Err(GatError::OpTypeMismatch {
-                op: op.name.to_string(),
-                detail: format!(
-                    "output: expected sort {mapped_output}, got {}",
-                    target_op.output
-                ),
-            });
         }
     }
 
     check_equations_preserved(m, domain, codomain)?;
     check_directed_equations_preserved(m, domain, codomain)?;
 
+    Ok(())
+}
+
+/// Validate a morphism and return, for each domain equation, an
+/// [`EqWitness`] certifying that its image holds in the codomain.
+///
+/// This wraps [`check_morphism`] without changing its signature: the morphism
+/// is first validated in full, then a witness is produced per domain equation.
+/// A syntactically preserved equation is witnessed by an `Axiom` naming the
+/// matched codomain equation; an equation preserved by directed rewriting is
+/// witnessed by the transitivity of the two normalization witnesses; and any
+/// remaining derivable equation is witnessed by a trusted `RuntimeChecked`
+/// node. Every returned witness verifies against the codomain.
+///
+/// # Errors
+///
+/// Returns the same [`GatError`] as [`check_morphism`] when the morphism is
+/// invalid; no witnesses are produced in that case.
+pub fn check_morphism_with_witnesses(
+    m: &TheoryMorphism,
+    domain: &Theory,
+    codomain: &Theory,
+) -> Result<Vec<EqWitness>, GatError> {
+    check_morphism(m, domain, codomain)?;
+
+    let mut witnesses = Vec::with_capacity(domain.eqs.len());
+    for eq in &domain.eqs {
+        let mapped_lhs = m.apply_to_term_substituting(&eq.lhs, domain);
+        let mapped_rhs = m.apply_to_term_substituting(&eq.rhs, domain);
+        witnesses.push(preservation_witness(&mapped_lhs, &mapped_rhs, codomain));
+    }
+    Ok(witnesses)
+}
+
+/// Build a witness that `lhs = rhs` holds in the codomain, mirroring the
+/// acceptance logic of [`check_equations_preserved`].
+fn preservation_witness(lhs: &Term, rhs: &Term, codomain: &Theory) -> EqWitness {
+    const BUDGET: usize = 512;
+
+    // Syntactic membership: an axiom naming the matched codomain equation.
+    for c in &codomain.eqs {
+        if alpha_equivalent_equation(&c.lhs, &c.rhs, lhs, rhs) {
+            return EqWitness::axiom(Arc::clone(&c.name), lhs.clone(), rhs.clone());
+        }
+    }
+
+    // Directed derivability: chain the two normalization witnesses through the
+    // shared normal form.
+    let (nf_l, w_l) = normalize_with_witness(lhs, &codomain.directed_eqs, BUDGET);
+    let (nf_r, w_r) = normalize_with_witness(rhs, &codomain.directed_eqs, BUDGET);
+    if nf_l == nf_r {
+        return EqWitness::transitivity(w_l, EqWitness::symmetry(w_r));
+    }
+
+    // Congruence-closure derivability (undirected equations both ways): trusted,
+    // since its synthetic rule orientations are not codomain axioms by name.
+    EqWitness {
+        lhs: lhs.clone(),
+        rhs: rhs.clone(),
+        justification: WitnessJustification::RuntimeChecked {
+            description: "derivable in the codomain's equational theory".to_owned(),
+        },
+    }
+}
+
+/// Check that an operation-rename assignment preserves the operation's
+/// type signature under the sort mapping.
+fn check_op_rename(
+    op: &crate::op::Operation,
+    target_name: &Arc<str>,
+    m: &TheoryMorphism,
+    op_rename: &HashMap<Arc<str>, Arc<str>>,
+    codomain: &Theory,
+) -> Result<(), GatError> {
+    let target_op = codomain
+        .find_op(target_name)
+        .ok_or_else(|| GatError::OpNotFound(target_name.to_string()))?;
+
+    // 4. Operation type signatures must be preserved under sort mapping.
+    if op.inputs.len() != target_op.inputs.len() {
+        return Err(GatError::OpTypeMismatch {
+            op: op.name.to_string(),
+            detail: format!(
+                "arity mismatch: domain has {} inputs, codomain has {}",
+                op.inputs.len(),
+                target_op.inputs.len()
+            ),
+        });
+    }
+
+    // Parameter names are local binders at the operation's declaration
+    // site, in scope in every later input sort and in the output sort.
+    // When comparing the mapped signature against the codomain operation
+    // we rename the domain's parameter names to the codomain's
+    // positionally, so that a morphism from `f : (a : A) -> Hom(a, a)` to
+    // `f : (x : A) -> Hom(x, x)` is accepted.
+    let op_param_rename = positional_param_rename(
+        op.inputs.iter().map(|(n, _, _)| Arc::clone(n)),
+        target_op.inputs.iter().map(|(n, _, _)| Arc::clone(n)),
+    );
+
+    for (i, (_, sort_expr, _)) in op.inputs.iter().enumerate() {
+        // The head of every input sort must have a mapping (this is a
+        // structural prerequisite); argument-term renames flow through the
+        // operation-rename view.
+        if !m.sort_map.contains_key(sort_expr.head()) {
+            return Err(GatError::MissingSortMapping(sort_expr.head().to_string()));
+        }
+        let mapped_sort = sort_expr
+            .apply_maps(&m.sort_map, op_rename)
+            .subst(&op_param_rename);
+        let (_, target_sort, _) = &target_op.inputs[i];
+        if !mapped_sort.alpha_eq(target_sort) {
+            return Err(GatError::OpTypeMismatch {
+                op: op.name.to_string(),
+                detail: format!("input {i}: expected sort {mapped_sort}, got {target_sort}"),
+            });
+        }
+    }
+
+    if !m.sort_map.contains_key(op.output.head()) {
+        return Err(GatError::MissingSortMapping(op.output.head().to_string()));
+    }
+    let mapped_output = op
+        .output
+        .apply_maps(&m.sort_map, op_rename)
+        .subst(&op_param_rename);
+    if !mapped_output.alpha_eq(&target_op.output) {
+        return Err(GatError::OpTypeMismatch {
+            op: op.name.to_string(),
+            detail: format!(
+                "output: expected sort {mapped_output}, got {}",
+                target_op.output
+            ),
+        });
+    }
+    Ok(())
+}
+
+/// Check that a derived-term assignment for an operation is well-typed.
+///
+/// For a domain operation `f : (x1 : S1, …, xn : Sn) → S`, the assigned
+/// term must typecheck against the judgement `[x1 : F(S1), …, xn : F(Sn)]
+/// ⊢ t : F(S)` in the codomain, where `F` is the morphism's sort image.
+/// Every free variable of `t` must be one of `f`'s parameter names, and
+/// the inferred sort of `t` must match the mapped output sort.
+fn check_op_term_assignment(
+    op: &crate::op::Operation,
+    term: &Term,
+    m: &TheoryMorphism,
+    op_rename: &HashMap<Arc<str>, Arc<str>>,
+    codomain: &Theory,
+) -> Result<(), GatError> {
+    // Context binding each parameter to its mapped input sort F(Si).
+    let mut ctx: VarContext = VarContext::default();
+    for (pname, sort_expr, _) in &op.inputs {
+        if !m.sort_map.contains_key(sort_expr.head()) {
+            return Err(GatError::MissingSortMapping(sort_expr.head().to_string()));
+        }
+        let mapped = sort_expr.apply_maps(&m.sort_map, op_rename);
+        ctx.insert(Arc::clone(pname), mapped);
+    }
+
+    // Typecheck the assigned term in the codomain under that context.
+    let inferred = typecheck_term(term, &ctx, codomain).map_err(|err| match err {
+        GatError::UnboundVariable(var) => GatError::TermAssignmentUnboundVar {
+            op: op.name.to_string(),
+            var,
+        },
+        other => GatError::TermAssignmentIllTyped {
+            op: op.name.to_string(),
+            detail: other.to_string(),
+        },
+    })?;
+
+    // The inferred sort must equal the mapped output sort F(S).
+    if !m.sort_map.contains_key(op.output.head()) {
+        return Err(GatError::MissingSortMapping(op.output.head().to_string()));
+    }
+    let expected = op.output.apply_maps(&m.sort_map, op_rename);
+    if !inferred.alpha_eq(&expected) {
+        return Err(GatError::TermAssignmentSortMismatch {
+            op: op.name.to_string(),
+            expected: expected.to_string(),
+            got: inferred.to_string(),
+        });
+    }
     Ok(())
 }
 
@@ -346,7 +723,13 @@ fn check_closure_preservation(
     };
     let expected_image: std::collections::BTreeSet<Arc<str>> = dom_ctors
         .iter()
-        .map(|c| m.op_map.get(c).cloned().unwrap_or_else(|| Arc::clone(c)))
+        .map(|c| {
+            m.op_map
+                .get(c)
+                .and_then(OpAssignment::as_op)
+                .cloned()
+                .unwrap_or_else(|| Arc::clone(c))
+        })
         .collect();
     let actual: std::collections::BTreeSet<Arc<str>> = match &target_sort.closure {
         crate::sort::SortClosure::Closed(cs) => cs.iter().cloned().collect(),
@@ -362,26 +745,88 @@ fn check_closure_preservation(
     Ok(())
 }
 
+/// Whether a mapped equation's two sides can be shown equal in the codomain.
+enum Derivability {
+    /// The two sides normalize to a common form under the codomain's theory.
+    Derivable,
+    /// The two sides normalize to distinct forms (no common reduct found).
+    NotDerivable,
+    /// Normalization exhausted its step budget before deciding.
+    Unknown,
+}
+
+/// Decide whether `lhs = rhs` holds in the codomain by rewriting, first with
+/// the codomain's directed equations alone (which terminate when the system is
+/// sound), then, if that does not decide it, with the congruence closure over
+/// all codomain equations (undirected equations applied in both directions).
+///
+/// Returns [`Derivability::Derivable`] only when a common normal form is found
+/// without exhausting the budget, so the check never accepts on inconclusive
+/// evidence.
+fn equation_image_derivable(lhs: &Term, rhs: &Term, codomain: &Theory) -> Derivability {
+    const BUDGET: usize = 512;
+
+    // Tier 1: the codomain's directed equations only.
+    let (lnf, lex) = normalize_with_status(lhs, &codomain.directed_eqs, BUDGET);
+    let (rnf, rex) = normalize_with_status(rhs, &codomain.directed_eqs, BUDGET);
+    if !lex && !rex && alpha_equivalent(&lnf, &rnf) {
+        return Derivability::Derivable;
+    }
+
+    // Tier 2: congruence closure over every codomain equation, undirected ones
+    // oriented in both directions.
+    let rules = crate::nat_transform::full_rewrite_rules(codomain);
+    let (lnf2, lex2) = normalize_with_status(lhs, &rules, BUDGET);
+    let (rnf2, rex2) = normalize_with_status(rhs, &rules, BUDGET);
+    if lex2 || rex2 {
+        return Derivability::Unknown;
+    }
+    if alpha_equivalent(&lnf2, &rnf2) {
+        Derivability::Derivable
+    } else {
+        Derivability::NotDerivable
+    }
+}
+
 /// Check that all equations in the domain are preserved under the morphism.
+///
+/// The mapped equation is preserved if it is alpha-equivalent to some codomain
+/// equation (syntactic membership) or, failing that, if its two sides are
+/// provably equal in the codomain's equational theory ([`equation_image_derivable`]).
+/// A budget-exhausted derivability check rejects with
+/// [`GatError::EquationPreservationUnknown`] rather than accepting.
 fn check_equations_preserved(
     m: &TheoryMorphism,
     domain: &Theory,
     codomain: &Theory,
 ) -> Result<(), GatError> {
     for eq in &domain.eqs {
-        let mapped_lhs = m.apply_to_term(&eq.lhs);
-        let mapped_rhs = m.apply_to_term(&eq.rhs);
+        let mapped_lhs = m.apply_to_term_substituting(&eq.lhs, domain);
+        let mapped_rhs = m.apply_to_term_substituting(&eq.rhs, domain);
 
-        let preserved = codomain
+        let syntactic = codomain
             .eqs
             .iter()
             .any(|ceq| alpha_equivalent_equation(&ceq.lhs, &ceq.rhs, &mapped_lhs, &mapped_rhs));
+        if syntactic {
+            continue;
+        }
 
-        if !preserved {
-            return Err(GatError::EquationNotPreserved {
-                equation: eq.name.to_string(),
-                detail: "mapped equation not found in codomain".to_owned(),
-            });
+        match equation_image_derivable(&mapped_lhs, &mapped_rhs, codomain) {
+            Derivability::Derivable => {}
+            Derivability::NotDerivable => {
+                return Err(GatError::EquationNotPreserved {
+                    equation: eq.name.to_string(),
+                    detail: "mapped equation is neither present in nor derivable from the codomain"
+                        .to_owned(),
+                });
+            }
+            Derivability::Unknown => {
+                return Err(GatError::EquationPreservationUnknown {
+                    equation: eq.name.to_string(),
+                    detail: "normalization to a common form exhausted its step budget".to_owned(),
+                });
+            }
         }
     }
     Ok(())
@@ -394,8 +839,8 @@ fn check_directed_equations_preserved(
     codomain: &Theory,
 ) -> Result<(), GatError> {
     for de in &domain.directed_eqs {
-        let mapped_lhs = m.apply_to_term(&de.lhs);
-        let mapped_rhs = m.apply_to_term(&de.rhs);
+        let mapped_lhs = m.apply_to_term_substituting(&de.lhs, domain);
+        let mapped_rhs = m.apply_to_term_substituting(&de.rhs, domain);
 
         let preserved = codomain
             .directed_eqs
@@ -533,6 +978,145 @@ mod tests {
         )
     }
 
+    fn unary_op(name: &str) -> Operation {
+        Operation::unary(name, "x", "S", "S")
+    }
+
+    fn directed(name: &str, from: &str, to: &str) -> crate::eq::DirectedEquation {
+        crate::eq::DirectedEquation::new(
+            name,
+            Term::app(from, vec![Term::var("x")]),
+            Term::app(to, vec![Term::var("x")]),
+            panproto_expr::Expr::Var("_".into()),
+        )
+    }
+
+    #[test]
+    fn check_morphism_with_witnesses_all_verify() {
+        // Domain has a syntactically-preserved equation `p(x) = q(x)` and a
+        // directed-derivable equation `f(x) = g(x)`.
+        let domain = Theory::new(
+            "D",
+            vec![Sort::simple("S")],
+            vec![unary_op("f"), unary_op("g"), unary_op("p"), unary_op("q")],
+            vec![
+                Equation::new(
+                    "pq",
+                    Term::app("p", vec![Term::var("x")]),
+                    Term::app("q", vec![Term::var("x")]),
+                ),
+                Equation::new(
+                    "fg",
+                    Term::app("f", vec![Term::var("x")]),
+                    Term::app("g", vec![Term::var("x")]),
+                ),
+            ],
+        );
+        let codomain = Theory::full(
+            "C",
+            Vec::new(),
+            vec![Sort::simple("S")],
+            vec![unary_op("f"), unary_op("g"), unary_op("p"), unary_op("q")],
+            vec![Equation::new(
+                "pq",
+                Term::app("p", vec![Term::var("x")]),
+                Term::app("q", vec![Term::var("x")]),
+            )],
+            vec![directed("fg_dir", "f", "g")],
+            Vec::new(),
+        );
+        let sort_map = HashMap::from([(Arc::from("S"), Arc::from("S"))]);
+        let op_map = HashMap::from([
+            (Arc::from("f"), Arc::from("f")),
+            (Arc::from("g"), Arc::from("g")),
+            (Arc::from("p"), Arc::from("p")),
+            (Arc::from("q"), Arc::from("q")),
+        ]);
+        let m = TheoryMorphism::new("m", "D", "C", sort_map, op_map);
+
+        let witnesses = check_morphism_with_witnesses(&m, &domain, &codomain).unwrap();
+        assert_eq!(witnesses.len(), 2);
+        for w in &witnesses {
+            assert!(
+                w.verify(&codomain).is_ok(),
+                "witness {w:?} must verify against the codomain",
+            );
+        }
+    }
+
+    #[test]
+    fn morphism_accepts_derivable_equation_image() {
+        // Domain carries `f(x) = g(x)` as an undirected equation.
+        let domain = Theory::new(
+            "D",
+            vec![Sort::simple("S")],
+            vec![unary_op("f"), unary_op("g")],
+            vec![Equation::new(
+                "fg",
+                Term::app("f", vec![Term::var("x")]),
+                Term::app("g", vec![Term::var("x")]),
+            )],
+        );
+        // Codomain proves it by a terminating directed rule `f(x) -> g(x)`, but
+        // carries no matching undirected equation.
+        let codomain = Theory::full(
+            "C",
+            Vec::new(),
+            vec![Sort::simple("S")],
+            vec![unary_op("f"), unary_op("g")],
+            Vec::new(),
+            vec![directed("fg_dir", "f", "g")],
+            Vec::new(),
+        );
+        let sort_map = HashMap::from([(Arc::from("S"), Arc::from("S"))]);
+        let op_map = HashMap::from([
+            (Arc::from("f"), Arc::from("f")),
+            (Arc::from("g"), Arc::from("g")),
+        ]);
+        let m = TheoryMorphism::new("m", "D", "C", sort_map, op_map);
+        assert!(
+            check_morphism(&m, &domain, &codomain).is_ok(),
+            "a derivable equation image must be accepted"
+        );
+    }
+
+    #[test]
+    fn morphism_rejects_underivable_equation_image() {
+        // Domain carries `f(x) = h(x)`.
+        let domain = Theory::new(
+            "D",
+            vec![Sort::simple("S")],
+            vec![unary_op("f"), unary_op("h")],
+            vec![Equation::new(
+                "fh",
+                Term::app("f", vec![Term::var("x")]),
+                Term::app("h", vec![Term::var("x")]),
+            )],
+        );
+        // Codomain only proves `f(x) = g(x)`, so `f = h` is neither present nor
+        // derivable.
+        let codomain = Theory::full(
+            "C",
+            Vec::new(),
+            vec![Sort::simple("S")],
+            vec![unary_op("f"), unary_op("g"), unary_op("h")],
+            Vec::new(),
+            vec![directed("fg_dir", "f", "g")],
+            Vec::new(),
+        );
+        let sort_map = HashMap::from([(Arc::from("S"), Arc::from("S"))]);
+        let op_map = HashMap::from([
+            (Arc::from("f"), Arc::from("f")),
+            (Arc::from("h"), Arc::from("h")),
+        ]);
+        let m = TheoryMorphism::new("m", "D", "C", sort_map, op_map);
+        let result = check_morphism(&m, &domain, &codomain);
+        assert!(
+            matches!(result, Err(GatError::EquationNotPreserved { .. })),
+            "an underivable equation image must be rejected, got {result:?}"
+        );
+    }
+
     #[test]
     fn identity_morphism_is_valid() {
         let t = monoid_theory("Monoid", "mul", "unit");
@@ -545,6 +1129,136 @@ mod tests {
 
         let m = TheoryMorphism::new("id", "Monoid", "Monoid", sort_map, op_map);
         assert!(check_morphism(&m, &t, &t).is_ok());
+    }
+
+    /// Domain/codomain pair for exercising derived-term op assignments.
+    ///
+    /// Domain `D` has `f : (x : A) -> B`. Codomain `C` has three ops:
+    /// `g : (y : A) -> B`, `k : (y : A) -> A`, and `h : (z : B) -> B`,
+    /// so that a derived term over `C` can be well-typed (`g(x)`),
+    /// ill-typed (`h(x)`, applying a `B`-op to an `A`), unbound (`g(w)`),
+    /// or sort-mismatched (`k(x)` has sort `A`, not `B`).
+    fn term_assignment_theories() -> (Theory, Theory) {
+        let domain = Theory::new(
+            "D",
+            vec![Sort::simple("A"), Sort::simple("B")],
+            vec![Operation::unary("f", "x", "A", "B")],
+            Vec::new(),
+        );
+        let codomain = Theory::new(
+            "C",
+            vec![Sort::simple("A"), Sort::simple("B")],
+            vec![
+                Operation::unary("g", "y", "A", "B"),
+                Operation::unary("k", "y", "A", "A"),
+                Operation::unary("h", "z", "B", "B"),
+            ],
+            Vec::new(),
+        );
+        (domain, codomain)
+    }
+
+    fn term_assignment_morphism(assigned: Term) -> TheoryMorphism {
+        let sort_map = HashMap::from([
+            (Arc::from("A"), Arc::from("A")),
+            (Arc::from("B"), Arc::from("B")),
+        ]);
+        let op_map: HashMap<Arc<str>, OpAssignment> =
+            HashMap::from([(Arc::from("f"), OpAssignment::Term(assigned))]);
+        TheoryMorphism::new("computed", "D", "C", sort_map, op_map)
+    }
+
+    #[test]
+    fn check_morphism_validates_term_assignment_signature() {
+        let (domain, codomain) = term_assignment_theories();
+
+        // `f(x)` maps to `g(x)`: well-typed with the expected output sort.
+        let ok = term_assignment_morphism(Term::app("g", vec![Term::var("x")]));
+        assert!(
+            check_morphism(&ok, &domain, &codomain).is_ok(),
+            "a derived term of the right sort must validate",
+        );
+
+        // `k(x)` has sort `A`, but the mapped output sort of `f` is `B`.
+        let sort_mismatch = term_assignment_morphism(Term::app("k", vec![Term::var("x")]));
+        assert!(
+            matches!(
+                check_morphism(&sort_mismatch, &domain, &codomain),
+                Err(GatError::TermAssignmentSortMismatch { .. }),
+            ),
+            "a derived term of the wrong output sort must be rejected",
+        );
+
+        // `g(w)` references `w`, which is not one of `f`'s parameters.
+        let unbound = term_assignment_morphism(Term::app("g", vec![Term::var("w")]));
+        assert!(
+            matches!(
+                check_morphism(&unbound, &domain, &codomain),
+                Err(GatError::TermAssignmentUnboundVar { .. }),
+            ),
+            "a derived term with an unbound variable must be rejected",
+        );
+
+        // `h(x)` applies a `B`-input op to `x : A`.
+        let ill_typed = term_assignment_morphism(Term::app("h", vec![Term::var("x")]));
+        assert!(
+            matches!(
+                check_morphism(&ill_typed, &domain, &codomain),
+                Err(GatError::TermAssignmentIllTyped { .. }),
+            ),
+            "a derived term that is ill-typed in the codomain must be rejected",
+        );
+    }
+
+    #[test]
+    fn op_map_legacy_json_roundtrips() {
+        // A rename morphism serializes its operation map as bare strings,
+        // matching the legacy wire form, and round-trips.
+        let sort_map = HashMap::from([(Arc::from("Carrier"), Arc::from("Carrier"))]);
+        let op_map = HashMap::from([
+            (Arc::from("mul"), Arc::from("times")),
+            (Arc::from("unit"), Arc::from("one")),
+        ]);
+        let m = TheoryMorphism::new("rename", "M1", "M2", sort_map, op_map);
+        let json = serde_json::to_string(&m).unwrap();
+        assert!(
+            json.contains("\"times\""),
+            "operation images serialize as bare strings: {json}",
+        );
+        let back: TheoryMorphism = serde_json::from_str(&json).unwrap();
+        assert_eq!(m, back);
+
+        // A hand-written legacy payload (bare-string operation map)
+        // deserializes to `Op` assignments.
+        let legacy = r#"{
+            "name": "rename",
+            "domain": "M1",
+            "codomain": "M2",
+            "sort_map": { "Carrier": "Carrier" },
+            "op_map": { "mul": "times" }
+        }"#;
+        let parsed: TheoryMorphism = serde_json::from_str(legacy).unwrap();
+        assert_eq!(
+            parsed.op_map.get(&Arc::from("mul")),
+            Some(&OpAssignment::Op(Arc::from("times"))),
+        );
+
+        // A derived-term assignment round-trips through the tagged object
+        // form.
+        let term_map: HashMap<Arc<str>, OpAssignment> = HashMap::from([(
+            Arc::from("f"),
+            OpAssignment::Term(Term::app("g", vec![Term::var("x")])),
+        )]);
+        let mt = TheoryMorphism::new(
+            "computed",
+            "D",
+            "C",
+            HashMap::from([(Arc::from("A"), Arc::from("A"))]),
+            term_map,
+        );
+        let mj = serde_json::to_string(&mt).unwrap();
+        let mback: TheoryMorphism = serde_json::from_str(&mj).unwrap();
+        assert_eq!(mt, mback);
     }
 
     #[test]
@@ -604,7 +1318,13 @@ mod tests {
 
         let sort_map = HashMap::from([(Arc::from("S"), Arc::from("T"))]);
 
-        let m = TheoryMorphism::new("bad", "D", "C", sort_map, HashMap::new());
+        let m = TheoryMorphism::new(
+            "bad",
+            "D",
+            "C",
+            sort_map,
+            HashMap::<Arc<str>, Arc<str>>::new(),
+        );
         let result = check_morphism(&m, &domain, &codomain);
         assert!(matches!(result, Err(GatError::SortArityMismatch { .. })));
     }
@@ -950,7 +1670,13 @@ mod tests {
         );
 
         let sort_map = HashMap::from([(Arc::from("S"), Arc::from("T"))]);
-        let m = TheoryMorphism::new("bad", "D", "C", sort_map, HashMap::new());
+        let m = TheoryMorphism::new(
+            "bad",
+            "D",
+            "C",
+            sort_map,
+            HashMap::<Arc<str>, Arc<str>>::new(),
+        );
         let result = check_morphism(&m, &domain, &codomain);
         assert!(
             matches!(result, Err(GatError::SortKindMismatch { .. })),
@@ -998,7 +1724,13 @@ mod tests {
             (Arc::from("B"), Arc::from("Y")),
             (Arc::from("Hom"), Arc::from("Arr")),
         ]);
-        let m = TheoryMorphism::new("bad", "D", "C", sort_map, HashMap::new());
+        let m = TheoryMorphism::new(
+            "bad",
+            "D",
+            "C",
+            sort_map,
+            HashMap::<Arc<str>, Arc<str>>::new(),
+        );
         let result = check_morphism(&m, &domain, &codomain);
         assert!(
             matches!(result, Err(GatError::SortParamMismatch { .. })),
@@ -1265,7 +1997,7 @@ mod tests {
                     "nested op inside sort arg must also be renamed",
                 );
             } else {
-                panic!("expected nested app, got {:?}", &args[0]);
+                panic!("expected nested app, got {:?}", args[0]);
             }
         } else {
             panic!("expected App, got {nested_mapped:?}");
@@ -1279,10 +2011,10 @@ mod tests {
             if let Term::App { op: inner, .. } = &args[0] {
                 assert_eq!(&**inner, "empty2");
             } else {
-                panic!("expected inner app, got {:?}", &args[0]);
+                panic!("expected inner app, got {:?}", args[0]);
             }
         } else {
-            panic!("expected outer app, got {:?}", &renamed_eq.lhs);
+            panic!("expected outer app, got {:?}", renamed_eq.lhs);
         }
     }
 
@@ -1358,15 +2090,13 @@ mod tests {
         );
     }
 
-    /// The preservation check is syntactic: a mapped equation that
-    /// is derivable in the codomain via directed rewrites but not
-    /// listed as a literal equation is still rejected. This test
-    /// records that limitation; lifting it would require normalizing
-    /// both sides in the codomain before comparing.
+    /// The preservation check accepts a mapped equation that is not listed
+    /// literally in the codomain but is derivable there by rewriting. Here the
+    /// derived equation `f(f(x)) = x` follows from the directed rewrite
+    /// `f(x) -> x` in two steps.
     #[test]
-    fn morphism_rejected_when_mapped_equation_only_derivable_not_listed() {
-        // Domain: a theory with a derived equation f(f(x)) = x, which
-        // follows from the directed rewrite f(x) -> x.
+    fn morphism_accepts_multi_step_derivable_equation() {
+        // Domain: a theory with the derived equation f(f(x)) = x.
         let domain = Theory::new(
             "D",
             vec![Sort::simple("A")],
@@ -1377,11 +2107,9 @@ mod tests {
                 Term::var("x"),
             )],
         );
-        // Codomain: the same signature, with a directed rewrite
-        // `f(x) -> x` that makes `f(f(x)) = x` a consequence, but
-        // without listing `idem` as a literal equation. A
-        // normalization-based preservation check would accept; the
-        // current syntactic check rejects.
+        // Codomain: the same signature, with a directed rewrite `f(x) -> x`
+        // that makes `f(f(x)) = x` a consequence, without listing `idem` as a
+        // literal equation. Derivability by normalization accepts it.
         let codomain = Theory::full(
             "C",
             Vec::new(),
@@ -1398,13 +2126,10 @@ mod tests {
         );
         let sort_map = HashMap::from([(Arc::from("A"), Arc::from("A"))]);
         let op_map = HashMap::from([(Arc::from("f"), Arc::from("f"))]);
-        let m = TheoryMorphism::new("syntactic", "D", "C", sort_map, op_map);
+        let m = TheoryMorphism::new("derivable", "D", "C", sort_map, op_map);
         assert!(
-            matches!(
-                check_morphism(&m, &domain, &codomain),
-                Err(GatError::EquationNotPreserved { .. }),
-            ),
-            "the current syntactic check rejects derivable-but-not-listed equations",
+            check_morphism(&m, &domain, &codomain).is_ok(),
+            "a derivable-but-not-listed equation must now be accepted",
         );
     }
 

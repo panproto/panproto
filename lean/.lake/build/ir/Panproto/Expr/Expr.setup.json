@@ -1,7 +1,0 @@
-{"plugins": [],
- "package": "panproto",
- "options": {"autoImplicit": false},
- "name": "Panproto.Expr.Expr",
- "isModule": false,
- "importArts": {},
- "dynlibs": []}

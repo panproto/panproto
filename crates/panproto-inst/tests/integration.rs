@@ -508,6 +508,7 @@ fn test_recursive_schema_restrict_drops_to_3_nodes() {
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        op_term_assignments: HashMap::new(),
         expansion_path: HashMap::new(),
     };
 
@@ -625,6 +626,7 @@ fn test_fan_reconstruction_4_to_3() {
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        op_term_assignments: HashMap::new(),
         expansion_path: HashMap::new(),
     };
 
@@ -697,6 +699,7 @@ fn test_functor_restrict_precomposition() {
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        op_term_assignments: HashMap::new(),
         expansion_path: HashMap::new(),
     };
 

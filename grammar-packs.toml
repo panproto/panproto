@@ -1,0 +1,40 @@
+# Grammar companion packages for the panproto Python wheel.
+#
+# Each entry drives one generated crates/panproto-grammars-<pack>/Cargo.toml.
+# The crate bundles the `panproto-grammars` `group-<pack>` feature into a pyo3
+# cdylib that the wheel loads through the `panproto.grammars` entry point. The
+# `description` field fills the crate's package description, wrapped as
+# "Companion grammar package: <description> for the panproto Python wheel".
+#
+# Regenerate the manifests:  cargo run -p xtask --bin gen-grammar-packs
+# Check them in CI:          cargo run -p xtask --bin gen-grammar-packs -- --check
+
+[functional]
+description = "functional languages (Haskell, Scheme, Racket, OCaml, ...)"
+
+[music]
+description = "music languages"
+
+[all]
+description = "all languages"
+
+[mobile]
+description = "mobile languages"
+
+[devops]
+description = "devops languages"
+
+[data]
+description = "data languages"
+
+[scripting]
+description = "scripting languages"
+
+[jvm]
+description = "jvm languages"
+
+[systems]
+description = "systems languages"
+
+[web]
+description = "web languages"

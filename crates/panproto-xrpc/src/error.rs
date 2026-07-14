@@ -2,7 +2,7 @@
 
 use miette::Diagnostic;
 
-/// Errors from XRPC client operations against a cospan node.
+/// Errors from XRPC client operations against a panproto node.
 #[non_exhaustive]
 #[derive(Debug, thiserror::Error, Diagnostic)]
 pub enum XrpcError {

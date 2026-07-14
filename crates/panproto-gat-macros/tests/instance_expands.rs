@@ -94,11 +94,19 @@ fn instance_macro_builds_valid_morphism() -> Result<(), Box<dyn std::error::Erro
         Some("Bool")
     );
     assert_eq!(
-        morph.op_map.get(&Arc::from("eq")).map(|s| &**s),
+        morph
+            .op_map
+            .get(&Arc::from("eq"))
+            .and_then(|s| s.as_op())
+            .map(|s| &**s),
         Some("int_eq")
     );
     assert_eq!(
-        morph.op_map.get(&Arc::from("neq")).map(|s| &**s),
+        morph
+            .op_map
+            .get(&Arc::from("neq"))
+            .and_then(|s| s.as_op())
+            .map(|s| &**s),
         Some("int_neq")
     );
     Ok(())

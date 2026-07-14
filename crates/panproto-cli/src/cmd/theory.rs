@@ -4,20 +4,19 @@ use std::path::{Path, PathBuf};
 
 use miette::Result;
 
-use crate::repl::{self, LineResult, ReplConfig};
-use panproto_repl::{Repl, ReplOutcome};
+use crate::repl::{self, LineResult, Repl, ReplConfig, ReplOutcome};
 
 /// Validate a theory document (load + typecheck).
 pub fn cmd_theory_validate(file: &Path, verbose: bool) -> Result<()> {
-    let resolver = panproto_theory_dsl::builtin_resolver();
-    let doc = panproto_theory_dsl::load(file).map_err(|e| miette::miette!("{e}"))?;
+    let resolver = panproto_core::theory_dsl::builtin_resolver();
+    let doc = panproto_core::theory_dsl::load(file).map_err(|e| miette::miette!("{e}"))?;
 
     if verbose {
         eprintln!("loaded document: {}", doc.id);
     }
 
     let compiled =
-        panproto_theory_dsl::compile(&doc, &resolver).map_err(|e| miette::miette!("{e}"))?;
+        panproto_core::theory_dsl::compile(&doc, &resolver).map_err(|e| miette::miette!("{e}"))?;
 
     eprintln!(
         "valid: {} theories, {} morphisms, {} protocols",
@@ -30,10 +29,10 @@ pub fn cmd_theory_validate(file: &Path, verbose: bool) -> Result<()> {
 
 /// Compile a theory document and print resulting theory names as JSON.
 pub fn cmd_theory_compile(file: &Path, json: bool, verbose: bool) -> Result<()> {
-    let resolver = panproto_theory_dsl::builtin_resolver();
-    let doc = panproto_theory_dsl::load(file).map_err(|e| miette::miette!("{e}"))?;
+    let resolver = panproto_core::theory_dsl::builtin_resolver();
+    let doc = panproto_core::theory_dsl::load(file).map_err(|e| miette::miette!("{e}"))?;
     let compiled =
-        panproto_theory_dsl::compile(&doc, &resolver).map_err(|e| miette::miette!("{e}"))?;
+        panproto_core::theory_dsl::compile(&doc, &resolver).map_err(|e| miette::miette!("{e}"))?;
 
     // Theory, morphism, protocol, and composition maps are `HashMap`s
     // keyed on name; iterate in a sorted order so CLI output (both
@@ -90,15 +89,15 @@ pub fn cmd_theory_compile(file: &Path, json: bool, verbose: bool) -> Result<()> 
 
 /// Compile all theory documents in a directory.
 pub fn cmd_theory_compile_dir(dir: &Path, verbose: bool) -> Result<()> {
-    let result = panproto_theory_dsl::load_dir(dir).map_err(|e| miette::miette!("{e}"))?;
-    let resolver = panproto_theory_dsl::builtin_resolver();
+    let result = panproto_core::theory_dsl::load_dir(dir).map_err(|e| miette::miette!("{e}"))?;
+    let resolver = panproto_core::theory_dsl::builtin_resolver();
 
     let mut total_theories = 0usize;
     let mut total_morphisms = 0usize;
     let mut total_protocols = 0usize;
 
     for doc in &result.documents {
-        match panproto_theory_dsl::compile(doc, &resolver) {
+        match panproto_core::theory_dsl::compile(doc, &resolver) {
             Ok(compiled) => {
                 total_theories += compiled.theories.len();
                 total_morphisms += compiled.morphisms.len();
@@ -126,15 +125,15 @@ pub fn cmd_theory_compile_dir(dir: &Path, verbose: bool) -> Result<()> {
 
 /// Validate a morphism document.
 pub fn cmd_theory_check_morphism(file: &Path, verbose: bool) -> Result<()> {
-    let resolver = panproto_theory_dsl::builtin_resolver();
-    let doc = panproto_theory_dsl::load(file).map_err(|e| miette::miette!("{e}"))?;
+    let resolver = panproto_core::theory_dsl::builtin_resolver();
+    let doc = panproto_core::theory_dsl::load(file).map_err(|e| miette::miette!("{e}"))?;
 
     if verbose {
         eprintln!("loaded document: {}", doc.id);
     }
 
     let compiled =
-        panproto_theory_dsl::compile(&doc, &resolver).map_err(|e| miette::miette!("{e}"))?;
+        panproto_core::theory_dsl::compile(&doc, &resolver).map_err(|e| miette::miette!("{e}"))?;
 
     if compiled.morphisms.is_empty() {
         eprintln!("warning: no morphisms in document");
@@ -152,10 +151,10 @@ pub fn cmd_theory_check_morphism(file: &Path, verbose: bool) -> Result<()> {
 
 /// Replay a composition and print the result.
 pub fn cmd_theory_recompose(file: &Path, verbose: bool) -> Result<()> {
-    let resolver = panproto_theory_dsl::builtin_resolver();
-    let doc = panproto_theory_dsl::load(file).map_err(|e| miette::miette!("{e}"))?;
+    let resolver = panproto_core::theory_dsl::builtin_resolver();
+    let doc = panproto_core::theory_dsl::load(file).map_err(|e| miette::miette!("{e}"))?;
     let compiled =
-        panproto_theory_dsl::compile(&doc, &resolver).map_err(|e| miette::miette!("{e}"))?;
+        panproto_core::theory_dsl::compile(&doc, &resolver).map_err(|e| miette::miette!("{e}"))?;
 
     // Iterate in sorted name order so output is stable across runs.
     let mut theory_names: Vec<&String> = compiled.theories.keys().collect();
@@ -201,10 +200,16 @@ pub fn cmd_theory_check_coercion_laws(
         CoercionSampleRegistry, TheoryCoercionReport, check_theory_with_var,
     };
 
-    let resolver = panproto_theory_dsl::builtin_resolver();
-    let doc = panproto_theory_dsl::load(file).map_err(|e| miette::miette!("{e}"))?;
-    let compiled =
-        panproto_theory_dsl::compile(&doc, &resolver).map_err(|e| miette::miette!("{e}"))?;
+    let resolver = panproto_core::theory_dsl::builtin_resolver();
+    let doc = panproto_core::theory_dsl::load(file).map_err(|e| miette::miette!("{e}"))?;
+    // Compile without the built-in coercion-law gate. This command is
+    // itself the coercion checker: it binds each sample under
+    // `var_name` (the `--var-name` flag) and reports every violation
+    // per equation. The gated `compile` would instead bind samples
+    // under a fixed variable name and reject the whole document before
+    // this command can apply the override or surface its report.
+    let compiled = panproto_core::theory_dsl::compile_unchecked(&doc, &resolver)
+        .map_err(|e| miette::miette!("{e}"))?;
 
     let registry = CoercionSampleRegistry::with_defaults();
     // Compile's `theories` is a `HashMap`; iterate in sorted name order
@@ -416,7 +421,7 @@ const THEORY_KEYWORDS: &[&str] = &[
 
 /// REPL meta-commands recognised by the theory REPL. Used both for
 /// tab completion and for the `:help` listing. Keep in sync with the
-/// dispatch table inside `panproto_repl::Repl::handle_command`.
+/// dispatch table inside `crate::repl::Repl::handle_command`.
 const THEORY_COMMANDS: &[&str] = &[
     "load",
     "theories",
@@ -433,11 +438,10 @@ const THEORY_COMMANDS: &[&str] = &[
 
 /// Interactive theory REPL.
 ///
-/// Drives [`panproto_repl::Repl`] under a shared rustyline editor with
+/// Drives [`crate::repl::Repl`] under a shared rustyline editor with
 /// syntax highlighting, persistent history, and tab completion of
-/// `:command` names. Equivalent to the deprecated standalone
-/// `panproto-repl` binary; the standalone binary was removed in
-/// 0.41.0 to keep all interactive entry points under `schema`.
+/// `:command` names. This is the only front-end for the theory REPL;
+/// there is no standalone REPL binary.
 ///
 /// # Errors
 ///
@@ -499,8 +503,8 @@ pub fn cmd_theory_repl(load: &[PathBuf]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use panproto_core::expr::Literal;
     use panproto_core::lens::coercion_laws::{CoercionLawViolation, TheoryCoercionReport};
-    use panproto_expr::Literal;
     use std::sync::Arc;
 
     fn eval_err(name: &str) -> CoercionLawViolation {

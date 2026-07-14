@@ -134,7 +134,7 @@ fn rust_scope_ids_preserve_file_prefix() -> Result<(), Box<dyn std::error::Error
     let schema = parse_and_walk(
         &grammar,
         PUSH_AUTH_SNIPPET,
-        "crates/cospan-node/src/auth/push_auth.rs",
+        "crates/panproto-node/src/auth/push_auth.rs",
     )?;
     let ids: Vec<String> = schema.vertices.keys().map(ToString::to_string).collect();
 
@@ -145,7 +145,7 @@ fn rust_scope_ids_preserve_file_prefix() -> Result<(), Box<dyn std::error::Error
         .find(|id| id.ends_with("::verify_push"))
         .ok_or("verify_push scope vertex missing")?;
     assert!(
-        verify_id.starts_with("crates/cospan-node/src/auth/push_auth.rs"),
+        verify_id.starts_with("crates/panproto-node/src/auth/push_auth.rs"),
         "scope id must carry the file path prefix, got {verify_id}"
     );
     Ok(())

@@ -763,6 +763,8 @@ pub fn morphism_to_migration(found: &FoundMorphism) -> crate::Migration {
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         expr_resolvers: HashMap::new(),
+        domain: None,
+        codomain: None,
     }
 }
 

@@ -974,6 +974,55 @@ fn cli_validate_invalid_schema() {
         .stdout(predicate::str::contains("error"));
 }
 
+/// `schema validate` must honor an exit-code contract — exit zero for a
+/// clean schema whose protocol theories type-check, and non-zero for a failing
+/// schema with the failure surfaced on stderr — so CI gates can trust the exit
+/// status. (The theory-type-check bail itself is unit-tested in
+/// `cmd::schema::tests`, since the only CLI-wired protocol, atproto, type-checks
+/// cleanly and so cannot exercise that branch through the binary.)
+#[test]
+fn cli_validate_exit_code_contract() {
+    let tmp = tempfile::tempdir().unwrap();
+
+    // Clean fixture: a structurally valid atproto schema whose protocol
+    // theories type-check. Exit status must be zero.
+    write_protocol_schema(
+        tmp.path(),
+        "clean.json",
+        "atproto",
+        &[("root", "object"), ("root.name", "string")],
+    );
+    schema_cmd()
+        .args(["validate", "--protocol", "atproto", "clean.json"])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Theory type-check: OK."));
+
+    // Failing fixture: a schema that fails validation. Exit status must be
+    // non-zero and the failure must be reported on stderr.
+    write_protocol_schema(
+        tmp.path(),
+        "failing.json",
+        "atproto",
+        &[("root", "bogus_kind")],
+    );
+    let output = schema_cmd()
+        .args(["validate", "--protocol", "atproto", "failing.json"])
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+    assert!(
+        !output.status.success(),
+        "failing fixture must exit non-zero"
+    );
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("validation failed"),
+        "failure must be reported on stderr, got: {stderr}"
+    );
+}
+
 #[test]
 fn cli_check_valid_migration() {
     let tmp = tempfile::tempdir().unwrap();
@@ -1846,6 +1895,8 @@ fn make_migration(
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         expr_resolvers: HashMap::new(),
+        domain: None,
+        codomain: None,
     }
 }
 
@@ -2103,12 +2154,12 @@ fn lift_api_preserves_value_types() {
 }
 
 /// `lens generate --json --top-n N --requirements` must emit a single
-/// well-formed JSON document on stdout. A prior fifth-pass-audit version
-/// emitted up to three concatenated top-level JSON values (base lens,
-/// candidate list, requirements), which breaks `jq` and any strict JSON
-/// consumer. Parse stdout via `serde_json::from_str` to guarantee a
-/// single root value, and assert the composite sections landed inside
-/// it.
+/// well-formed JSON document on stdout, carrying the base lens,
+/// candidate list, and requirements as sections inside one root value
+/// rather than as concatenated top-level JSON values that would break
+/// `jq` and any strict JSON consumer. Parse stdout via
+/// `serde_json::from_str` to guarantee a single root value, and assert
+/// the composite sections landed inside it.
 #[test]
 fn cli_lens_generate_json_topn_requirements_single_document() {
     let tmp = tempfile::tempdir().unwrap();
@@ -2539,4 +2590,71 @@ fn theory_compile_json_output_is_deterministic_across_runs() {
     let theories = parsed["theories"].as_array().unwrap();
     let names: Vec<&str> = theories.iter().map(|v| v.as_str().unwrap()).collect();
     assert_eq!(names, vec!["AlphaTheory", "BetaTheory"]);
+}
+
+// ---------------------------------------------------------------------------
+// `schema lens compile`: DSL document compilation
+// ---------------------------------------------------------------------------
+
+/// `schema lens compile <doc.yaml> --body-vertex <v>` loads a lens DSL
+/// document, compiles it to a protolens chain, and prints a single JSON
+/// object carrying the chain under a `chain` key.
+#[test]
+fn cli_lens_compile_yaml_emits_chain_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    let doc = tmp.path().join("rename.yaml");
+    std::fs::write(
+        &doc,
+        "id: dev.test.rename\nsource: s\ntarget: \"\"\nsteps:\n  - rename_field:\n      old: title\n      new: heading\n",
+    )
+    .unwrap();
+
+    let output = schema_cmd()
+        .args([
+            "lens",
+            "compile",
+            doc.to_str().unwrap(),
+            "--body-vertex",
+            "main",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap_or_else(|e| {
+        panic!("stdout was not a single JSON document: {e}\n---\n{stdout}\n---")
+    });
+    assert!(
+        parsed.get("chain").is_some(),
+        "compile output must carry a `chain` key; got keys {:?}",
+        parsed.as_object().map(|o| o.keys().collect::<Vec<_>>()),
+    );
+    // The embedded chain round-trips through the engine's own codec.
+    assert!(
+        parsed["chain"].get("steps").is_some(),
+        "chain value must be the serde ProtolensChain shape"
+    );
+}
+
+/// `schema lens compile` on an `auto` body without schema context must
+/// exit non-zero: auto-generation needs source/target schemas, which the
+/// pure DSL compile path does not have.
+#[test]
+fn cli_lens_compile_auto_body_without_schemas_fails() {
+    let tmp = tempfile::tempdir().unwrap();
+    let doc = tmp.path().join("auto.yaml");
+    std::fs::write(&doc, "id: dev.test.auto\nsource: s\ntarget: t\nauto: {}\n").unwrap();
+
+    schema_cmd()
+        .args([
+            "lens",
+            "compile",
+            doc.to_str().unwrap(),
+            "--body-vertex",
+            "main",
+        ])
+        .assert()
+        .failure();
 }

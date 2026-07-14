@@ -775,7 +775,7 @@ mod tests {
             "A",
             "B",
             HashMap::from([(Arc::from("S"), Arc::from("T"))]),
-            HashMap::new(),
+            HashMap::<Arc<str>, Arc<str>>::new(),
         );
         let h1 = hash_theory_morphism(&morph)?;
         let h2 = hash_theory_morphism(&morph)?;

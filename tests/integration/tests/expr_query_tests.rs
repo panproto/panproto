@@ -323,6 +323,7 @@ fn fiber_operations_integration() {
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        op_term_assignments: HashMap::new(),
         expansion_path: HashMap::new(),
     };
 
@@ -385,9 +386,9 @@ fn fiber_operations_integration() {
 
     // Complement should have 2 dropped nodes (both annotations)
     assert_eq!(complement.dropped_nodes.len(), 2);
-    for dropped in &complement.dropped_nodes {
+    for (id, dropped) in &complement.dropped_nodes {
         assert_eq!(dropped.anchor, Name::from("annotation"));
-        assert_eq!(dropped.contracted_into, Some(0));
+        assert_eq!(complement.contracted_into.get(id), Some(&0));
     }
 
     // Test fiber_at_node: root should include direct match + contracted nodes

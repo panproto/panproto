@@ -49,11 +49,12 @@ pub mod laws;
 pub mod layout_complement;
 pub mod optic;
 pub mod protolens;
+pub mod protolens_nat;
 pub mod symbolic;
 pub mod symmetric;
 
 // Re-exports for convenience.
-pub use asymmetric::{Complement, get, put};
+pub use asymmetric::{Complement, ComplementCompose, get, put};
 pub use auto_lens::{
     AutoLensConfig, AutoLensResult, Stringency, auto_generate, auto_generate_candidates,
     auto_generate_candidates_with_hints, auto_generate_with_hints,
@@ -72,14 +73,20 @@ pub use edit_pipeline::EditPipeline;
 pub use edit_provenance::EditProvenance;
 pub use error::{LawViolation, LensError};
 pub use graph::LensGraph;
-pub use laws::{check_get_put, check_laws, check_put_get};
+pub use laws::{check_get_put, check_laws, check_put_get, instances_equivalent};
 pub use optic::{OpticKind, classify_transform, refine_scoped_optic};
 pub use protolens::{
     ComplementConstructor, FleetResult, Protolens, ProtolensChain, SchemaConstraint,
     apply_to_fleet, combinators, elementary, horizontal_compose as protolens_horizontal,
     lift_chain, lift_protolens, vertical_compose as protolens_vertical,
 };
-pub use symbolic::{SymbolicStep, simplify_steps};
+pub use protolens_nat::{
+    ProtolensNaturalitySquare, check_protolens_naturality, protolens_naturality_square,
+};
+pub use symbolic::{
+    SymbolicStep, cancels_to_identity, elementary_get_steps, proves_get_put, proves_put_get,
+    simplify_steps,
+};
 pub use symmetric::{CoherenceViolation, SymmetricLens};
 
 use panproto_inst::CompiledMigration;
@@ -279,6 +286,7 @@ pub(crate) mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            op_term_assignments: HashMap::new(),
             expansion_path: HashMap::new(),
         };
 
@@ -332,6 +340,7 @@ pub(crate) mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            op_term_assignments: HashMap::new(),
             expansion_path: HashMap::new(),
         };
 

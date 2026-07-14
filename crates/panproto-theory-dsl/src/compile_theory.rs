@@ -74,9 +74,30 @@ pub fn compile_theory_with_law_check_and_var(
     var_name: &str,
 ) -> Result<Theory, TheoryDslError> {
     let theory = compile_theory(spec)?;
-    let report = panproto_lens::coercion_laws::check_theory_with_var(&theory, registry, var_name);
+    enforce_coercion_laws(&theory, registry, var_name)?;
+    Ok(theory)
+}
+
+/// Run the sample-based coercion-law check on `theory`, converting any
+/// violations into a [`TheoryDslError::CoercionLawViolation`].
+///
+/// Each directed equation is checked against samples drawn from
+/// `registry` and bound under `var_name`. Returns `Ok(())` when every
+/// declared coercion class holds on those samples, and vacuously when
+/// the theory declares no directed equations.
+///
+/// # Errors
+///
+/// Returns [`TheoryDslError::CoercionLawViolation`] carrying one entry
+/// per sample-level violation when a declared class is falsified.
+pub(crate) fn enforce_coercion_laws(
+    theory: &Theory,
+    registry: &panproto_lens::coercion_laws::CoercionSampleRegistry,
+    var_name: &str,
+) -> Result<(), TheoryDslError> {
+    let report = panproto_lens::coercion_laws::check_theory_with_var(theory, registry, var_name);
     if report.is_clean() {
-        return Ok(theory);
+        return Ok(());
     }
     let mut violations: Vec<crate::error::CoercionLawViolationDetail> = Vec::new();
     let mut distinct_equations: usize = 0;
@@ -361,6 +382,19 @@ fn compile_theory_inner(spec: &TheorySpec) -> Result<Theory, TheoryDslError> {
         theory: spec.theory.clone(),
         message: e.to_string(),
     })?;
+
+    // Gate the theory's directed rewrite system on local confluence and LPO
+    // termination. Compilation is not blocked on the result: a rewrite system
+    // that is not provably sound is reported for investigation, so the gate
+    // cannot reject an otherwise well-typed theory.
+    if let Ok(report) = panproto_gat::validate_rewrite_system(&theory) {
+        for warning in report.warnings() {
+            eprintln!(
+                "theory `{}`: rewrite-system warning: {warning}",
+                spec.theory.as_str()
+            );
+        }
+    }
 
     Ok(theory)
 }

@@ -135,11 +135,19 @@ fn instance_doc_compiles_and_checks() -> Result<(), Box<dyn std::error::Error>> 
         Some("Bool")
     );
     assert_eq!(
-        morph.op_map.get(&Arc::from("eq")).map(|s| &**s),
+        morph
+            .op_map
+            .get(&Arc::from("eq"))
+            .and_then(panproto_gat::OpAssignment::as_op)
+            .map(|s| &**s),
         Some("int_eq")
     );
     assert_eq!(
-        morph.op_map.get(&Arc::from("neq")).map(|s| &**s),
+        morph
+            .op_map
+            .get(&Arc::from("neq"))
+            .and_then(panproto_gat::OpAssignment::as_op)
+            .map(|s| &**s),
         Some("int_neq")
     );
     Ok(())

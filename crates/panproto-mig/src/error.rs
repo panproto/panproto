@@ -127,6 +127,16 @@ pub enum ExistenceError {
         /// Why it risks becoming unreachable.
         reason: String,
     },
+
+    /// The migration's mapped fragment is not a structure-preserving
+    /// theory morphism: a mapped edge does not connect the images of its
+    /// own endpoints, or a mapped vertex is absent from the target.
+    #[error("migration is not a theory morphism on its mapped fragment: {detail}")]
+    NotAMorphism {
+        /// The underlying structural violation, as reported by
+        /// `check_morphism`.
+        detail: String,
+    },
 }
 
 /// Errors from the lift (record migration) operation.
@@ -140,6 +150,22 @@ pub enum LiftError {
     /// The target schema is missing.
     #[error("target schema is required for W-type lift")]
     MissingTargetSchema,
+
+    /// The term-level chase reported an equality conflict or exhausted its
+    /// budget while closing a `Sigma` result.
+    #[error("chase failed: {detail}")]
+    Chase {
+        /// Human-readable description of the failure.
+        detail: String,
+    },
+}
+
+impl From<crate::chase::ChaseError> for LiftError {
+    fn from(err: crate::chase::ChaseError) -> Self {
+        Self::Chase {
+            detail: err.to_string(),
+        }
+    }
 }
 
 /// Errors from migration composition.
@@ -155,6 +181,18 @@ pub enum ComposeError {
         tgt: String,
         /// Edge kind.
         kind: String,
+    },
+
+    /// The first migration's codomain does not match the second
+    /// migration's domain, so the two are not composable.
+    #[error(
+        "migrations are not composable: first codomain `{first_codomain}` != second domain `{second_domain}`"
+    )]
+    DomainMismatch {
+        /// The codomain identifier of the first migration.
+        first_codomain: String,
+        /// The domain identifier of the second migration.
+        second_domain: String,
     },
 }
 

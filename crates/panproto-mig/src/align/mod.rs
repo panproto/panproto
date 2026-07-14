@@ -30,8 +30,6 @@ pub mod alias;
 pub mod coerce;
 pub mod description_similarity;
 pub mod edge_label;
-#[cfg(feature = "lm_embeddings")]
-pub mod embedding;
 pub mod exact;
 pub mod neighborhood;
 pub mod structural;
@@ -45,8 +43,6 @@ pub use alias::{AliasDict, alias_anchors, default_alias_dict};
 pub use coerce::{CoerceAnchor, coerce_anchors};
 pub use description_similarity::{description_anchors, description_similarity};
 pub use edge_label::edge_label_anchors;
-#[cfg(feature = "lm_embeddings")]
-pub use embedding::{Embedder, HashEmbedder, cosine_similarity, embedding_anchors};
 pub use exact::exact_anchors;
 pub use neighborhood::neighborhood_anchors;
 pub use structural::structural_anchors;
@@ -100,7 +96,7 @@ pub enum StrategyTag {
     WlRefinement,
     /// Pure degree-and-kind-signature matching (last resort).
     Structural,
-    /// LM-proposed alignment (feature-gated).
+    /// LM-proposed alignment supplied by an external caller.
     Llm,
 }
 

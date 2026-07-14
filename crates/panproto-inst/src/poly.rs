@@ -5,8 +5,8 @@
 //! triple Σ ⊣ Δ ⊣ Π applied to the polynomial interpretation:
 //!
 //! - **Fiber**: preimage of a migration at a target anchor (Δ at a point)
-//! - **Group-by**: partition source nodes by fiber (explicit Π on trees)
-//! - **Join**: pullback of two instances along shared projections
+//! - **Group-by**: partition source nodes into per-anchor sub-instances by fiber
+//! - **Join**: anchor-matched node id pairs over a shared target anchor (not a pullback apex)
 //! - **Section**: construct an enriched instance from base + annotation data
 
 use std::collections::{HashMap, VecDeque};
@@ -15,40 +15,13 @@ use panproto_gat::Name;
 use panproto_schema::Edge;
 use rustc_hash::{FxHashMap, FxHashSet};
 
+use crate::complement::Complement;
 use crate::metadata::Node;
 use crate::value::{FieldPresence, Value};
 use crate::wtype::{
     CompiledMigration, WInstance, apply_field_transforms, build_env_from_extra_fields,
     collect_scalar_child_values, reconstruct_fans, resolve_edge, value_to_expr_literal,
 };
-
-// ---------------------------------------------------------------------------
-// Complement infrastructure
-// ---------------------------------------------------------------------------
-
-/// A node that was dropped during restriction, with provenance info.
-#[derive(Debug, Clone)]
-pub struct DroppedNode {
-    /// Original node ID in the source instance.
-    pub original_id: u32,
-    /// Anchor of the dropped node.
-    pub anchor: Name,
-    /// The surviving node this was contracted into (nearest surviving ancestor).
-    pub contracted_into: Option<u32>,
-}
-
-/// Complement data from a restrict operation. Stores everything needed
-/// to reconstruct the original instance from the restricted result.
-#[derive(Debug, Clone, Default)]
-pub struct Complement {
-    /// Nodes that were dropped during restriction.
-    pub dropped_nodes: Vec<DroppedNode>,
-    /// Arcs that were dropped (both endpoints must have been in the source).
-    pub dropped_arcs: Vec<(u32, u32, Edge)>,
-    /// Pre-transform `extra_fields` for nodes that had `field_transforms` applied.
-    /// Used by backward migration to restore original field values.
-    pub original_extra_fields: HashMap<u32, HashMap<String, crate::value::Value>>,
-}
 
 /// An enrichment to add when constructing a section.
 #[derive(Debug, Clone)]
@@ -149,7 +122,9 @@ pub fn fiber_with_predicate(
 /// Returns: for each target anchor, a sub-instance containing only the
 /// source nodes in that fiber (with internal arcs preserved).
 ///
-/// This is the dependent product `Π_f` computed explicitly on trees.
+/// This is the fiber partition of the source nodes under the migration:
+/// every source node falls into exactly one fiber, keyed by its target
+/// anchor. No product is constructed.
 #[must_use]
 pub fn group_by(compiled: &CompiledMigration, source: &WInstance) -> FxHashMap<Name, WInstance> {
     let fibers = fiber_decomposition(compiled, source);
@@ -164,10 +139,12 @@ pub fn group_by(compiled: &CompiledMigration, source: &WInstance) -> FxHashMap<N
 
 /// Join two instances along a shared projection.
 ///
-/// Given A →f C ←g B, compute the pullback A ×_C B: pairs (a, b) where
-/// f(a) and g(b) map to the same target anchor.
+/// Given migrations A →f C and B →g C, return the anchor-matched node id
+/// pairs `(a, b)` where f(a) and g(b) land on the same target anchor in C.
 ///
-/// Returns all matching pairs as (`left_node_id`, `right_node_id`).
+/// This does not construct a pullback: there is no apex instance, no
+/// projections, and no universal property — only the set of matching
+/// `(left_node_id, right_node_id)` pairs grouped by shared target anchor.
 #[must_use]
 pub fn join(
     left: &WInstance,
@@ -247,13 +224,15 @@ pub fn restrict_with_complement(
             return Err(RestrictError::RootPruned);
         }
     }
-    // Apply field transforms to root
-    if let Some(transforms) = migration.field_transforms.get(&root_node.anchor) {
+    // Apply value transforms (legacy field transforms plus op-to-term
+    // assignments) to the root.
+    let root_transforms = migration.value_transforms(&root_node.anchor);
+    if !root_transforms.is_empty() {
         complement
             .original_extra_fields
             .insert(instance.root, root_node.extra_fields.clone());
         let scalars = collect_scalar_child_values(instance, instance.root);
-        apply_field_transforms(&mut root_node_cloned, transforms, &scalars);
+        apply_field_transforms(&mut root_node_cloned, &root_transforms, &scalars);
     }
     new_nodes.insert(instance.root, root_node_cloned);
     surviving_set.insert(instance.root);
@@ -355,13 +334,14 @@ fn restrict_bfs_step(
             if let Some(remapped) = migration.vertex_remap.get(&child_node.anchor) {
                 new_node.anchor.clone_from(remapped);
             }
-            if let Some(transforms) = migration.field_transforms.get(&child_node.anchor) {
+            let child_transforms = migration.value_transforms(&child_node.anchor);
+            if !child_transforms.is_empty() {
                 // Capture pre-transform extra_fields before applying transforms
                 complement
                     .original_extra_fields
                     .insert(child_id, child_node.extra_fields.clone());
                 let scalars = collect_scalar_child_values(instance, child_id);
-                apply_field_transforms(&mut new_node, transforms, &scalars);
+                apply_field_transforms(&mut new_node, &child_transforms, &scalars);
             }
             new_nodes.insert(child_id, new_node.clone());
 
@@ -376,11 +356,12 @@ fn restrict_bfs_step(
                 new_arcs.push((anc_id, child_id, edge));
             }
         } else {
-            complement.dropped_nodes.push(DroppedNode {
-                original_id: child_id,
-                anchor: child_node.anchor.clone(),
-                contracted_into: child_ancestor,
-            });
+            complement
+                .dropped_nodes
+                .insert(child_id, child_node.clone());
+            if let Some(anc_id) = child_ancestor {
+                complement.contracted_into.insert(child_id, anc_id);
+            }
         }
 
         queue.push_back((child_id, child_ancestor));
@@ -408,10 +389,14 @@ fn collect_dropped_arcs(
 
 /// Compute fiber at a specific node ID in the restricted (target) instance.
 ///
-/// Given source instance S, target instance T = restrict(S, migration),
-/// and a node n in T, find all nodes in S that were either:
-/// (a) remapped to n's anchor, or
-/// (b) contracted into n during ancestor contraction.
+/// Given source instance S, target instance T = restrict(S, migration), and a
+/// node n in T, return the source nodes that map to n *specifically* — not
+/// merely to n's anchor. Restriction preserves node ids, so the direct
+/// preimage of n is the single source node whose id equals n's id; every other
+/// source node sharing n's anchor is the preimage of a *different* target node
+/// and is excluded. The fiber additionally contains the dropped source nodes
+/// contracted into n during ancestor contraction (complement entries with
+/// `contracted_into == Some(n)`).
 #[must_use]
 pub fn fiber_at_node(
     source: &WInstance,
@@ -419,23 +404,25 @@ pub fn fiber_at_node(
     target_node_id: u32,
     complement: &Complement,
 ) -> Vec<u32> {
-    let Some(target_node) = target.nodes.get(&target_node_id) else {
+    if !target.nodes.contains_key(&target_node_id) {
         return vec![];
-    };
+    }
 
     let mut result = Vec::new();
 
-    // Direct preimage: source nodes with matching anchor
-    for (&id, node) in &source.nodes {
-        if node.anchor == target_node.anchor {
-            result.push(id);
-        }
+    // Direct preimage: restriction preserves node ids, so the source node with
+    // the same id as the target node is exactly the one that survived to become
+    // it. Source nodes that merely share the anchor are preimages of *other*
+    // target nodes and must not be included here.
+    if source.nodes.contains_key(&target_node_id) {
+        result.push(target_node_id);
     }
 
-    // Contracted nodes
-    for dropped in &complement.dropped_nodes {
-        if dropped.contracted_into == Some(target_node_id) {
-            result.push(dropped.original_id);
+    // Contracted nodes: dropped source nodes whose nearest surviving ancestor
+    // is this target node.
+    for (&dropped_id, &ancestor) in &complement.contracted_into {
+        if ancestor == target_node_id {
+            result.push(dropped_id);
         }
     }
 
@@ -621,6 +608,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            op_term_assignments: HashMap::new(),
             expansion_path: HashMap::new(),
         };
 
@@ -697,7 +685,7 @@ mod tests {
     }
 
     #[test]
-    fn join_computes_pullback() {
+    fn join_matches_anchor_pairs() {
         let (left, left_compiled) = make_test_instance();
         let (right, right_compiled) = make_test_instance();
 
@@ -757,22 +745,15 @@ mod tests {
         );
 
         // Complement: annotations contracted into root
-        let complement = Complement {
-            dropped_nodes: vec![
-                DroppedNode {
-                    original_id: 1,
-                    anchor: Name::from("annotation"),
-                    contracted_into: Some(0),
-                },
-                DroppedNode {
-                    original_id: 2,
-                    anchor: Name::from("annotation"),
-                    contracted_into: Some(0),
-                },
-            ],
-            dropped_arcs: vec![],
-            original_extra_fields: HashMap::new(),
-        };
+        let mut complement = Complement::empty();
+        complement
+            .dropped_nodes
+            .insert(1, Node::new(1, "annotation"));
+        complement
+            .dropped_nodes
+            .insert(2, Node::new(2, "annotation"));
+        complement.contracted_into.insert(1, 0);
+        complement.contracted_into.insert(2, 0);
 
         // Fiber at root (id=0): direct match on anchor "root" (node 0) + contracted (1, 2)
         let fiber = fiber_at_node(&source, &target, 0, &complement);
@@ -785,6 +766,55 @@ mod tests {
         let fiber_text = fiber_at_node(&source, &target, 3, &complement);
         assert!(fiber_text.contains(&3));
         assert_eq!(fiber_text.len(), 1);
+    }
+
+    #[test]
+    fn fiber_at_node_distinguishes_same_anchor_nodes() {
+        // Source: root(0) -> annotation(1), root(0) -> annotation(2). Both
+        // annotations survive an identity migration, so their ids are preserved
+        // into the target instance.
+        let edge_ann = Edge {
+            src: Name::from("root"),
+            tgt: Name::from("annotation"),
+            kind: Name::from("child"),
+            name: None,
+        };
+        let mut nodes = HashMap::new();
+        nodes.insert(0, Node::new(0, "root"));
+        nodes.insert(1, Node::new(1, "annotation"));
+        nodes.insert(2, Node::new(2, "annotation"));
+        let source = WInstance::new(
+            nodes,
+            vec![(0, 1, edge_ann.clone()), (0, 2, edge_ann.clone())],
+            vec![],
+            0,
+            Name::from("root"),
+        );
+
+        let mut tgt_nodes = HashMap::new();
+        tgt_nodes.insert(0, Node::new(0, "root"));
+        tgt_nodes.insert(1, Node::new(1, "annotation"));
+        tgt_nodes.insert(2, Node::new(2, "annotation"));
+        let target = WInstance::new(
+            tgt_nodes,
+            vec![(0, 1, edge_ann.clone()), (0, 2, edge_ann)],
+            vec![],
+            0,
+            Name::from("root"),
+        );
+
+        // Nothing dropped.
+        let complement = Complement::default();
+
+        // The fiber at annotation node 1 must be exactly {1} and must exclude
+        // node 2, even though both share the "annotation" anchor.
+        let fiber1 = fiber_at_node(&source, &target, 1, &complement);
+        assert_eq!(fiber1, vec![1]);
+        assert!(!fiber1.contains(&2));
+
+        let fiber2 = fiber_at_node(&source, &target, 2, &complement);
+        assert_eq!(fiber2, vec![2]);
+        assert!(!fiber2.contains(&1));
     }
 
     /// Build a minimal test schema with the given vertex names and edges.
@@ -868,6 +898,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            op_term_assignments: HashMap::new(),
             expansion_path: HashMap::new(),
         };
 
@@ -916,9 +947,9 @@ mod tests {
 
         // Complement should have 1 dropped node: annotation
         assert_eq!(complement.dropped_nodes.len(), 1);
-        assert_eq!(complement.dropped_nodes[0].original_id, 1);
-        assert_eq!(complement.dropped_nodes[0].anchor, Name::from("annotation"));
-        assert_eq!(complement.dropped_nodes[0].contracted_into, Some(0));
+        let dropped = complement.dropped_nodes.get(&1).unwrap();
+        assert_eq!(dropped.anchor, Name::from("annotation"));
+        assert_eq!(complement.contracted_into.get(&1), Some(&0));
 
         // Dropped arcs: the arc from doc -> annotation
         assert_eq!(complement.dropped_arcs.len(), 1);
@@ -958,6 +989,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            op_term_assignments: HashMap::new(),
             expansion_path: HashMap::new(),
         };
 

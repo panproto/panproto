@@ -16,10 +16,6 @@ full-parse = ["dep:panproto-parse"]
 project = ["dep:panproto-project", "full-parse"]
 # Enable git bridge for bidirectional git ↔ panproto-vcs translation.
 git = ["dep:panproto-git", "project"]
-# Enable LLVM IR protocol and lowering morphisms.
-llvm = ["dep:panproto-llvm"]
-# Enable LLVM JIT compilation of expressions.
-jit = ["dep:panproto-jit"]
 # Enable tree-sitter-based format-preserving parsing for all protocols.
 tree-sitter = ["panproto-io/tree-sitter"]
 
@@ -33,13 +29,15 @@ panproto-check = { workspace = true }
 panproto-protocols = { workspace = true }
 panproto-io = { workspace = true }
 panproto-vcs = { workspace = true }
+panproto-expr = { workspace = true }
+panproto-expr-parser = { workspace = true }
+panproto-lens-dsl = { workspace = true }
+panproto-theory-dsl = { workspace = true }
 
-# Optional cospan-support crates (feature-gated).
+# Optional feature-gated support crates.
 panproto-parse = { workspace = true, optional = true }
 panproto-project = { workspace = true, optional = true }
 panproto-git = { workspace = true, optional = true }
-panproto-llvm = { workspace = true, optional = true }
-panproto-jit = { workspace = true, optional = true }
 
 [dev-dependencies]
 divan = { workspace = true }

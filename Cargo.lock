@@ -102,9 +102,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.102"
+version = "1.0.103"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
+checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
 
 [[package]]
 name = "ar_archive_writer"
@@ -273,7 +273,7 @@ dependencies = [
 
 [[package]]
 name = "book-doctest-stub"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "anyhow",
  "miette",
@@ -1269,30 +1269,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "inkwell"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1def4112dfb2ce2993db7027f7acdb43c1f4ee1c70a082a2eef306ed5d0df365"
-dependencies = [
- "inkwell_internals",
- "libc",
- "llvm-sys",
- "once_cell",
- "thiserror",
-]
-
-[[package]]
-name = "inkwell_internals"
-version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "63736175c9a30ea123f7018de9f26163e0b39cd6978990ae486b510c4f3bad69"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
 name = "insta"
 version = "1.47.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1493,20 +1469,6 @@ name = "litemap"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6373607a59f0be73a39b6fe456b8192fcc3585f602af20751600e974dd455e77"
-
-[[package]]
-name = "llvm-sys"
-version = "201.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9bb947e8b79254ca10d496d0798a9ba1287dcf68e50a92b016fec1cc45bef447"
-dependencies = [
- "anyhow",
- "cc",
- "lazy_static",
- "libc",
- "regex-lite",
- "semver",
-]
 
 [[package]]
 name = "lock_api"
@@ -1962,14 +1924,11 @@ checksum = "d211803b9b6b570f68772237e415a029d5a50c65d382910b879fb19d3271f94d"
 
 [[package]]
 name = "panproto-c"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "ciborium",
  "git2",
  "panproto-core",
- "panproto-expr",
- "panproto-expr-parser",
- "panproto-lens-dsl",
  "rustc-hash",
  "safer-ffi",
  "serde",
@@ -1981,7 +1940,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-check"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "divan",
  "insta",
@@ -2001,7 +1960,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-cli"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "assert_cmd",
  "blake3",
@@ -2009,15 +1968,9 @@ dependencies = [
  "git2",
  "miette",
  "panproto-core",
- "panproto-expr",
- "panproto-expr-parser",
  "panproto-git",
- "panproto-lens-dsl",
- "panproto-llvm",
  "panproto-parse",
  "panproto-project",
- "panproto-repl",
- "panproto-theory-dsl",
  "panproto-vcs",
  "panproto-xrpc",
  "predicates",
@@ -2032,29 +1985,43 @@ dependencies = [
 
 [[package]]
 name = "panproto-core"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "divan",
  "panproto-check",
+ "panproto-expr",
+ "panproto-expr-parser",
  "panproto-gat",
  "panproto-git",
  "panproto-inst",
  "panproto-io",
- "panproto-jit",
  "panproto-lens",
- "panproto-llvm",
+ "panproto-lens-dsl",
  "panproto-mig",
  "panproto-parse",
  "panproto-project",
  "panproto-protocols",
  "panproto-schema",
+ "panproto-theory-dsl",
  "panproto-vcs",
  "serde_json",
 ]
 
 [[package]]
+name = "panproto-dsl-eval"
+version = "0.57.0"
+dependencies = [
+ "nickel-lang",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "yaml_serde",
+]
+
+[[package]]
 name = "panproto-expr"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "divan",
  "proptest",
@@ -2066,7 +2033,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-expr-parser"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "chumsky",
  "divan",
@@ -2077,7 +2044,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-gat"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "divan",
  "miette",
@@ -2091,7 +2058,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-gat-macros"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "panproto-gat",
  "proc-macro2",
@@ -2102,7 +2069,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-git"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "divan",
  "git2",
@@ -2121,7 +2088,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-git-remote"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "git2",
  "miette",
@@ -2137,7 +2104,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "cc",
  "divan",
@@ -2149,7 +2116,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars-all"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "panproto-grammars",
  "pyo3",
@@ -2158,7 +2125,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars-data"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "panproto-grammars",
  "pyo3",
@@ -2167,7 +2134,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars-devops"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "panproto-grammars",
  "pyo3",
@@ -2176,7 +2143,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars-functional"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "panproto-grammars",
  "pyo3",
@@ -2185,7 +2152,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars-jvm"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "panproto-grammars",
  "pyo3",
@@ -2194,7 +2161,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars-mobile"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "panproto-grammars",
  "pyo3",
@@ -2203,7 +2170,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars-music"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "panproto-grammars",
  "pyo3",
@@ -2212,7 +2179,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars-scripting"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "panproto-grammars",
  "pyo3",
@@ -2221,7 +2188,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars-systems"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "panproto-grammars",
  "pyo3",
@@ -2230,7 +2197,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars-web"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "panproto-grammars",
  "pyo3",
@@ -2239,7 +2206,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-inst"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "bumpalo",
  "divan",
@@ -2256,7 +2223,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-integration-tests"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "panproto-check",
  "panproto-core",
@@ -2280,7 +2247,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-io"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "bumpalo",
  "divan",
@@ -2291,7 +2258,6 @@ dependencies = [
  "panproto-parse",
  "panproto-protocols",
  "panproto-schema",
- "proptest",
  "pulldown-cmark",
  "quick-xml",
  "rmp-serde",
@@ -2306,19 +2272,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "panproto-jit"
-version = "0.56.1"
-dependencies = [
- "divan",
- "inkwell",
- "miette",
- "panproto-expr",
- "thiserror",
-]
-
-[[package]]
 name = "panproto-lens"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "divan",
  "insta",
@@ -2337,35 +2292,18 @@ dependencies = [
 
 [[package]]
 name = "panproto-lens-dsl"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "divan",
  "miette",
- "nickel-lang",
+ "panproto-dsl-eval",
  "panproto-expr",
  "panproto-expr-parser",
  "panproto-gat",
  "panproto-inst",
  "panproto-lens",
- "proptest",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
- "yaml_serde",
-]
-
-[[package]]
-name = "panproto-llvm"
-version = "0.56.1"
-dependencies = [
- "divan",
- "inkwell",
- "miette",
- "panproto-gat",
- "panproto-protocols",
  "panproto-schema",
- "rustc-hash",
+ "proptest",
  "serde",
  "serde_json",
  "thiserror",
@@ -2373,7 +2311,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-mig"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "blake3",
  "panproto-expr",
@@ -2390,7 +2328,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-parse"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "divan",
  "memchr",
@@ -2412,7 +2350,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-project"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "blake3",
  "divan",
@@ -2434,7 +2372,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-protocols"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "blake3",
  "divan",
@@ -2450,18 +2388,14 @@ dependencies = [
 
 [[package]]
 name = "panproto-py"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "git2",
  "panproto-core",
- "panproto-expr",
- "panproto-expr-parser",
  "panproto-git",
  "panproto-grammars",
- "panproto-lens-dsl",
  "panproto-parse",
  "panproto-project",
- "panproto-theory-dsl",
  "pyo3",
  "pythonize",
  "rustc-hash",
@@ -2472,17 +2406,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "panproto-repl"
-version = "0.56.1"
-dependencies = [
- "miette",
- "panproto-gat",
- "panproto-theory-dsl",
-]
-
-[[package]]
 name = "panproto-schema"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "panproto-expr",
  "panproto-gat",
@@ -2497,11 +2422,11 @@ dependencies = [
 
 [[package]]
 name = "panproto-theory-dsl"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "divan",
  "miette",
- "nickel-lang",
+ "panproto-dsl-eval",
  "panproto-expr",
  "panproto-expr-parser",
  "panproto-gat",
@@ -2511,14 +2436,12 @@ dependencies = [
  "proptest",
  "serde",
  "serde_json",
- "tempfile",
  "thiserror",
- "yaml_serde",
 ]
 
 [[package]]
 name = "panproto-vcs"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "blake3",
  "divan",
@@ -2542,13 +2465,10 @@ dependencies = [
 
 [[package]]
 name = "panproto-wasm"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "divan",
  "panproto-core",
- "panproto-expr",
- "panproto-expr-parser",
- "panproto-lens-dsl",
  "rmp-serde",
  "rustc-hash",
  "serde",
@@ -2559,7 +2479,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-xrpc"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "divan",
  "hex",
@@ -4852,6 +4772,7 @@ version = "0.0.0"
 dependencies = [
  "serde",
  "serde_json",
+ "toml 0.8.23",
 ]
 
 [[package]]

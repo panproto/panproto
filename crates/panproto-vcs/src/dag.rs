@@ -248,22 +248,43 @@ pub fn log_walk(
 ///
 /// Returns an error if any commit lacks a migration or composition fails.
 pub fn compose_path(store: &dyn Store, path: &[ObjectId]) -> Result<Migration, VcsError> {
+    Ok(compose_path_reporting(store, path)?.0)
+}
+
+/// Compose migrations along a path, returning the composite together with
+/// a human-readable note for every entry dropped at a composition step.
+///
+/// Each step composes through [`compose_with_report`](panproto_mig::compose_with_report),
+/// so a vertex, edge, hyper-edge, resolver entry, or label removed because
+/// an intermediate migration did not carry it is reported rather than
+/// vanishing silently.
+///
+/// # Errors
+///
+/// Returns an error if any commit lacks a migration or composition fails.
+fn compose_path_reporting(
+    store: &dyn Store,
+    path: &[ObjectId],
+) -> Result<(Migration, Vec<String>), VcsError> {
     if path.len() < 2 {
-        return Ok(Migration::empty());
+        return Ok((Migration::empty(), Vec::new()));
     }
 
     // Load the first migration.
     let first_commit = get_commit(store, path[1])?;
     let mut composed = get_migration(store, first_commit.migration_id)?;
+    let mut drop_notes = Vec::new();
 
-    // Compose subsequent migrations.
+    // Compose subsequent migrations, collecting every dropped entry.
     for window in path.windows(2).skip(1) {
         let commit = get_commit(store, window[1])?;
         let mig = get_migration(store, commit.migration_id)?;
-        composed = panproto_mig::compose(&composed, &mig)?;
+        let (next, report) = panproto_mig::compose_with_report(&composed, &mig)?;
+        drop_notes.extend(report.to_lines());
+        composed = next;
     }
 
-    Ok(composed)
+    Ok((composed, drop_notes))
 }
 
 /// Compose migrations along a path and check composition coherence.
@@ -287,16 +308,18 @@ pub fn compose_path_with_coherence(
     store: &dyn Store,
     path: &[ObjectId],
 ) -> Result<CompositionResult, VcsError> {
-    let composed = compose_path(store, path)?;
+    let (composed, drop_notes) = compose_path_reporting(store, path)?;
 
     if path.len() < 2 {
         return Ok(CompositionResult {
             migration: composed,
-            coherence_warnings: Vec::new(),
+            coherence_warnings: drop_notes,
         });
     }
 
-    let mut warnings = Vec::new();
+    // Seed the warnings with any entries dropped during composition, so a
+    // mis-paired or lossy composition is surfaced alongside coherence drift.
+    let mut warnings = drop_notes;
 
     // Load source and target schemas.
     let first_commit = get_commit(store, path[0])?;
@@ -467,7 +490,7 @@ fn theory_morphism_from_migration(
         domain,
         codomain,
         sort_map,
-        std::collections::HashMap::new(),
+        std::collections::HashMap::<Arc<str>, Arc<str>>::new(),
     )
 }
 
@@ -867,6 +890,8 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            domain: None,
+            codomain: None,
         };
         let mig01_id = store.put(&Object::Migration {
             src: s0_id,
@@ -886,6 +911,8 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            domain: None,
+            codomain: None,
         };
         let mig12_id = store.put(&Object::Migration {
             src: s1_id,
@@ -976,6 +1003,8 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            domain: None,
+            codomain: None,
         };
         let bad_mig_id = store.put(&Object::Migration {
             src: s_src_id,
@@ -1028,6 +1057,8 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            domain: None,
+            codomain: None,
         };
         let mig_id = store.put(&Object::Migration {
             src: s_src_id,
@@ -1106,6 +1137,8 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            domain: None,
+            codomain: None,
         };
         let mig01_id = store.put(&Object::Migration {
             src: s0_id,
@@ -1126,6 +1159,8 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            domain: None,
+            codomain: None,
         };
         let mig12_id = store.put(&Object::Migration {
             src: s1_id,
@@ -1210,6 +1245,8 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            domain: None,
+            codomain: None,
         };
         let mig01_id = store.put(&Object::Migration {
             src: s0_id,
@@ -1230,6 +1267,8 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            domain: None,
+            codomain: None,
         };
         let mig12_id = store.put(&Object::Migration {
             src: s1_id,

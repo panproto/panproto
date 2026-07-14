@@ -129,20 +129,39 @@ impl SortExpr {
         rules: &[crate::eq::DirectedEquation],
         step_limit: usize,
     ) -> bool {
-        if self.head() != other.head() {
-            return false;
+        self.alpha_eq_modulo_rewrites_status(other, rules, step_limit)
+            .0
+    }
+
+    /// As [`alpha_eq_modulo_rewrites`](Self::alpha_eq_modulo_rewrites), but also
+    /// reports whether any argument normalization exhausted its step budget.
+    ///
+    /// The second component is `true` when equality could not be decided
+    /// because a normalization ran out of steps. Callers surface a budget
+    /// error rather than a spurious inequality in that case.
+    #[must_use]
+    pub fn alpha_eq_modulo_rewrites_status(
+        &self,
+        other: &Self,
+        rules: &[crate::eq::DirectedEquation],
+        step_limit: usize,
+    ) -> (bool, bool) {
+        if self.head() != other.head() || self.args().len() != other.args().len() {
+            return (false, false);
         }
-        if self.args().len() != other.args().len() {
-            return false;
-        }
-        let normalize_all = |args: &[Term]| -> Vec<Term> {
+        let mut exhausted = false;
+        let mut normalize_all = |args: &[Term]| -> Vec<Term> {
             args.iter()
-                .map(|t| crate::eq::normalize(t, rules, step_limit))
+                .map(|t| {
+                    let (nf, ex) = crate::eq::normalize_with_status(t, rules, step_limit);
+                    exhausted |= ex;
+                    nf
+                })
                 .collect()
         };
         let left = normalize_all(self.args());
         let right = normalize_all(other.args());
-        left == right
+        (left == right, exhausted)
     }
 
     /// Rename the head (sort name) via `sort_map`, leaving arguments
@@ -1609,5 +1628,53 @@ mod tests {
                 Err(e) => panic!("serde failed to serialize a plain enum: {e}"),
             }
         }
+    }
+
+    #[test]
+    fn alpha_eq_modulo_rewrites_status_reports_exhaustion() {
+        // Non-terminating rule f(x) -> f(f(x)).
+        let rule = crate::eq::DirectedEquation::new(
+            "expand",
+            Term::app("f", vec![Term::var("x")]),
+            Term::app("f", vec![Term::app("f", vec![Term::var("x")])]),
+            panproto_expr::Expr::Var("_".into()),
+        );
+        // Two dependent sorts Tm(f(a)) and Tm(b): same head and arity, but the
+        // first argument loops under the rule, so equality cannot be decided.
+        let s1 = SortExpr::App {
+            name: "Tm".into(),
+            args: vec![Term::app("f", vec![Term::constant("a")])],
+        };
+        let s2 = SortExpr::App {
+            name: "Tm".into(),
+            args: vec![Term::constant("b")],
+        };
+        let (equal, exhausted) = s1.alpha_eq_modulo_rewrites_status(&s2, &[rule], 5);
+        assert!(!equal);
+        assert!(exhausted, "looping argument normalization must be flagged");
+    }
+
+    #[test]
+    fn alpha_eq_modulo_rewrites_status_terminating_not_exhausted() {
+        let rule = crate::eq::DirectedEquation::new(
+            "left_id",
+            Term::app("add", vec![Term::constant("zero"), Term::var("y")]),
+            Term::var("y"),
+            panproto_expr::Expr::Var("_".into()),
+        );
+        let s1 = SortExpr::App {
+            name: "Tm".into(),
+            args: vec![Term::app(
+                "add",
+                vec![Term::constant("zero"), Term::constant("a")],
+            )],
+        };
+        let s2 = SortExpr::App {
+            name: "Tm".into(),
+            args: vec![Term::constant("a")],
+        };
+        let (equal, exhausted) = s1.alpha_eq_modulo_rewrites_status(&s2, &[rule], 100);
+        assert!(equal, "add(zero, a) normalizes to a");
+        assert!(!exhausted);
     }
 }

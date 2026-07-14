@@ -1,9 +1,18 @@
-//! Theory-derived existence checking.
+//! Existence checking gated by the well-known-sort convention.
 //!
-//! The conditions checked by [`check_existence`] are NOT hardcoded.
-//! Instead, the function inspects the protocol's schema and instance
-//! theory sorts to determine which checks apply. This keeps the
-//! migration engine generic across protocols.
+//! [`check_existence`] runs a fixed set of always-on morphism checks plus a
+//! set of conditional obligations. Each conditional obligation is gated on the
+//! presence of a conventionally-named sort — listed in [`WELL_KNOWN_SORTS`] —
+//! in the protocol's schema or instance theory. The sort names are normative:
+//! a protocol theory opts into a check by naming the relevant sort exactly
+//! (`Constraint`, `HyperEdge`, `Node`, `Variant`, `Position`, `Mu`, `Usage`);
+//! a theory that uses a different name for an equivalent sort receives no
+//! conditional check. The theory thus acts as a name-keyed feature registry
+//! for these obligations, not a structural derivation of them.
+//!
+//! Deriving obligations from theory *structure* — the operations and equations
+//! that mention a sort — rather than from sort names is a possible future
+//! refinement; it is out of scope here.
 
 use std::collections::HashMap;
 
@@ -23,17 +32,99 @@ pub struct ExistenceReport {
     pub errors: Vec<ExistenceError>,
 }
 
+/// Which theory a well-known sort is looked up in.
+#[derive(Debug, Clone, Copy)]
+pub enum TheoryKind {
+    /// The protocol's schema theory (`protocol.schema_theory`).
+    Schema,
+    /// The protocol's instance theory (`protocol.instance_theory`).
+    Instance,
+}
+
+/// A conditional existence check over a source schema, target schema, and
+/// migration, returning any obligations it detects as violated.
+pub type ExistenceCheck = fn(&Schema, &Schema, &Migration) -> Vec<ExistenceError>;
+
+/// One entry in the well-known-sort convention: a conventionally-named sort,
+/// the theory it must appear in, and the check that fires when it is present.
+pub struct WellKnownSort {
+    /// The conventional sort name that gates this obligation.
+    pub sort: &'static str,
+    /// Which theory the sort must appear in for the obligation to fire.
+    pub theory: TheoryKind,
+    /// The check run when the sort is present in that theory.
+    pub check: ExistenceCheck,
+}
+
+/// The normative well-known-sort convention used by [`check_existence`].
+///
+/// Each entry gates a conditional obligation on the presence of a
+/// conventionally-named sort in the schema or instance theory. Protocol
+/// theories opt into a check by naming the corresponding sort exactly as
+/// listed here; a theory that names an equivalent sort differently receives no
+/// conditional check. This is a naming convention, not a structural
+/// derivation. The `HyperEdge` sort gates two independent checks and so
+/// appears twice.
+pub const WELL_KNOWN_SORTS: &[WellKnownSort] = &[
+    WellKnownSort {
+        sort: "Constraint",
+        theory: TheoryKind::Schema,
+        check: check_constraint_compatibility,
+    },
+    WellKnownSort {
+        sort: "HyperEdge",
+        theory: TheoryKind::Schema,
+        check: check_signature_coherence,
+    },
+    WellKnownSort {
+        sort: "HyperEdge",
+        theory: TheoryKind::Schema,
+        check: check_simultaneity,
+    },
+    WellKnownSort {
+        sort: "Node",
+        theory: TheoryKind::Instance,
+        check: check_reachability,
+    },
+    WellKnownSort {
+        sort: "Variant",
+        theory: TheoryKind::Schema,
+        check: check_variant_preservation,
+    },
+    WellKnownSort {
+        sort: "Position",
+        theory: TheoryKind::Schema,
+        check: check_order_compatibility,
+    },
+    WellKnownSort {
+        sort: "Mu",
+        theory: TheoryKind::Schema,
+        check: check_recursion_compatibility,
+    },
+    WellKnownSort {
+        sort: "Usage",
+        theory: TheoryKind::Schema,
+        check: check_linearity,
+    },
+];
+
 /// Check existence conditions for a migration.
 ///
-/// The conditions checked are DERIVED from the schema and instance
-/// theory structure, not a hardcoded list. The function inspects
-/// the theory's sorts to decide which checks to apply.
-///
 /// Always checks: vertex map validity, edge map validity, kind consistency.
-/// Conditionally checks (based on theory sorts):
-/// - `Constraint` sort present -> constraint compatibility
-/// - `HyperEdge` sort present -> signature coherence + simultaneity
-/// - Instance theory has `Node` sort (W-type) -> reachability risks
+///
+/// Conditional checks are gated by the well-known-sort convention (see
+/// [`WELL_KNOWN_SORTS`]): an obligation fires only when its conventionally-
+/// named sort is present in the relevant theory. The sort names are normative;
+/// a theory that names an equivalent sort differently receives no conditional
+/// check.
+///
+/// - `Constraint` in the schema theory -> constraint compatibility
+/// - `HyperEdge` in the schema theory -> signature coherence + simultaneity
+/// - `Node` in the instance theory (W-type) -> reachability risks
+/// - `Variant` in the schema theory -> variant preservation
+/// - `Position` in the schema theory -> order compatibility
+/// - `Mu` in the schema theory -> recursion compatibility
+/// - `Usage` in the schema theory -> linearity
 #[must_use]
 pub fn check_existence(
     protocol: &Protocol,
@@ -44,41 +135,21 @@ pub fn check_existence(
 ) -> ExistenceReport {
     let mut errors = Vec::new();
 
-    // Look up the schema theory to determine which checks apply.
+    // Look up the schema and instance theories named by the protocol; the
+    // well-known-sort convention gates each conditional obligation on the
+    // presence of a conventionally-named sort in one of them.
     let schema_theory = theory_registry.get(&protocol.schema_theory);
-
-    if let Some(theory) = schema_theory {
-        // Theory-derived conditional checks.
-        if theory.find_sort("Constraint").is_some() {
-            errors.extend(check_constraint_compatibility(src, tgt, migration));
-        }
-        if theory.find_sort("HyperEdge").is_some() {
-            errors.extend(check_signature_coherence(src, tgt, migration));
-            errors.extend(check_simultaneity(src, tgt, migration));
-        }
-    }
-
-    // Look up the instance theory for W-type checks.
     let inst_theory = theory_registry.get(&protocol.instance_theory);
-    if let Some(theory) = inst_theory {
-        if theory.find_sort("Node").is_some() {
-            errors.extend(check_reachability(src, tgt, migration));
-        }
-    }
 
-    // New theory-derived checks from building blocks.
-    if let Some(theory) = schema_theory {
-        if theory.find_sort("Variant").is_some() {
-            errors.extend(check_variant_preservation(src, tgt, migration));
-        }
-        if theory.find_sort("Position").is_some() {
-            errors.extend(check_order_compatibility(src, tgt, migration));
-        }
-        if theory.find_sort("Mu").is_some() {
-            errors.extend(check_recursion_compatibility(src, tgt, migration));
-        }
-        if theory.find_sort("Usage").is_some() {
-            errors.extend(check_linearity(src, tgt, migration));
+    for entry in WELL_KNOWN_SORTS {
+        let theory = match entry.theory {
+            TheoryKind::Schema => schema_theory,
+            TheoryKind::Instance => inst_theory,
+        };
+        if let Some(theory) = theory {
+            if theory.find_sort(entry.sort).is_some() {
+                errors.extend((entry.check)(src, tgt, migration));
+            }
         }
     }
 
@@ -653,6 +724,8 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            domain: None,
+            codomain: None,
         };
 
         // Provide a theory with Constraint sort so the check fires.
@@ -700,6 +773,8 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            domain: None,
+            codomain: None,
         };
 
         let registry = HashMap::new();
@@ -741,6 +816,8 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            domain: None,
+            codomain: None,
         };
 
         let mut registry = HashMap::new();
@@ -765,6 +842,111 @@ mod tests {
                 .iter()
                 .any(|e| matches!(e, ExistenceError::RequiredFieldMissing { .. })),
             "expected RequiredFieldMissing error"
+        );
+    }
+
+    #[test]
+    fn well_known_sort_convention_is_name_keyed() {
+        // A tightened maxLength (3000 -> 300) is a ConstraintTightened
+        // obligation that fires only when the schema theory names a
+        // `Constraint` sort. A theory that names an equivalent sort differently
+        // (`ConstraintX`) opts out of the check, pinning the convention as
+        // name-keyed rather than structurally derived.
+        let protocol = test_protocol("ThConstrained", "ThWType");
+        let edge = Edge {
+            src: "body".into(),
+            tgt: "body.text".into(),
+            kind: "prop".into(),
+            name: Some("text".into()),
+        };
+
+        let mut src = test_schema(
+            &[("body", "object"), ("body.text", "string")],
+            std::slice::from_ref(&edge),
+        );
+        src.constraints.insert(
+            Name::from("body.text"),
+            vec![Constraint {
+                sort: "maxLength".into(),
+                value: "3000".into(),
+            }],
+        );
+
+        let mut tgt = test_schema(
+            &[("body", "object"), ("body.text", "string")],
+            std::slice::from_ref(&edge),
+        );
+        tgt.constraints.insert(
+            Name::from("body.text"),
+            vec![Constraint {
+                sort: "maxLength".into(),
+                value: "300".into(),
+            }],
+        );
+
+        let mig = Migration {
+            vertex_map: HashMap::from([
+                (Name::from("body"), Name::from("body")),
+                (Name::from("body.text"), Name::from("body.text")),
+            ]),
+            edge_map: HashMap::from([(edge.clone(), edge)]),
+            hyper_edge_map: HashMap::new(),
+            label_map: HashMap::new(),
+            resolver: HashMap::new(),
+            hyper_resolver: HashMap::new(),
+            expr_resolvers: HashMap::new(),
+            domain: None,
+            codomain: None,
+        };
+
+        let constraint_tightened = |report: &ExistenceReport| {
+            report
+                .errors
+                .iter()
+                .any(|e| matches!(e, ExistenceError::ConstraintTightened { .. }))
+        };
+
+        // Theory names the sort `Constraint`: the obligation fires.
+        let mut named_registry = HashMap::new();
+        named_registry.insert(
+            "ThConstrained".into(),
+            Theory::new(
+                "ThConstrained",
+                vec![
+                    panproto_gat::Sort::simple("Vertex"),
+                    panproto_gat::Sort::simple("Edge"),
+                    panproto_gat::Sort::simple("Constraint"),
+                ],
+                vec![],
+                vec![],
+            ),
+        );
+        let named_report = check_existence(&protocol, &src, &tgt, &mig, &named_registry);
+        assert!(
+            constraint_tightened(&named_report),
+            "a `Constraint` sort must trigger the constraint-compatibility check"
+        );
+
+        // Theory names an equivalent sort `ConstraintX`: the obligation does
+        // NOT fire, even though the schema data is identical.
+        let mut renamed_registry = HashMap::new();
+        renamed_registry.insert(
+            "ThConstrained".into(),
+            Theory::new(
+                "ThConstrained",
+                vec![
+                    panproto_gat::Sort::simple("Vertex"),
+                    panproto_gat::Sort::simple("Edge"),
+                    panproto_gat::Sort::simple("ConstraintX"),
+                ],
+                vec![],
+                vec![],
+            ),
+        );
+        let renamed_report = check_existence(&protocol, &src, &tgt, &mig, &renamed_registry);
+        assert!(
+            !constraint_tightened(&renamed_report),
+            "a renamed `ConstraintX` sort must not trigger the constraint check"
         );
     }
 }

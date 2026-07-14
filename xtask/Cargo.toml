@@ -15,9 +15,14 @@ path = "src/bin/gen-cli-docs.rs"
 name = "test-book"
 path = "src/bin/test-book.rs"
 
+[[bin]]
+name = "gen-grammar-packs"
+path = "src/bin/gen-grammar-packs.rs"
+
 [lints]
 workspace = true
 
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+toml = { workspace = true }

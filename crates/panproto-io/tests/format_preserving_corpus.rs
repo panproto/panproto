@@ -223,8 +223,9 @@ fn assert_tabular_byte_equal_round_trip(
     let emitted = codec
         .emit_functor_preserving(schema, &instance, &complement)
         .unwrap_or_else(|e| panic!("[{label}] emit_functor_preserving failed: {e}"));
-    assert!(
-        emitted == input,
+    assert_eq!(
+        emitted,
+        input,
         "[{label}] tabular round-trip violated byte equality\n\
          input:\n{}\n\nemitted:\n{}",
         String::from_utf8_lossy(input),

@@ -2,8 +2,8 @@
 //!
 //! The registry provides a uniform dispatch mechanism: given a protocol name,
 //! look up the corresponding [`InstanceParser`] and [`InstanceEmitter`] and
-//! call them. This enables generic code that works across all 77 protocols
-//! without compile-time knowledge of which protocol is being used.
+//! call them. This enables generic code that works across all registered
+//! protocols without compile-time knowledge of which protocol is being used.
 
 use std::collections::HashMap;
 
@@ -105,6 +105,24 @@ impl ProtocolCodec for crate::unified_codec::UnifiedCodec {
 }
 
 /// Registry mapping protocol names to their instance-level codec.
+///
+/// # Format preservation
+///
+/// Lossless, byte-preserving round-trips require the `tree-sitter`
+/// feature, which pulls in the CST-extraction pipeline and the
+/// [`UnifiedCodec`](crate::unified_codec::UnifiedCodec). Without that
+/// feature the registry falls back to the canonical text codecs, whose
+/// round-trips preserve structure but not formatting (whitespace,
+/// key order, comments). Callers that want preservation but must
+/// compile in every configuration use
+/// [`parse_wtype_preserving_or_canonical`](Self::parse_wtype_preserving_or_canonical)
+/// and
+/// [`emit_wtype_preserving_or_canonical`](Self::emit_wtype_preserving_or_canonical),
+/// which are available in every build and announce the fallback on
+/// stderr when the feature is compiled out. The exact
+/// [`parse_wtype_preserving`](Self::parse_wtype_preserving) /
+/// [`emit_wtype_preserving`](Self::emit_wtype_preserving) pair exists
+/// only under the feature.
 ///
 /// # Example
 ///
@@ -302,6 +320,87 @@ impl ProtocolRegistry {
         self.codecs.keys().map(String::as_str)
     }
 
+    /// Parse with format preservation when this build supports it,
+    /// falling back to a canonical parse otherwise.
+    ///
+    /// Unlike [`parse_wtype_preserving`](Self::parse_wtype_preserving),
+    /// which the `tree-sitter` feature gates out entirely, this method
+    /// is available in every build. When the feature is compiled in it
+    /// delegates to that method, capturing a
+    /// [`CstComplement`](crate::cst_extract::CstComplement) when the
+    /// codec supports preservation. When the feature is compiled out no
+    /// codec can capture a complement, so this method prints a one-line
+    /// notice to stderr and returns the canonical parse paired with
+    /// `None`. A caller that asked for preservation therefore learns
+    /// that the build cannot honor the request rather than silently
+    /// receiving canonical output.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParseInstanceError::UnknownProtocol`] if the protocol
+    /// is not registered, or any parse error from the codec.
+    pub fn parse_wtype_preserving_or_canonical(
+        &self,
+        protocol: &str,
+        schema: &Schema,
+        input: &[u8],
+    ) -> Result<(WInstance, Option<crate::cst_extract::CstComplement>), ParseInstanceError> {
+        #[cfg(feature = "tree-sitter")]
+        {
+            self.parse_wtype_preserving(protocol, schema, input)
+        }
+        #[cfg(not(feature = "tree-sitter"))]
+        {
+            eprintln!(
+                "panproto-io: format-preserving parse requested for protocol '{protocol}', \
+                 but this build lacks the 'tree-sitter' feature; returning a canonical parse \
+                 with no complement (round-trips will not preserve formatting)"
+            );
+            let instance = self.parse_wtype(protocol, schema, input)?;
+            Ok((instance, None))
+        }
+    }
+
+    /// Emit with format preservation when this build supports it,
+    /// falling back to canonical emission otherwise.
+    ///
+    /// Companion to
+    /// [`parse_wtype_preserving_or_canonical`](Self::parse_wtype_preserving_or_canonical):
+    /// available in every build. With the `tree-sitter` feature
+    /// compiled in it delegates to
+    /// [`emit_wtype_preserving`](Self::emit_wtype_preserving), using the
+    /// complement to reconstruct the original formatting. Without the
+    /// feature the `complement` cannot have come from a preserving
+    /// parse; this method emits canonically and prints a one-line notice
+    /// to stderr when a caller nonetheless supplies a complement.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EmitInstanceError::UnknownProtocol`] if the protocol is
+    /// not registered, or any emit error from the codec.
+    pub fn emit_wtype_preserving_or_canonical(
+        &self,
+        protocol: &str,
+        schema: &Schema,
+        instance: &WInstance,
+        complement: Option<&crate::cst_extract::CstComplement>,
+    ) -> Result<Vec<u8>, EmitInstanceError> {
+        #[cfg(feature = "tree-sitter")]
+        {
+            self.emit_wtype_preserving(protocol, schema, instance, complement)
+        }
+        #[cfg(not(feature = "tree-sitter"))]
+        {
+            if complement.is_some() {
+                eprintln!(
+                    "panproto-io: format-preserving emit requested for protocol '{protocol}', \
+                     but this build lacks the 'tree-sitter' feature; emitting canonically"
+                );
+            }
+            self.emit_wtype(protocol, schema, instance)
+        }
+    }
+
     /// Parse with format preservation, returning both the instance and a
     /// CST complement that can be used for format-preserving emission.
     ///
@@ -441,8 +540,9 @@ mod try_register_tests {
             source: Box::new(inner),
         });
         registry.register_optional(codec);
-        assert!(
-            registry.protocol_names().count() == 0,
+        assert_eq!(
+            registry.protocol_names().count(),
+            0,
             "ParserInit must skip registration; the eprintln diagnostic surfaces the regression \
              without aborting the host process (WASM-safe contract)"
         );

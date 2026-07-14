@@ -411,3 +411,28 @@ pub fn instance_element_count(instance_bytes: &[u8]) -> Result<u32, JsError> {
     #[allow(clippy::cast_possible_truncation)]
     Ok(instance.node_count() as u32)
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::api::test_support;
+
+    #[test]
+    fn register_and_list_io_protocols() {
+        let reg = register_io_protocols();
+        let list = list_io_protocols(reg).unwrap();
+        assert!(!list.is_empty(), "protocol list must decode to bytes");
+    }
+
+    #[test]
+    fn json_to_instance_and_element_count() {
+        let schema_h = test_support::schema_handle(&test_support::target_schema());
+        let inst = json_to_instance(schema_h, br#"{"text":"hello"}"#).unwrap();
+        let count = instance_element_count(&inst).unwrap();
+        assert!(
+            count >= 1,
+            "parsed instance should have at least one element"
+        );
+    }
+}

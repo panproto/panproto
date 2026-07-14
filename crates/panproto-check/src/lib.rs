@@ -21,9 +21,10 @@ pub mod report;
 pub mod scope;
 
 pub use classify::{
-    BreakingChange, CompatReport, NonBreakingChange, classify, classify_with_schemas,
+    BreakingChange, Classification, CompatReport, NonBreakingChange, classify,
+    classify_with_schemas,
 };
-pub use diff::{ConstraintChange, ConstraintDiff, KindChange, SchemaDiff, diff};
+pub use diff::{ConstraintChange, ConstraintDiff, KindChange, SchemaDiff, apply_renames, diff};
 pub use error::CheckError;
 pub use report::{report_json, report_text};
 pub use scope::{

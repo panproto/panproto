@@ -15,12 +15,12 @@
 //! ## Example
 //!
 //! ```no_run
-//! use panproto_lens_dsl::{load, compile};
+//! use panproto_lens_dsl::load_and_compile;
 //!
-//! let doc = load(std::path::Path::new("my_lens.ncl")).unwrap();
-//! let compiled = compile(&doc, "record:body", &|_| None).unwrap();
+//! let compiled = load_and_compile(std::path::Path::new("my_lens.ncl"), "record:body").unwrap();
 //! // compiled.chain is a ProtolensChain ready for instantiation
 //! // compiled.field_transforms are value-level transforms
+//! // Named `compose` references resolve against sibling files in the same directory.
 //! ```
 
 pub mod compile;
@@ -28,14 +28,19 @@ pub mod compose;
 pub mod document;
 pub mod error;
 pub mod eval;
+pub mod resolver;
 pub mod rules;
 pub mod steps;
 
 use std::path::Path;
 
-pub use compile::CompiledLens;
-pub use document::{Constraint, HintSpec, HintStringency, LensDocument, PreferencePredicate};
+pub use compile::{CompiledLens, SymmetricChains, compile_with_schemas};
+pub use document::{
+    Constraint, DirectedEquationSpec, FromDiffSpec, HintSpec, HintStringency, LensDocument,
+    PreferencePredicate, SymmetricSpec,
+};
 pub use error::LensDslError;
+pub use resolver::{compile_in_dir, compile_with_refs};
 
 /// Load a lens document from a file.
 ///
@@ -121,10 +126,19 @@ pub fn compile(
 
 /// Load a lens file and compile it in one step.
 ///
+/// Named references in a `compose` body resolve against the other lens
+/// documents in the same directory as `path` (see
+/// [`resolver::compile_in_dir`]).
+///
 /// # Errors
 ///
-/// Combines errors from [`load`] and [`compile()`].
+/// Combines errors from [`load`], directory loading, and [`compile()`].
 pub fn load_and_compile(path: &Path, body_vertex: &str) -> Result<CompiledLens, LensDslError> {
     let doc = load(path)?;
-    compile::compile(&doc, body_vertex, &|_| None)
+    match path.parent() {
+        Some(dir) if !dir.as_os_str().is_empty() => {
+            resolver::compile_in_dir(&doc, dir, body_vertex)
+        }
+        _ => resolver::compile_in_dir(&doc, Path::new("."), body_vertex),
+    }
 }

@@ -19,9 +19,6 @@ blake3 = { workspace = true }
 
 [features]
 default = []
-# Gate the experimental embedding-based alignment trait and scaffolding.
-# No concrete embedder ships with this crate; callers wire their own.
-lm_embeddings = []
 
 [dev-dependencies]
 proptest = { workspace = true }

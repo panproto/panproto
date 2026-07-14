@@ -933,7 +933,14 @@ pub fn typecheck_equation_modulo_rewrites(
     let ctx = infer_var_sorts(eq, theory)?;
     let lhs_sort = typecheck_term(&eq.lhs, &ctx, theory)?;
     let rhs_sort = typecheck_term(&eq.rhs, &ctx, theory)?;
-    if !lhs_sort.alpha_eq_modulo_rewrites(&rhs_sort, rules, step_limit) {
+    let (equal, exhausted) = lhs_sort.alpha_eq_modulo_rewrites_status(&rhs_sort, rules, step_limit);
+    if !equal {
+        if exhausted {
+            return Err(GatError::RewriteBudgetExhausted {
+                context: format!("equation `{}` sort equality", eq.name),
+                limit: step_limit,
+            });
+        }
         return Err(GatError::EquationSortMismatch {
             equation: eq.name.to_string(),
             lhs_sort: lhs_sort.to_string(),

@@ -6,7 +6,7 @@ When two branches of a schema repository diverge from a common ancestor and you 
 
 A pushout is the smallest object that contains two given objects and respects the way they share a common subobject. For schemas, "smallest" means containing exactly the union of the two branches' changes, with their shared subschema identified rather than duplicated. The construction has a universal property: any other schema that also contains both branches admits a unique morphism from the pushout. That uniqueness is what makes the merge result *the* answer rather than *an* answer.
 
-panproto-vcs does not just compute the pushout. It also *verifies* the universal property at runtime: it constructs an alternative cocone and checks that the unique mediator exists. If the check fails, the merge raises an error rather than producing a wrong result.
+panproto-vcs does not just compute the pushout. At merge time it runs a cocone-level check: that the generated migrations are total and that the two legs agree on every base vertex. If the check fails, the merge returns an error rather than a wrong result. The stronger universal-property check, that a unique mediator exists to any alternative cocone, is available on demand but is not run by merge.
 
 ## The categorical setup
 
@@ -47,7 +47,11 @@ with $m \circ j_O = k_O$ and $m \circ j_T = k_T$.
 
 ## Construction
 
-The pushout $M = O +_B T$ is constructed as the disjoint union of the sorts of $O$ and $T$, quotiented by the equivalence relation that identifies $i_O(s)$ with $i_T(s)$ for every sort $s \in B$, with the operations and equations from $O$ and $T$ assembled accordingly.
+The pushout $M = O +_B T$ is constructed by identifying $i_O(s)$ with $i_T(s)$ for every sort and operation $s$ in the shared base $B$, then assembling the operations and equations of $O$ and $T$ over the identified elements. The result is an *amalgamated union* rather than a disjoint-union coproduct followed by a coequalizer. Beyond the elements the base morphisms identify, two elements that carry the same name without lying in the image of $B$ are identified whenever their signatures agree; two same-name elements with incompatible signatures raise `SortConflict` or `OpConflict`. This convention keeps the registered theory names that downstream code keys on rather than freshening one side, and equations are deduplicated by content as well as by name, so an equation of $T$ that is alpha-equivalent to one already present is dropped even under a different name.
+
+A leg that would identify two distinct base elements with a single element of the other theory is rejected deterministically, with `NonInjectiveIdentification` naming the element and its conflicting preimages, rather than resolved by last-write-wins. A true coequalizer over such a span is future work.
+
+Both inclusion morphisms $j_O$ and $j_T$ are validated with `check_morphism` against $M$ before the result is returned, so a `ColimitResult` carries genuine structure-preserving morphisms rather than raw name maps.
 
 The implementation is in [`crates/panproto-gat/src/colimit.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-gat/src/colimit.rs). The result type is `ColimitResult`, which carries:
 
@@ -59,17 +63,17 @@ Helper accessors `merge_mediator_assignments` and `pushout_by_name` expose the i
 
 ## The verified universal property
 
-`ColimitResult::verify_universal` takes an alternative cocone $(M', k_O, k_T)$ and computes the unique mediator $m : M \to M'$. It then checks that $m \circ j_O = k_O$ and $m \circ j_T = k_T$. If either equation fails, the check returns `EquationNotPreserved` carrying the offending sort or operation.
+`ColimitResult::verify_universal` takes an alternative cocone $(M', k_O, k_T)$ and computes the unique mediator $m : M \to M'$. Before comparing factorizations it validates $m$ with `check_morphism` against the codomain theory, so a mediator that satisfies the factorization equations while violating signature or equation preservation is rejected. It then checks that $m \circ j_O = k_O$ and $m \circ j_T = k_T$; if either equation fails, the check returns `EquationNotPreserved` carrying the offending sort or operation.
 
-In the VCS layer, `vcs::merge::verify_pushout_universal` runs the check against a constructed alternative cocone derived from the merge candidates. Failure raises `PushoutError::UniversalFactorizationFailure` and the merge does not produce a result.
+In the VCS layer, `vcs::merge::verify_pushout_universal` exposes this same vertex-level check against a caller-supplied alternative cocone; a failure returns `PushoutError::UniversalFactorizationFailure`. Schema merge does not call it. What merge runs at merge time is the cocone-level `vcs::merge::verify_pushout`, which checks migration totality and base-vertex commutativity; its failure surfaces as `VcsError::PushoutVerification`.
 
-This is the new behaviour introduced in `a7fb636` (the correctness pass). Previously, panproto-vcs computed the pushout but did not verify it. The merge could produce an object satisfying cocone commutativity (the pushout square commutes) without satisfying the universal property (without being the *minimal* such object). Cocone commutativity is necessary for a pushout but not sufficient. Verifying the universal property is what makes the result *the* pushout rather than *a* cocone.
+What merge verifies is thus the cocone level: the generated migrations are total and the pushout square commutes on every base vertex. Cocone commutativity is necessary for a pushout but not sufficient; the vertex-level universal property that makes the result *the* pushout rather than *a* cocone is checked only on demand, through `verify_pushout_universal`. Strengthening the merge-time check with merged-vertex coverage, deletion, and edge-level conditions is planned.
 
 ## What this guarantees
 
 - **Determinism.** Two repositories with the same base and the same branch changes produce the same merge result, up to isomorphism.
 - **Minimality.** No spurious sorts, operations, or equations are introduced.
-- **Safety.** A failing universal-property check raises an error rather than silently producing a wrong merge.
+- **Safety.** A failing merge-time cocone check (`verify_pushout`) returns an error rather than silently producing a wrong merge.
 
 ## What is intentionally not modelled
 

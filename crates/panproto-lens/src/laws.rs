@@ -50,9 +50,13 @@ pub fn check_laws(lens: &Lens, instance: &WInstance) -> Result<(), LawViolation>
 
 /// Check if two instances are structurally equivalent.
 ///
-/// Since `WInstance` does not derive `PartialEq`, we compare structural
-/// properties: node count, arc count, root, schema root, and node anchors.
-pub(crate) fn instances_equivalent(a: &WInstance, b: &WInstance) -> bool {
+/// Since `WInstance` does not derive `PartialEq`, this compares structural
+/// properties: root, schema root, node and arc counts, and per-node anchors,
+/// values, and extra fields (values compared with NaN-tolerant equivalence).
+/// It is the instance comparator used by the round-trip lens laws and by the
+/// VCS double-category square check.
+#[must_use]
+pub fn instances_equivalent(a: &WInstance, b: &WInstance) -> bool {
     if a.root != b.root || a.schema_root != b.schema_root {
         return false;
     }
@@ -115,6 +119,139 @@ pub(crate) fn instances_equivalent(a: &WInstance, b: &WInstance) -> bool {
     true
 }
 
+/// Structural equivalence of two [`Complement`]s.
+///
+/// Complements do not derive `PartialEq` (their node/value payloads need
+/// the NaN-reflexive comparison used elsewhere in this crate). This is
+/// `true` exactly when [`complement_divergence`] finds no diverging
+/// field — dropped nodes (by id, anchor, value, and `extra_fields`),
+/// dropped arcs and fans (order-independent), contraction choices,
+/// parent maps, arc-edge disambiguators, snapshot `extra_fields`/values,
+/// synthesized-node sets, contracted-into fibres, and the source
+/// fingerprint. The edit-lens complement-coherence checker
+/// ([`crate::edit_laws`]) and the delta-lens functoriality proptests both
+/// rely on it.
+pub(crate) fn complements_equivalent(a: &Complement, b: &Complement) -> bool {
+    complement_divergence(a, b).is_none()
+}
+
+/// Compare two `u32`-keyed maps for structural equivalence under `eq`,
+/// returning a divergence detail naming `field` (and the node id) on the
+/// first mismatch, or `None` when equivalent.
+fn map_divergence<V>(
+    field: &str,
+    a: &std::collections::HashMap<u32, V>,
+    b: &std::collections::HashMap<u32, V>,
+    eq: impl Fn(&V, &V) -> bool,
+) -> Option<String> {
+    if a.len() != b.len() {
+        return Some(format!("{field} count: {} vs {}", a.len(), b.len()));
+    }
+    for (id, va) in a {
+        match b.get(id) {
+            Some(vb) if eq(va, vb) => {}
+            Some(_) => return Some(format!("{field}: node {id} differs")),
+            None => return Some(format!("{field}: node {id} present on one side only")),
+        }
+    }
+    None
+}
+
+/// The first structural field on which two [`Complement`]s diverge, or
+/// `None` when they are structurally equivalent.
+///
+/// On divergence the returned string names the field (and, where a
+/// per-node map diverges, the node id) so callers can report *which*
+/// component drifted rather than merely that the complements differ.
+/// The field ordering matches [`complements_equivalent`].
+pub(crate) fn complement_divergence(a: &Complement, b: &Complement) -> Option<String> {
+    if a.source_fingerprint != b.source_fingerprint {
+        return Some(format!(
+            "source_fingerprint: {} vs {}",
+            a.source_fingerprint, b.source_fingerprint
+        ));
+    }
+
+    // Dropped nodes: same ids, structurally equal payloads.
+    if let Some(detail) = map_divergence(
+        "dropped_nodes",
+        &a.dropped_nodes,
+        &b.dropped_nodes,
+        dropped_node_equiv,
+    ) {
+        return Some(detail);
+    }
+
+    // Dropped arcs (order-independent).
+    let mut arcs_a: Vec<_> = a.dropped_arcs.clone();
+    let mut arcs_b: Vec<_> = b.dropped_arcs.clone();
+    arcs_a.sort();
+    arcs_b.sort();
+    if arcs_a != arcs_b {
+        return Some("dropped_arcs differ".to_owned());
+    }
+
+    // Dropped fans (order-independent).
+    if a.dropped_fans.len() != b.dropped_fans.len() {
+        return Some(format!(
+            "dropped_fans count: {} vs {}",
+            a.dropped_fans.len(),
+            b.dropped_fans.len()
+        ));
+    }
+    let mut fans_a: Vec<_> = a.dropped_fans.clone();
+    let mut fans_b: Vec<_> = b.dropped_fans.clone();
+    fans_a.sort_by(|x, y| (&x.hyper_edge_id, x.parent).cmp(&(&y.hyper_edge_id, y.parent)));
+    fans_b.sort_by(|x, y| (&x.hyper_edge_id, x.parent).cmp(&(&y.hyper_edge_id, y.parent)));
+    if fans_a != fans_b {
+        return Some("dropped_fans differ".to_owned());
+    }
+
+    // Maps with directly comparable (Edge / u32) values.
+    if a.contraction_choices != b.contraction_choices {
+        return Some("contraction_choices differ".to_owned());
+    }
+    if a.original_parent != b.original_parent {
+        return Some("original_parent differ".to_owned());
+    }
+    if a.arc_edges != b.arc_edges {
+        return Some("arc_edges differ".to_owned());
+    }
+    if a.synthesized_nodes != b.synthesized_nodes {
+        return Some("synthesized_nodes differ".to_owned());
+    }
+    if a.contracted_into != b.contracted_into {
+        return Some("contracted_into differ".to_owned());
+    }
+
+    // Snapshot extra_fields and node values: NaN-reflexive comparison.
+    if let Some(detail) = map_divergence(
+        "original_extra_fields",
+        &a.original_extra_fields,
+        &b.original_extra_fields,
+        crate::asymmetric::extra_fields_equiv,
+    ) {
+        return Some(detail);
+    }
+    if let Some(detail) = map_divergence(
+        "original_values",
+        &a.original_values,
+        &b.original_values,
+        |x, y| crate::asymmetric::presence_equiv(x.as_ref(), y.as_ref()),
+    ) {
+        return Some(detail);
+    }
+
+    None
+}
+
+/// Structural equivalence of two dropped-complement nodes.
+fn dropped_node_equiv(a: &panproto_inst::Node, b: &panproto_inst::Node) -> bool {
+    a.anchor == b.anchor
+        && crate::asymmetric::presence_equiv(a.value.as_ref(), b.value.as_ref())
+        && crate::asymmetric::extra_fields_equiv(&a.extra_fields, &b.extra_fields)
+}
+
 /// Verify only the `GetPut` law.
 ///
 /// # Errors
@@ -136,12 +273,16 @@ pub fn check_get_put(lens: &Lens, instance: &WInstance) -> Result<(), LawViolati
     Ok(())
 }
 
-/// Verify the `PutGet` law: for an arbitrary view `v`,
-/// `get(put(s, v, c)) = v`.
+/// Verify the `PutGet` law: `get(put(s, v, c)) = v`.
 ///
-/// This function tests the law both with the original view (unmodified)
-/// and with a modified view that has a changed leaf value, ensuring the
-/// law holds for arbitrary views.
+/// This is a deterministic **smoke check**, not a sampler: it exercises
+/// the law on exactly two views — the original (unmodified) view and one
+/// canned mutation that appends `_modified` to every string leaf. Passing
+/// this function does *not* establish `PutGet` for arbitrary `v`; it only
+/// catches gross regressions on a fixed pair. Broad, generated-view
+/// coverage lives in the `property` proptests below, which drive
+/// `check_put_get_with_view` with mutations produced by a proptest
+/// strategy (`property::arb_view_mutation`).
 ///
 /// # Errors
 ///
@@ -163,7 +304,14 @@ pub fn check_put_get(lens: &Lens, instance: &WInstance) -> Result<(), LawViolati
 }
 
 /// Check the `PutGet` law for a specific view: `get(put(s, v, c)) = v`.
-fn check_put_get_with_view(
+///
+/// Exposed to the crate so the `property` proptests can drive it with
+/// generated view mutations (see [`property::arb_view_mutation`]).
+///
+/// # Errors
+///
+/// Returns [`LawViolation::PutGet`] or [`LawViolation::Error`].
+pub(crate) fn check_put_get_with_view(
     lens: &Lens,
     view: &WInstance,
     complement: &Complement,
@@ -427,6 +575,7 @@ mod tests {
                                 hyper_resolver: HashMap::new(),
                                 field_transforms: HashMap::new(),
                                 conditional_survival: HashMap::new(),
+                                op_term_assignments: HashMap::new(),
                                 expansion_path: HashMap::new(),
                             },
                             src_schema: schema.clone(),
@@ -508,6 +657,7 @@ mod tests {
                                 hyper_resolver: HashMap::new(),
                                 field_transforms: HashMap::new(),
                                 conditional_survival: HashMap::new(),
+                                op_term_assignments: HashMap::new(),
                                 expansion_path: HashMap::new(),
                             },
                             src_schema,
@@ -700,6 +850,7 @@ mod tests {
                                 hyper_resolver: HashMap::new(),
                                 field_transforms,
                                 conditional_survival: HashMap::new(),
+                                op_term_assignments: HashMap::new(),
                                 expansion_path: HashMap::new(),
                             },
                             src_schema: schema.clone(),
@@ -709,6 +860,658 @@ mod tests {
                         (lens, instance)
                     })
             })
+        }
+
+        // -------------------------------------------------------------------
+        // Widened generators — nested trees, vertex/edge remaps,
+        // and interior field transforms.
+        // -------------------------------------------------------------------
+
+        /// Generate one leaf child spec: `(kind, value-seed)`.
+        fn arb_leaf() -> impl Strategy<Value = (String, String)> {
+            (
+                prop::sample::select(LEAF_KINDS).prop_map(ToOwned::to_owned),
+                "[a-z]{1,6}".prop_map(String::from),
+            )
+        }
+
+        /// Materialize a leaf value of the given kind from a string seed.
+        ///
+        /// Keeps the value type aligned with the schema's vertex kind so
+        /// that mutation and round-tripping stay schema-compatible.
+        fn leaf_value(kind: &str, seed: &str) -> Value {
+            match kind {
+                "integer" => Value::Int(i64::try_from(seed.len()).unwrap_or(0)),
+                "boolean" => Value::Bool(seed.len() % 2 == 0),
+                // "string" and anything else fall back to a string carrier.
+                _ => Value::Str(seed.to_owned()),
+            }
+        }
+
+        /// Generate a depth-3 nested tree (root → object mids → leaves) with
+        /// an identity lens. Leaves are grandchildren of the root (their
+        /// parent is a mid-level object, not the root), and the root and each
+        /// mid carry `extra_fields` so the view-mutation strategy has
+        /// non-scalar payloads to perturb.
+        fn arb_nested_tree_scenario() -> impl Strategy<Value = (Lens, WInstance)> {
+            // 1-3 mid-level objects, each with 1-2 leaf children.
+            prop::collection::vec(prop::collection::vec(arb_leaf(), 1..=2), 1..=3)
+                .prop_map(|mids| build_nested_scenario(&mids))
+        }
+
+        /// Build the nested-tree scenario from a per-mid list of leaf specs.
+        fn build_nested_scenario(mids: &[Vec<(String, String)>]) -> (Lens, WInstance) {
+            let root_name = "root";
+            let mut vert_specs: Vec<(String, String)> =
+                vec![(root_name.to_owned(), "object".to_owned())];
+            let mut edges: Vec<Edge> = Vec::new();
+            let mut nodes: HashMap<u32, Node> = HashMap::new();
+            let mut arcs: Vec<(u32, u32, Edge)> = Vec::new();
+
+            // Root carries an extra field.
+            let mut root_node = Node::new(0, root_name);
+            root_node
+                .extra_fields
+                .insert("kind_tag".to_owned(), Value::Str("object".to_owned()));
+            nodes.insert(0, root_node);
+
+            let mut next_id: u32 = 1;
+            for (i, leaves) in mids.iter().enumerate() {
+                let mid_name = format!("mid{i}");
+                vert_specs.push((mid_name.clone(), "object".to_owned()));
+                let mid_edge = Edge {
+                    src: root_name.into(),
+                    tgt: Name::from(mid_name.as_str()),
+                    kind: "prop".into(),
+                    name: Some(Name::from(mid_name.as_str())),
+                };
+                edges.push(mid_edge.clone());
+                let mid_id = next_id;
+                next_id += 1;
+                let mut mid_node = Node::new(mid_id, mid_name.as_str());
+                mid_node
+                    .extra_fields
+                    .insert("depth".to_owned(), Value::Int(1));
+                nodes.insert(mid_id, mid_node);
+                arcs.push((0, mid_id, mid_edge));
+
+                for (j, (kind, seed)) in leaves.iter().enumerate() {
+                    let leaf_name = format!("leaf{i}_{j}");
+                    vert_specs.push((leaf_name.clone(), kind.clone()));
+                    let leaf_edge = Edge {
+                        src: Name::from(mid_name.as_str()),
+                        tgt: Name::from(leaf_name.as_str()),
+                        kind: "prop".into(),
+                        name: Some(Name::from(leaf_name.as_str())),
+                    };
+                    edges.push(leaf_edge.clone());
+                    let leaf_id = next_id;
+                    next_id += 1;
+                    let leaf_node = Node::new(leaf_id, leaf_name.as_str())
+                        .with_value(FieldPresence::Present(leaf_value(kind, seed)));
+                    nodes.insert(leaf_id, leaf_node);
+                    // Grandchild arc: parent is the mid node, not the root.
+                    arcs.push((mid_id, leaf_id, leaf_edge));
+                }
+            }
+
+            let vert_refs: Vec<(&str, &str)> = vert_specs
+                .iter()
+                .map(|(a, b)| (a.as_str(), b.as_str()))
+                .collect();
+            let schema = make_schema(&vert_refs, &edges);
+            let instance = WInstance::new(nodes, arcs, vec![], 0, root_name.into());
+
+            let surviving_verts: HashSet<Name> = schema.vertices.keys().cloned().collect();
+            let surviving_edges: HashSet<Edge> = schema.edges.keys().cloned().collect();
+            let lens = Lens {
+                compiled: CompiledMigration {
+                    surviving_verts,
+                    surviving_edges,
+                    vertex_remap: HashMap::new(),
+                    edge_remap: HashMap::new(),
+                    resolver: HashMap::new(),
+                    hyper_resolver: HashMap::new(),
+                    field_transforms: HashMap::new(),
+                    conditional_survival: HashMap::new(),
+                    op_term_assignments: HashMap::new(),
+                    expansion_path: HashMap::new(),
+                },
+                src_schema: schema.clone(),
+                tgt_schema: schema,
+            };
+            (lens, instance)
+        }
+
+        /// Generate a lossless *rename remap* lens between two distinct
+        /// schemas: every child vertex `src_childᵢ` is renamed to
+        /// `tgt_childᵢ`, with `vertex_remap` and `edge_remap` populated
+        /// accordingly. The remap is a schema isomorphism, so the lens is
+        /// well-behaved (all laws hold).
+        fn arb_remap_lens_scenario() -> impl Strategy<Value = (Lens, WInstance)> {
+            (1..=4usize).prop_flat_map(|n| {
+                prop::collection::vec("[a-z]{1,6}".prop_map(String::from), n..=n)
+                    .prop_map(|values| build_remap_scenario(&values))
+            })
+        }
+
+        /// Build the rename-remap scenario from a list of leaf string values.
+        fn build_remap_scenario(values: &[String]) -> (Lens, WInstance) {
+            let root_name = "root";
+            let n = values.len();
+
+            let mut src_vert_specs: Vec<(String, String)> =
+                vec![(root_name.to_owned(), "object".to_owned())];
+            let mut tgt_vert_specs: Vec<(String, String)> =
+                vec![(root_name.to_owned(), "object".to_owned())];
+            let mut src_edges: Vec<Edge> = Vec::new();
+            let mut tgt_edges: Vec<Edge> = Vec::new();
+
+            let mut vertex_remap: HashMap<Name, Name> = HashMap::new();
+            let mut edge_remap: HashMap<Edge, Edge> = HashMap::new();
+
+            for i in 0..n {
+                let src_child = format!("src_child{i}");
+                let tgt_child = format!("tgt_child{i}");
+                let key = format!("key{i}");
+                src_vert_specs.push((src_child.clone(), "string".to_owned()));
+                tgt_vert_specs.push((tgt_child.clone(), "string".to_owned()));
+
+                let src_edge = Edge {
+                    src: root_name.into(),
+                    tgt: Name::from(src_child.as_str()),
+                    kind: "prop".into(),
+                    name: Some(Name::from(key.as_str())),
+                };
+                let tgt_edge = Edge {
+                    src: root_name.into(),
+                    tgt: Name::from(tgt_child.as_str()),
+                    kind: "prop".into(),
+                    name: Some(Name::from(key.as_str())),
+                };
+                src_edges.push(src_edge.clone());
+                tgt_edges.push(tgt_edge.clone());
+
+                // Non-empty vertex_remap and edge_remap: the migration
+                // renames every child vertex and its incoming edge.
+                vertex_remap.insert(
+                    Name::from(src_child.as_str()),
+                    Name::from(tgt_child.as_str()),
+                );
+                edge_remap.insert(src_edge, tgt_edge);
+            }
+
+            let src_vert_refs: Vec<(&str, &str)> = src_vert_specs
+                .iter()
+                .map(|(a, b)| (a.as_str(), b.as_str()))
+                .collect();
+            let tgt_vert_refs: Vec<(&str, &str)> = tgt_vert_specs
+                .iter()
+                .map(|(a, b)| (a.as_str(), b.as_str()))
+                .collect();
+            let src_schema = make_schema(&src_vert_refs, &src_edges);
+            let tgt_schema = make_schema(&tgt_vert_refs, &tgt_edges);
+
+            // Build the source instance over the source (un-renamed) schema.
+            let mut nodes = HashMap::new();
+            nodes.insert(0, Node::new(0, root_name));
+            let mut arcs: Vec<(u32, u32, Edge)> = Vec::new();
+            for (i, val) in values.iter().enumerate() {
+                let node_id = u32::try_from(i + 1).unwrap();
+                let src_child = format!("src_child{i}");
+                nodes.insert(
+                    node_id,
+                    Node::new(node_id, src_child.as_str())
+                        .with_value(FieldPresence::Present(Value::Str(val.clone()))),
+                );
+                arcs.push((0, node_id, src_edges[i].clone()));
+            }
+            let instance = WInstance::new(nodes, arcs, vec![], 0, root_name.into());
+
+            // Surviving vertices/edges are keyed by *target* anchors, since
+            // `wtype_restrict` checks survival against the remapped anchor.
+            let surviving_verts: HashSet<Name> = tgt_schema.vertices.keys().cloned().collect();
+            let surviving_edges: HashSet<Edge> = tgt_schema.edges.keys().cloned().collect();
+            let lens = Lens {
+                compiled: CompiledMigration {
+                    surviving_verts,
+                    surviving_edges,
+                    vertex_remap,
+                    edge_remap,
+                    resolver: HashMap::new(),
+                    hyper_resolver: HashMap::new(),
+                    field_transforms: HashMap::new(),
+                    conditional_survival: HashMap::new(),
+                    op_term_assignments: HashMap::new(),
+                    expansion_path: HashMap::new(),
+                },
+                src_schema,
+                tgt_schema,
+            };
+            (lens, instance)
+        }
+
+        /// Generate an identity-structure lens carrying interior
+        /// `FieldTransform`s (`RenameField`, `DropField`, `AddField`) on the
+        /// root object's `extra_fields`. Each transform snapshots the
+        /// pre-transform fields into the complement, so `GetPut` holds.
+        fn arb_field_transform_scenario() -> impl Strategy<Value = (Lens, WInstance)> {
+            (
+                "[a-z]{1,6}".prop_map(String::from),
+                "[a-z]{1,6}".prop_map(String::from),
+                "[a-z]{1,6}".prop_map(String::from),
+                prop::collection::vec("[a-z]{1,6}".prop_map(String::from), 1..=3),
+            )
+                .prop_map(|(a_val, b_val, add_val, leaf_vals)| {
+                    build_field_transform_scenario(&a_val, &b_val, &add_val, &leaf_vals)
+                })
+        }
+
+        /// Build the interior-field-transform scenario.
+        fn build_field_transform_scenario(
+            a_val: &str,
+            b_val: &str,
+            add_val: &str,
+            leaf_vals: &[String],
+        ) -> (Lens, WInstance) {
+            use panproto_inst::FieldTransform;
+
+            let root_name = "root";
+            let mut vert_specs: Vec<(String, String)> =
+                vec![(root_name.to_owned(), "object".to_owned())];
+            let mut edges = Vec::new();
+            let child_names: Vec<String> =
+                (0..leaf_vals.len()).map(|i| format!("child{i}")).collect();
+            for name in &child_names {
+                vert_specs.push((name.clone(), "string".to_owned()));
+                edges.push(Edge {
+                    src: root_name.into(),
+                    tgt: Name::from(name.as_str()),
+                    kind: "prop".into(),
+                    name: Some(Name::from(name.as_str())),
+                });
+            }
+            let vert_refs: Vec<(&str, &str)> = vert_specs
+                .iter()
+                .map(|(a, b)| (a.as_str(), b.as_str()))
+                .collect();
+            let schema = make_schema(&vert_refs, &edges);
+
+            let mut root = Node::new(0, root_name);
+            root.extra_fields
+                .insert("field_a".to_owned(), Value::Str(a_val.to_owned()));
+            root.extra_fields
+                .insert("field_b".to_owned(), Value::Str(b_val.to_owned()));
+            root.extra_fields
+                .insert("keep".to_owned(), Value::Str("kept".to_owned()));
+            let mut nodes = HashMap::new();
+            nodes.insert(0, root);
+            let mut arcs = Vec::new();
+            for (i, val) in leaf_vals.iter().enumerate() {
+                let node_id = u32::try_from(i + 1).unwrap();
+                nodes.insert(
+                    node_id,
+                    Node::new(node_id, child_names[i].as_str())
+                        .with_value(FieldPresence::Present(Value::Str(val.clone()))),
+                );
+                arcs.push((0, node_id, edges[i].clone()));
+            }
+            let instance = WInstance::new(nodes, arcs, vec![], 0, root_name.into());
+
+            // Interior transforms on the root object (an interior anchor:
+            // it has children). Rename one field, drop another, add a third.
+            let transforms = vec![
+                FieldTransform::RenameField {
+                    old_key: "field_a".to_owned(),
+                    new_key: "field_a_renamed".to_owned(),
+                },
+                FieldTransform::DropField {
+                    key: "field_b".to_owned(),
+                },
+                FieldTransform::AddField {
+                    key: "field_c".to_owned(),
+                    value: Value::Str(add_val.to_owned()),
+                },
+            ];
+            let mut field_transforms: HashMap<Name, Vec<FieldTransform>> = HashMap::new();
+            field_transforms.insert(Name::from(root_name), transforms);
+
+            let surviving_verts: HashSet<Name> = schema.vertices.keys().cloned().collect();
+            let surviving_edges: HashSet<Edge> = schema.edges.keys().cloned().collect();
+            let lens = Lens {
+                compiled: CompiledMigration {
+                    surviving_verts,
+                    surviving_edges,
+                    vertex_remap: HashMap::new(),
+                    edge_remap: HashMap::new(),
+                    resolver: HashMap::new(),
+                    hyper_resolver: HashMap::new(),
+                    field_transforms,
+                    conditional_survival: HashMap::new(),
+                    op_term_assignments: HashMap::new(),
+                    expansion_path: HashMap::new(),
+                },
+                src_schema: schema.clone(),
+                tgt_schema: schema,
+            };
+            (lens, instance)
+        }
+
+        /// Generate an identity-structure lens carrying an interior
+        /// `FieldTransform::ApplyExpr` on the root object's `extra_fields`
+        /// (the DSL `ApplyExpr` step's compile target). The forward expr
+        /// uppercases a field and the inverse lowercases it; the complement
+        /// snapshots the pre-transform fields, so `GetPut` holds regardless
+        /// of the expression's own round-trip fidelity.
+        fn arb_apply_expr_scenario() -> impl Strategy<Value = (Lens, WInstance)> {
+            (
+                "[a-z]{1,6}".prop_map(String::from),
+                prop::collection::vec("[a-z]{1,6}".prop_map(String::from), 1..=3),
+            )
+                .prop_map(|(field_val, leaf_vals)| {
+                    build_apply_expr_scenario(&field_val, &leaf_vals)
+                })
+        }
+
+        /// Build the `ApplyExpr` scenario.
+        fn build_apply_expr_scenario(field_val: &str, leaf_vals: &[String]) -> (Lens, WInstance) {
+            use panproto_expr::{BuiltinOp, Expr};
+            use panproto_inst::FieldTransform;
+            use std::sync::Arc;
+
+            let root_name = "root";
+            let mut vert_specs: Vec<(String, String)> =
+                vec![(root_name.to_owned(), "object".to_owned())];
+            let mut edges = Vec::new();
+            let child_names: Vec<String> =
+                (0..leaf_vals.len()).map(|i| format!("child{i}")).collect();
+            for name in &child_names {
+                vert_specs.push((name.clone(), "string".to_owned()));
+                edges.push(Edge {
+                    src: root_name.into(),
+                    tgt: Name::from(name.as_str()),
+                    kind: "prop".into(),
+                    name: Some(Name::from(name.as_str())),
+                });
+            }
+            let vert_refs: Vec<(&str, &str)> = vert_specs
+                .iter()
+                .map(|(a, b)| (a.as_str(), b.as_str()))
+                .collect();
+            let schema = make_schema(&vert_refs, &edges);
+
+            let mut root = Node::new(0, root_name);
+            root.extra_fields
+                .insert("label".to_owned(), Value::Str(field_val.to_owned()));
+            let mut nodes = HashMap::new();
+            nodes.insert(0, root);
+            let mut arcs = Vec::new();
+            for (i, val) in leaf_vals.iter().enumerate() {
+                let node_id = u32::try_from(i + 1).unwrap();
+                nodes.insert(
+                    node_id,
+                    Node::new(node_id, child_names[i].as_str())
+                        .with_value(FieldPresence::Present(Value::Str(val.clone()))),
+                );
+                arcs.push((0, node_id, edges[i].clone()));
+            }
+            let instance = WInstance::new(nodes, arcs, vec![], 0, root_name.into());
+
+            let transform = FieldTransform::ApplyExpr {
+                key: "label".to_owned(),
+                expr: Expr::Builtin(BuiltinOp::Upper, vec![Expr::Var(Arc::from("label"))]),
+                inverse: Some(Expr::Builtin(
+                    BuiltinOp::Lower,
+                    vec![Expr::Var(Arc::from("label"))],
+                )),
+                coercion_class: panproto_gat::CoercionClass::Retraction,
+            };
+            let mut field_transforms: HashMap<Name, Vec<FieldTransform>> = HashMap::new();
+            field_transforms.insert(Name::from(root_name), vec![transform]);
+
+            let surviving_verts: HashSet<Name> = schema.vertices.keys().cloned().collect();
+            let surviving_edges: HashSet<Edge> = schema.edges.keys().cloned().collect();
+            let lens = Lens {
+                compiled: CompiledMigration {
+                    surviving_verts,
+                    surviving_edges,
+                    vertex_remap: HashMap::new(),
+                    edge_remap: HashMap::new(),
+                    resolver: HashMap::new(),
+                    hyper_resolver: HashMap::new(),
+                    field_transforms,
+                    conditional_survival: HashMap::new(),
+                    op_term_assignments: HashMap::new(),
+                    expansion_path: HashMap::new(),
+                },
+                src_schema: schema.clone(),
+                tgt_schema: schema,
+            };
+            (lens, instance)
+        }
+
+        // -------------------------------------------------------------------
+        // Generated view mutations.
+        // -------------------------------------------------------------------
+
+        /// A generated plan for mutating a view. Applying it produces a
+        /// schema-compatible mutant that differs from the original view in
+        /// (a random subset of) node scalar values and `extra_fields`.
+        #[derive(Debug, Clone)]
+        pub(super) struct ViewMutation {
+            /// Bitmask selecting which view nodes (in sorted-id order) to
+            /// mutate. Mutating a subset rather than every node is the point:
+            /// the old canned mutators touched every string leaf uniformly.
+            node_mask: u64,
+            /// Suffix appended to selected string carriers (guaranteed
+            /// non-empty, so the mutant genuinely differs).
+            string_suffix: String,
+            /// Delta added (wrapping) to selected integer carriers.
+            int_delta: i64,
+            /// Whether to flip selected boolean carriers.
+            flip_bool: bool,
+            /// Whether to also mutate `extra_fields` values (not only the
+            /// node's scalar `value`).
+            mutate_extra_fields: bool,
+        }
+
+        /// Strategy producing arbitrary [`ViewMutation`] plans.
+        pub(super) fn arb_view_mutation() -> impl Strategy<Value = ViewMutation> {
+            (
+                any::<u64>(),
+                "[a-z]{1,4}".prop_map(String::from),
+                -5i64..=5i64,
+                any::<bool>(),
+                any::<bool>(),
+            )
+                .prop_map(
+                    |(node_mask, string_suffix, int_delta, flip_bool, mutate_extra_fields)| {
+                        ViewMutation {
+                            node_mask,
+                            string_suffix,
+                            int_delta,
+                            flip_bool,
+                            mutate_extra_fields,
+                        }
+                    },
+                )
+        }
+
+        /// Apply a [`ViewMutation`] plan to `view`, returning a new instance.
+        ///
+        /// The mutation is type-preserving: strings stay strings, integers
+        /// stay integers, booleans stay booleans. Only the selected nodes
+        /// (per `node_mask`) are touched.
+        pub(super) fn apply_view_mutation(view: &WInstance, m: &ViewMutation) -> WInstance {
+            let mut mutant = view.clone();
+            let mut ids: Vec<u32> = mutant.nodes.keys().copied().collect();
+            ids.sort_unstable();
+            for (idx, id) in ids.iter().enumerate() {
+                let selected = idx < 64 && (m.node_mask >> idx) & 1 == 1;
+                if !selected {
+                    continue;
+                }
+                let Some(node) = mutant.nodes.get_mut(id) else {
+                    continue;
+                };
+                match node.value {
+                    Some(FieldPresence::Present(Value::Str(ref mut s))) => {
+                        s.push_str(&m.string_suffix);
+                    }
+                    Some(FieldPresence::Present(Value::Int(ref mut i))) => {
+                        *i = i.wrapping_add(m.int_delta);
+                    }
+                    Some(FieldPresence::Present(Value::Bool(ref mut b))) if m.flip_bool => {
+                        *b = !*b;
+                    }
+                    _ => {}
+                }
+                if m.mutate_extra_fields {
+                    for v in node.extra_fields.values_mut() {
+                        match v {
+                            Value::Str(s) => s.push_str(&m.string_suffix),
+                            Value::Int(i) => *i = i.wrapping_add(m.int_delta),
+                            Value::Bool(b) if m.flip_bool => *b = !*b,
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            mutant
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(128))]
+
+            /// A depth-3 nested tree with grandchild nodes round-trips under
+            /// the identity lens.
+            #[test]
+            fn nested_tree_satisfies_laws(
+                (lens, instance) in arb_nested_tree_scenario()
+            ) {
+                prop_assert!(
+                    check_laws(&lens, &instance).is_ok(),
+                    "nested identity lens should satisfy all laws: {:?}",
+                    check_laws(&lens, &instance),
+                );
+            }
+
+            /// A lossless rename remap (non-empty vertex_remap + edge_remap)
+            /// is well-behaved.
+            #[test]
+            fn remap_lens_satisfies_laws(
+                (lens, instance) in arb_remap_lens_scenario()
+            ) {
+                prop_assert!(
+                    check_laws(&lens, &instance).is_ok(),
+                    "rename remap lens should satisfy all laws: {:?}",
+                    check_laws(&lens, &instance),
+                );
+                prop_assert!(check_get_put(&lens, &instance).is_ok());
+            }
+
+            /// Interior field transforms (rename/drop/add) preserve GetPut,
+            /// since the complement snapshots the pre-transform fields.
+            ///
+            /// Together with [`arb_apply_expr_scenario`] below and the
+            /// existing `identity_lens_with_compute_field` proptest, this
+            /// covers the compile targets of the DSL field-level steps
+            /// (RemoveField/DropField, RenameField, AddField, ApplyExpr,
+            /// ComputeField) over generated instances.
+            #[test]
+            fn field_transform_satisfies_get_put(
+                (lens, instance) in arb_field_transform_scenario()
+            ) {
+                prop_assert!(
+                    check_get_put(&lens, &instance).is_ok(),
+                    "interior field transforms should satisfy GetPut: {:?}",
+                    check_get_put(&lens, &instance),
+                );
+            }
+
+            /// The `ApplyExpr` field step preserves GetPut over generated
+            /// instances.
+            #[test]
+            fn field_apply_expr_satisfies_get_put(
+                (lens, instance) in arb_apply_expr_scenario()
+            ) {
+                prop_assert!(
+                    check_get_put(&lens, &instance).is_ok(),
+                    "ApplyExpr field transform should satisfy GetPut: {:?}",
+                    check_get_put(&lens, &instance),
+                );
+            }
+
+            /// PutGet over generated view mutations (identity lens).
+            #[test]
+            fn identity_put_get_generated_mutation(
+                (lens, instance) in arb_identity_lens_scenario(),
+                mutation in arb_view_mutation(),
+            ) {
+                let (view, complement) = get(&lens, &instance).unwrap();
+                let mutant = apply_view_mutation(&view, &mutation);
+                prop_assert!(
+                    check_put_get_with_view(&lens, &mutant, &complement).is_ok(),
+                    "identity lens PutGet should hold for generated mutant",
+                );
+            }
+
+            /// PutGet over generated view mutations (projection lens).
+            #[test]
+            fn projection_put_get_generated_mutation(
+                (lens, instance) in arb_projection_lens_scenario(),
+                mutation in arb_view_mutation(),
+            ) {
+                let (view, complement) = get(&lens, &instance).unwrap();
+                let mutant = apply_view_mutation(&view, &mutation);
+                prop_assert!(
+                    check_put_get_with_view(&lens, &mutant, &complement).is_ok(),
+                    "projection lens PutGet should hold for generated mutant",
+                );
+            }
+
+            /// PutGet over generated view mutations on a nested tree, where
+            /// the mutation also perturbs interior `extra_fields`.
+            #[test]
+            fn nested_put_get_generated_mutation(
+                (lens, instance) in arb_nested_tree_scenario(),
+                mutation in arb_view_mutation(),
+            ) {
+                let (view, complement) = get(&lens, &instance).unwrap();
+                let mutant = apply_view_mutation(&view, &mutation);
+                prop_assert!(
+                    check_put_get_with_view(&lens, &mutant, &complement).is_ok(),
+                    "nested identity lens PutGet should hold for generated mutant",
+                );
+            }
+
+            /// PutPut driven by a generated second view (identity lens).
+            #[test]
+            fn identity_put_put_generated_mutation(
+                (lens, instance) in arb_identity_lens_scenario(),
+                mutation in arb_view_mutation(),
+            ) {
+                let (view, _) = get(&lens, &instance).unwrap();
+                let second = apply_view_mutation(&view, &mutation);
+                prop_assert!(
+                    check_put_put(&lens, &instance, &second).is_ok(),
+                    "identity lens PutPut should hold for generated second view",
+                );
+            }
+
+            /// PutPut driven by a generated second view (projection lens).
+            #[test]
+            fn projection_put_put_generated_mutation(
+                (lens, instance) in arb_projection_lens_scenario(),
+                mutation in arb_view_mutation(),
+            ) {
+                let (view, _) = get(&lens, &instance).unwrap();
+                let second = apply_view_mutation(&view, &mutation);
+                prop_assert!(
+                    check_put_put(&lens, &instance, &second).is_ok(),
+                    "projection lens PutPut should hold for generated second view",
+                );
+            }
         }
     }
 }

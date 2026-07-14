@@ -14,15 +14,11 @@ crate-type = ["cdylib"]
 
 [dependencies]
 panproto-core = { workspace = true }
-panproto-expr = { workspace = true }
-panproto-expr-parser = { workspace = true }
 panproto-grammars = { workspace = true }
-panproto-lens-dsl = { workspace = true }
 panproto-parse = { workspace = true }
 panproto-project = { workspace = true }
 panproto-git = { workspace = true }
-panproto-theory-dsl = { workspace = true }
-git2 = { version = "0.21", features = ["vendored-libgit2", "vendored-openssl"] }
+git2 = { workspace = true }
 tree-sitter = { workspace = true }
 rustc-hash = { workspace = true }
 pyo3 = { workspace = true }

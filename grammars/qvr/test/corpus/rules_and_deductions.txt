@@ -1,0 +1,230 @@
+==================
+rule with ascii turnstile
+==================
+
+rule app (X, Y) : X / Y, Y |- X
+rule comp (X, Y, Z) : X / Y, Y / Z |- X / Z
+
+---
+
+(source_file
+  (rule_decl
+    (identifier)
+    (identifier)
+    (identifier)
+    (object_slash
+      (object_atom
+        (identifier))
+      (object_atom
+        (identifier)))
+    (object_atom
+      (identifier))
+    (object_atom
+      (identifier)))
+  (rule_decl
+    (identifier)
+    (identifier)
+    (identifier)
+    (identifier)
+    (object_slash
+      (object_atom
+        (identifier))
+      (object_atom
+        (identifier)))
+    (object_slash
+      (object_atom
+        (identifier))
+      (object_atom
+        (identifier)))
+    (object_slash
+      (object_atom
+        (identifier))
+      (object_atom
+        (identifier)))))
+
+==================
+rule with unicode turnstile
+==================
+
+rule lift (A, B) : A ⊢ B / (A \ B)
+
+---
+
+(source_file
+  (rule_decl
+    (identifier)
+    (identifier)
+    (identifier)
+    (object_atom
+      (identifier))
+    (object_slash
+      (object_atom
+        (identifier))
+      (object_paren
+        (object_slash
+          (object_atom
+            (identifier))
+          (object_atom
+            (identifier)))))))
+
+==================
+rule with effect application
+==================
+
+rule scope_take (X, Y) : Cont(X / Y), Y |- Cont(X)
+
+---
+
+(source_file
+  (rule_decl
+    (identifier)
+    (identifier)
+    (identifier)
+    (object_effect_apply
+      (identifier)
+      (object_slash
+        (object_atom
+          (identifier))
+        (object_atom
+          (identifier))))
+    (object_atom
+      (identifier))
+    (object_effect_apply
+      (identifier)
+      (object_atom
+        (identifier)))))
+
+==================
+deduction with atoms binders rules and lexicon
+==================
+
+deduction parse : T -> T [semiring=LogProb]
+    atoms s, np, n
+    binders lam
+    rule fwd : s / np, np |- s
+    rule bwd : np, np \ s |- s #[learnable]
+    lexicon
+        "a", "an" : np / n = det
+        "dog" : n = dog
+        "runs" : np \ s = run #[weight=0.5]
+        "colorless" : {adj} = green
+        "the" : * = the_lf
+
+---
+
+(source_file
+  (deduction_decl
+    (identifier)
+    (object_atom
+      (identifier))
+    (object_atom
+      (identifier))
+    (option_block
+      (option_entry
+        (identifier)
+        (identifier)))
+    (deduction_atoms
+      (identifier)
+      (identifier)
+      (identifier))
+    (deduction_binders
+      (identifier))
+    (deduction_rule
+      (identifier)
+      (object_slash
+        (object_atom
+          (identifier))
+        (object_atom
+          (identifier)))
+      (object_atom
+        (identifier))
+      (object_atom
+        (identifier)))
+    (deduction_rule
+      (identifier)
+      (object_atom
+        (identifier))
+      (object_slash
+        (object_atom
+          (identifier))
+        (object_atom
+          (identifier)))
+      (object_atom
+        (identifier))
+      (lexicon_pragma
+        (pragma_entry
+          (identifier))))
+    (deduction_lexicon
+      (lexicon_entry
+        (string)
+        (string)
+        (object_slash
+          (object_atom
+            (identifier))
+          (object_atom
+            (identifier)))
+        (let_var
+          (identifier)))
+      (lexicon_entry
+        (string)
+        (object_atom
+          (identifier))
+        (let_var
+          (identifier)))
+      (lexicon_entry
+        (string)
+        (object_slash
+          (object_atom
+            (identifier))
+          (object_atom
+            (identifier)))
+        (let_var
+          (identifier))
+        (lexicon_pragma
+          (pragma_entry
+            (identifier)
+            (signed_number
+              (float)))))
+      (lexicon_entry
+        (string)
+        (enum_set_literal
+          (identifier))
+        (let_var
+          (identifier)))
+      (lexicon_entry
+        (string)
+        (let_var
+          (identifier))))))
+
+==================
+deduction with lexicon from file
+==================
+
+deduction lexparse : T -> T
+    atoms s
+    rule idem : s |- s
+    lexicon from "lexicon.tsv" [format=tsv]
+
+---
+
+(source_file
+  (deduction_decl
+    (identifier)
+    (object_atom
+      (identifier))
+    (object_atom
+      (identifier))
+    (deduction_atoms
+      (identifier))
+    (deduction_rule
+      (identifier)
+      (object_atom
+        (identifier))
+      (object_atom
+        (identifier)))
+    (deduction_lexicon_from_file
+      (string)
+      (option_block
+        (option_entry
+          (identifier)
+          (identifier))))))

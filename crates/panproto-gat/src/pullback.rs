@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::eq::{DirectedEquation, Equation, alpha_equivalent_equation};
 use crate::error::GatError;
-use crate::morphism::TheoryMorphism;
+use crate::morphism::{OpAssignment, TheoryMorphism};
 use crate::op::Operation;
 use crate::sort::Sort;
 use crate::theory::Theory;
@@ -129,7 +129,10 @@ fn pair_ops(
     let mut triples: Vec<Triple> = Vec::new();
 
     for op1 in &t1.ops {
-        let Some(cod) = m1.op_map.get(&op1.name) else {
+        // Pullback pairs operations by their shared codomain image; a
+        // derived-term assignment does not name a single codomain op to
+        // pair on and is skipped.
+        let Some(cod) = m1.op_map.get(&op1.name).and_then(OpAssignment::as_op) else {
             continue;
         };
         let Some(candidates) = m2_op_rev.get(cod) else {
@@ -313,7 +316,7 @@ pub fn pullback(
     m2: &TheoryMorphism,
 ) -> Result<PullbackResult, GatError> {
     let m2_sort_rev = reverse_index(&m2.sort_map);
-    let m2_op_rev = reverse_index(&m2.op_map);
+    let m2_op_rev = reverse_index(&m2.op_rename_map());
 
     let (sort_triples, sort_pair_map) = pair_sorts(t1, t2, m1, &m2_sort_rev);
     let pb_sorts = build_sorts(t1, &sort_triples);
@@ -443,14 +446,14 @@ mod tests {
             "T1",
             "Target",
             HashMap::from([(Arc::from("A"), Arc::from("X"))]),
-            HashMap::new(),
+            HashMap::<Arc<str>, Arc<str>>::new(),
         );
         let m2 = TheoryMorphism::new(
             "m2",
             "T2",
             "Target",
             HashMap::from([(Arc::from("B"), Arc::from("Y"))]),
-            HashMap::new(),
+            HashMap::<Arc<str>, Arc<str>>::new(),
         );
 
         let result = pullback(&t1, &t2, &m1, &m2)?;
@@ -811,14 +814,14 @@ mod tests {
             "T1",
             "Target",
             HashMap::from([(Arc::from("Vertex"), Arc::from("V"))]),
-            HashMap::new(),
+            HashMap::<Arc<str>, Arc<str>>::new(),
         );
         let m2 = TheoryMorphism::new(
             "m2",
             "T2",
             "Target",
             HashMap::from([(Arc::from("Vertex"), Arc::from("V"))]),
-            HashMap::new(),
+            HashMap::<Arc<str>, Arc<str>>::new(),
         );
 
         let result = pullback(&t1, &t2, &m1, &m2)?;

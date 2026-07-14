@@ -364,3 +364,21 @@ pub fn get_migration_complement(complement_bytes: &[u8]) -> Result<Vec<u8>, JsEr
 pub fn free_handle(handle: u32) {
     slab::free(handle);
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::api::test_support;
+
+    #[test]
+    fn store_get_and_free_protocol_definition() {
+        let handle = store_protocol_definition(&test_support::protocol_msgpack()).unwrap();
+        let round_trip = get_protocol_definition(handle).unwrap();
+        assert!(
+            !round_trip.is_empty(),
+            "protocol should round-trip to bytes"
+        );
+        free_handle(handle);
+    }
+}

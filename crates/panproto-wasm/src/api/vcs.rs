@@ -425,3 +425,21 @@ pub fn vcs_blame(repo: u32, vertex: &[u8]) -> Result<Vec<u8>, JsError> {
         .into()
     })
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn init_status_and_log_on_fresh_repo() {
+        let repo = vcs_init(b"test");
+        let status = vcs_status(repo).unwrap();
+        assert!(!status.is_empty(), "status must encode a result");
+        let log = vcs_log(repo, 10).unwrap();
+        assert!(
+            !log.is_empty(),
+            "log must encode a result (possibly empty list)"
+        );
+    }
+}

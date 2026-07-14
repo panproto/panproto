@@ -3,9 +3,11 @@
 //! [`Repository`] composes all plumbing modules into a convenient
 //! API for performing version control operations on schemas.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use panproto_check::diff;
+use panproto_gat::Theory;
 use panproto_mig::hom_search::{SearchOptions, find_best_morphism, morphism_to_migration};
 use panproto_schema::Schema;
 
@@ -23,6 +25,24 @@ use crate::object::{CommitObject, DataSetObject, Object};
 use crate::refs;
 use crate::store::{self, HeadState, Store};
 
+/// The versioned-data references a merge commit carries, as
+/// `(data_ids, complement_ids, cst_complement_ids)`.
+type MergedCommitData = (Vec<ObjectId>, Vec<ObjectId>, Vec<ObjectId>);
+
+/// The context needed to record a clean three-way merge commit.
+struct MergeCommitCtx<'a> {
+    branch: &'a str,
+    author: &'a str,
+    options: &'a merge::MergeOptions,
+    ours_id: ObjectId,
+    theirs_id: ObjectId,
+    ours_schema: Schema,
+    result: &'a merge::MergeResult,
+    data_ids: Vec<ObjectId>,
+    complement_ids: Vec<ObjectId>,
+    cst_complement_ids: Vec<ObjectId>,
+}
+
 /// Options for creating a commit.
 #[derive(Clone, Debug, Default)]
 pub struct CommitOptions {
@@ -35,6 +55,12 @@ pub struct CommitOptions {
 pub struct Repository {
     store: FsStore,
     working_dir: PathBuf,
+    /// Registered protocol theories, keyed by protocol name. When a
+    /// schema's protocol is registered here, its equations are checked at
+    /// commit and merge; otherwise only structural validation runs. The
+    /// CLI populates this from the `panproto-protocols` registry before
+    /// operating on a repository.
+    protocol_theories: HashMap<String, Theory>,
 }
 
 impl Repository {
@@ -50,6 +76,7 @@ impl Repository {
         Ok(Self {
             store,
             working_dir: path.to_owned(),
+            protocol_theories: HashMap::new(),
         })
     }
 
@@ -63,7 +90,38 @@ impl Repository {
         Ok(Self {
             store,
             working_dir: path.to_owned(),
+            protocol_theories: HashMap::new(),
         })
+    }
+
+    /// Register a protocol theory so that schemas of that protocol are
+    /// checked against its equations at commit and merge.
+    ///
+    /// Without a registered theory the commit pipeline validates only the
+    /// schema's structure (its equation-free extracted theory) and records
+    /// an advisory note that no equations were checked. A caller with the
+    /// `panproto-protocols` registry passes each registered theory here.
+    pub fn set_protocol_theory(&mut self, protocol: impl Into<String>, theory: Theory) {
+        self.protocol_theories.insert(protocol.into(), theory);
+    }
+
+    /// Validate `schema` against its registered protocol theory's
+    /// equations, or record an advisory note when no theory is registered.
+    ///
+    /// Returns diagnostics whose `equation_errors` are blocking and whose
+    /// `equation_notes` are advisory.
+    #[must_use]
+    fn schema_equation_diagnostics(&self, schema: &Schema) -> gat_validate::GatDiagnostics {
+        let mut diag = gat_validate::GatDiagnostics::default();
+        if let Some(theory) = self.protocol_theories.get(&schema.protocol) {
+            diag.extend(gat_validate::validate_schema_against_theory(schema, theory));
+        } else {
+            diag.equation_notes.push(format!(
+                "no protocol theory registered for '{}'; schema equations were not checked",
+                schema.protocol
+            ));
+        }
+        diag
     }
 
     /// Stage a schema for the next commit.
@@ -77,66 +135,104 @@ impl Repository {
     pub fn add(&mut self, schema: &Schema) -> Result<Index, VcsError> {
         let schema_id = crate::tree::store_schema_as_tree(&mut self.store, schema.clone())?;
 
-        let (migration_id, auto_derived, validation, gat_diagnostics) =
-            match store::resolve_head(&self.store)? {
-                None => {
-                    // First commit: no migration needed.
-                    (None, false, ValidationStatus::Valid, None)
+        let (migration_id, auto_derived, validation, gat_diagnostics) = match store::resolve_head(
+            &self.store,
+        )? {
+            None => {
+                // First commit: no migration, but the schema is still
+                // checked against its protocol theory's equations.
+                let gat_diag = self.schema_equation_diagnostics(schema);
+                let validation = if gat_diag.has_errors() {
+                    ValidationStatus::Invalid(gat_diag.all_errors())
+                } else {
+                    ValidationStatus::Valid
+                };
+                (None, false, validation, Some(gat_diag))
+            }
+            Some(head_id) => {
+                let head_commit = self.load_commit(head_id)?;
+                let head_schema = self.load_schema(head_commit.schema_id)?;
+
+                let schema_diff = diff::diff(&head_schema, schema);
+                if schema_diff.is_empty() {
+                    return Err(VcsError::ValidationFailed {
+                        reasons: vec!["no changes detected".to_owned()],
+                    });
                 }
-                Some(head_id) => {
-                    let head_commit = self.load_commit(head_id)?;
-                    let head_schema = self.load_schema(head_commit.schema_id)?;
 
-                    let schema_diff = diff::diff(&head_schema, schema);
-                    if schema_diff.is_empty() {
-                        return Err(VcsError::ValidationFailed {
-                            reasons: vec!["no changes detected".to_owned()],
-                        });
-                    }
+                let mut migration = auto_mig::derive_migration(&head_schema, schema, &schema_diff);
 
-                    let mut migration =
-                        auto_mig::derive_migration(&head_schema, schema, &schema_diff);
-
-                    // If the auto-derived migration maps very few vertices
-                    // (less than half of old schema vertices), try
-                    // `find_best_morphism` as a fallback.
-                    let old_vertex_count = head_schema.vertex_count();
-                    if old_vertex_count > 0 && migration.vertex_map.len() * 2 < old_vertex_count {
-                        let opts = SearchOptions::default();
-                        if let Some(best) = find_best_morphism(&head_schema, schema, &opts) {
-                            if best.vertex_map.len() > migration.vertex_map.len() {
-                                let mut hom_mig = morphism_to_migration(&best);
-                                hom_mig.hyper_edge_map = migration.hyper_edge_map;
-                                hom_mig.label_map = migration.label_map;
-                                migration = hom_mig;
+                // If the auto-derived migration maps very few vertices
+                // (less than half of old schema vertices), try
+                // `find_best_morphism` as a fallback. The spliced
+                // candidate is validated as a morphism before adoption;
+                // a candidate that fails falls back to the diff-derived
+                // migration.
+                let mut hom_rejection: Option<String> = None;
+                let old_vertex_count = head_schema.vertex_count();
+                if old_vertex_count > 0 && migration.vertex_map.len() * 2 < old_vertex_count {
+                    let opts = SearchOptions::default();
+                    if let Some(best) = find_best_morphism(&head_schema, schema, &opts) {
+                        if best.vertex_map.len() > migration.vertex_map.len() {
+                            let mut hom_mig = morphism_to_migration(&best);
+                            hom_mig.hyper_edge_map.clone_from(&migration.hyper_edge_map);
+                            hom_mig.label_map.clone_from(&migration.label_map);
+                            // Validate the actual spliced candidate as a
+                            // theory morphism before adopting it.
+                            let (dom, cod, morph) = panproto_mig::induced_theory_morphism(
+                                &head_schema,
+                                schema,
+                                &hom_mig,
+                            );
+                            match panproto_gat::check_morphism(&morph, &dom, &cod) {
+                                Ok(()) => migration = hom_mig,
+                                Err(e) => {
+                                    hom_rejection = Some(format!(
+                                        "hom_search candidate rejected (not a theory morphism): {e}; kept diff-derived migration"
+                                    ));
+                                }
                             }
                         }
                     }
-
-                    // Run GAT-level validation on the derived migration.
-                    let gat_diag =
-                        gat_validate::validate_migration(&head_schema, schema, &migration);
-
-                    let mig_src_id = self.store.put(&Object::FlatSchema(Box::new(head_schema)))?;
-                    let mig_tgt_id = self
-                        .store
-                        .put(&Object::FlatSchema(Box::new(schema.clone())))?;
-                    let migration_id = self.store.put(&Object::Migration {
-                        src: mig_src_id,
-                        tgt: mig_tgt_id,
-                        mapping: migration,
-                    })?;
-
-                    // If GAT validation found errors, mark as invalid.
-                    let validation = if gat_diag.has_errors() {
-                        ValidationStatus::Invalid(gat_diag.all_errors())
-                    } else {
-                        ValidationStatus::Valid
-                    };
-
-                    (Some(migration_id), true, validation, Some(gat_diag))
                 }
-            };
+
+                // Run GAT-level validation on the derived migration and
+                // the staged schema's equations, stamping the migration
+                // with the source and target schema identities.
+                let mig_src_id = self
+                    .store
+                    .put(&Object::FlatSchema(Box::new(head_schema.clone())))?;
+                let mig_tgt_id = self
+                    .store
+                    .put(&Object::FlatSchema(Box::new(schema.clone())))?;
+
+                let mut gat_diag =
+                    gat_validate::validate_migration(&head_schema, schema, &migration);
+                if let Some(note) = hom_rejection {
+                    gat_diag.migration_warnings.push(note);
+                }
+                gat_diag.extend(self.schema_equation_diagnostics(schema));
+
+                let migration = migration.with_endpoints(
+                    Some(panproto_gat::Name::from(mig_src_id.to_string())),
+                    Some(panproto_gat::Name::from(mig_tgt_id.to_string())),
+                );
+                let migration_id = self.store.put(&Object::Migration {
+                    src: mig_src_id,
+                    tgt: mig_tgt_id,
+                    mapping: migration,
+                })?;
+
+                // If GAT validation found errors, mark as invalid.
+                let validation = if gat_diag.has_errors() {
+                    ValidationStatus::Invalid(gat_diag.all_errors())
+                } else {
+                    ValidationStatus::Valid
+                };
+
+                (Some(migration_id), true, validation, Some(gat_diag))
+            }
+        };
 
         let mut index = self.read_index()?;
         index.staged = Some(StagedSchema {
@@ -222,10 +318,7 @@ impl Repository {
         let schema = self.load_schema(schema_id)?;
 
         // Store the implicit theory derived from the schema.
-        let theory = crate::gat_validate::schema_to_theory(&schema.protocol, &schema);
-        let theory_id = self.store.put(&Object::Theory(Box::new(theory)))?;
-        let mut theory_ids = std::collections::BTreeMap::new();
-        theory_ids.insert(schema.protocol.clone(), theory_id);
+        let theory_ids = self.store_schema_theory(&schema)?;
 
         let parents: Vec<ObjectId> = head_id.into_iter().collect();
         let data_ids: Vec<ObjectId> = index.staged_data.iter().map(|sd| sd.data_id).collect();
@@ -325,6 +418,7 @@ impl Repository {
                     migration_from_ours: panproto_mig::Migration::empty(),
                     migration_from_theirs: panproto_mig::Migration::empty(),
                     pullback_overlap: None,
+                    pullback_error: None,
                 });
             }
         } else if options.ff_only {
@@ -346,70 +440,124 @@ impl Repository {
         let result = merge::three_way_merge(&base_schema, &ours_schema, &theirs_schema);
 
         if result.conflicts.is_empty() && !options.no_commit && !options.squash {
-            // Auto-commit the merge.
-            let merged_schema_id =
-                crate::tree::store_schema_as_tree(&mut self.store, result.merged_schema.clone())?;
-            let mig_src = self.store.put(&Object::FlatSchema(Box::new(ours_schema)))?;
-            let mig_tgt = self
-                .store
-                .put(&Object::FlatSchema(Box::new(result.merged_schema.clone())))?;
-            let migration_id = self.store.put(&Object::Migration {
-                src: mig_src,
-                tgt: mig_tgt,
-                mapping: result.migration_from_ours.clone(),
-            })?;
+            // Verify the merge pushout cocone conditions before committing:
+            // both migrations must be total and the base-to-merged paths
+            // must commute. A violation fails the merge rather than
+            // recording a mathematically invalid schema.
+            let resolved = merge::ResolvedMerge {
+                schema: result.merged_schema.clone(),
+                migration_from_ours: result.migration_from_ours.clone(),
+                migration_from_theirs: result.migration_from_theirs.clone(),
+            };
+            merge::verify_pushout(&base_schema, &ours_schema, &theirs_schema, &resolved)
+                .map_err(VcsError::PushoutVerification)?;
 
-            let msg = options
-                .message
-                .clone()
-                .unwrap_or_else(|| format!("merge branch '{branch}'"));
-
-            // Propagate data and complement IDs from both parents.
-            let mut data_ids = ours_commit.data_ids;
-            for id in &theirs_commit.data_ids {
-                if !data_ids.contains(id) {
-                    data_ids.push(*id);
-                }
-            }
-            let mut complement_ids = ours_commit.complement_ids;
-            for id in &theirs_commit.complement_ids {
-                if !complement_ids.contains(id) {
-                    complement_ids.push(*id);
-                }
+            // Validate the merged schema against its registered protocol
+            // theory's equations before recording the merge commit.
+            let eq_diag = self.schema_equation_diagnostics(&result.merged_schema);
+            if eq_diag.has_errors() {
+                return Err(VcsError::ValidationFailed {
+                    reasons: eq_diag.all_errors(),
+                });
             }
 
-            // Store theory for the merged schema.
-            let merged_schema = self.load_schema(merged_schema_id)?;
-            let merged_theory =
-                crate::gat_validate::schema_to_theory(&merged_schema.protocol, &merged_schema);
-            let merged_theory_id = self.store.put(&Object::Theory(Box::new(merged_theory)))?;
-            let merged_protocol = merged_schema.protocol;
-            let mut merge_theory_ids = std::collections::BTreeMap::new();
-            merge_theory_ids.insert(merged_protocol.clone(), merged_theory_id);
-
-            let mut merge_builder =
-                CommitObject::builder(merged_schema_id, merged_protocol, author, msg)
-                    .parents(vec![ours_id, theirs_id])
-                    .migration_id(migration_id)
-                    .theory_ids(merge_theory_ids);
-            if !data_ids.is_empty() {
-                merge_builder = merge_builder.data_ids(data_ids);
-            }
-            if !complement_ids.is_empty() {
-                merge_builder = merge_builder.complement_ids(complement_ids);
-            }
-            let merge_commit = merge_builder.build();
-            let merge_id = self.store.put(&Object::Commit(merge_commit))?;
-            advance_head(
-                &mut self.store,
-                ours_id,
-                merge_id,
-                author,
-                &format!("merge {branch}"),
+            // Lift both parents' data through the merged schema and union
+            // the results (data, complements, and CST complements), deduped
+            // by ObjectId, rather than set-unioning stale parent data_ids:
+            // the merge commit references the merged schema, so the data it
+            // carries must conform to that schema, not to a parent's.
+            let (data_ids, complement_ids, cst_complement_ids) = self.lift_and_union_parent_data(
+                &ours_commit,
+                &theirs_commit,
+                &ours_schema,
+                &theirs_schema,
+                &result.merged_schema,
             )?;
+
+            self.write_merge_commit(MergeCommitCtx {
+                branch,
+                author,
+                options,
+                ours_id,
+                theirs_id,
+                ours_schema,
+                result: &result,
+                data_ids,
+                complement_ids,
+                cst_complement_ids,
+            })?;
         }
 
         Ok(result)
+    }
+
+    /// Assemble and record a clean three-way merge commit, advancing HEAD.
+    fn write_merge_commit(&mut self, ctx: MergeCommitCtx<'_>) -> Result<(), VcsError> {
+        let merged_schema_id =
+            crate::tree::store_schema_as_tree(&mut self.store, ctx.result.merged_schema.clone())?;
+        let mig_src = self
+            .store
+            .put(&Object::FlatSchema(Box::new(ctx.ours_schema)))?;
+        let mig_tgt = self.store.put(&Object::FlatSchema(Box::new(
+            ctx.result.merged_schema.clone(),
+        )))?;
+        let merge_migration = ctx.result.migration_from_ours.clone().with_endpoints(
+            Some(panproto_gat::Name::from(mig_src.to_string())),
+            Some(panproto_gat::Name::from(mig_tgt.to_string())),
+        );
+        let migration_id = self.store.put(&Object::Migration {
+            src: mig_src,
+            tgt: mig_tgt,
+            mapping: merge_migration,
+        })?;
+
+        let msg = ctx
+            .options
+            .message
+            .clone()
+            .unwrap_or_else(|| format!("merge branch '{}'", ctx.branch));
+
+        // Store theory for the merged schema.
+        let merged_schema = self.load_schema(merged_schema_id)?;
+        let merge_theory_ids = self.store_schema_theory(&merged_schema)?;
+
+        let mut merge_builder =
+            CommitObject::builder(merged_schema_id, merged_schema.protocol, ctx.author, msg)
+                .parents(vec![ctx.ours_id, ctx.theirs_id])
+                .migration_id(migration_id)
+                .theory_ids(merge_theory_ids);
+        if !ctx.data_ids.is_empty() {
+            merge_builder = merge_builder.data_ids(ctx.data_ids);
+        }
+        if !ctx.complement_ids.is_empty() {
+            merge_builder = merge_builder.complement_ids(ctx.complement_ids);
+        }
+        if !ctx.cst_complement_ids.is_empty() {
+            merge_builder = merge_builder.cst_complement_ids(ctx.cst_complement_ids);
+        }
+        let merge_commit = merge_builder.build();
+        let merge_id = self.store.put(&Object::Commit(merge_commit))?;
+        advance_head(
+            &mut self.store,
+            ctx.ours_id,
+            merge_id,
+            ctx.author,
+            &format!("merge {}", ctx.branch),
+        )?;
+        Ok(())
+    }
+
+    /// Store the schema's extracted theory and return a protocol→theory-id
+    /// map suitable for a commit's `theory_ids`.
+    fn store_schema_theory(
+        &mut self,
+        schema: &Schema,
+    ) -> Result<std::collections::BTreeMap<String, ObjectId>, VcsError> {
+        let theory = crate::gat_validate::schema_to_theory(&schema.protocol, schema);
+        let theory_id = self.store.put(&Object::Theory(Box::new(theory)))?;
+        let mut theory_ids = std::collections::BTreeMap::new();
+        theory_ids.insert(schema.protocol.clone(), theory_id);
+        Ok(theory_ids)
     }
 
     /// Amend the most recent commit.
@@ -730,6 +878,57 @@ impl Repository {
 
     // -- internal helpers --
 
+    /// Lift both parents' versioned data through the merged schema and
+    /// union the results, deduped by [`ObjectId`].
+    ///
+    /// Returns `(data_ids, complement_ids, cst_complement_ids)` for the
+    /// merge commit: each parent's data sets lifted from its own schema to
+    /// `merged_schema` (returned unchanged when a parent did not change the
+    /// schema), its complements extended with the fresh backward-migration
+    /// complements, and both parents' CST complements carried through
+    /// unchanged (they are keyed by content, not schema).
+    fn lift_and_union_parent_data(
+        &mut self,
+        ours_commit: &CommitObject,
+        theirs_commit: &CommitObject,
+        ours_schema: &Schema,
+        theirs_schema: &Schema,
+        merged_schema: &Schema,
+    ) -> Result<MergedCommitData, VcsError> {
+        let (ours_data_ids, ours_complement_ids) = crate::data_mig::lift_commit_data(
+            &mut self.store,
+            ours_commit,
+            ours_schema,
+            merged_schema,
+        )?;
+        let (theirs_data_ids, theirs_complement_ids) = crate::data_mig::lift_commit_data(
+            &mut self.store,
+            theirs_commit,
+            theirs_schema,
+            merged_schema,
+        )?;
+
+        let mut data_ids = ours_data_ids;
+        for id in theirs_data_ids {
+            if !data_ids.contains(&id) {
+                data_ids.push(id);
+            }
+        }
+        let mut complement_ids = ours_complement_ids;
+        for id in theirs_complement_ids {
+            if !complement_ids.contains(&id) {
+                complement_ids.push(id);
+            }
+        }
+        let mut cst_complement_ids = ours_commit.cst_complement_ids.clone();
+        for id in &theirs_commit.cst_complement_ids {
+            if !cst_complement_ids.contains(id) {
+                cst_complement_ids.push(*id);
+            }
+        }
+        Ok((data_ids, complement_ids, cst_complement_ids))
+    }
+
     fn load_commit(&self, id: ObjectId) -> Result<CommitObject, VcsError> {
         match self.store.get(&id)? {
             Object::Commit(c) => Ok(c),
@@ -948,6 +1147,7 @@ mod tests {
             type_errors: vec!["sort mismatch: expected Ob, got Hom".to_owned()],
             equation_errors: vec![],
             migration_warnings: vec![],
+            ..Default::default()
         };
 
         let index = Index {
@@ -1002,6 +1202,7 @@ mod tests {
             type_errors: vec![],
             equation_errors: vec!["equation 'assoc' violated when f=id: LHS=a, RHS=b".to_owned()],
             migration_warnings: vec![],
+            ..Default::default()
         };
 
         let index = Index {
@@ -1250,5 +1451,353 @@ mod tests {
     #[test]
     fn count_records_non_json() {
         assert_eq!(count_records(b"not json"), 1);
+    }
+
+    /// Store a one-record data set (a single node anchored at `a`) valid
+    /// against `schema`, returning its object id.
+    fn single_record_dataset(
+        store: &mut FsStore,
+        schema: &Schema,
+        key: &str,
+    ) -> Result<ObjectId, VcsError> {
+        use panproto_inst::{Node, WInstance};
+        let mut nodes = HashMap::new();
+        nodes.insert(0_u32, Node::new(0, "a"));
+        let inst = WInstance::new(nodes, vec![], vec![], 0, Name::from("a"));
+        let ds = DataSetObject {
+            schema_id: crate::hash::hash_schema(schema)?,
+            data: rmp_serde::to_vec(&vec![inst])?,
+            record_count: 1,
+            key: Some(key.to_owned()),
+        };
+        store.put(&Object::DataSet(ds))
+    }
+
+    #[test]
+    fn merge_lifts_data_instead_of_unioning() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut repo = Repository::init(dir.path())?;
+
+        // Base {a}.
+        let s0 = make_schema(&[("a", "object")]);
+        let s0_id = crate::tree::store_schema_as_tree(repo.store_mut(), s0)?;
+        let c0 = CommitObject::builder(s0_id, "test", "alice", "base")
+            .timestamp(100)
+            .build();
+        let c0_id = repo.store_mut().put(&Object::Commit(c0))?;
+
+        // ours: {a, oursf} with its own data set.
+        let s_ours = make_schema(&[("a", "object"), ("oursf", "string")]);
+        let ds_ours = single_record_dataset(repo.store_mut(), &s_ours, "ours-key")?;
+        let s_ours_id = crate::tree::store_schema_as_tree(repo.store_mut(), s_ours)?;
+        let c_ours = CommitObject::builder(s_ours_id, "test", "alice", "ours change + data")
+            .parents(vec![c0_id])
+            .timestamp(200)
+            .data_ids(vec![ds_ours])
+            .build();
+        let c_ours_id = repo.store_mut().put(&Object::Commit(c_ours))?;
+
+        // theirs: {a, theirsf} with its own data set.
+        let s_theirs = make_schema(&[("a", "object"), ("theirsf", "string")]);
+        let ds_theirs = single_record_dataset(repo.store_mut(), &s_theirs, "theirs-key")?;
+        let s_theirs_id = crate::tree::store_schema_as_tree(repo.store_mut(), s_theirs)?;
+        let c_theirs = CommitObject::builder(s_theirs_id, "test", "bob", "theirs change + data")
+            .parents(vec![c0_id])
+            .timestamp(300)
+            .data_ids(vec![ds_theirs])
+            .build();
+        let c_theirs_id = repo.store_mut().put(&Object::Commit(c_theirs))?;
+
+        // HEAD (main) is ours; feature is theirs.
+        repo.store_mut().set_ref("refs/heads/main", c_ours_id)?;
+        refs::create_branch(repo.store_mut(), "feature", c_theirs_id)?;
+
+        let result = repo.merge("feature", "alice")?;
+        assert!(result.conflicts.is_empty(), "clean merge expected");
+
+        // The merge commit's data was lifted, not unioned stale: neither
+        // original data id survives verbatim.
+        let Some(head_id) = store::resolve_head(repo.store())? else {
+            panic!("merge should leave HEAD set");
+        };
+        let head_commit = repo.load_commit(head_id)?;
+        assert_eq!(head_commit.parents.len(), 2);
+        assert_eq!(head_commit.data_ids.len(), 2, "both parents' data carried");
+        assert!(
+            !head_commit.data_ids.contains(&ds_ours) && !head_commit.data_ids.contains(&ds_theirs),
+            "data ids were lifted to fresh objects, not unioned stale"
+        );
+
+        // Every merged data set deserializes as Vec<WInstance> valid against
+        // the merged schema and preserves its source record_count and key.
+        let merged_schema = repo.load_schema(head_commit.schema_id)?;
+        let datasets = repo.data_at("HEAD")?;
+        assert_eq!(datasets.len(), 2);
+        let mut keys: Vec<String> = Vec::new();
+        for ds in &datasets {
+            assert_eq!(ds.record_count, 1);
+            let insts: Vec<panproto_inst::WInstance> = rmp_serde::from_slice(&ds.data)?;
+            assert_eq!(insts.len(), 1);
+            for inst in &insts {
+                assert!(
+                    panproto_inst::validate_wtype(&merged_schema, inst).is_empty(),
+                    "lifted instance must be valid against the merged schema"
+                );
+            }
+            if let Some(k) = &ds.key {
+                keys.push(k.clone());
+            }
+        }
+        keys.sort();
+        assert_eq!(keys, vec!["ours-key".to_owned(), "theirs-key".to_owned()]);
+        Ok(())
+    }
+
+    #[test]
+    fn merge_identical_schemas_propagates_data_unchanged() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let dir = tempfile::tempdir()?;
+        let mut repo = Repository::init(dir.path())?;
+
+        // A single shared schema tree: neither parent changes the schema.
+        let s0 = make_schema(&[("a", "object")]);
+        let s0_id = crate::tree::store_schema_as_tree(repo.store_mut(), s0.clone())?;
+        let c0 = CommitObject::builder(s0_id, "test", "alice", "base")
+            .timestamp(100)
+            .build();
+        let c0_id = repo.store_mut().put(&Object::Commit(c0))?;
+
+        let ds_ours = single_record_dataset(repo.store_mut(), &s0, "ours-key")?;
+        let c_ours = CommitObject::builder(s0_id, "test", "alice", "ours data")
+            .parents(vec![c0_id])
+            .timestamp(200)
+            .data_ids(vec![ds_ours])
+            .build();
+        let c_ours_id = repo.store_mut().put(&Object::Commit(c_ours))?;
+
+        let ds_theirs = single_record_dataset(repo.store_mut(), &s0, "theirs-key")?;
+        let c_theirs = CommitObject::builder(s0_id, "test", "bob", "theirs data")
+            .parents(vec![c0_id])
+            .timestamp(300)
+            .data_ids(vec![ds_theirs])
+            .build();
+        let c_theirs_id = repo.store_mut().put(&Object::Commit(c_theirs))?;
+
+        repo.store_mut().set_ref("refs/heads/main", c_ours_id)?;
+        refs::create_branch(repo.store_mut(), "feature", c_theirs_id)?;
+
+        repo.merge("feature", "alice")?;
+
+        // Neither parent changed the schema, so the original data ids appear
+        // verbatim on the merge commit.
+        let Some(head_id) = store::resolve_head(repo.store())? else {
+            panic!("merge should leave HEAD set");
+        };
+        let head_commit = repo.load_commit(head_id)?;
+        assert_eq!(head_commit.data_ids.len(), 2);
+        assert!(head_commit.data_ids.contains(&ds_ours));
+        assert!(head_commit.data_ids.contains(&ds_theirs));
+        Ok(())
+    }
+
+    /// Build a schema of `protocol` from `(id, kind)` vertices and
+    /// `(src, tgt, name)` edges.
+    fn schema_with_edges(
+        protocol: &str,
+        vertices: &[(&str, &str)],
+        edges: &[(&str, &str, &str)],
+    ) -> Schema {
+        let mut schema = make_schema(vertices);
+        schema.protocol = protocol.to_owned();
+        for (src, tgt, name) in edges {
+            let e = panproto_schema::Edge {
+                src: Name::from(*src),
+                tgt: Name::from(*tgt),
+                kind: "prop".into(),
+                name: Some(Name::from(*name)),
+            };
+            schema.edges.insert(e.clone(), e.kind.clone());
+        }
+        schema
+    }
+
+    fn f_identity_theory() -> Theory {
+        use panproto_gat::{Equation, Operation, Sort, Term};
+        Theory::new(
+            "p",
+            vec![Sort::simple("Node")],
+            vec![Operation::unary("f", "x", "Node", "Node")],
+            vec![Equation::new(
+                "f_is_identity",
+                Term::app("f", vec![Term::var("x")]),
+                Term::var("x"),
+            )],
+        )
+    }
+
+    #[test]
+    fn commit_blocks_on_invalid_migration_structure() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::gat_validate::GatDiagnostics;
+        use crate::index::{Index, StagedSchema, ValidationStatus};
+
+        let dir = tempfile::tempdir()?;
+        let mut repo = Repository::init(dir.path())?;
+        let s = make_schema(&[("a", "object")]);
+        repo.add(&s)?;
+        repo.commit("initial", "alice")?;
+
+        // Stage an index whose migration validation carries a blocking
+        // structural error (a nonexistent source vertex).
+        let staged_schema = make_schema(&[("a", "object"), ("b", "string")]);
+        let schema_id = crate::tree::store_schema_as_tree(&mut repo.store, staged_schema)?;
+        let diag = GatDiagnostics {
+            migration_errors: vec![
+                "vertex map references source vertex 'ghost' which does not exist in source schema"
+                    .to_owned(),
+            ],
+            ..Default::default()
+        };
+        assert!(!diag.is_clean(), "migration_errors must block");
+        let index = Index {
+            staged: Some(StagedSchema {
+                schema_id,
+                migration_id: None,
+                auto_derived: true,
+                validation: ValidationStatus::Invalid(diag.all_errors()),
+                gat_diagnostics: Some(diag),
+            }),
+            staged_data: vec![],
+            staged_protocol: None,
+        };
+        repo.write_index(&index)?;
+
+        let Err(err) = repo.commit("should fail", "alice") else {
+            panic!("commit must fail on an invalid migration structure");
+        };
+        assert!(matches!(&err, VcsError::ValidationFailed { reasons } if !reasons.is_empty()));
+
+        // skip_verify bypasses the structural gate.
+        let opts = CommitOptions { skip_verify: true };
+        repo.commit_with_options("forced", "alice", &opts)?;
+        Ok(())
+    }
+
+    #[test]
+    fn commit_blocks_on_protocol_equation_violation() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut repo = Repository::init(dir.path())?;
+        repo.set_protocol_theory("p", f_identity_theory());
+
+        // Schema whose `f` edge is not the identity, violating f(x) = x.
+        let schema = schema_with_edges(
+            "p",
+            &[("root", "Node"), ("a", "Node")],
+            &[("root", "a", "f")],
+        );
+        repo.add(&schema)?;
+
+        let Err(err) = repo.commit("bad", "alice") else {
+            panic!("commit must fail on a protocol equation violation");
+        };
+        assert!(
+            matches!(&err, VcsError::ValidationFailed { reasons }
+                if reasons.iter().any(|r| r.contains("equation violation"))),
+            "expected an equation violation, got: {err:?}"
+        );
+
+        // skip_verify bypasses the equation gate.
+        let opts = CommitOptions { skip_verify: true };
+        repo.commit_with_options("forced", "alice", &opts)?;
+        Ok(())
+    }
+
+    #[test]
+    fn unregistered_protocol_reports_unchecked_equations() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let dir = tempfile::tempdir()?;
+        let mut repo = Repository::init(dir.path())?;
+        // No theory registered for protocol "test".
+        let s = make_schema(&[("a", "object")]);
+        let index = repo.add(&s)?;
+        let diag = index
+            .staged
+            .as_ref()
+            .and_then(|st| st.gat_diagnostics.as_ref())
+            .ok_or("staged diagnostics expected")?;
+        assert!(
+            diag.equation_notes
+                .iter()
+                .any(|n| n.contains("no protocol theory registered")),
+            "expected an advisory note, got: {diag:?}"
+        );
+        assert!(diag.is_clean(), "an advisory note must not block");
+        // The commit still succeeds without a registered theory.
+        repo.commit("ok", "alice")?;
+        Ok(())
+    }
+
+    #[test]
+    fn hom_search_candidate_rejected_falls_back() {
+        // The staging path only adopts a hom_search candidate that is a
+        // valid theory morphism. A crossed candidate — one whose edge map
+        // does not connect the images of its endpoints — is rejected by
+        // the same check the staging path applies, so the diff-derived
+        // migration is used instead.
+        let old = schema_with_edges(
+            "test",
+            &[("a", "object"), ("b", "string")],
+            &[("a", "b", "x")],
+        );
+        let new = schema_with_edges(
+            "test",
+            &[("a2", "object"), ("b2", "string"), ("c2", "object")],
+            &[("c2", "b2", "x")],
+        );
+
+        let crossed_edge_src = panproto_schema::Edge {
+            src: "a".into(),
+            tgt: "b".into(),
+            kind: "prop".into(),
+            name: Some("x".into()),
+        };
+        let crossed_edge_tgt = panproto_schema::Edge {
+            src: "c2".into(),
+            tgt: "b2".into(),
+            kind: "prop".into(),
+            name: Some("x".into()),
+        };
+        let crossed = panproto_mig::Migration {
+            vertex_map: HashMap::from([
+                (Name::from("a"), Name::from("a2")),
+                (Name::from("b"), Name::from("b2")),
+            ]),
+            edge_map: HashMap::from([(crossed_edge_src, crossed_edge_tgt)]),
+            hyper_edge_map: HashMap::new(),
+            label_map: HashMap::new(),
+            resolver: HashMap::new(),
+            hyper_resolver: HashMap::new(),
+            expr_resolvers: HashMap::new(),
+            domain: None,
+            codomain: None,
+        };
+
+        let (dom, cod, morph) = panproto_mig::induced_theory_morphism(&old, &new, &crossed);
+        assert!(
+            panproto_gat::check_morphism(&morph, &dom, &cod).is_err(),
+            "the guard must reject a crossed candidate"
+        );
+
+        // Auto-derivation of a genuine rename yields a valid morphism, so
+        // the stored migration always passes the guard.
+        let rename_old = schema_with_edges("test", &[("post", "object"), ("text", "string")], &[]);
+        let rename_new = schema_with_edges("test", &[("note", "object"), ("text", "string")], &[]);
+        let d = panproto_check::diff::diff(&rename_old, &rename_new);
+        let mig = auto_mig::derive_migration(&rename_old, &rename_new, &d);
+        let (dom2, cod2, morph2) =
+            panproto_mig::induced_theory_morphism(&rename_old, &rename_new, &mig);
+        assert!(
+            panproto_gat::check_morphism(&morph2, &dom2, &cod2).is_ok(),
+            "an adopted auto-derived migration must be a valid morphism"
+        );
     }
 }

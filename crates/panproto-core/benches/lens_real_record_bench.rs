@@ -36,6 +36,7 @@ fn real_identity_lens(schema: &Schema) -> Lens {
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        op_term_assignments: HashMap::new(),
         expansion_path: HashMap::new(),
     };
     Lens {

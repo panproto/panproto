@@ -548,7 +548,13 @@ mod tests {
         let mut sort_map: HashMap<Arc<str>, Arc<str>> = HashMap::new();
         sort_map.insert(Arc::from("A"), Arc::from("X"));
         sort_map.insert(Arc::from("B"), Arc::from("Y"));
-        let morph = TheoryMorphism::new("m", "Dom", "Cod", sort_map, HashMap::new());
+        let morph = TheoryMorphism::new(
+            "m",
+            "Dom",
+            "Cod",
+            sort_map,
+            HashMap::<Arc<str>, Arc<str>>::new(),
+        );
 
         let mut sort_interp: HashMap<String, Vec<gat::ModelValue>> = HashMap::new();
         sort_interp.insert(

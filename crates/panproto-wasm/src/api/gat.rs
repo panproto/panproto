@@ -130,3 +130,17 @@ pub fn migrate_model(model: &[u8], morphism: &[u8]) -> Result<Vec<u8>, JsError> 
         .into()
     })
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn create_theory_from_minimal_spec() {
+        let theory = panproto_core::gat::Theory::new("SmokeTheory", vec![], vec![], vec![]);
+        let spec = rmp_serde::to_vec_named(&theory).unwrap();
+        let handle = create_theory(&spec).unwrap();
+        assert_ne!(handle, u32::MAX, "theory handle should be allocated");
+    }
+}

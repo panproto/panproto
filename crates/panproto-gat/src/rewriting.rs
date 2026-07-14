@@ -618,6 +618,68 @@ impl TerminationReport {
     }
 }
 
+/// Combined soundness report for a theory's directed rewrite system: local
+/// confluence (Knuth-Bendix critical pairs) and LPO termination.
+#[derive(Debug, Clone)]
+pub struct RewriteSystemReport {
+    /// Critical-pair confluence analysis.
+    pub confluence: ConfluenceReport,
+    /// LPO termination analysis.
+    pub termination: TerminationReport,
+}
+
+impl RewriteSystemReport {
+    /// Returns `true` if the rewrite system is both locally confluent and
+    /// LPO-terminating within the analysis budget.
+    #[must_use]
+    pub fn is_sound(&self) -> bool {
+        self.confluence.is_locally_confluent() && self.termination.is_lpo_terminating()
+    }
+
+    /// Human-readable descriptions of each non-joining critical pair and each
+    /// LPO violation. Empty exactly when [`is_sound`](Self::is_sound) holds.
+    #[must_use]
+    pub fn warnings(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        for pair in self.confluence.non_joining() {
+            out.push(format!(
+                "non-joining critical pair between rules `{}` and `{}`",
+                pair.rule_a, pair.rule_b
+            ));
+        }
+        for v in &self.termination.violations {
+            out.push(format!(
+                "rule `{}` is not LPO-terminating: {}",
+                v.rule, v.reason
+            ));
+        }
+        out
+    }
+}
+
+/// Validate a theory's directed rewrite system for local confluence and LPO
+/// termination, taking the theory's operation-declaration order as the LPO
+/// precedence (earlier-declared operations rank lower).
+///
+/// A theory with no directed equations is trivially sound. This is the gate
+/// run at theory registration and on the theory-DSL compile path: it protects
+/// the soundness of the equality judgment that normalization decides.
+///
+/// # Errors
+///
+/// Propagates [`GatError::LpoHoleInRule`] if a directed equation contains a
+/// typed hole, which the LPO comparison cannot order.
+pub fn validate_rewrite_system(theory: &Theory) -> Result<RewriteSystemReport, GatError> {
+    const CONFLUENCE_DEPTH: usize = 256;
+    let confluence = check_local_confluence(theory, CONFLUENCE_DEPTH)?;
+    let precedence = OpPrecedence::new(theory.ops.iter().map(|o| Arc::clone(&o.name)));
+    let termination = check_termination_via_lpo(theory, &precedence)?;
+    Ok(RewriteSystemReport {
+        confluence,
+        termination,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -736,6 +798,44 @@ mod tests {
         let report = check_local_confluence(&theory, 32)?;
         assert!(!report.is_locally_confluent());
         assert!(!report.non_joining().is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn validate_rewrite_system_flags_non_confluent() -> Result<(), GatError> {
+        // f(x) -> g(x) and f(x) -> h(x) overlap at the root and do not join.
+        let r1 = mk_rule(
+            "r1",
+            Term::app("f", vec![Term::var("x")]),
+            Term::app("g", vec![Term::var("x")]),
+        );
+        let r2 = mk_rule(
+            "r2",
+            Term::app("f", vec![Term::var("x")]),
+            Term::app("h", vec![Term::var("x")]),
+        );
+        let theory = trivial_theory(vec![r1, r2]);
+        let report = validate_rewrite_system(&theory)?;
+        assert!(!report.is_sound());
+        assert!(!report.warnings().is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn validate_rewrite_system_accepts_sound_and_empty() -> Result<(), GatError> {
+        // A theory with no directed equations is trivially sound.
+        let empty = Theory::new("T", vec![Sort::simple("S")], Vec::new(), Vec::new());
+        assert!(validate_rewrite_system(&empty)?.is_sound());
+
+        // A single decreasing rule under op-declaration-order precedence.
+        let r = mk_rule(
+            "left_id",
+            Term::app("add", vec![Term::constant("zero"), Term::var("y")]),
+            Term::var("y"),
+        );
+        let theory = trivial_theory(vec![r]);
+        let report = validate_rewrite_system(&theory)?;
+        assert!(report.is_sound(), "warnings: {:?}", report.warnings());
         Ok(())
     }
 
