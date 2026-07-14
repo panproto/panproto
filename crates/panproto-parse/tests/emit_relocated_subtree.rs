@@ -56,10 +56,15 @@ fn relocated_subtree_separates_from_sibling() {
         let root = parsed
             .vertices
             .keys()
-            .find(|id| parsed.incoming.get(*id).is_none_or(|e| e.is_empty()))
+            .find(|id| {
+                parsed
+                    .incoming
+                    .get(*id)
+                    .is_none_or(smallvec::SmallVec::is_empty)
+            })
             .expect("a structural root")
             .clone();
-        let mut relocated = parsed.clone();
+        let mut relocated = parsed;
         let cs = relocated
             .constraints
             .get_mut(&root)

@@ -137,6 +137,105 @@ thread_local! {
     /// recovers every matched edge across arbitrary nesting.
     pub(crate) static EMIT_FIELD_CONTEXT: std::cell::RefCell<Option<String>> =
         const { std::cell::RefCell::new(None) };
+    /// Per-vertex `ptrace`-literal budget: for each anonymous literal the
+    /// parser recorded on the current vertex (`ptrace-<slot> = T<lit>`), how
+    /// many emissions of that literal remain admissible on this vertex's
+    /// role-table (by-construction) walk. The parser records EVERY anonymous
+    /// token of a node as a `ptrace` slot, so the count is the literal's true
+    /// source multiplicity; a `field:<name>` recording of a field-bound token
+    /// is a redundant copy of the same `ptrace` slot. A single recorded
+    /// separator (bash `case_item`'s one `;;`) must therefore satisfy at most
+    /// one of the several separator CHOICEs its walk visits — the inner
+    /// `_terminator` inside `_statements`' `REPEAT(SEQ[_statement,
+    /// _terminator])`, `_statements`' trailing `CHOICE[_terminator|BLANK]`, and
+    /// the `case_item`'s own terminator FIELD — rather than being matched at
+    /// each. This mirrors the `sep_budget` cap the REPEAT walker applies to a
+    /// trailing mandatory separator, extended across the whole vertex walk to
+    /// the variant-tag literal tie-break in [`super::select_choice_with_trace`].
+    pub(crate) static EMIT_PTRACE_BUDGET: std::cell::RefCell<std::collections::HashMap<String, usize>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+    /// The vertex whose `ptrace` budget is currently installed. A nested walk
+    /// of the SAME vertex (a hidden rule inlined onto the same vertex, e.g.
+    /// bash `_statements`) must keep the decrements accumulated across its
+    /// CHOICE sites, so re-entry for the same owner does not reinstall the
+    /// budget; a walk that descends into a CHILD vertex installs (and later
+    /// restores) that child's own budget.
+    pub(crate) static EMIT_PTRACE_BUDGET_OWNER: std::cell::RefCell<Option<panproto_gat::Name>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// RAII guard that restores the prior [`EMIT_PTRACE_BUDGET`] and
+/// [`EMIT_PTRACE_BUDGET_OWNER`] when the current vertex's walk unwinds.
+pub(crate) struct PtraceBudgetGuard {
+    prev_budget: std::collections::HashMap<String, usize>,
+    prev_owner: Option<panproto_gat::Name>,
+}
+
+impl Drop for PtraceBudgetGuard {
+    fn drop(&mut self) {
+        EMIT_PTRACE_BUDGET.with(|b| *b.borrow_mut() = std::mem::take(&mut self.prev_budget));
+        EMIT_PTRACE_BUDGET_OWNER.with(|o| *o.borrow_mut() = self.prev_owner.take());
+    }
+}
+
+/// Install `budget` as the active per-vertex `ptrace` budget owned by
+/// `owner`, returning a guard that restores the previous budget on drop.
+/// Returns `None` when `owner` already owns the active budget — a nested
+/// walk of the same vertex must accumulate decrements across its CHOICE
+/// sites rather than reset them.
+pub(crate) fn enter_ptrace_budget(
+    owner: &panproto_gat::Name,
+    budget: std::collections::HashMap<String, usize>,
+) -> Option<PtraceBudgetGuard> {
+    if is_ptrace_budget_owner(owner) {
+        return None;
+    }
+    let prev_budget = EMIT_PTRACE_BUDGET.with(|b| std::mem::replace(&mut *b.borrow_mut(), budget));
+    let prev_owner = EMIT_PTRACE_BUDGET_OWNER.with(|o| o.borrow_mut().replace(owner.clone()));
+    Some(PtraceBudgetGuard {
+        prev_budget,
+        prev_owner,
+    })
+}
+
+/// True iff `vertex_id` already owns the active `ptrace` budget.
+pub(crate) fn is_ptrace_budget_owner(vertex_id: &panproto_gat::Name) -> bool {
+    EMIT_PTRACE_BUDGET_OWNER
+        .with(|o| {
+            o.borrow()
+                .as_ref()
+                .map(|n| n.as_str() == vertex_id.as_str())
+        })
+        .unwrap_or(false)
+}
+
+/// True iff the active budget still admits an emission of `literal` (no
+/// recorded budget for it ⇒ unbounded, the canonical default for literals
+/// the parser never traced).
+pub(crate) fn ptrace_budget_allows(literal: &str) -> bool {
+    EMIT_PTRACE_BUDGET.with(|b| b.borrow().get(literal).is_none_or(|&rem| rem > 0))
+}
+
+/// Spend one unit of the active budget for `literal`, if any remains.
+/// A no-op when `literal` carries no recorded budget.
+pub(crate) fn ptrace_budget_consume(literal: &str) {
+    EMIT_PTRACE_BUDGET.with(|b| {
+        if let Some(rem) = b.borrow_mut().get_mut(literal) {
+            *rem = rem.saturating_sub(1);
+        }
+    });
+}
+
+/// Clone the active budget for an `OutputSnapshot`. Restored by
+/// [`restore_ptrace_budget`] so a REPEAT/OPTIONAL iteration that rolls back
+/// its emitted tokens also rolls back any budget it spent.
+pub(crate) fn snapshot_ptrace_budget() -> std::collections::HashMap<String, usize> {
+    EMIT_PTRACE_BUDGET.with(|b| b.borrow().clone())
+}
+
+/// Restore a budget captured by [`snapshot_ptrace_budget`].
+pub(crate) fn restore_ptrace_budget(snap: std::collections::HashMap<String, usize>) {
+    EMIT_PTRACE_BUDGET.with(|b| *b.borrow_mut() = snap);
 }
 
 /// RAII guard that restores the prior `EMIT_FIELD_CONTEXT` value on drop.
