@@ -640,6 +640,11 @@ fn parse_value_kind(s: &str) -> Result<ValueKind, TheoryDslError> {
         "bytes" => Ok(ValueKind::Bytes),
         "token" => Ok(ValueKind::Token),
         "null" => Ok(ValueKind::Null),
+        "date-time" | "datetime" => Ok(ValueKind::DateTime),
+        "date" => Ok(ValueKind::Date),
+        "time" => Ok(ValueKind::Time),
+        "decimal" => Ok(ValueKind::Decimal),
+        "uuid" => Ok(ValueKind::Uuid),
         "any" => Ok(ValueKind::Any),
         other => Err(TheoryDslError::UnknownValueKind {
             kind: other.to_owned(),

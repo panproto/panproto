@@ -274,6 +274,11 @@ pub const fn value_kind_label(kind: ValueKind) -> &'static str {
         ValueKind::Bytes => "bytes",
         ValueKind::Token => "token",
         ValueKind::Null => "null",
+        ValueKind::DateTime => "datetime",
+        ValueKind::Date => "date",
+        ValueKind::Time => "time",
+        ValueKind::Decimal => "decimal",
+        ValueKind::Uuid => "uuid",
         ValueKind::Any => "any",
     }
 }

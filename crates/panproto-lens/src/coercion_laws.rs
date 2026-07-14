@@ -432,6 +432,43 @@ impl CoercionSampleRegistry {
                 Literal::Str("ns:name".to_owned()),
             ],
         );
+        // Refined scalars sample as their canonical string / decimal forms.
+        reg.register(
+            ValueKind::DateTime,
+            vec![
+                Literal::Str("2026-07-14T09:47:12Z".to_owned()),
+                Literal::Str("2000-01-01T00:00:00Z".to_owned()),
+            ],
+        );
+        reg.register(
+            ValueKind::Date,
+            vec![
+                Literal::Str("2026-07-14".to_owned()),
+                Literal::Str("2000-01-01".to_owned()),
+            ],
+        );
+        reg.register(
+            ValueKind::Time,
+            vec![
+                Literal::Str("09:47:12".to_owned()),
+                Literal::Str("00:00:00".to_owned()),
+            ],
+        );
+        reg.register(
+            ValueKind::Decimal,
+            vec![
+                Literal::Str("0".to_owned()),
+                Literal::Str("3.14".to_owned()),
+                Literal::Str("-100.00".to_owned()),
+            ],
+        );
+        reg.register(
+            ValueKind::Uuid,
+            vec![
+                Literal::Str("00000000-0000-0000-0000-000000000000".to_owned()),
+                Literal::Str("550e8400-e29b-41d4-a716-446655440000".to_owned()),
+            ],
+        );
 
         // `Any` is the union across every other registered kind.
         // Iterate `ValueKind::all()` (which excludes nothing but the

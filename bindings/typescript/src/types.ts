@@ -635,7 +635,20 @@ export interface WasmExports {
 // ---------------------------------------------------------------------------
 
 /** Primitive value kind. */
-export type ValueKind = 'bool' | 'int' | 'float' | 'str' | 'bytes' | 'token' | 'null' | 'any';
+export type ValueKind =
+  | 'bool'
+  | 'int'
+  | 'float'
+  | 'str'
+  | 'bytes'
+  | 'token'
+  | 'null'
+  | 'datetime'
+  | 'date'
+  | 'time'
+  | 'decimal'
+  | 'uuid'
+  | 'any';
 
 /** Sort kind classification. */
 export type SortKind =
