@@ -103,6 +103,16 @@ jobs:
               # `cargo search` (whose output format is unreliable in CI).
               if echo "$out" | grep -q "already exists on crates.io index"; then
                 echo "$crate $VERSION already published; continuing"
+              elif echo "$out" | grep -q "do not support creating new crates"; then
+                # A crate that has never been published cannot be created by a
+                # Trusted Publishing (OIDC) token; crates.io requires an owner
+                # to `cargo publish` it once with an API token, then enable
+                # Trusted Publishing for it. Flag it and continue rather than
+                # failing the whole release; a new crate that other crates
+                # depend on will still surface downstream as its dependents
+                # fail to resolve it.
+                echo "::warning::$crate is new on crates.io and cannot be created via Trusted Publishing. Publish it once manually (cargo publish -p $crate) and add Trusted Publishing (Repo panproto/panproto, Workflow publish-crates.yml), then re-run this workflow."
+                NEW_CRATES+=("$crate")
               else
                 echo "::error::cargo publish $crate failed with code $code"
                 return $code
@@ -111,48 +121,58 @@ jobs:
             echo "::endgroup::"
           }
 
-          # Level 0
-          publish_one panproto-expr
-          publish_one panproto-grammars
-          # Level 1
-          publish_one panproto-expr-parser
-          publish_one panproto-gat
-          # Level 2
-          publish_one panproto-schema
-          # Level 3
-          publish_one panproto-inst
-          # Level 4
-          publish_one panproto-mig
-          publish_one panproto-protocols
-          # Level 5
-          publish_one panproto-lens
-          # Level 6
-          publish_one panproto-parse
-          publish_one panproto-lens-dsl
-          publish_one panproto-check
-          publish_one panproto-theory-dsl
-          publish_one panproto-jit
-          publish_one panproto-llvm
-          # Level 7 — depends on parse, protocols, schema
-          publish_one panproto-io
-          # Level 8 — depends on schema, mig, check, lens, gat, inst,
-          # expr, protocols
-          publish_one panproto-vcs
-          # Level 9 — depend on vcs (xrpc, project)
-          publish_one panproto-xrpc
-          publish_one panproto-project
-          # Level 10 — depends on project + vcs
-          publish_one panproto-git
-          # Level 11 — facade; has optional `git` feature that pulls
-          # in panproto-git, so core must publish AFTER git
-          publish_one panproto-core
-          # Level 12 — depend on core (wasm, cli) and on git/xrpc/vcs
-          # (git-remote)
-          publish_one panproto-wasm
-          # panproto-cli depends on panproto-repl (the `schema theory
-          # repl` subcommand drives the panproto-repl library). Publish
-          # the dependency first or cargo refuses with "failed to
-          # select a version for the requirement panproto-repl".
-          publish_one panproto-repl
-          publish_one panproto-cli
-          publish_one panproto-git-remote
+          # Publishable workspace members, in topological order, derived from
+          # `cargo metadata` so this list can never drift from the workspace:
+          # adding or removing a crate needs no edit here (a stale entry for a
+          # removed crate would fail with "did not match any packages"; a
+          # missing entry for a new crate would fail its dependents). Only
+          # normal and build dependencies gate ordering; dev-dependencies do
+          # not, and `publish = false` crates are excluded.
+          CRATES=()
+          while IFS= read -r crate_name; do
+            [ -n "$crate_name" ] && CRATES+=("$crate_name")
+          done < <(python3 -c '
+          import json, subprocess
+          meta = json.loads(subprocess.check_output(
+              ["cargo", "metadata", "--format-version", "1", "--no-deps"]))
+          pkgs = {p["name"]: p for p in meta["packages"]}
+          pub = {}
+          for n, p in pkgs.items():
+              reg = p.get("publish")
+              if reg is None or "crates-io" in reg:
+                  pub[n] = p
+          names = set(pub)
+          edges = {}
+          for n, p in pub.items():
+              deps = []
+              for d in p["dependencies"]:
+                  if d["name"] in names and d.get("kind") in (None, "build"):
+                      deps.append(d["name"])
+              edges[n] = sorted(set(deps))
+          order, seen, stack = [], set(), set()
+          def visit(n):
+              if n in seen or n in stack:
+                  return
+              stack.add(n)
+              for d in edges[n]:
+                  visit(d)
+              stack.discard(n)
+              seen.add(n)
+              order.append(n)
+          for n in sorted(pub):
+              visit(n)
+          print("\n".join(order))
+          ')
+          if [ "${#CRATES[@]}" -eq 0 ]; then
+            echo "::error::no publishable crates derived from cargo metadata"
+            exit 1
+          fi
+          NEW_CRATES=()
+          echo "Publishing ${#CRATES[@]} crates in topological order:"
+          printf '  %s\n' "${CRATES[@]}"
+          for crate in "${CRATES[@]}"; do
+            publish_one "$crate"
+          done
+          if [ "${#NEW_CRATES[@]}" -gt 0 ]; then
+            echo "::warning::New crates were skipped (each needs a manual first publish + Trusted Publishing before the next release): ${NEW_CRATES[*]}"
+          fi
