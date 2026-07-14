@@ -125,9 +125,12 @@ jobs:
           # `cargo metadata` so this list can never drift from the workspace:
           # adding or removing a crate needs no edit here (a stale entry for a
           # removed crate would fail with "did not match any packages"; a
-          # missing entry for a new crate would fail its dependents). Only
-          # normal and build dependencies gate ordering; dev-dependencies do
-          # not, and `publish = false` crates are excluded.
+          # missing entry for a new crate would fail its dependents). Normal,
+          # build, AND dev dependencies gate ordering: `cargo publish` must
+          # resolve a crate's dev-dependencies too, so a workspace crate used
+          # as a dev-dependency must be published before its dependent (e.g.
+          # panproto-check dev-depends on panproto-protocols). `publish = false`
+          # crates are excluded.
           CRATES=()
           while IFS= read -r crate_name; do
             [ -n "$crate_name" ] && CRATES+=("$crate_name")
@@ -146,7 +149,7 @@ jobs:
           for n, p in pub.items():
               deps = []
               for d in p["dependencies"]:
-                  if d["name"] in names and d.get("kind") in (None, "build"):
+                  if d["name"] in names and d.get("kind") in (None, "build", "dev"):
                       deps.append(d["name"])
               edges[n] = sorted(set(deps))
           order, seen, stack = [], set(), set()
