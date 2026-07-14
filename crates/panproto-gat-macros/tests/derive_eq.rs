@@ -55,7 +55,11 @@ fn derive_eq_builds_valid_instance_morphism() {
     assert_eq!(&*morph.domain, "ThEq");
     assert_eq!(&*morph.codomain, "ThTarget");
     assert_eq!(
-        morph.op_map.get(&Arc::from("eq")).map(|s| &**s),
+        morph
+            .op_map
+            .get(&Arc::from("eq"))
+            .and_then(|s| s.as_op())
+            .map(|s| &**s),
         Some("vertex_eq"),
     );
 }

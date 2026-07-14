@@ -1,7 +1,0 @@
-{"plugins": [],
- "package": "panproto",
- "options": {"autoImplicit": false},
- "name": "Panproto.GAT.Witness",
- "isModule": false,
- "importArts": {},
- "dynlibs": []}

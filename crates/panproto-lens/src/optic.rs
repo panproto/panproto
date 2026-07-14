@@ -385,7 +385,7 @@ fn perturb_value(value: &mut panproto_inst::value::Value) {
                 perturb_value(first);
             }
         }
-        Value::Null => {}
+        Value::Null | Value::LabeledNull(_) => {}
     }
 }
 

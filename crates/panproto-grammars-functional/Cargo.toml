@@ -9,20 +9,17 @@ repository.workspace = true
 publish = false
 
 [lib]
-# Globally-unique cdylib name to avoid the `PyInit_<name>` symbol
-# collision that arises when multiple pyo3 extensions in the same
-# process both define a submodule called `_native`. The Python module
-# is exposed as `panproto_grammars_functional._impl` (set via
-# `module-name` in the companion's pyproject.toml).
+# Globally-unique cdylib name to avoid `PyInit_<name>` symbol
+# collisions across companions in the same Python process.
 name = "panproto_grammars_functional_impl"
 crate-type = ["cdylib"]
 
 [dependencies]
 # `default-features = false` lets this companion ship only the
 # `group-functional` grammars, not the workspace-default `group-core`.
-# Workspace inheritance is bypassed because the workspace dep doesn't
-# pin default-features.
-panproto-grammars = { version = "=0.56.1", path = "../panproto-grammars", default-features = false, features = ["group-functional"] }
+# Workspace inheritance is bypassed because the workspace dep
+# doesn't pin default-features.
+panproto-grammars = { version = "=0.57.0", path = "../panproto-grammars", default-features = false, features = ["group-functional"] }
 pyo3 = { workspace = true }
 tree-sitter = { workspace = true }
 

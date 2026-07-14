@@ -48,7 +48,7 @@ Lens verification on test data exercises the three round-trip laws (GetPut, PutG
 
 ## Common mistakes
 
-- Assuming all schema pairs are loss-free. They are not. Run `schema lens verify` after conversion to exercise the round-trip laws on representative data, and run `schema check --src --tgt --mapping ... --typecheck` to classify the diff as fully compatible, backward compatible, or breaking.
+- Assuming all schema pairs are loss-free. They are not. Run `schema lens verify` after conversion to exercise the round-trip laws on representative data, and run `schema compat <old> <new> --protocol <name>` to classify the diff as fully compatible, backward compatible, or breaking.
 - Skipping lens verification in CI. Without it, silent loss is possible.
 
 ## See also

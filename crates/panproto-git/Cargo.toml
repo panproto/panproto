@@ -15,7 +15,7 @@ panproto-parse = { workspace = true }
 panproto-project = { workspace = true }
 panproto-vcs = { workspace = true }
 
-git2 = "0.21"
+git2 = { workspace = true }
 
 serde_json = { workspace = true }
 thiserror = { workspace = true }

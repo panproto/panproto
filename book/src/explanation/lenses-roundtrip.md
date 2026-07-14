@@ -6,7 +6,7 @@ A lens is a pair of functions for moving between two shapes of data: one for goi
 
 The data the new shape does not have room for has to live somewhere during the round trip. In a panproto lens, it lives in a third value called the *complement*. You can think of it as a sidecar that holds whatever `get` discarded, so that `put` can put it back.
 
-A lens is *lawful* when it satisfies three round-trip identities. Roughly: getting then putting unchanged data is a no-op; putting then getting recovers exactly what you put in; and putting twice in a row is the same as putting just the second value. panproto verifies these three laws by property-based testing on every lens combinator. A lens that fails any of them is rejected.
+A lens is *lawful* when it satisfies three round-trip identities. Roughly: getting then putting unchanged data is a no-op; putting then getting recovers exactly what you put in; and putting twice in a row is the same as putting just the second value. panproto checks these three laws in two layers. The first is property-based testing over generated scenarios: the identity and projection families, nested trees of depth three, lenses that remap vertices and edges, and lenses that carry field transforms, each run with the put-side views drawn from a mutation generator rather than one fixed perturbation. The second is a set of deterministic runtime checkers that assert each law of a given lens against a supplied instance. A lens that fails either layer is rejected. The property tests are sampling, not proof: they are evidence that the laws hold across the generated space, not a certificate for inputs outside it.
 
 The reason lenses matter for panproto: every migration is a lens. The lift function is the *get* (forward) and the put function is the *backward* direction. Together they let you migrate data forward, edit the new data, and push it back to the old shape if you ever need to.
 
@@ -30,7 +30,7 @@ For every lawful lens:
 2. **PutGet.** $get(put(s, v, c)) = v$. Putting a new view in returns that view when you read it back.
 3. **PutPut.** $put(put(s, v_1, c), v_2, c) = put(s, v_2, c)$. Two consecutive puts to the same complement collapse to the second put.
 
-`PutPut` is the third law. It is checked by `panproto_lens::laws::check_put_put` against every lens combinator, with random perturbations of the second view generated to ensure the law holds across the full input space, not just at fixed points.
+`PutPut` is the third law. The runtime checker `panproto_lens::laws::check_put_put` applies two puts using the same complement on both sides and compares against the single second put. Reusing one complement means the check does not exercise the case where the two puts carry different complement values; that combination is left unexercised by the runtime check.
 
 ## Complement composition
 

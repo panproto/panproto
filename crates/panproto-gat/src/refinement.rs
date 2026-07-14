@@ -43,6 +43,15 @@ pub enum RefinementError {
         /// The format constraint kind that was violated.
         kind: String,
     },
+    /// A numeric-kind constraint carries a value that does not parse as a
+    /// number, so its subsort relationship cannot be decided.
+    #[error("numeric constraint {kind} has unparseable value {value:?}")]
+    MalformedConstraint {
+        /// The constraint kind whose value failed to parse.
+        kind: String,
+        /// The value that could not be parsed as a number.
+        value: String,
+    },
 }
 
 impl RefinedSort {
@@ -63,25 +72,65 @@ impl RefinedSort {
 
     /// Returns true if `self`'s constraints are strictly tighter than `other`'s.
     ///
+    /// This is the infallible convenience wrapper over [`Self::try_subsort_of`].
+    /// A malformed numeric constraint makes the relationship undecidable, and
+    /// this method reports it conservatively as *not* a subsort (returning
+    /// `false`). Callers that need to distinguish a malformed constraint from a
+    /// genuine non-refinement — for instance, to keep breaking-change detection
+    /// from silently passing on a garbled bound — should call
+    /// [`Self::try_subsort_of`] and inspect the [`RefinementError`].
+    #[must_use]
+    pub fn subsort_of(&self, other: &Self) -> bool {
+        self.try_subsort_of(other).unwrap_or(false)
+    }
+
+    /// Returns `Ok(true)` if `self`'s constraints are strictly tighter than
+    /// `other`'s, `Ok(false)` if they are not, and `Err` if a numeric
+    /// constraint carries an unparseable value.
+    ///
     /// For numeric constraints (`maxLength`, `minLength`, `maximum`, `minimum`),
     /// this checks interval containment: every value satisfying `self` must
     /// also satisfy `other`. Same base sort is required.
-    #[must_use]
-    pub fn subsort_of(&self, other: &Self) -> bool {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RefinementError::MalformedConstraint`] naming the constraint
+    /// kind and offending value when a numeric-kind constraint that is needed
+    /// to decide the relationship does not parse as a number. Surfacing this
+    /// rather than swallowing it keeps a malformed bound from being reported as
+    /// a definitive non-refinement with no signal.
+    pub fn try_subsort_of(&self, other: &Self) -> Result<bool, RefinementError> {
         if self.base != other.base {
-            return false;
+            return Ok(false);
         }
 
         // Self is a subsort of other if for every constraint in other,
         // self has a constraint of the same kind that is at least as tight.
+        // A same-kind comparison whose values are malformed is surfaced only
+        // when no well-formed constraint of that kind already dominates.
         for other_c in &other.constraints {
-            let dominated = self.constraints.iter().any(|self_c| {
-                self_c.kind == other_c.kind
-                    && constraint_tighter(&self_c.kind, &self_c.value, &other_c.value)
-            });
-            if !dominated {
-                return false;
+            let mut dominated = false;
+            let mut pending_err: Option<RefinementError> = None;
+            for self_c in &self.constraints {
+                if self_c.kind != other_c.kind {
+                    continue;
+                }
+                match constraint_tighter(&self_c.kind, &self_c.value, &other_c.value) {
+                    Ok(true) => {
+                        dominated = true;
+                        break;
+                    }
+                    Ok(false) => {}
+                    Err(e) => pending_err = Some(e),
+                }
             }
+            if dominated {
+                continue;
+            }
+            if let Some(e) = pending_err {
+                return Err(e);
+            }
+            return Ok(false);
         }
 
         // Also, self must actually be *strictly* tighter; it must have at
@@ -94,33 +143,45 @@ impl RefinedSort {
                     .any(|oc| sc.kind == oc.kind && sc.value == oc.value)
             })
         {
-            return false;
+            return Ok(false);
         }
 
-        true
+        Ok(true)
     }
 }
 
 /// Check whether `self_val` is at least as tight as `other_val` for the
-/// given constraint kind. Returns true if self's constraint dominates other's.
-fn constraint_tighter(kind: &str, self_val: &str, other_val: &str) -> bool {
-    let parse_both = || -> Option<(f64, f64)> {
-        let s = self_val.parse::<f64>().ok()?;
-        let o = other_val.parse::<f64>().ok()?;
-        Some((s, o))
+/// given constraint kind.
+///
+/// # Errors
+///
+/// Returns [`RefinementError::MalformedConstraint`] when `kind` is numeric and
+/// either value fails to parse as a number.
+fn constraint_tighter(
+    kind: &str,
+    self_val: &str,
+    other_val: &str,
+) -> Result<bool, RefinementError> {
+    let parse_numeric = |value: &str| -> Result<f64, RefinementError> {
+        value
+            .parse::<f64>()
+            .map_err(|_| RefinementError::MalformedConstraint {
+                kind: kind.to_string(),
+                value: value.to_string(),
+            })
     };
 
     match kind {
         // Upper-bound constraints: tighter means smaller or equal value.
         "maxLength" | "maximum" | "exclusiveMaximum" | "maxItems" | "maxProperties" => {
-            parse_both().is_some_and(|(s, o)| s <= o)
+            Ok(parse_numeric(self_val)? <= parse_numeric(other_val)?)
         }
         // Lower-bound constraints: tighter means larger or equal value.
         "minLength" | "minimum" | "exclusiveMinimum" | "minItems" | "minProperties" => {
-            parse_both().is_some_and(|(s, o)| s >= o)
+            Ok(parse_numeric(self_val)? >= parse_numeric(other_val)?)
         }
         // Non-numeric constraints: equal values are considered matching.
-        _ => self_val == other_val,
+        _ => Ok(self_val == other_val),
     }
 }
 
@@ -170,6 +231,53 @@ mod tests {
         );
         let wide = RefinedSort::from_constraints("string", &[("maxLength".into(), "100".into())]);
         assert!(narrow.subsort_of(&wide));
+    }
+
+    #[test]
+    fn malformed_numeric_constraint_is_explicit_error() {
+        let bad = RefinedSort::from_constraints("string", &[("maxLength".into(), "abc".into())]);
+        let good = RefinedSort::from_constraints("string", &[("maxLength".into(), "300".into())]);
+
+        let err = bad
+            .try_subsort_of(&good)
+            .expect_err("a malformed maxLength must surface as an error, not a silent false");
+        match err {
+            RefinementError::MalformedConstraint { kind, value } => {
+                assert_eq!(kind, "maxLength");
+                assert_eq!(value, "abc");
+            }
+            other => panic!("expected MalformedConstraint, got {other:?}"),
+        }
+
+        // The malformed value is symmetric: a garbled target is surfaced too.
+        assert!(matches!(
+            good.try_subsort_of(&bad),
+            Err(RefinementError::MalformedConstraint { .. })
+        ));
+
+        // The infallible wrapper is conservative: an undecidable comparison is
+        // reported as not-a-subsort rather than panicking.
+        assert!(!bad.subsort_of(&good));
+    }
+
+    #[test]
+    fn try_subsort_of_matches_subsort_of_on_well_formed() {
+        let narrow = RefinedSort::from_constraints("string", &[("maxLength".into(), "100".into())]);
+        let wide = RefinedSort::from_constraints("string", &[("maxLength".into(), "300".into())]);
+        assert!(
+            narrow
+                .try_subsort_of(&wide)
+                .expect("well-formed values decide")
+        );
+        assert!(
+            !wide
+                .try_subsort_of(&narrow)
+                .expect("well-formed values decide")
+        );
+        assert_eq!(
+            narrow.try_subsort_of(&wide).ok(),
+            Some(narrow.subsort_of(&wide))
+        );
     }
 
     #[test]

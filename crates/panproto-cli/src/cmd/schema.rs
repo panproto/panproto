@@ -51,16 +51,28 @@ pub fn cmd_validate(protocol_name: &str, schema_path: &Path, verbose: bool) -> R
         }
     }
 
+    report_theory_typecheck(&type_errors)
+}
+
+/// Report the outcome of the protocol theory type-check.
+///
+/// Returns `Ok(())` (a zero exit status) when no type errors were collected,
+/// printing a success line. When one or more theory type errors are present,
+/// returns an `Err` (a non-zero exit status) whose diagnostic names every
+/// offending theory and error, so CI gates that trust the non-zero exit fail
+/// loudly on broken theories rather than passing silently.
+fn report_theory_typecheck(type_errors: &[String]) -> Result<()> {
     if type_errors.is_empty() {
         println!("Schema is valid. Theory type-check: OK.");
-    } else {
-        println!("Schema is valid but theory type-check found issues:");
-        for e in &type_errors {
-            println!("  {e}");
-        }
+        return Ok(());
     }
 
-    Ok(())
+    let mut report = String::from("schema is structurally valid but theory type-check failed:");
+    for e in type_errors {
+        report.push_str("\n  ");
+        report.push_str(e);
+    }
+    miette::bail!("{report}");
 }
 
 pub fn cmd_check(
@@ -429,10 +441,16 @@ pub fn cmd_scaffold(
 
     for (name, theory) in &theory_registry {
         // Build a free model from the theory to get the abstract structure.
-        let model = panproto_core::gat::free_model(theory, &config)
+        let free = panproto_core::gat::free_model(theory, &config)
             .into_diagnostic()
-            .wrap_err_with(|| format!("free model construction failed for theory '{name}'"))?
-            .model;
+            .wrap_err_with(|| format!("free model construction failed for theory '{name}'"))?;
+        if !free.is_complete {
+            eprintln!(
+                "warning: free model for theory '{name}' truncated at depth {depth}; scaffolded \
+                 data may be incomplete (increase --depth for a complete model)"
+            );
+        }
+        let model = free.model;
 
         if json {
             // Merge free model carriers with schema elements for richer output.
@@ -798,6 +816,72 @@ pub fn cmd_diff(
         print_optic_kind(&old_schema, &new_schema);
     }
     Ok(())
+}
+
+/// Classify backward-compatibility between two schema versions.
+///
+/// Runs a structural diff, classifies it against `protocol_name` via
+/// [`classify_with_schemas`](panproto_core::check::classify_with_schemas),
+/// prints the changes grouped by tier, and terminates the process with a
+/// CI-usable status code: `0` when no breaking changes are found, `1`
+/// when at least one breaking change is found, and `2` on a usage or
+/// load error (unreadable schema, unknown protocol, or bad `--format`).
+///
+/// This command owns its exit code, so it never returns; the `!` return
+/// type coerces to the `Result<()>` the dispatcher expects.
+pub fn cmd_compat(
+    old_path: &Path,
+    new_path: &Path,
+    protocol_name: &str,
+    format: &str,
+    verbose: bool,
+) -> ! {
+    use panproto_core::check;
+
+    // Load-or-usage failures must exit 2, distinct from the exit-1
+    // breaking-change code, so `?` (which surfaces as exit 1) is avoided.
+    let old_schema: Schema = match load_json(old_path) {
+        Ok(s) => s,
+        Err(e) => exit_usage(&format!("{e:?}")),
+    };
+    let new_schema: Schema = match load_json(new_path) {
+        Ok(s) => s,
+        Err(e) => exit_usage(&format!("{e:?}")),
+    };
+    let protocol = match resolve_protocol(protocol_name) {
+        Ok(p) => p,
+        Err(e) => exit_usage(&format!("{e:?}")),
+    };
+
+    if verbose {
+        eprintln!(
+            "Classifying schema {} vs {} against protocol '{protocol_name}'",
+            old_schema.vertex_count(),
+            new_schema.vertex_count(),
+        );
+    }
+
+    let schema_diff = check::diff::diff(&old_schema, &new_schema);
+    let report = check::classify_with_schemas(&schema_diff, &protocol, &old_schema, &new_schema);
+
+    match format {
+        "text" => print!("{}", check::report_text(&report)),
+        "json" => println!("{}", check::report_json(&report)),
+        other => exit_usage(&format!(
+            "unknown --format {other:?}; expected 'text' or 'json'"
+        )),
+    }
+
+    if report.breaking.is_empty() {
+        std::process::exit(0);
+    }
+    std::process::exit(1);
+}
+
+/// Print an error to stderr and exit with the usage/load status code (2).
+fn exit_usage(msg: &str) -> ! {
+    eprintln!("error: {msg}");
+    std::process::exit(2);
 }
 
 /// Diff the staged schema against HEAD.
@@ -1218,4 +1302,34 @@ pub fn cmd_show(target: &str, fmt: Option<&str>, stat: bool) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::report_theory_typecheck;
+
+    #[test]
+    fn theory_typecheck_ok_when_no_errors() {
+        assert!(report_theory_typecheck(&[]).is_ok());
+    }
+
+    #[test]
+    fn theory_typecheck_errs_and_names_each_error() {
+        let errors = vec![
+            "theory 'example': sort 'Foo' is undefined".to_string(),
+            "theory 'example': operation 'bar' arity mismatch".to_string(),
+        ];
+        let Err(err) = report_theory_typecheck(&errors) else {
+            panic!("non-empty type errors must produce an Err (non-zero exit)");
+        };
+        let rendered = err.to_string();
+        assert!(
+            rendered.contains("sort 'Foo' is undefined"),
+            "diagnostic must name the first error, got: {rendered}"
+        );
+        assert!(
+            rendered.contains("operation 'bar' arity mismatch"),
+            "diagnostic must name the second error, got: {rendered}"
+        );
+    }
 }

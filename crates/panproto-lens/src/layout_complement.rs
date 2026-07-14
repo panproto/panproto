@@ -162,6 +162,37 @@ pub struct VertexComplement {
     pub literal: Option<String>,
     /// Anonymous field-token text keyed by field name (`field:<name>`).
     pub field_tokens: BTreeMap<String, String>,
+
+    // ── Decode diagnostics ───────────────────────────────────────────
+    /// Warnings raised while decoding this vertex's constraint list: one
+    /// entry for every recognized numeric sort (`start-byte`, `end-byte`,
+    /// `blank-lines-before`, and the `ptrace-N` / `interstitial-N` slot
+    /// indices and byte offsets) whose value fails to parse. A non-empty
+    /// list means one or more positional fibres were dropped, so the
+    /// format-preservation replay degrades for this vertex; each entry
+    /// names the offending sort and value. Not part of the serialized
+    /// fibre encoding: [`Self::to_constraints`] never emits it and
+    /// [`Self::from_constraints`] repopulates it from the input.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub decode_warnings: Vec<String>,
+}
+
+/// Parse a constraint value as a non-negative integer. On success
+/// returns the value; on failure returns `None` and pushes a decode
+/// warning naming the sort, the role, and the offending value.
+fn parse_usize_field(
+    sort: &str,
+    role: &str,
+    value: &str,
+    warnings: &mut Vec<String>,
+) -> Option<usize> {
+    let parsed = value.parse::<usize>().ok();
+    if parsed.is_none() {
+        warnings.push(format!(
+            "{sort}: {role} '{value}' is not a non-negative integer; field dropped"
+        ));
+    }
+    parsed
 }
 
 impl VertexComplement {
@@ -174,6 +205,13 @@ impl VertexComplement {
     }
 
     /// Decode one vertex's constraint list into typed fibres.
+    ///
+    /// Every recognized sort whose value must be a non-negative integer
+    /// (`start-byte`, `end-byte`, `blank-lines-before`, and the
+    /// `ptrace-N` / `interstitial-N` slot indices and byte offsets) is
+    /// parsed strictly: a value that fails to parse drops the
+    /// corresponding positional fibre and records a message in
+    /// [`Self::decode_warnings`] naming the sort and offending value.
     #[must_use]
     pub fn from_constraints(constraints: &[Constraint]) -> Self {
         let mut out = Self::default();
@@ -181,33 +219,45 @@ impl VertexComplement {
         let mut inter: BTreeMap<usize, (String, Option<usize>)> = BTreeMap::new();
         let mut start_byte: Option<usize> = None;
         let mut end_byte: Option<usize> = None;
+        let mut warnings: Vec<String> = Vec::new();
 
         for c in constraints {
             let sort = c.sort.as_ref();
             if let Some(n) = sort.strip_prefix("ptrace-") {
-                if let Ok(idx) = n.parse::<usize>() {
+                if let Some(idx) = parse_usize_field(sort, "trace slot index", n, &mut warnings) {
                     trace_slots.insert(idx, TraceSlot::decode(&c.value));
                 }
             } else if let Some(rest) = sort.strip_prefix("interstitial-") {
                 if let Some(n) = rest.strip_suffix("-start-byte") {
-                    if let (Ok(idx), Ok(b)) = (n.parse::<usize>(), c.value.parse::<usize>()) {
-                        inter.entry(idx).or_default().1 = Some(b);
+                    let idx = parse_usize_field(sort, "slot index", n, &mut warnings);
+                    let byte = parse_usize_field(sort, "start byte", &c.value, &mut warnings);
+                    if let (Some(idx), Some(byte)) = (idx, byte) {
+                        inter.entry(idx).or_default().1 = Some(byte);
                     }
-                } else if let Ok(idx) = rest.parse::<usize>() {
+                } else if let Some(idx) = parse_usize_field(sort, "gap index", rest, &mut warnings)
+                {
                     inter.entry(idx).or_default().0.clone_from(&c.value);
                 }
             } else if let Some(field) = sort.strip_prefix("field:") {
                 out.field_tokens.insert(field.to_owned(), c.value.clone());
             } else {
                 match sort {
-                    "start-byte" => start_byte = c.value.parse().ok(),
-                    "end-byte" => end_byte = c.value.parse().ok(),
+                    "start-byte" => {
+                        start_byte =
+                            parse_usize_field(sort, "byte offset", &c.value, &mut warnings);
+                    }
+                    "end-byte" => {
+                        end_byte = parse_usize_field(sort, "byte offset", &c.value, &mut warnings);
+                    }
                     "pre-alias-symbol" => out.pre_alias = Some(c.value.clone()),
                     "chose-alt-fingerprint" => out.chose_alt_fingerprint = Some(c.value.clone()),
                     "chose-alt-child-kinds" => out.chose_alt_child_kinds = Some(c.value.clone()),
                     "literal-value" => out.literal = Some(c.value.clone()),
                     "indent" => out.indent = Some(c.value.clone()),
-                    "blank-lines-before" => out.blank_lines_before = c.value.parse().ok(),
+                    "blank-lines-before" => {
+                        out.blank_lines_before =
+                            parse_usize_field(sort, "count", &c.value, &mut warnings);
+                    }
                     _ => {}
                 }
             }
@@ -228,6 +278,7 @@ impl VertexComplement {
             (Some(s), Some(e)) => Some((s, e)),
             _ => None,
         };
+        out.decode_warnings = warnings;
         out
     }
 
@@ -322,6 +373,31 @@ impl LayoutComplement {
     #[must_use]
     pub fn vertex(&self, id: &Name) -> Option<&VertexComplement> {
         self.vertices.get(id)
+    }
+
+    /// True when any vertex recorded a decode warning — i.e. a numeric
+    /// constraint value failed to parse and a positional fibre was
+    /// dropped. Callers on the format-preservation path consult this to
+    /// log or fail rather than silently degrade the replay.
+    #[must_use]
+    pub fn has_decode_warnings(&self) -> bool {
+        self.vertices
+            .values()
+            .any(|vc| !vc.decode_warnings.is_empty())
+    }
+
+    /// Every decode warning across all vertices, each paired with the
+    /// vertex id that raised it, in vertex-id order.
+    #[must_use]
+    pub fn decode_warnings(&self) -> Vec<(Name, String)> {
+        self.vertices
+            .iter()
+            .flat_map(|(id, vc)| {
+                vc.decode_warnings
+                    .iter()
+                    .map(move |w| (id.clone(), w.clone()))
+            })
+            .collect()
     }
 
     /// Re-encode every vertex's fibres into the schema's constraint map,
@@ -443,6 +519,91 @@ mod tests {
         // a vertex carrying only an unrelated constraint is still empty
         // w.r.t. the layout fibres
         assert!(VertexComplement::from_constraints(&[c("maxLength", "3")]).is_empty());
+    }
+
+    #[test]
+    fn malformed_start_byte_records_warning() {
+        let vc = VertexComplement::from_constraints(&[c("start-byte", "abc"), c("end-byte", "7")]);
+        // the malformed start byte disables the span for this vertex
+        assert_eq!(vc.byte_span, None);
+        // exactly one warning, naming the offending sort and value
+        assert_eq!(vc.decode_warnings.len(), 1);
+        assert!(
+            vc.decode_warnings[0].contains("start-byte") && vc.decode_warnings[0].contains("abc"),
+            "warning should name start-byte and the bad value: {:?}",
+            vc.decode_warnings,
+        );
+    }
+
+    #[test]
+    fn malformed_slot_indices_and_byte_record_warnings() {
+        // ptrace with a non-numeric slot index, an interstitial gap with a
+        // non-numeric index, an interstitial start-byte with a non-numeric
+        // byte, and a non-numeric blank-lines-before all warn.
+        let vc = VertexComplement::from_constraints(&[
+            c("ptrace-x", "Cnumber"),
+            c("interstitial-y", " "),
+            c("interstitial-0-start-byte", "nope"),
+            c("blank-lines-before", "many"),
+        ]);
+        assert_eq!(vc.trace, None, "malformed trace slot is dropped");
+        assert!(
+            vc.interstitials.is_empty(),
+            "malformed gap index is dropped"
+        );
+        assert_eq!(vc.blank_lines_before, None);
+        assert_eq!(vc.decode_warnings.len(), 4, "{:?}", vc.decode_warnings);
+        assert!(vc.decode_warnings.iter().any(|w| w.contains("ptrace-x")));
+        assert!(
+            vc.decode_warnings
+                .iter()
+                .any(|w| w.contains("interstitial-y"))
+        );
+        assert!(
+            vc.decode_warnings
+                .iter()
+                .any(|w| w.contains("interstitial-0-start-byte"))
+        );
+        assert!(
+            vc.decode_warnings
+                .iter()
+                .any(|w| w.contains("blank-lines-before"))
+        );
+    }
+
+    #[test]
+    fn well_formed_constraints_have_no_warnings() {
+        let cs = vec![
+            c("start-byte", "0"),
+            c("end-byte", "7"),
+            c("ptrace-0", "Cnumber"),
+            c("interstitial-0", " "),
+            c("interstitial-0-start-byte", "1"),
+            c("blank-lines-before", "2"),
+        ];
+        let vc = VertexComplement::from_constraints(&cs);
+        assert!(
+            vc.decode_warnings.is_empty(),
+            "well-formed input must not warn: {:?}",
+            vc.decode_warnings,
+        );
+        // decode_warnings carry no fibre payload, so the set round-trip is
+        // unaffected for well-formed input.
+        assert_eq!(VertexComplement::from_constraints(&vc.to_constraints()), vc);
+    }
+
+    #[test]
+    fn schema_level_has_decode_warnings() {
+        let clean = schema_with(&[("v1", &[c("start-byte", "0"), c("end-byte", "3")])]);
+        assert!(!LayoutComplement::from_schema(&clean).has_decode_warnings());
+
+        let dirty = schema_with(&[("v1", &[c("start-byte", "oops")])]);
+        let lc = LayoutComplement::from_schema(&dirty);
+        assert!(lc.has_decode_warnings());
+        let warnings = lc.decode_warnings();
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].0, Name::from("v1"));
+        assert!(warnings[0].1.contains("start-byte"));
     }
 
     fn schema_with(constraints: &[(&str, &[Constraint])]) -> Schema {

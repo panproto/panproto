@@ -1,82 +1,263 @@
 ==================
-compose precedence
+composition operators
 ==================
 
-let h = f >> g @ k
+define t = f >>> g
+define c = f >> g << h
+define x = f >> g @ k
 
 ---
 
 (source_file
-  (let_decl
-    name: (identifier)
-    value: (compose_expr
-      left: (expr_ident (identifier))
-      right: (tensor_expr
-        left: (expr_ident (identifier))
-        right: (expr_ident (identifier))))))
+  (define_decl
+    (identifier)
+    (trans_compose
+      (expr_ident
+        (identifier))
+      (expr_ident
+        (identifier))))
+  (define_decl
+    (identifier)
+    (compose_expr
+      (compose_expr
+        (expr_ident
+          (identifier))
+        (expr_ident
+          (identifier)))
+      (expr_ident
+        (identifier))))
+  (define_decl
+    (identifier)
+    (compose_expr
+      (expr_ident
+        (identifier))
+      (tensor_expr
+        (expr_ident
+          (identifier))
+        (expr_ident
+          (identifier))))))
+
+==================
+postfix methods
+==================
+
+define m1 = f.marginalize(A, B)
+define m2 = f.curry_left
+define m3 = f.curry_right
+define m4 = f.change_base(alg)
+define m5 = f.dagger
+define m6 = f.trace(X)
+define m7 = f.freeze
+
+---
+
+(source_file
+  (define_decl
+    (identifier)
+    (postfix_expr
+      (expr_ident
+        (identifier))
+      (method_call
+        (identifier)
+        (identifier))))
+  (define_decl
+    (identifier)
+    (postfix_expr
+      (expr_ident
+        (identifier))
+      (method_call)))
+  (define_decl
+    (identifier)
+    (postfix_expr
+      (expr_ident
+        (identifier))
+      (method_call)))
+  (define_decl
+    (identifier)
+    (postfix_expr
+      (expr_ident
+        (identifier))
+      (method_call
+        (expr_ident
+          (identifier)))))
+  (define_decl
+    (identifier)
+    (postfix_expr
+      (expr_ident
+        (identifier))
+      (method_call)))
+  (define_decl
+    (identifier)
+    (postfix_expr
+      (expr_ident
+        (identifier))
+      (method_call
+        (identifier))))
+  (define_decl
+    (identifier)
+    (postfix_expr
+      (expr_ident
+        (identifier))
+      (method_call))))
+
+==================
+structural intrinsics
+==================
+
+define wires = identity(A) >> cup(B) >> cap(C)
+define weights = from_data("weights")
+
+---
+
+(source_file
+  (define_decl
+    (identifier)
+    (compose_expr
+      (compose_expr
+        (identity_expr
+          (identifier))
+        (cup_expr
+          (identifier)))
+      (cap_expr
+        (identifier))))
+  (define_decl
+    (identifier)
+    (from_data_expr
+      (string))))
 
 ==================
 combinators
 ==================
 
-let layer = fan(head, tail) >> stack(deep, 4)
-let big   = repeat(transition) >> emission
-let filter = scan(cell, init=learned)
+define layer = fan(head, tail) >> stack(deep, 4)
+define chain = repeat(step) >> repeat(cell, 3)
+define folded = scan(cell) >> scan(cell2, init=h0)
 
 ---
 
 (source_file
-  (let_decl
-    name: (identifier)
-    value: (compose_expr
-      left: (fan_expr
-        args: (expr_ident (identifier))
-        args: (expr_ident (identifier)))
-      right: (stack_expr
-        inner: (expr_ident (identifier))
-        count: (integer))))
-  (let_decl
-    name: (identifier)
-    value: (compose_expr
-      left: (repeat_expr inner: (expr_ident (identifier)))
-      right: (expr_ident (identifier))))
-  (let_decl
-    name: (identifier)
-    value: (scan_expr
-      inner: (expr_ident (identifier))
-      init: (identifier))))
+  (define_decl
+    (identifier)
+    (compose_expr
+      (fan_expr
+        (expr_ident
+          (identifier))
+        (expr_ident
+          (identifier)))
+      (stack_expr
+        (expr_ident
+          (identifier))
+        (integer))))
+  (define_decl
+    (identifier)
+    (compose_expr
+      (repeat_expr
+        (expr_ident
+          (identifier)))
+      (repeat_expr
+        (expr_ident
+          (identifier))
+        (integer))))
+  (define_decl
+    (identifier)
+    (compose_expr
+      (scan_expr
+        (expr_ident
+          (identifier)))
+      (scan_expr
+        (expr_ident
+          (identifier))
+        (identifier)))))
 
 ==================
-parser invocation
+parser expressions
 ==================
 
-let g = parser(rules=[a, b], terminal=Token, start=S, depth=2)
+define pr = parser(rules=[fwd, bwd], categories=[S, NP], terminal=Token, start=S, depth=2, constructors=[node])
+define cg = ccg(rules=[fwd], start=S)
+define lb = lambek(rules=[fwd], depth=3)
 
 ---
 
 (source_file
-  (let_decl
-    name: (identifier)
-    value: (parser_expr
-      args: (parser_arg
-        value: (ident_list (identifier) (identifier)))
-      args: (parser_arg value: (identifier))
-      args: (parser_arg value: (identifier))
-      args: (parser_arg value: (integer)))))
+  (define_decl
+    (identifier)
+    (parser_expr
+      (parser_arg
+        (ident_list
+          (identifier)
+          (identifier)))
+      (parser_arg
+        (ident_list
+          (identifier)
+          (identifier)))
+      (parser_arg
+        (identifier))
+      (parser_arg
+        (identifier))
+      (parser_arg
+        (integer))
+      (parser_arg
+        (ident_list
+          (identifier)))))
+  (define_decl
+    (identifier)
+    (parser_expr
+      (parser_arg
+        (ident_list
+          (identifier)))
+      (parser_arg
+        (identifier))))
+  (define_decl
+    (identifier)
+    (parser_expr
+      (parser_arg
+        (ident_list
+          (identifier)))
+      (parser_arg
+        (integer)))))
 
 ==================
-postfix marginalize
+chart fold
 ==================
 
-let m = f.marginalize(A, B)
+define ch = chart_fold(lex=embed, binary=combine, unary=lift_op, start=S, depth=4, effect_depth=1)
 
 ---
 
 (source_file
-  (let_decl
-    name: (identifier)
-    value: (postfix_expr
-      inner: (expr_ident (identifier))
-      method: (method_call
-        args: (identifier)
-        args: (identifier)))))
+  (define_decl
+    (identifier)
+    (chart_fold_expr
+      (chart_fold_arg
+        (expr_ident
+          (identifier)))
+      (chart_fold_arg
+        (expr_ident
+          (identifier)))
+      (chart_fold_arg
+        (expr_ident
+          (identifier)))
+      (chart_fold_arg
+        (expr_ident
+          (identifier)))
+      (chart_fold_arg
+        (integer))
+      (chart_fold_arg
+        (integer)))))
+
+==================
+morphism call
+==================
+
+define applied = apply_schema(f, x)
+
+---
+
+(source_file
+  (define_decl
+    (identifier)
+    (morphism_call
+      (identifier)
+      (identifier)
+      (identifier))))

@@ -13,8 +13,21 @@ use std::collections::{HashSet, VecDeque};
 
 use panproto_schema::Schema;
 
+use crate::attributes::{AttributeSchema, AttributeViolation};
 use crate::error::ValidationError;
 use crate::wtype::WInstance;
+
+/// Validate the attribute payload of a W-type instance against a schema.
+///
+/// This is an opt-in check, distinct from the structural [`validate_wtype`]
+/// pass: it derives the schema's [`AttributeSchema`] and reports each node
+/// whose `extra_fields` carry an undeclared attribute key or a value whose
+/// kind does not match the declaration. Nodes over vertices with no declared
+/// attributes are unconstrained.
+#[must_use]
+pub fn validate_attributes(schema: &Schema, instance: &WInstance) -> Vec<AttributeViolation> {
+    AttributeSchema::from_schema(schema).validate_wtype(instance)
+}
 
 /// Validate a W-type instance against a schema.
 ///

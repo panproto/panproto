@@ -45,22 +45,49 @@ impl Default for CheckModelOptions {
 
 /// Check whether a model satisfies all equations of its theory.
 ///
-/// Returns a list of violations (empty means the model is valid).
+/// Each equation is checked by enumerating every variable assignment
+/// drawn from the carrier sets of the equation's variables and comparing
+/// the two sides. The enumeration is bounded: per equation, at most
+/// [`CheckModelOptions::max_assignments`] assignments are considered
+/// (default 10,000). This function uses that default.
+///
+/// The check is exhaustive over the equation's finite carrier product
+/// whenever that product fits within the bound, so an empty violation
+/// list from a completed check is a proof of satisfaction over the given
+/// carriers. An equation whose carrier product exceeds the bound is
+/// *not* checked; the whole call then returns
+/// [`GatError::ModelCheckLimitExceeded`] naming that equation rather than
+/// silently returning an empty (and unproven) violation list. Callers
+/// that treat any error as "check skipped" must therefore not read an
+/// error as a passing check.
+///
+/// Returns a list of violations (empty means every equation was checked
+/// exhaustively and holds).
 ///
 /// # Errors
 ///
-/// Returns [`GatError`] if variable sorts cannot be inferred or a carrier
-/// set is missing from the model.
+/// Returns [`GatError::ModelCheckLimitExceeded`] if any equation's
+/// assignment count exceeds the default per-equation bound, or
+/// [`GatError`] if variable sorts cannot be inferred or a carrier set is
+/// missing from the model.
 pub fn check_model(model: &Model, theory: &Theory) -> Result<Vec<EquationViolation>, GatError> {
     check_model_with_options(model, theory, &CheckModelOptions::default())
 }
 
 /// Check with configurable options.
 ///
+/// The per-equation assignment bound is [`CheckModelOptions::max_assignments`]
+/// (set to 0 to disable the bound). Within the bound the enumeration is
+/// exhaustive over the finite carrier product, so an empty violation list
+/// distinguishes a completed, exhaustive check from a truncated one: a
+/// truncated equation raises [`GatError::ModelCheckLimitExceeded`] rather
+/// than contributing an empty result.
+///
 /// # Errors
 ///
-/// Returns [`GatError::ModelError`] if the assignment count exceeds
-/// `options.max_assignments`, or other errors from type inference.
+/// Returns [`GatError::ModelCheckLimitExceeded`] if an equation's
+/// assignment count exceeds `options.max_assignments`, or other errors
+/// from type inference.
 pub fn check_model_with_options(
     model: &Model,
     theory: &Theory,
@@ -127,10 +154,11 @@ fn check_equation(
         .unwrap_or(usize::MAX);
 
     if options.max_assignments > 0 && total > options.max_assignments {
-        return Err(GatError::ModelError(format!(
-            "equation '{}' requires {total} assignments, exceeding limit {}",
-            eq.name, options.max_assignments
-        )));
+        return Err(GatError::ModelCheckLimitExceeded {
+            equation: eq.name.to_string(),
+            required: total,
+            limit: options.max_assignments,
+        });
     }
 
     let mut violations = Vec::new();
@@ -190,18 +218,38 @@ fn eval_term(
             scrutinee,
             branches,
         } => {
-            // Model evaluation of a case term: evaluate the scrutinee
-            // and match against branches by constructor-tagged
-            // model values. Set-theoretic models return a
-            // ModelValue::Constructor variant when appropriate. Since
-            // the current Model runtime does not carry constructor
-            // tags, we surface this as an unsupported-in-model error;
-            // the typechecker still verifies well-formedness
-            // independently.
-            let _ = (scrutinee, branches);
-            Err(GatError::ModelError(
-                "case terms are not yet supported in set-theoretic model evaluation".to_string(),
-            ))
+            // Evaluate the scrutinee, then select the branch whose
+            // constructor matches the scrutinee's tag, bind that branch's
+            // pattern variables to the constructor arguments, and evaluate
+            // the branch body. This requires the scrutinee to reduce to a
+            // constructor-tagged value; a value of any other shape cannot
+            // be pattern-matched.
+            let scrutinee_val = eval_term(scrutinee, assignment, model)?;
+            let ModelValue::Constructor { tag, args } = &scrutinee_val else {
+                return Err(GatError::ModelError(format!(
+                    "case scrutinee did not evaluate to a constructor value: {scrutinee_val:?}"
+                )));
+            };
+            let branch = branches
+                .iter()
+                .find(|b| b.constructor.as_ref() == tag.as_str())
+                .ok_or_else(|| {
+                    GatError::ModelError(format!(
+                        "case scrutinee has constructor '{tag}' with no matching branch"
+                    ))
+                })?;
+            if branch.binders.len() != args.len() {
+                return Err(GatError::ModelError(format!(
+                    "case branch for constructor '{tag}' binds {} name(s) but the value carries {} argument(s)",
+                    branch.binders.len(),
+                    args.len()
+                )));
+            }
+            let mut extended = assignment.clone();
+            for (binder, arg) in branch.binders.iter().zip(args.iter()) {
+                extended.insert(Arc::clone(binder), arg.clone());
+            }
+            eval_term(&branch.body, &extended, model)
         }
 
         Term::Hole { .. } => Err(GatError::ModelError(
@@ -410,7 +458,20 @@ mod tests {
             max_assignments: 100,
         };
         let result = check_model_with_options(&model, &theory, &options);
-        assert!(matches!(result, Err(GatError::ModelError(_))));
+        // The truncation is surfaced as a structured error naming the
+        // equation and the bound, not swallowed into an empty pass.
+        match result {
+            Err(GatError::ModelCheckLimitExceeded {
+                equation,
+                required,
+                limit,
+            }) => {
+                assert_eq!(&*equation, "assoc");
+                assert!(required > limit);
+                assert_eq!(limit, 100);
+            }
+            other => panic!("expected ModelCheckLimitExceeded, got {other:?}"),
+        }
     }
 
     #[test]
@@ -420,5 +481,102 @@ mod tests {
         // No carrier set added; should error.
         let result = check_model(&model, &theory);
         assert!(matches!(result, Err(GatError::ModelError(_))));
+    }
+
+    /// Theory of a boolean-like closed sort `B` with two nullary
+    /// constructors and an operation `neg` whose defining equation uses a
+    /// case term: `neg(b) = case b of tt() => ff() | ff() => tt()`.
+    fn negation_theory() -> Theory {
+        use crate::eq::CaseBranch;
+        use crate::sort::Sort;
+
+        let sort_b = Sort::closed("B", Vec::new(), ["tt", "ff"]);
+        let case_term = Term::Case {
+            scrutinee: Box::new(Term::var("b")),
+            branches: vec![
+                CaseBranch {
+                    constructor: "tt".into(),
+                    binders: Vec::new(),
+                    body: Term::constant("ff"),
+                },
+                CaseBranch {
+                    constructor: "ff".into(),
+                    binders: Vec::new(),
+                    body: Term::constant("tt"),
+                },
+            ],
+        };
+        Theory::new(
+            "Negation",
+            vec![sort_b],
+            vec![
+                Operation::nullary("tt", "B"),
+                Operation::nullary("ff", "B"),
+                Operation::unary("neg", "b", "B", "B"),
+            ],
+            vec![Equation::new(
+                "neg_def",
+                Term::app("neg", vec![Term::var("b")]),
+                case_term,
+            )],
+        )
+    }
+
+    fn tt_value() -> ModelValue {
+        ModelValue::Constructor {
+            tag: "tt".to_owned(),
+            args: Vec::new(),
+        }
+    }
+
+    fn ff_value() -> ModelValue {
+        ModelValue::Constructor {
+            tag: "ff".to_owned(),
+            args: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn case_equation_satisfied_model_passes() -> Result<(), Box<dyn std::error::Error>> {
+        let theory = negation_theory();
+
+        let mut model = Model::new("Negation");
+        model.add_sort("B", vec![tt_value(), ff_value()]);
+        model.add_op("tt", |_: &[ModelValue]| Ok(tt_value()));
+        model.add_op("ff", |_: &[ModelValue]| Ok(ff_value()));
+        // A faithful negation: tt maps to ff and ff maps to tt, matching
+        // the case term on the right-hand side of the equation.
+        model.add_op("neg", |args: &[ModelValue]| match &args[0] {
+            ModelValue::Constructor { tag, .. } if tag == "tt" => Ok(ff_value()),
+            ModelValue::Constructor { tag, .. } if tag == "ff" => Ok(tt_value()),
+            other => Err(GatError::ModelError(format!("neg: unexpected {other:?}"))),
+        });
+
+        let violations = check_model(&model, &theory)?;
+        assert!(
+            violations.is_empty(),
+            "faithful negation satisfies the case equation, got {violations:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn case_equation_violation_detected() -> Result<(), Box<dyn std::error::Error>> {
+        let theory = negation_theory();
+
+        let mut model = Model::new("Negation");
+        model.add_sort("B", vec![tt_value(), ff_value()]);
+        model.add_op("tt", |_: &[ModelValue]| Ok(tt_value()));
+        model.add_op("ff", |_: &[ModelValue]| Ok(ff_value()));
+        // A broken negation that returns its argument unchanged: neg(b)
+        // then disagrees with the case term, which flips the tag.
+        model.add_op("neg", |args: &[ModelValue]| Ok(args[0].clone()));
+
+        let violations = check_model(&model, &theory)?;
+        assert!(
+            violations.iter().any(|v| v.equation.as_ref() == "neg_def"),
+            "identity negation must violate the case equation, got {violations:?}"
+        );
+        Ok(())
     }
 }

@@ -8,38 +8,37 @@ A panproto repository under git. A CI system that can run shell commands.
 
 ## The task
 
-`schema check` enforces existence conditions; it does not classify. Use `schema diff` (which reports structural changes) plus `schema lens generate` (which fails when no chain exists) and combine into a gate:
+`schema compat` classifies the diff between two schema versions and sets its exit code by tier: 0 for a non-breaking change (fully compatible or backward compatible), 1 for a breaking one, 2 for a usage or load error. That exit code is the gate. Pair it with `schema check --typecheck`, which catches GAT-level type errors the structural classification does not:
 
 ```sh
 # In your CI script.
 git fetch origin main
 git show origin/main:schemas/user.json > /tmp/user-base.json
 
-# Existence + GAT-level type check.
+# Classify the change; exit 1 means breaking, exit 2 a usage or load error.
+schema compat /tmp/user-base.json schemas/user.json --protocol atproto
+
+# GAT-level type check.
 schema check \
   --src /tmp/user-base.json \
   --tgt schemas/user.json \
   --mapping migrations/user.json \
   --typecheck
-
-# Generate a chain; non-zero exit means the change is breaking
-# (no auto-generated lens covers it).
-schema lens generate --protocol atproto /tmp/user-base.json schemas/user.json --save /tmp/chain.json
 ```
 
 Either step's non-zero exit fails the build. To allow an explicit override, gate on a commit-message marker or a PR label:
 
 ```sh
 if git log -1 --format=%B | grep -q '\[breaking-change-acknowledged\]'; then
+  schema compat /tmp/user-base.json schemas/user.json --protocol atproto || true
   schema check ... --typecheck || true
-  schema lens generate ... || true
 else
+  schema compat /tmp/user-base.json schemas/user.json --protocol atproto
   schema check ... --typecheck
-  schema lens generate ...
 fi
 ```
 
-For richer classification, use the SDK: in Python, `panproto.diff_and_classify(old, new, protocol)` returns a `CompatReport`; in Rust, call `panproto_check::diff(...)` followed by `panproto_check::classify(&diff, &protocol)`; in TypeScript, `panproto.diffFull(old, new).classify(protocol)` returns the same report. Each carries a classification (`fully_compatible`, `backward_compatible`, or `breaking`) along with the offending elements.
+For richer reporting, add `--format json` to `schema compat`, or use the SDK: in Python, `panproto.diff_and_classify(old, new, protocol)` returns a `CompatReport`; in Rust, call `panproto_check::diff(...)` followed by `panproto_check::classify(&diff, &protocol)`; in TypeScript, `panproto.diffFull(old, new).classify(protocol)` returns the same report. Each `CompatReport` carries a `classification` tier (`fully-compatible`, `backward-compatible`, or `breaking`) alongside a `breaking` list, a `non_breaking` list, and a `compatible` boolean, along with the offending elements.
 
 ## Verification
 

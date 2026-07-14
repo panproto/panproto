@@ -368,6 +368,10 @@ fn value_to_json(val: &Value) -> serde_json::Value {
             serde_json::Value::Object(map)
         }
         Value::List(items) => serde_json::Value::Array(items.iter().map(value_to_json).collect()),
+        // A labeled null is an existential placeholder produced by the
+        // chase; render it with its identity so it stays distinguishable
+        // from a concrete null.
+        Value::LabeledNull(id) => json!({ "$labeledNull": id }),
     }
 }
 

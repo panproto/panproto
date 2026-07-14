@@ -19,6 +19,12 @@
 
 /// Generic attributed C-set trait unifying all instance shapes.
 pub mod acset;
+/// The Sigma/Delta migration adjunction (unit, counit, transposes).
+pub mod adjunction;
+/// ACSet attribute discipline: derive and validate per-vertex attributes.
+pub mod attributes;
+/// The complement: data discarded by a forward projection.
+pub mod complement;
 /// Incremental contraction tracker for ancestor contraction.
 pub mod contraction;
 /// Edit errors for tree and table edits.
@@ -39,6 +45,8 @@ pub mod hom;
 pub mod instance;
 /// Instance-aware expression evaluation (graph traversal builtins).
 pub mod instance_env;
+/// First-class instance homomorphisms (morphisms of instances over a schema).
+pub mod instance_hom;
 /// Metadata types for instance nodes.
 pub mod metadata;
 /// JSON parsing for W-type instances.
@@ -65,6 +73,12 @@ pub mod wtype;
 
 // Re-exports for convenience.
 pub use acset::AcsetOps;
+pub use adjunction::{
+    AdjunctionError, f_counit, f_delta, f_sigma, f_transpose_left, f_transpose_right, f_unit,
+    w_counit, w_delta, w_sigma, w_transpose_left, w_transpose_right, w_unit,
+};
+pub use attributes::{AttributeDecl, AttributeSchema, AttributeViolation};
+pub use complement::Complement;
 pub use contraction::{ContractionRecord, ContractionTracker};
 pub use edit_error::EditError;
 pub use element_ops::{ElementOps, decode_finstance_id, encode_finstance_id};
@@ -75,12 +89,13 @@ pub use ginstance::{GInstance, graph_extend, graph_restrict};
 pub use hom::{curry_migration, eval_hom, hom_schema};
 pub use instance::Instance;
 pub use instance_env::{eval_with_element_ops, eval_with_instance};
+pub use instance_hom::{FInstanceHom, HomError, WInstanceHom};
 pub use metadata::{Node, NodeShape};
 pub use parse::{parse_json, to_json};
 pub use pi::{functor_pi, wtype_pi};
 pub use poly::{
-    Complement, DroppedNode, SectionEnrichment, fiber_at_anchor, fiber_at_node,
-    fiber_decomposition, fiber_with_predicate, group_by, join, restrict_with_complement, section,
+    SectionEnrichment, fiber_at_anchor, fiber_at_node, fiber_decomposition, fiber_with_predicate,
+    group_by, join, restrict_with_complement, section,
 };
 pub use provenance::{Provenance, ProvenanceMap, SourceField, TransformStep, compute_provenance};
 pub use query::{
@@ -90,11 +105,12 @@ pub use query::{
 pub use reachability::ReachabilityIndex;
 pub use table_edit::TableEdit;
 pub use tree_edit::TreeEdit;
-pub use validate::validate_wtype;
+pub use validate::{validate_attributes, validate_wtype};
 pub use value::{FieldPresence, Value};
 pub use wtype::{
-    CaseBranch, CompiledMigration, FieldTransform, WInstance, ancestor_contraction,
-    anchor_surviving, build_env_from_extra_fields, build_env_with_children,
-    collect_scalar_child_values, expr_literal_to_value, reconstruct_fans, resolve_edge,
-    value_to_expr_literal, wtype_extend, wtype_restrict,
+    CaseBranch, CompiledMigration, FieldTransform, TermAssignment, TermBranch, TermScope,
+    WInstance, ancestor_contraction, anchor_surviving, apply_term_assignments_to_row,
+    build_env_from_extra_fields, build_env_with_children, collect_scalar_child_values,
+    expr_literal_to_value, reconstruct_fans, resolve_edge, value_to_expr_literal, wtype_extend,
+    wtype_extend_partial, wtype_restrict,
 };

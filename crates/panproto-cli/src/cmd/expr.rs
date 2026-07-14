@@ -8,10 +8,10 @@ use crate::repl::{self, LineResult, ReplConfig};
 use super::helpers::load_json;
 
 /// Parse source text through the lexer and parser, returning the AST on success.
-fn parse_source(source: &str) -> Result<panproto_expr::Expr> {
-    let tokens =
-        panproto_expr_parser::tokenize(source).map_err(|e| miette::miette!("lex error: {e}"))?;
-    panproto_expr_parser::parse(&tokens).map_err(|errs| {
+fn parse_source(source: &str) -> Result<panproto_core::expr::Expr> {
+    let tokens = panproto_core::expr_parser::tokenize(source)
+        .map_err(|e| miette::miette!("lex error: {e}"))?;
+    panproto_core::expr_parser::parse(&tokens).map_err(|errs| {
         let msgs: Vec<String> = errs.iter().map(ToString::to_string).collect();
         miette::miette!("parse error(s):\n{}", msgs.join("\n"))
     })
@@ -36,9 +36,9 @@ pub fn cmd_expr_eval_source(source: &str, verbose: bool) -> Result<()> {
     if verbose {
         eprintln!("AST: {expr:?}");
     }
-    let config = panproto_expr::EvalConfig::default();
-    let env = panproto_expr::Env::new();
-    let result = panproto_expr::eval(&expr, &env, &config)
+    let config = panproto_core::expr::EvalConfig::default();
+    let env = panproto_core::expr::Env::new();
+    let result = panproto_core::expr::eval(&expr, &env, &config)
         .map_err(|e| miette::miette!("eval error: {e}"))?;
     let json = serde_json::to_string_pretty(&result)
         .into_diagnostic()
@@ -53,7 +53,7 @@ pub fn cmd_expr_fmt(source: &str, verbose: bool) -> Result<()> {
         eprintln!("Parsing: {source}");
     }
     let expr = parse_source(source)?;
-    let formatted = panproto_expr_parser::pretty_print(&expr);
+    let formatted = panproto_core::expr_parser::pretty_print(&expr);
     println!("{formatted}");
     Ok(())
 }
@@ -67,7 +67,7 @@ pub fn cmd_expr_check_source(source: &str, verbose: bool) -> Result<()> {
         eprintln!("Checking: {source}");
     }
     // Lex phase.
-    let tokens = match panproto_expr_parser::tokenize(source) {
+    let tokens = match panproto_core::expr_parser::tokenize(source) {
         Ok(t) => t,
         Err(e) => {
             println!("lex error: {e}");
@@ -75,7 +75,7 @@ pub fn cmd_expr_check_source(source: &str, verbose: bool) -> Result<()> {
         }
     };
     // Parse phase.
-    match panproto_expr_parser::parse(&tokens) {
+    match panproto_core::expr_parser::parse(&tokens) {
         Ok(_) => {
             println!("OK");
             Ok(())

@@ -1,0 +1,20 @@
+[package]
+name = "panproto-dsl-eval"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Shared Nickel, JSON, and YAML evaluation for panproto's declarative DSLs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+nickel-lang = "2.0.0"
+yaml_serde = "0.10"
+tempfile = "3"
+
+[lints]
+workspace = true

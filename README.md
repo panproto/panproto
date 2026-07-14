@@ -19,19 +19,19 @@
 
 </div>
 
-panproto reads your schema (JSON Schema, OpenAPI, ATProto Lexicons, Protobuf, GraphQL, SQL DDL, Avro, or [43 others](crates/panproto-protocols)), figures out what changed, and generates the code to convert your data from the old shape to the new one. It can also parse source code in 259 programming languages (via tree-sitter) and treat the full AST as a schema, so the same diff/migrate/version-control workflow works on code structure, not just data formats. It version-controls your schemas the same way git version-controls your source code.
+panproto reads your schema (an ATProto Lexicon, OpenAPI spec, Avro schema, or [47 others](crates/panproto-protocols) with built-in protocol theories), figures out what changed, and generates the code to convert your data from the old shape to the new one. Formats without a dedicated protocol theory, including JSON Schema, Protobuf, GraphQL, and SQL DDL, are read on the same pipeline through tree-sitter source parsing rather than as protocol theories. It can also parse source code in 259 programming languages (via tree-sitter) and treat the full AST as a schema, so the same diff/migrate/version-control workflow works on code structure, not just data formats. It version-controls your schemas the same way git version-controls your source code.
 
 ## What problem does this solve?
 
 Every time you change an API response, rename a database column, or update a config file format, you need migration code. Writing that code by hand is tedious and error-prone. panproto automates it:
 
 1. **Diff** two schema versions to see exactly what changed (fields added, removed, renamed, types widened).
-2. **Classify** whether the change is backward-compatible or breaking, using the rules of the specific schema language.
+2. **Classify** the change as fully compatible, backward compatible, or breaking, using the rules of the specific schema language.
 3. **Generate** a bidirectional lens that can convert records from the old schema to the new one (and back, without losing data).
 4. **Version-control** your schemas with git-style commands (`commit`, `branch`, `merge`, `diff`) so your schema history is as clean as your code history.
 5. **Parse source code** in 261 languages (TypeScript, Python, Rust, Go, Java, C, and [255 more](crates/panproto-grammars)) into the same schema representation, so you can diff, migrate, and version-control code structure alongside data schemas.
 
-It works the same way regardless of whether your schema is an OpenAPI spec, an ATProto lexicon, a Protobuf definition, or a SQL table. panproto treats all of them as instances of a common structure.
+It works the same way regardless of whether your schema is an OpenAPI spec, an ATProto lexicon, an Avro schema, or a FHIR resource. panproto treats all of them as instances of a common structure.
 
 ## Installation
 
@@ -50,6 +50,8 @@ powershell -ExecutionPolicy ByPass -c "irm https://github.com/panproto/panproto/
 # From source (any platform with Rust)
 cargo install panproto-cli
 ```
+
+The `schema` binary's `--protocol` flag currently accepts `atproto` only; other formats are read on the tree-sitter source-parse path (`schema parse`) rather than through a protocol theory.
 
 ### SDKs
 
@@ -200,24 +202,21 @@ schema expr repl
 | [`panproto-lens-dsl`](crates/panproto-lens-dsl) | Write lens specifications declaratively in Nickel, JSON, or YAML instead of code. |
 | [`panproto-theory-dsl`](crates/panproto-theory-dsl) | Write theory (schema language) definitions declaratively in Nickel, JSON, or YAML. |
 | [`panproto-check`](crates/panproto-check) | Detects breaking changes between two schema versions: added/removed fields, type changes, constraint violations. |
-| [`panproto-protocols`](crates/panproto-protocols) | 50 built-in schema language definitions: ATProto, OpenAPI, JSON Schema, Protobuf, GraphQL, SQL DDL, Avro, and more. |
+| [`panproto-protocols`](crates/panproto-protocols) | 50 built-in schema language definitions (protocol theories): ATProto, OpenAPI, AsyncAPI, Avro, FHIR, GeoJSON, and more. |
 | [`panproto-io`](crates/panproto-io) | Reads and writes instance data in each protocol's native format (JSON, XML, YAML, CSV, etc.) with optional format-preserving round-trips. |
 | [`panproto-vcs`](crates/panproto-vcs) | Git-style version control for schemas: commit, branch, merge, diff, log, blame, bisect. |
 | [`panproto-parse`](crates/panproto-parse) | Parses source code in 259 programming languages into schema graphs using tree-sitter grammars. |
 | [`panproto-grammars`](crates/panproto-grammars) | Pre-compiled tree-sitter grammars for 261 languages (build-time dependency, not published). |
 | [`panproto-project`](crates/panproto-project) | Assembles multi-file projects into a single schema, resolving cross-file imports. |
 | [`panproto-git`](crates/panproto-git) | Translates between git repositories and panproto's version control, so `git push` works with panproto repos. |
-| [`panproto-llvm`](crates/panproto-llvm) | Models LLVM IR as a schema language, enabling compilation-as-migration from language ASTs to IR. |
-| [`panproto-jit`](crates/panproto-jit) | Compiles panproto expressions to native machine code via LLVM for faster data migration. |
 | [`panproto-core`](crates/panproto-core) | Convenience re-export of all the above crates. Add one dependency instead of many. |
 | [`panproto-wasm`](crates/panproto-wasm) | WebAssembly build of the engine, used by the TypeScript SDK. |
 | [`panproto-py`](crates/panproto-py) | Native Python bindings via PyO3. |
 | [`panproto-grammars-{group}`](crates/panproto-grammars-functional) | Companion grammar packs (`functional`, `web`, `systems`, `jvm`, `scripting`, `data`, `devops`, `mobile`, `music`, `all`). One pyo3 cdylib per group; ship as separate pip-installable wheels that contribute grammars to `panproto.AstParserRegistry()` via the `panproto.grammars` entry point. |
 | [`panproto-c`](crates/panproto-c) | Panic-safe C ABI for non-Rust language bindings. Generated by `safer-ffi`. |
 | [`panproto-xrpc`](crates/panproto-xrpc) | XRPC client for pushing/pulling schemas to panproto node servers. |
-| [`panproto-cli`](crates/panproto-cli) | The `schema` command-line tool. |
+| [`panproto-cli`](crates/panproto-cli) | The `schema` command-line tool. Hosts the interactive REPL for theories, terms, and morphisms (`schema theory repl`). |
 | [`panproto-git-remote`](crates/panproto-git-remote) | Git remote helper (`git-remote-panproto` binary) that makes `git push panproto://` work. |
-| [`panproto-repl`](crates/panproto-repl) | Interactive REPL for panproto theories, terms, and morphisms. Also reachable as `schema theory repl`. |
 
 ## How it works
 
@@ -225,7 +224,7 @@ panproto has a layered architecture. Each layer builds on the one below:
 
 **Layer 0: The algebra engine** (`panproto-gat`). This is the foundation. It implements a system for defining "theories": sets of types, operations on those types, and equations those operations must satisfy. Think of it as a type system for type systems. A theory defines what a valid schema looks like for a particular format.
 
-**Layer 1: Protocol definitions** (`panproto-protocols`). Each schema language (OpenAPI, ATProto, Protobuf, etc.) is described as a theory. For example, the OpenAPI theory says "a schema has vertices of kind `object`, `string`, `array`, etc., connected by edges of kind `prop`, `items`, `ref`, etc." Adding a new schema language means writing a new theory definition. No engine code changes.
+**Layer 1: Protocol definitions** (`panproto-protocols`). Each schema language (OpenAPI, ATProto, Avro, etc.) is described as a theory. For example, the OpenAPI theory says "a schema has vertices of kind `object`, `string`, `array`, etc., connected by edges of kind `prop`, `items`, `ref`, etc." Adding a new schema language means writing a new theory definition. No engine code changes.
 
 **Layer 2: Schemas** (`panproto-schema`). A concrete schema (like your `api.yaml` or `schema.json`) is an instance of a theory. panproto represents it as a labeled directed graph where vertices are types and edges are relationships.
 

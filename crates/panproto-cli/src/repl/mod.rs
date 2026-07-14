@@ -19,8 +19,10 @@ use rustyline::history::DefaultHistory;
 use rustyline::validate::Validator;
 use rustyline::{Cmd, Editor, Helper, KeyEvent};
 
+mod engine;
 mod highlight;
 
+pub use engine::{Repl, ReplOutcome};
 pub use highlight::error;
 
 /// Outcome of processing one input line. Drives the loop in

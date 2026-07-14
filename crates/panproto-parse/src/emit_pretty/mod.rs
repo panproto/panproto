@@ -363,7 +363,7 @@ mod tests {
             }
         }"#;
         let g = Grammar::from_bytes("tmpl", bytes).expect("valid grammar");
-        assert!(g.start_symbol == "program");
+        assert_eq!(g.start_symbol, "program");
         assert!(g.top_level_text_admits_newline);
         // A grammar whose only newline-admitting class is a block comment
         // (nested under delimiters, not a top-level document node) must NOT
@@ -382,7 +382,7 @@ mod tests {
             }
         }"#;
         let g2 = Grammar::from_bytes("prog", bytes2).expect("valid grammar");
-        assert!(g2.start_symbol == "source_file");
+        assert_eq!(g2.start_symbol, "source_file");
         assert!(!g2.top_level_text_admits_newline);
     }
 

@@ -1,7 +1,9 @@
 //! Main compilation dispatcher and bundle compiler.
 //!
-//! Validates that a [`TheoryDocument`] has exactly one body variant,
-//! then dispatches to the appropriate body-specific compiler. Also
+//! A [`TheoryDocument`] carries exactly one body variant by
+//! construction: [`TheoryBody`] is an untagged enum, so a document
+//! deserializes to exactly one variant and the compiler simply matches
+//! on it, dispatching to the appropriate body-specific compiler. Also
 //! provides [`compile_bundle`] for multi-definition files and
 //! [`builtin_resolver`] for looking up panproto's built-in theories.
 
@@ -65,13 +67,76 @@ fn find_name_span(source: &str, name: &str) -> Option<miette::SourceSpan> {
         .map(|i| miette::SourceSpan::new(i.into(), needle.len()))
 }
 
-/// Compile a [`TheoryDocument`] without source-span tracking.
+/// Compile a [`TheoryDocument`], enforcing coercion laws on every
+/// compiled theory.
+///
+/// Dispatches on the document body and then runs the sample-based
+/// coercion-law check, drawing samples from the built-in
+/// [`CoercionSampleRegistry::with_defaults`](panproto_lens::coercion_laws::CoercionSampleRegistry::with_defaults),
+/// on each theory in the result. A theory whose directed equations
+/// declare a coercion class that its `impl`/`inverse` pair does not
+/// satisfy on the default samples is rejected with
+/// [`TheoryDslError::CoercionLawViolation`]. Documents that declare no
+/// directed equations pass the check vacuously.
+///
+/// Use [`compile_unchecked`] to skip the law check, or
+/// [`compile_with_registry`] to draw samples from a domain-specific
+/// registry.
+///
+/// # Errors
+///
+/// Returns errors from body validation, theory resolution, compilation
+/// of the specific body variant, or
+/// [`TheoryDslError::CoercionLawViolation`] when a declared coercion
+/// class is falsified on the default samples.
+pub fn compile(
+    doc: &TheoryDocument,
+    resolver: &dyn Fn(&str) -> Option<Theory>,
+) -> Result<CompiledTheorySet, TheoryDslError> {
+    let registry = panproto_lens::coercion_laws::CoercionSampleRegistry::with_defaults();
+    compile_with_registry(doc, resolver, &registry)
+}
+
+/// Compile a [`TheoryDocument`], enforcing coercion laws against a
+/// caller-supplied sample registry.
+///
+/// Behaves like [`compile`] but draws coercion-law samples from
+/// `registry` instead of the built-in defaults, letting callers pin
+/// domain-specific edge cases. Samples are bound under the free
+/// variable name `"x"`.
+///
+/// # Errors
+///
+/// Same as [`compile`].
+pub fn compile_with_registry(
+    doc: &TheoryDocument,
+    resolver: &dyn Fn(&str) -> Option<Theory>,
+    registry: &panproto_lens::coercion_laws::CoercionSampleRegistry,
+) -> Result<CompiledTheorySet, TheoryDslError> {
+    let set = compile_unchecked(doc, resolver)?;
+    // Check theories in name order so the surfaced violation is
+    // deterministic across runs regardless of map iteration order.
+    let mut names: Vec<&String> = set.theories.keys().collect();
+    names.sort();
+    for name in names {
+        crate::compile_theory::enforce_coercion_laws(&set.theories[name], registry, "x")?;
+    }
+    Ok(set)
+}
+
+/// Compile a [`TheoryDocument`] without the coercion-law check.
+///
+/// Dispatches on the document body and returns the compiled set
+/// without consulting declared coercion classes. Callers that have
+/// already validated their coercion classes, or that intentionally
+/// carry declarations they do not want sample-checked, use this to
+/// skip the check that [`compile`] runs by default.
 ///
 /// # Errors
 ///
 /// Returns errors from body validation, theory resolution, or
 /// compilation of the specific body variant.
-pub fn compile(
+pub fn compile_unchecked(
     doc: &TheoryDocument,
     resolver: &dyn Fn(&str) -> Option<Theory>,
 ) -> Result<CompiledTheorySet, TheoryDslError> {
@@ -341,4 +406,114 @@ fn compile_bundle_inner(
         protocols,
         composition_specs,
     })
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::document::{DirectedEqSpec, OpSpec, SortKindSpec, SortSpec};
+
+    fn no_resolver(_name: &str) -> Option<Theory> {
+        None
+    }
+
+    /// A theory whose directed equation declares an `iso` coercion
+    /// class on `upper`, which is not invertible: `upper` collapses
+    /// distinct inputs, so the declared round-trip does not hold.
+    fn lying_iso_document() -> TheoryDocument {
+        TheoryDocument {
+            id: "doc.lying".to_owned(),
+            description: String::new(),
+            body: TheoryBody::Theory(TheorySpec {
+                theory: "ThLying".to_owned(),
+                extends: vec![],
+                imports: vec![],
+                sorts: vec![SortSpec {
+                    name: "Str".to_owned(),
+                    params: vec![],
+                    kind: SortKindSpec::Val {
+                        value_kind: "string".to_owned(),
+                    },
+                    closed: None,
+                }],
+                ops: vec![OpSpec {
+                    name: "upper".to_owned(),
+                    input: Some("Str".to_owned()),
+                    inputs: None,
+                    output: "Str".to_owned(),
+                }],
+                equations: vec![],
+                directed_equations: vec![DirectedEqSpec {
+                    name: "lying_upper_iso".to_owned(),
+                    lhs: "upper(x)".to_owned(),
+                    rhs: "x".to_owned(),
+                    impl_expr: "upper(x)".to_owned(),
+                    inverse: Some("x".to_owned()),
+                    source_kind: Some("string".to_owned()),
+                    target_kind: Some("string".to_owned()),
+                    coercion_class: "iso".to_owned(),
+                }],
+                policies: vec![],
+            }),
+        }
+    }
+
+    #[test]
+    fn default_compile_rejects_lying_iso() {
+        let doc = lying_iso_document();
+        let err = compile(&doc, &no_resolver).expect_err("default compile must reject a lying iso");
+        match err {
+            TheoryDslError::CoercionLawViolation {
+                theory,
+                violations,
+                distinct_equations,
+            } => {
+                assert_eq!(theory, "ThLying");
+                assert!(!violations.is_empty());
+                assert!(violations.iter().all(|d| d.equation == "lying_upper_iso"));
+                assert_eq!(distinct_equations, 1);
+            }
+            other => panic!("expected CoercionLawViolation, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unchecked_compile_accepts_lying_iso() {
+        let doc = lying_iso_document();
+        let set = compile_unchecked(&doc, &no_resolver)
+            .expect("unchecked compile must not run the coercion-law check");
+        let theory = set.theories.get("ThLying").expect("ThLying present");
+        assert_eq!(theory.directed_eqs.len(), 1);
+    }
+
+    #[test]
+    fn default_compile_accepts_theory_without_directed_equations() {
+        // A theory with no directed equations passes the law check
+        // vacuously on the default path.
+        let doc = TheoryDocument {
+            id: "doc.plain".to_owned(),
+            description: String::new(),
+            body: TheoryBody::Theory(TheorySpec {
+                theory: "ThPlain".to_owned(),
+                extends: vec![],
+                imports: vec![],
+                sorts: vec![SortSpec {
+                    name: "Str".to_owned(),
+                    params: vec![],
+                    kind: SortKindSpec::Val {
+                        value_kind: "string".to_owned(),
+                    },
+                    closed: None,
+                }],
+                ops: vec![],
+                equations: vec![],
+                directed_equations: vec![],
+                policies: vec![],
+            }),
+        };
+        let set =
+            compile(&doc, &no_resolver).expect("plain theory must compile on the default path");
+        assert!(set.theories.contains_key("ThPlain"));
+    }
 }

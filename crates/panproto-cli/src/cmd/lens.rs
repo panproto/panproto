@@ -2,13 +2,13 @@ use std::path::Path;
 
 use miette::{Context, IntoDiagnostic, Result};
 use panproto_core::lens::Stringency;
+use panproto_core::lens_dsl::{HintSpec, HintStringency};
 use panproto_core::{
     gat::Name,
     inst, lens,
     schema::Schema,
     vcs::{self, Store as _},
 };
-use panproto_lens_dsl::{HintSpec, HintStringency};
 
 /// Fold candidate / requirements sections into a JSON-mode root
 /// document so `--json` / `--chain` always emit exactly one JSON value.
@@ -413,6 +413,73 @@ pub fn cmd_lens_generate(
                 }
             }
         }
+    }
+
+    Ok(())
+}
+
+/// Compile a lens DSL document (`.ncl`/`.json`/`.yaml`/`.yml`) into a
+/// protolens chain and emit its JSON.
+///
+/// The document is loaded and compiled via
+/// [`panproto_core::lens_dsl::load_and_compile`], which resolves `compose`
+/// named references against sibling lens documents in the same
+/// directory. The output is a JSON object carrying the document
+/// metadata and, under the `chain` key, the full serde-serialized
+/// [`ProtolensChain`](lens::ProtolensChain) (round-trippable via
+/// `ProtolensChain::from_json`). Written to `out` if given, else stdout.
+pub fn cmd_lens_compile(
+    doc_path: &Path,
+    body_vertex: &str,
+    out: Option<&Path>,
+    verbose: bool,
+) -> Result<()> {
+    if verbose {
+        eprintln!(
+            "Compiling lens DSL document {} (body vertex: {body_vertex})",
+            doc_path.display()
+        );
+    }
+
+    let compiled = panproto_core::lens_dsl::load_and_compile(doc_path, body_vertex)
+        .map_err(miette::Report::new)
+        .wrap_err_with(|| format!("failed to compile {}", doc_path.display()))?;
+
+    // Embed the engine's own round-trippable chain JSON under `chain`.
+    let chain_json = compiled
+        .chain
+        .to_json()
+        .into_diagnostic()
+        .wrap_err("failed to serialize compiled protolens chain")?;
+    let chain_value: serde_json::Value = serde_json::from_str(&chain_json)
+        .into_diagnostic()
+        .wrap_err("failed to parse serialized protolens chain")?;
+
+    let output = serde_json::json!({
+        "id": compiled.id,
+        "description": compiled.description,
+        "source": compiled.source,
+        "target": compiled.target,
+        "invertible": compiled.invertible,
+        "step_count": compiled.chain.steps.len(),
+        "field_transform_vertices": compiled.field_transforms.len(),
+        "symmetric": compiled.symmetric.is_some(),
+        "chain": chain_value,
+    });
+
+    let pretty = serde_json::to_string_pretty(&output)
+        .into_diagnostic()
+        .wrap_err("failed to serialize compilation output")?;
+
+    if let Some(out_path) = out {
+        std::fs::write(out_path, &pretty)
+            .into_diagnostic()
+            .wrap_err_with(|| format!("failed to write chain to {}", out_path.display()))?;
+        if verbose {
+            eprintln!("Wrote compiled chain to {}", out_path.display());
+        }
+    } else {
+        println!("{pretty}");
     }
 
     Ok(())

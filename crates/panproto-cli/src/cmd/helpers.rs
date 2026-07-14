@@ -40,13 +40,36 @@ pub fn build_theory_registry(protocol_name: &str) -> Result<HashMap<String, Theo
     Ok(registry)
 }
 
+/// Register the built-in protocol theories on `repo` so that commit-time and
+/// merge-time schema-equation validation runs against each protocol's
+/// registered theory.
+///
+/// A schema whose protocol has a registered theory is checked against that
+/// theory's equations; a schema whose protocol is unregistered falls back to
+/// structural validation and records an advisory note that no equations were
+/// checked.
+fn register_protocol_theories(repo: &mut vcs::Repository) {
+    let proto = protocols::atproto::protocol();
+    let mut registry: HashMap<String, Theory> = HashMap::new();
+    protocols::atproto::register_theories(&mut registry);
+    if let Some(theory) = registry.get(&proto.schema_theory) {
+        repo.set_protocol_theory(proto.name.clone(), theory.clone());
+    }
+}
+
 /// Open a VCS repository from the current directory (or parent search).
+///
+/// The returned repository has the built-in protocol theories registered, so
+/// its commit and merge paths validate schemas against their protocol's
+/// equations.
 pub fn open_repo() -> Result<vcs::Repository> {
     // Try current directory first.
     let cwd = std::env::current_dir().into_diagnostic()?;
-    vcs::Repository::open(&cwd)
+    let mut repo = vcs::Repository::open(&cwd)
         .into_diagnostic()
-        .wrap_err("not a panproto repository (or any parent up to mount point)")
+        .wrap_err("not a panproto repository (or any parent up to mount point)")?;
+    register_protocol_theories(&mut repo);
+    Ok(repo)
 }
 
 /// Parse default values from `key=value` strings into a map.
@@ -260,6 +283,7 @@ pub fn build_schema_model(
     use panproto_core::gat::{GatError, ModelValue};
 
     let mut model = panproto_core::gat::Model::new(name);
+    let mut truncation_warned = false;
     for sort in &theory.sorts {
         let sort_lower = sort.name.to_lowercase();
         let carrier: Vec<ModelValue> = if sort_lower.contains("vertex")
@@ -288,17 +312,25 @@ pub fn build_schema_model(
                 max_depth: 2,
                 max_terms_per_sort: 100,
             };
-            panproto_core::gat::free_model(theory, &config).map_or_else(
-                |_| Vec::new(),
-                |result| {
+            match panproto_core::gat::free_model(theory, &config) {
+                Ok(result) => {
+                    if !result.is_complete && !truncation_warned {
+                        eprintln!(
+                            "warning: free model for theory '{}' truncated at depth {}; \
+                             generated carriers may be incomplete",
+                            theory.name, config.max_depth
+                        );
+                        truncation_warned = true;
+                    }
                     result
                         .model
                         .sort_interp
                         .get(&sort.name.to_string())
                         .cloned()
                         .unwrap_or_default()
-                },
-            )
+                }
+                Err(_) => Vec::new(),
+            }
         };
         model.add_sort(sort.name.to_string(), carrier);
     }

@@ -114,7 +114,16 @@ pub fn functor_restrict(
         let mut combined_rows = Vec::new();
         for src_vertex in &sources {
             if let Some(rows) = instance.tables.get(*src_vertex) {
-                combined_rows.extend(rows.iter().cloned());
+                // Delta acts on values by substitution: each pulled row is
+                // rewritten by the source vertex's op-to-term assignments.
+                let assignments = migration.op_term_assignments.get(*src_vertex);
+                for row in rows {
+                    let mut new_row = row.clone();
+                    if let Some(assignments) = assignments {
+                        crate::wtype::apply_term_assignments_to_row(&mut new_row, assignments);
+                    }
+                    combined_rows.push(new_row);
+                }
             }
         }
         if !combined_rows.is_empty() {
@@ -178,7 +187,17 @@ pub fn functor_extend(
         let entry = new_tables.entry(tgt_vertex).or_insert_with(Vec::new);
         let offset = entry.len();
         row_offsets.insert(src_vertex.clone(), offset);
-        entry.extend(rows.iter().cloned());
+        // Sigma acts on values by substitution: each forwarded row is
+        // rewritten by the source vertex's op-to-term assignments before
+        // the tables are concatenated.
+        let assignments = migration.op_term_assignments.get(src_vertex.as_str());
+        for row in rows {
+            let mut new_row = row.clone();
+            if let Some(assignments) = assignments {
+                crate::wtype::apply_term_assignments_to_row(&mut new_row, assignments);
+            }
+            entry.push(new_row);
+        }
     }
 
     // Second pass: union column sets within each target table and fill
@@ -235,10 +254,91 @@ pub fn functor_extend(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use std::collections::HashSet;
 
     use super::*;
+    use crate::wtype::{TermAssignment, TermScope};
+
+    /// A `full = first ++ " " ++ last` computed-column term.
+    fn full_name_term() -> panproto_expr::Expr {
+        use panproto_expr::{BuiltinOp, Expr, Literal};
+        use std::sync::Arc;
+        Expr::Builtin(
+            BuiltinOp::Concat,
+            vec![
+                Expr::Var(Arc::from("first")),
+                Expr::Builtin(
+                    BuiltinOp::Concat,
+                    vec![
+                        Expr::Lit(Literal::Str(" ".into())),
+                        Expr::Var(Arc::from("last")),
+                    ],
+                ),
+            ],
+        )
+    }
+
+    fn person_row() -> HashMap<String, Value> {
+        let mut row = HashMap::new();
+        row.insert("first".to_string(), Value::Str("Ada".into()));
+        row.insert("last".to_string(), Value::Str("Lovelace".into()));
+        row
+    }
+
+    fn computed_full_migration() -> CompiledMigration {
+        let mut migration = CompiledMigration::default();
+        migration.surviving_verts.insert("person".into());
+        migration.op_term_assignments.insert(
+            "person".into(),
+            vec![TermAssignment::Compute {
+                target: "full".into(),
+                scope: TermScope::Row,
+                term: full_name_term(),
+                inverse: None,
+                coercion_class: panproto_gat::CoercionClass::Projection,
+            }],
+        );
+        migration
+    }
+
+    #[test]
+    fn sigma_acts_by_substitution() {
+        // Sigma (left Kan extension) computes the migrated `full` column by
+        // substituting each source row's `first`/`last` values into the term.
+        let inst = FInstance::new().with_table("person", vec![person_row()]);
+        let extended = functor_extend(&inst, &computed_full_migration())
+            .expect("functor_extend should succeed");
+        let rows = extended.tables.get("person").expect("person table present");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            rows[0].get("full"),
+            Some(&Value::Str("Ada Lovelace".into())),
+            "Sigma must compute the derived column by substitution",
+        );
+        // Source columns pass through unchanged.
+        assert_eq!(rows[0].get("first"), Some(&Value::Str("Ada".into())));
+    }
+
+    #[test]
+    fn computed_column_migration_e2e() {
+        // Delta (precomposition) also acts on values by substitution: the
+        // migrated `person` rows gain the computed `full` column end-to-end.
+        let inst = FInstance::new().with_table("person", vec![person_row()]);
+        let restricted = functor_restrict(&inst, &computed_full_migration())
+            .expect("functor_restrict should succeed");
+        let rows = restricted
+            .tables
+            .get("person")
+            .expect("person table present");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            rows[0].get("full"),
+            Some(&Value::Str("Ada Lovelace".into()))
+        );
+        assert_eq!(rows[0].get("last"), Some(&Value::Str("Lovelace".into())));
+    }
 
     #[test]
     fn empty_functor_instance() {
@@ -287,6 +387,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            op_term_assignments: HashMap::new(),
             expansion_path: HashMap::new(),
         };
 

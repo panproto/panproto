@@ -9,7 +9,7 @@ use panproto_schema::{Protocol, Schema};
 
 use crate::error::VcsError;
 use crate::hash::ObjectId;
-use crate::object::{ComplementObject, CstComplementObject, DataSetObject, Object};
+use crate::object::{CommitObject, ComplementObject, CstComplementObject, DataSetObject, Object};
 use crate::store::Store;
 
 /// A data set that is stale relative to the current schema.
@@ -349,6 +349,52 @@ pub fn protocol_for_schema(schema: &Schema) -> Protocol {
     default_protocol(&schema.protocol)
 }
 
+/// Lift a commit's versioned data sets through a schema change.
+///
+/// Returns the data-set and complement object ids the replayed, merged,
+/// or cherry-picked commit should carry. When `src_schema` and
+/// `tgt_schema` are the same schema, `commit.data_ids` and
+/// `commit.complement_ids` are returned verbatim, so a replay or merge
+/// that does not change the schema preserves the exact object
+/// references. Otherwise each [`DataSetObject`] in `commit.data_ids` is
+/// lifted forward through the schema change via [`migrate_forward`]
+/// (using [`protocol_for_schema`] for the lens protocol), and the
+/// returned complement ids are the commit's original complements
+/// extended with the fresh complement produced for each lifted data set.
+///
+/// `cst_complement_ids` are deliberately not returned here: CST
+/// complements capture formatting keyed by content, not schema, so
+/// callers propagate them unchanged.
+///
+/// # Errors
+///
+/// Returns [`VcsError::DataMigrationFailed`], or [`VcsError::TypeMismatch`]
+/// if a referenced object is not a `DataSet`, when lifting a data set
+/// fails, so the caller aborts loudly rather than dropping data.
+pub fn lift_commit_data(
+    store: &mut dyn Store,
+    commit: &CommitObject,
+    src_schema: &Schema,
+    tgt_schema: &Schema,
+) -> Result<(Vec<ObjectId>, Vec<ObjectId>), VcsError> {
+    // Content-addressed identity check: an unchanged schema lifts data
+    // to itself, so keep the exact object references intact.
+    if crate::hash::hash_schema(src_schema)? == crate::hash::hash_schema(tgt_schema)? {
+        return Ok((commit.data_ids.clone(), commit.complement_ids.clone()));
+    }
+
+    let protocol = protocol_for_schema(src_schema);
+    let mut new_data_ids = Vec::with_capacity(commit.data_ids.len());
+    let mut new_complement_ids = commit.complement_ids.clone();
+    for data_id in &commit.data_ids {
+        let (lifted_data_id, complement_id) =
+            migrate_forward(store, *data_id, src_schema, tgt_schema, &protocol)?;
+        new_data_ids.push(lifted_data_id);
+        new_complement_ids.push(complement_id);
+    }
+    Ok((new_data_ids, new_complement_ids))
+}
+
 // ── CST complement pass-through ───────────────────────────────────────
 
 /// Pass a CST complement through a schema migration.
@@ -569,5 +615,64 @@ mod tests {
         let schema = make_schema(&[("a", "object")]);
         let protocol = protocol_for_schema(&schema);
         assert_eq!(protocol.name, "test");
+    }
+
+    #[test]
+    fn lift_commit_data_lifts_through_schema_change() -> Result<(), Box<dyn std::error::Error>> {
+        use panproto_inst::Node;
+
+        let mut store = MemStore::new();
+        let src = make_schema(&[("a", "object")]);
+        let tgt = make_schema(&[("a", "object"), ("b", "string")]);
+
+        // A single-record data set valid against `src`.
+        let mut nodes = HashMap::new();
+        nodes.insert(0_u32, Node::new(0, "a"));
+        let inst = WInstance::new(nodes, vec![], vec![], 0, Name::from("a"));
+        let ds = DataSetObject {
+            schema_id: crate::hash::hash_schema(&src)?,
+            data: rmp_serde::to_vec(&vec![inst])?,
+            record_count: 1,
+            key: Some("rec-key".to_owned()),
+        };
+        let ds_id = store.put(&Object::DataSet(ds))?;
+        let commit = make_commit(crate::hash::hash_schema(&src)?, vec![ds_id]);
+
+        let (data_ids, complement_ids) = lift_commit_data(&mut store, &commit, &src, &tgt)?;
+        assert_eq!(data_ids.len(), 1);
+        assert_eq!(complement_ids.len(), 1);
+        assert_ne!(data_ids[0], ds_id, "data set lifted to a fresh object");
+
+        match store.get(&data_ids[0])? {
+            Object::DataSet(lifted) => {
+                assert_eq!(lifted.record_count, 1);
+                assert_eq!(lifted.key.as_deref(), Some("rec-key"));
+                let insts: Vec<WInstance> = rmp_serde::from_slice(&lifted.data)?;
+                assert_eq!(insts.len(), 1);
+            }
+            other => panic!("expected DataSet, got {}", other.type_name()),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn lift_commit_data_identity_schema_returns_ids_verbatim()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut store = MemStore::new();
+        let src = make_schema(&[("a", "object")]);
+        let ds = DataSetObject {
+            schema_id: crate::hash::hash_schema(&src)?,
+            data: vec![],
+            record_count: 0,
+            key: None,
+        };
+        let ds_id = store.put(&Object::DataSet(ds))?;
+        let commit = make_commit(crate::hash::hash_schema(&src)?, vec![ds_id]);
+
+        // Equal src and tgt: ids returned verbatim with no new objects.
+        let (data_ids, complement_ids) = lift_commit_data(&mut store, &commit, &src, &src)?;
+        assert_eq!(data_ids, vec![ds_id]);
+        assert!(complement_ids.is_empty());
+        Ok(())
     }
 }

@@ -83,8 +83,14 @@ pub struct MergeResult {
     pub migration_from_theirs: Migration,
     /// Pullback-based overlap information, if the pullback computation
     /// succeeded. `None` when the pullback could not be computed (e.g.
-    /// degenerate morphisms).
+    /// degenerate morphisms), in which case [`pullback_error`](Self::pullback_error)
+    /// carries the reason.
     pub pullback_overlap: Option<PullbackOverlap>,
+    /// The reason the pullback overlap could not be computed, when it
+    /// failed. `None` when the pullback succeeded (or produced an empty
+    /// overlap). This distinguishes a failed pullback from a computed
+    /// empty overlap.
+    pub pullback_error: Option<String>,
 }
 
 /// A conflict detected during three-way merge.
@@ -488,6 +494,41 @@ pub enum PushoutError {
         /// Details about the failure.
         detail: String,
     },
+
+    /// A vertex of the merged schema is the image of no vertex on either
+    /// side, so it cannot arise from the pushout of the two migrations.
+    #[error("uncovered vertex: merged vertex `{vertex}` is the image of no source vertex")]
+    UncoveredVertex {
+        /// The merged vertex with no preimage.
+        vertex: String,
+    },
+
+    /// A base vertex survives on one side but its image is absent from the
+    /// merged schema, so the merge dropped a vertex a one-sided absence must
+    /// have meant survived (a genuine deletion would leave nothing to retain).
+    #[error(
+        "phantom deletion: base vertex `{vertex}` survives via {side} but its image is not in the merge"
+    )]
+    PhantomDeletion {
+        /// The base vertex.
+        vertex: String,
+        /// The side that retains the vertex.
+        side: &'static str,
+    },
+
+    /// The cocone condition is violated at the edge level: a base edge maps to
+    /// distinct edges through the two sides.
+    #[error(
+        "edge cocone violation: base edge `{edge}` maps to `{via_ours}` through ours but `{via_theirs}` through theirs"
+    )]
+    EdgeCoconeViolation {
+        /// The base edge (rendered as `src->tgt`).
+        edge: String,
+        /// Its image through ours.
+        via_ours: String,
+        /// Its image through theirs.
+        via_theirs: String,
+    },
 }
 
 /// Apply conflict resolutions to a merge result, producing a fully resolved schema.
@@ -534,11 +575,68 @@ pub fn apply_resolutions(
     let migration_from_ours = auto_mig::derive_migration(ours, &schema, &ours_diff);
     let migration_from_theirs = auto_mig::derive_migration(theirs, &schema, &theirs_diff);
 
-    Ok(ResolvedMerge {
+    let resolved = ResolvedMerge {
         schema,
         migration_from_ours,
         migration_from_theirs,
-    })
+    };
+
+    // Verify the resolved merge satisfies the pushout cocone conditions
+    // before handing it back, so a user-resolved merge is checked for
+    // migration totality and base-vertex commutativity just like an
+    // auto-committed one.
+    verify_pushout(base, ours, theirs, &resolved)?;
+
+    Ok(resolved)
+}
+
+/// Copy `id`'s value from `src` into `dst`, or remove it from `dst` when
+/// `src` lacks it. This realizes a resolution for a `Name`-keyed field:
+/// the chosen side either has the element (copy it) or deleted it (drop
+/// it from the merge).
+fn resolve_named<V: Clone>(dst: &mut HashMap<Name, V>, src: &HashMap<Name, V>, id: &str) {
+    match src.get(id) {
+        Some(v) => {
+            dst.insert(Name::from(id), v.clone());
+        }
+        None => {
+            dst.remove(id);
+        }
+    }
+}
+
+/// Copy-or-remove for an `Edge`-keyed field, mirroring [`resolve_named`].
+fn resolve_edge_keyed<V: Clone>(dst: &mut HashMap<Edge, V>, src: &HashMap<Edge, V>, edge: &Edge) {
+    match src.get(edge) {
+        Some(v) => {
+            dst.insert(edge.clone(), v.clone());
+        }
+        None => {
+            dst.remove(edge);
+        }
+    }
+}
+
+/// Copy-or-remove a single variant (identified by `variant_id`) within
+/// `parent`'s variant list, taking the chosen side's state.
+fn resolve_variant(
+    dst: &mut HashMap<Name, Vec<Variant>>,
+    src: &HashMap<Name, Vec<Variant>>,
+    parent: &str,
+    variant_id: &str,
+) {
+    let src_variant = src
+        .get(parent)
+        .and_then(|vs| vs.iter().find(|v| v.id.as_ref() == variant_id))
+        .cloned();
+    let entry = dst.entry(Name::from(parent)).or_default();
+    entry.retain(|v| v.id.as_ref() != variant_id);
+    if let Some(v) = src_variant {
+        entry.push(v);
+    }
+    if dst.get(parent).is_some_and(Vec::is_empty) {
+        dst.remove(parent);
+    }
 }
 
 /// Apply a single conflict resolution to the schema by copying the
@@ -632,17 +730,121 @@ fn apply_single_resolution(
                 }
             }
         }
-        // Other conflict types: no-op. The merged schema retains its
-        // current value. The full set of 22+ conflict variants can be
-        // extended as needed; the pushout verification will catch any
-        // remaining inconsistencies via migration totality checks.
-        _ => {}
+        // --- Hyper-edges ---
+        MergeConflict::DeleteModifyHyperEdge { hyper_edge_id, .. }
+        | MergeConflict::BothModifiedHyperEdge { hyper_edge_id }
+        | MergeConflict::BothAddedHyperEdgeDifferently { hyper_edge_id } => {
+            resolve_named(&mut schema.hyper_edges, &source.hyper_edges, hyper_edge_id);
+        }
+
+        // --- Variants ---
+        MergeConflict::DeleteModifyVariant {
+            variant_id,
+            parent_vertex,
+            ..
+        }
+        | MergeConflict::BothModifiedVariant {
+            variant_id,
+            parent_vertex,
+            ..
+        } => {
+            resolve_variant(
+                &mut schema.variants,
+                &source.variants,
+                parent_vertex,
+                variant_id,
+            );
+        }
+
+        // --- Orderings ---
+        MergeConflict::BothModifiedOrdering { edge, .. } => {
+            resolve_edge_keyed(&mut schema.orderings, &source.orderings, edge);
+        }
+
+        // --- Recursion points ---
+        MergeConflict::BothModifiedRecursionPoint { mu_id, .. }
+        | MergeConflict::DeleteModifyRecursionPoint { mu_id, .. } => {
+            resolve_named(
+                &mut schema.recursion_points,
+                &source.recursion_points,
+                mu_id,
+            );
+        }
+
+        // --- Usage modes ---
+        MergeConflict::BothModifiedUsageMode { edge, .. } => {
+            resolve_edge_keyed(&mut schema.usage_modes, &source.usage_modes, edge);
+        }
+
+        // --- NSIDs ---
+        MergeConflict::BothModifiedNsid { vertex_id, .. }
+        | MergeConflict::DeleteModifyNsid { vertex_id, .. } => {
+            resolve_named(&mut schema.nsids, &source.nsids, vertex_id);
+        }
+
+        // --- Required ---
+        MergeConflict::BothModifiedRequired { vertex_id }
+        | MergeConflict::DeleteModifyRequired { vertex_id, .. } => {
+            resolve_named(&mut schema.required, &source.required, vertex_id);
+        }
+
+        // --- Nominal ---
+        MergeConflict::BothModifiedNominal { vertex_id, .. } => {
+            resolve_named(&mut schema.nominal, &source.nominal, vertex_id);
+        }
+
+        // --- Spans ---
+        MergeConflict::BothModifiedSpan { span_id }
+        | MergeConflict::DeleteModifySpan { span_id, .. }
+        | MergeConflict::BothAddedSpanDifferently { span_id } => {
+            resolve_named(&mut schema.spans, &source.spans, span_id);
+        }
+
+        // --- Coercions ---
+        MergeConflict::BothModifiedCoercion { key }
+        | MergeConflict::BothAddedCoercionDifferently { key }
+        | MergeConflict::DeleteModifyCoercion { key, .. } => {
+            let k = (Name::from(key.0.as_str()), Name::from(key.1.as_str()));
+            match source.coercions.get(&k) {
+                Some(v) => {
+                    schema.coercions.insert(k, v.clone());
+                }
+                None => {
+                    schema.coercions.remove(&k);
+                }
+            }
+        }
+
+        // --- Mergers ---
+        MergeConflict::BothModifiedMerger { vertex_id }
+        | MergeConflict::BothAddedMergerDifferently { vertex_id }
+        | MergeConflict::DeleteModifyMerger { vertex_id, .. } => {
+            resolve_named(&mut schema.mergers, &source.mergers, vertex_id);
+        }
+
+        // --- Defaults ---
+        MergeConflict::BothModifiedDefault { vertex_id }
+        | MergeConflict::BothAddedDefaultDifferently { vertex_id }
+        | MergeConflict::DeleteModifyDefault { vertex_id, .. } => {
+            resolve_named(&mut schema.defaults, &source.defaults, vertex_id);
+        }
+
+        // --- Policies ---
+        MergeConflict::BothModifiedPolicy { sort_name }
+        | MergeConflict::BothAddedPolicyDifferently { sort_name }
+        | MergeConflict::DeleteModifyPolicy { sort_name, .. } => {
+            resolve_named(&mut schema.policies, &source.policies, sort_name);
+        }
     }
 }
 
 /// Verify that a resolved merge satisfies the *cocone* condition of a
-/// categorical pushout. This is the necessary condition: both
-/// migrations are total and the two base→merged paths commute.
+/// categorical pushout.
+///
+/// This is the necessary condition: both migrations are total; every merged
+/// vertex is the image of some source vertex (coverage); each base vertex
+/// retained on one side has its image present in the merge (no phantom
+/// deletion); and the two base→merged paths commute on both vertices and edges.
 ///
 /// For the *universal* property — that any other cocone factors
 /// uniquely through the resolved merge — see
@@ -685,19 +887,72 @@ pub fn verify_pushout(
         }
     }
 
-    // Cocone condition: for every vertex in base that survives in both ours
-    // and theirs, it must map to the same vertex in the resolved schema.
+    // Coverage: every vertex of the merged schema must be the image of some
+    // source vertex on one side or the other. A merged vertex with no preimage
+    // cannot arise from the pushout of the two migrations.
+    let covered: FxHashSet<&Name> = resolved
+        .migration_from_ours
+        .vertex_map
+        .values()
+        .chain(resolved.migration_from_theirs.vertex_map.values())
+        .collect();
+    for vertex_id in resolved.schema.vertices.keys() {
+        if !covered.contains(vertex_id) {
+            return Err(PushoutError::UncoveredVertex {
+                vertex: vertex_id.to_string(),
+            });
+        }
+    }
+
+    // Cocone condition and survival: for every base vertex, agree on the shared
+    // image when both sides retain it; when only one side retains it, the other
+    // side's absence must be a genuine deletion, so the surviving image must be
+    // present in the merged schema (otherwise the vertex was silently dropped).
     for vertex_id in base.vertices.keys() {
         let via_ours = resolved.migration_from_ours.vertex_map.get(vertex_id);
         let via_theirs = resolved.migration_from_theirs.vertex_map.get(vertex_id);
 
-        // Only check if both sides have a mapping (vertex was retained).
+        match (via_ours, via_theirs) {
+            (Some(o), Some(t)) => {
+                if o != t {
+                    return Err(PushoutError::CoconeViolation {
+                        vertex: vertex_id.to_string(),
+                        via_ours: o.to_string(),
+                        via_theirs: t.to_string(),
+                    });
+                }
+            }
+            (Some(m), None) => {
+                if !resolved.schema.vertices.contains_key(m) {
+                    return Err(PushoutError::PhantomDeletion {
+                        vertex: vertex_id.to_string(),
+                        side: "ours",
+                    });
+                }
+            }
+            (None, Some(m)) => {
+                if !resolved.schema.vertices.contains_key(m) {
+                    return Err(PushoutError::PhantomDeletion {
+                        vertex: vertex_id.to_string(),
+                        side: "theirs",
+                    });
+                }
+            }
+            (None, None) => {}
+        }
+    }
+
+    // Edge-level cocone: a base edge retained on both sides must map to the same
+    // edge in the merged schema.
+    for base_edge in base.edges.keys() {
+        let via_ours = resolved.migration_from_ours.edge_map.get(base_edge);
+        let via_theirs = resolved.migration_from_theirs.edge_map.get(base_edge);
         if let (Some(o), Some(t)) = (via_ours, via_theirs) {
             if o != t {
-                return Err(PushoutError::CoconeViolation {
-                    vertex: vertex_id.to_string(),
-                    via_ours: o.to_string(),
-                    via_theirs: t.to_string(),
+                return Err(PushoutError::EdgeCoconeViolation {
+                    edge: format!("{}->{}", base_edge.src, base_edge.tgt),
+                    via_ours: format!("{}->{}", o.src, o.tgt),
+                    via_theirs: format!("{}->{}", t.src, t.tgt),
                 });
             }
         }
@@ -929,15 +1184,18 @@ fn build_morphism_from_diff(
 /// Compute the pullback overlap between ours and theirs schemas relative
 /// to a common base.
 ///
-/// Returns `None` if the pullback computation fails for any reason (this
-/// is a best-effort enhancement).
+/// Returns `(Some(overlap), None)` on success and `(None, Some(error))`
+/// when the pullback computation fails. Splitting the failure from the
+/// success path lets the merge distinguish a failed pullback from a
+/// computed-empty overlap, so the failure is reported rather than
+/// silently discarded.
 fn compute_pullback_overlap(
     base: &Schema,
     ours: &Schema,
     theirs: &Schema,
     diff_ours: &SchemaDiff,
     diff_theirs: &SchemaDiff,
-) -> Option<PullbackOverlap> {
+) -> (Option<PullbackOverlap>, Option<String>) {
     let base_theory = schema_to_theory("base", base);
     let ours_theory = schema_to_theory("ours", ours);
     let theirs_theory = schema_to_theory("theirs", theirs);
@@ -959,11 +1217,30 @@ fn compute_pullback_overlap(
         diff_theirs,
     );
 
+    let pb = pullback(&ours_theory, &theirs_theory, &m1, &m2);
+    overlap_from_pullback(pb, &ours_theory, &theirs_theory)
+}
+
+/// Map a pullback [`Result`] to overlap information, recording a failure
+/// instead of discarding it.
+///
+/// On [`Ok`] the pullback's projections are read to recover the shared
+/// vertices and edges. On [`Err`] the overlap is `None` and the error
+/// string is returned, so a failed pullback is never confused with a
+/// computed-empty overlap.
+fn overlap_from_pullback(
+    pb: Result<PullbackResult, panproto_gat::GatError>,
+    ours_theory: &Theory,
+    theirs_theory: &Theory,
+) -> (Option<PullbackOverlap>, Option<String>) {
     let PullbackResult {
         theory: pb_theory,
         proj1,
         proj2,
-    } = pullback(&ours_theory, &theirs_theory, &m1, &m2).ok()?;
+    } = match pb {
+        Ok(result) => result,
+        Err(e) => return (None, Some(e.to_string())),
+    };
 
     let mut shared_vertices = FxHashSet::default();
     for sort in &pb_theory.sorts {
@@ -982,7 +1259,16 @@ fn compute_pullback_overlap(
     for op in &pb_theory.ops {
         // The operation's input/output sorts in the pullback map to
         // edges in both schemas.
-        if let (Some(o1), Some(o2)) = (proj1.op_map.get(&op.name), proj2.op_map.get(&op.name)) {
+        if let (Some(o1), Some(o2)) = (
+            proj1
+                .op_map
+                .get(&op.name)
+                .and_then(panproto_gat::OpAssignment::as_op),
+            proj2
+                .op_map
+                .get(&op.name)
+                .and_then(panproto_gat::OpAssignment::as_op),
+        ) {
             // Look up the actual edges from the op names in the original theories.
             let ours_op = ours_theory.find_op(o1);
             let theirs_op = theirs_theory.find_op(o2);
@@ -1001,10 +1287,13 @@ fn compute_pullback_overlap(
         }
     }
 
-    Some(PullbackOverlap {
-        shared_vertices,
-        shared_edges,
-    })
+    (
+        Some(PullbackOverlap {
+            shared_vertices,
+            shared_edges,
+        }),
+        None,
+    )
 }
 
 // ===========================================================================
@@ -1032,19 +1321,15 @@ pub fn three_way_merge(base: &Schema, ours: &Schema, theirs: &Schema) -> MergeRe
     let diff_theirs = diff::diff(base, theirs);
     let mut conflicts = Vec::new();
 
-    // Compute pullback overlap (best-effort; falls back silently on error).
-    let pullback_overlap = compute_pullback_overlap(base, ours, theirs, &diff_ours, &diff_theirs);
+    // Compute pullback overlap, recording any failure so it is reported
+    // rather than silently discarded.
+    let (pullback_overlap, pullback_error) =
+        compute_pullback_overlap(base, ours, theirs, &diff_ours, &diff_theirs);
 
     let schemas = MergeSchemas { base, ours, theirs };
 
     // -- Vertices --
-    let vertices = merge_vertices(
-        &schemas,
-        &diff_ours,
-        &diff_theirs,
-        &mut conflicts,
-        pullback_overlap.as_ref(),
-    );
+    let vertices = merge_vertices(&schemas, &diff_ours, &diff_theirs, &mut conflicts);
 
     // -- Edges --
     let edges = merge_edges(base, ours, theirs, &diff_ours, &diff_theirs, &mut conflicts);
@@ -1420,6 +1705,7 @@ pub fn three_way_merge(base: &Schema, ours: &Schema, theirs: &Schema) -> MergeRe
         migration_from_ours,
         migration_from_theirs,
         pullback_overlap,
+        pullback_error,
     }
 }
 
@@ -1656,7 +1942,6 @@ fn merge_vertices(
     diff_ours: &SchemaDiff,
     diff_theirs: &SchemaDiff,
     conflicts: &mut Vec<MergeConflict>,
-    pullback_overlap: Option<&PullbackOverlap>,
 ) -> HashMap<Name, Vertex> {
     let (base, ours, theirs) = (schemas.base, schemas.ours, schemas.theirs);
     let mut result: HashMap<Name, Vertex> = HashMap::new();
@@ -1758,23 +2043,17 @@ fn merge_vertices(
             if ours_v == theirs_v {
                 result.insert(vid_name, ours_v.clone());
             } else {
-                // Check pullback: if both sides added a vertex with the
-                // same ID and the pullback says it's shared structure,
-                // treat as same-addition (take ours) rather than conflict.
-                let pullback_shared =
-                    pullback_overlap.is_some_and(|po| po.shared_vertices.contains(vid.as_str()));
-                if pullback_shared {
-                    // Pullback confirms shared origin: deduplicate by
-                    // taking ours (arbitrary but deterministic choice).
-                    result.insert(vid_name, ours_v.clone());
-                } else {
-                    conflicts.push(MergeConflict::BothAddedVertexDifferently {
-                        vertex_id: vid.clone(),
-                        ours_kind: ours_v.kind.to_string(),
-                        theirs_kind: theirs_v.kind.to_string(),
-                    });
-                    // No base value; don't include.
-                }
+                // Both sides added a vertex with the same ID but different
+                // content. This is always a conflict: a divergent addition
+                // is never silently deduplicated to ours, even when the
+                // pullback marks the ID as shared, so theirs' version is
+                // never dropped without an explicit resolution.
+                conflicts.push(MergeConflict::BothAddedVertexDifferently {
+                    vertex_id: vid.clone(),
+                    ours_kind: ours_v.kind.to_string(),
+                    theirs_kind: theirs_v.kind.to_string(),
+                });
+                // No base value; don't include pending resolution.
             }
         } else {
             result.insert(vid_name, ours.vertices[vid.as_str()].clone());
@@ -3367,7 +3646,8 @@ mod tests {
         let diff_ours = diff::diff(&base, &ours);
         let diff_theirs = diff::diff(&base, &theirs);
 
-        let overlap = compute_pullback_overlap(&base, &ours, &theirs, &diff_ours, &diff_theirs);
+        let (overlap, _pullback_error) =
+            compute_pullback_overlap(&base, &ours, &theirs, &diff_ours, &diff_theirs);
         let Some(overlap) = overlap else {
             panic!("pullback overlap should succeed");
         };
@@ -3389,7 +3669,8 @@ mod tests {
         let diff_ours = diff::diff(&base, &ours);
         let diff_theirs = diff::diff(&base, &theirs);
 
-        let overlap = compute_pullback_overlap(&base, &ours, &theirs, &diff_ours, &diff_theirs);
+        let (overlap, _pullback_error) =
+            compute_pullback_overlap(&base, &ours, &theirs, &diff_ours, &diff_theirs);
         let Some(overlap) = overlap else {
             panic!("pullback overlap should succeed");
         };
@@ -3429,7 +3710,8 @@ mod tests {
         let diff_ours = diff::diff(&base, &ours);
         let diff_theirs = diff::diff(&base, &theirs);
 
-        let overlap = compute_pullback_overlap(&base, &ours, &theirs, &diff_ours, &diff_theirs);
+        let (overlap, _pullback_error) =
+            compute_pullback_overlap(&base, &ours, &theirs, &diff_ours, &diff_theirs);
         let Some(overlap) = overlap else {
             panic!("pullback overlap should succeed");
         };
@@ -3495,37 +3777,67 @@ mod tests {
 
     #[test]
     fn pullback_deduplicates_shared_addition() {
-        // Both sides add vertex "b" with different kinds, but the vertex
-        // also exists in both ours and theirs as a shared structure
-        // through a base edge. When the pullback recognizes "b" as
-        // shared, the merge should NOT conflict.
-        let edge_ab = Edge {
-            src: Name::from("a"),
-            tgt: Name::from("b"),
-            kind: Name::from("prop"),
-            name: Some(Name::from("link")),
+        // Both sides add vertex "d" with different kinds. A divergent
+        // both-added vertex raises a conflict, even when the pullback marks
+        // the ID as shared, so theirs' version is never discarded without an
+        // explicit resolution.
+        let base = make_schema(&[("a", "object")], &[]);
+        let ours = make_schema(&[("a", "object"), ("d", "record")], &[]);
+        let theirs = make_schema(&[("a", "object"), ("d", "string")], &[]);
+
+        let result = three_way_merge(&base, &ours, &theirs);
+
+        // The divergent addition of "d" is a conflict, and "d" is left out
+        // of the merged schema pending resolution.
+        assert!(
+            matches!(
+                result.conflicts.as_slice(),
+                [MergeConflict::BothAddedVertexDifferently { vertex_id, .. }] if vertex_id == "d"
+            ),
+            "expected a single BothAddedVertexDifferently conflict for 'd', got {:?}",
+            result.conflicts
+        );
+        assert!(!result.merged_schema.vertices.contains_key("d"));
+    }
+
+    #[test]
+    fn divergent_both_added_addition_conflicts_and_keeps_theirs() {
+        // A divergent both-added vertex is always a conflict. The pullback
+        // only marks surviving *base* vertices as shared (its sort map is
+        // keyed by base vertices), so an added vertex can never be
+        // pullback-shared; the conflict is therefore unconditional, and
+        // theirs' content is never dropped by an ours-wins dedup.
+        let base = make_schema(&[("a", "object")], &[]);
+        let ours = make_schema(&[("a", "object"), ("shared", "record")], &[]);
+        let theirs = make_schema(&[("a", "object"), ("shared", "string")], &[]);
+
+        let result = three_way_merge(&base, &ours, &theirs);
+
+        // Exactly one conflict, naming both sides' kinds so theirs' content
+        // is surfaced in the conflict rather than silently discarded.
+        let [
+            MergeConflict::BothAddedVertexDifferently {
+                vertex_id,
+                ours_kind,
+                theirs_kind,
+            },
+        ] = result.conflicts.as_slice()
+        else {
+            panic!(
+                "expected a single BothAddedVertexDifferently conflict, got {:?}",
+                result.conflicts
+            );
         };
+        assert_eq!(vertex_id, "shared");
+        assert_eq!(ours_kind, "record");
+        assert_eq!(
+            theirs_kind, "string",
+            "theirs' kind must not be silently discarded"
+        );
 
-        // Base has "a" with an edge to "b".
-        let _base = make_schema(&[("a", "object"), ("b", "string")], &[edge_ab]);
-
-        // Both sides remove "b" and re-add it with a different kind,
-        // but keep the edge. This simulates a kind change tracked by
-        // both sides independently.
-        //
-        // Actually, for the pullback to mark "b" as shared, it needs to
-        // survive in both derived schemas. Let's test with base vertices
-        // that both sides keep.
-        let base2 = make_schema(&[("a", "object")], &[]);
-        let ours2 = make_schema(&[("a", "object"), ("d", "record")], &[]);
-        let theirs2 = make_schema(&[("a", "object"), ("d", "record")], &[]);
-
-        let result = three_way_merge(&base2, &ours2, &theirs2);
-
-        // Both added "d" with the same kind; should merge cleanly even
-        // without pullback involvement.
-        assert!(result.conflicts.is_empty());
-        assert!(result.merged_schema.vertices.contains_key("d"));
+        // The merged schema does not silently take ours: "shared" is left
+        // out until the conflict is resolved.
+        assert!(!result.merged_schema.vertices.contains_key("shared"));
     }
 
     #[test]
@@ -3539,7 +3851,8 @@ mod tests {
         let diff_ours = diff::diff(&base, &ours);
         let diff_theirs = diff::diff(&base, &theirs);
 
-        let overlap = compute_pullback_overlap(&base, &ours, &theirs, &diff_ours, &diff_theirs);
+        let (overlap, _pullback_error) =
+            compute_pullback_overlap(&base, &ours, &theirs, &diff_ours, &diff_theirs);
         let Some(overlap) = overlap else {
             panic!("pullback overlap should succeed");
         };
@@ -3649,5 +3962,453 @@ mod tests {
         assert_eq!(theory.ops.len(), 1);
         assert!(theory.find_sort("a").is_some());
         assert!(theory.find_sort("b").is_some());
+    }
+
+    #[test]
+    fn verify_pushout_non_total_migration_surfaces_as_vcs_error() {
+        use crate::error::VcsError;
+
+        // ours introduces vertex "b" on top of the shared base "a".
+        let base = make_schema(&[("a", "object")], &[]);
+        let ours = make_schema(&[("a", "object"), ("b", "string")], &[]);
+        let theirs = make_schema(&[("a", "object")], &[]);
+
+        // A resolved merge whose migration_from_ours omits "b": the leg is
+        // not total over ours.vertices, which is exactly the invalid input
+        // pushout verification must reject.
+        let mut mig_from_ours = Migration::empty();
+        mig_from_ours
+            .vertex_map
+            .insert(Name::from("a"), Name::from("a"));
+        let mut mig_from_theirs = Migration::empty();
+        mig_from_theirs
+            .vertex_map
+            .insert(Name::from("a"), Name::from("a"));
+        let resolved = ResolvedMerge {
+            schema: make_schema(&[("a", "object")], &[]),
+            migration_from_ours: mig_from_ours,
+            migration_from_theirs: mig_from_theirs,
+        };
+
+        let Err(err) = verify_pushout(&base, &ours, &theirs, &resolved) else {
+            panic!("non-total migration_from_ours must fail verification");
+        };
+        assert!(
+            matches!(&err, PushoutError::MigrationNotTotal { side, vertex } if *side == "ours" && vertex == "b"),
+            "expected MigrationNotTotal for ours vertex 'b', got {err:?}"
+        );
+
+        // The error maps into the new VcsError variant so the production
+        // merge, rebase, and cherry-pick paths surface it uniformly.
+        let vcs_err: VcsError = err.into();
+        assert!(matches!(
+            vcs_err,
+            VcsError::PushoutVerification(PushoutError::MigrationNotTotal { .. })
+        ));
+    }
+
+    #[test]
+    fn verify_pushout_rejects_uncovered_vertex() {
+        let base = make_schema(&[("a", "object")], &[]);
+        let ours = make_schema(&[("a", "object")], &[]);
+        let theirs = make_schema(&[("a", "object")], &[]);
+        let mut mo = Migration::empty();
+        mo.vertex_map.insert(Name::from("a"), Name::from("a"));
+        let mut mt = Migration::empty();
+        mt.vertex_map.insert(Name::from("a"), Name::from("a"));
+        // The merged schema has an extra vertex `x` that no leg maps to.
+        let resolved = ResolvedMerge {
+            schema: make_schema(&[("a", "object"), ("x", "string")], &[]),
+            migration_from_ours: mo,
+            migration_from_theirs: mt,
+        };
+        let Err(err) = verify_pushout(&base, &ours, &theirs, &resolved) else {
+            panic!("uncovered merged vertex must fail verification");
+        };
+        assert!(
+            matches!(&err, PushoutError::UncoveredVertex { vertex } if vertex == "x"),
+            "expected UncoveredVertex for `x`, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn verify_pushout_rejects_phantom_deletion() {
+        // ours keeps base vertex `v`; theirs deletes it. A merge that then omits
+        // `v` has phantom-deleted a vertex that survives on one side.
+        let base = make_schema(&[("a", "object"), ("v", "string")], &[]);
+        let ours = make_schema(&[("a", "object"), ("v", "string")], &[]);
+        let theirs = make_schema(&[("a", "object")], &[]);
+        let mut mo = Migration::empty();
+        mo.vertex_map.insert(Name::from("a"), Name::from("a"));
+        mo.vertex_map.insert(Name::from("v"), Name::from("v"));
+        let mut mt = Migration::empty();
+        mt.vertex_map.insert(Name::from("a"), Name::from("a"));
+        let resolved = ResolvedMerge {
+            schema: make_schema(&[("a", "object")], &[]),
+            migration_from_ours: mo,
+            migration_from_theirs: mt,
+        };
+        let Err(err) = verify_pushout(&base, &ours, &theirs, &resolved) else {
+            panic!("phantom deletion must fail verification");
+        };
+        assert!(
+            matches!(&err, PushoutError::PhantomDeletion { vertex, side } if vertex == "v" && *side == "ours"),
+            "expected PhantomDeletion for `v` via ours, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn verify_pushout_rejects_edge_cocone_violation() {
+        let e = Edge {
+            src: Name::from("a"),
+            tgt: Name::from("b"),
+            kind: Name::from("prop"),
+            name: Some(Name::from("link")),
+        };
+        let e_ours = Edge {
+            name: Some(Name::from("ours")),
+            ..e.clone()
+        };
+        let e_theirs = Edge {
+            name: Some(Name::from("theirs")),
+            ..e.clone()
+        };
+        let base = make_schema(
+            &[("a", "object"), ("b", "string")],
+            std::slice::from_ref(&e),
+        );
+        let ours = make_schema(
+            &[("a", "object"), ("b", "string")],
+            std::slice::from_ref(&e_ours),
+        );
+        let theirs = make_schema(
+            &[("a", "object"), ("b", "string")],
+            std::slice::from_ref(&e_theirs),
+        );
+        let mut mo = Migration::empty();
+        mo.vertex_map.insert(Name::from("a"), Name::from("a"));
+        mo.vertex_map.insert(Name::from("b"), Name::from("b"));
+        mo.edge_map.insert(e.clone(), e_ours.clone());
+        let mut mt = Migration::empty();
+        mt.vertex_map.insert(Name::from("a"), Name::from("a"));
+        mt.vertex_map.insert(Name::from("b"), Name::from("b"));
+        mt.edge_map.insert(e, e_theirs.clone());
+        let resolved = ResolvedMerge {
+            schema: make_schema(&[("a", "object"), ("b", "string")], &[e_ours, e_theirs]),
+            migration_from_ours: mo,
+            migration_from_theirs: mt,
+        };
+        let Err(err) = verify_pushout(&base, &ours, &theirs, &resolved) else {
+            panic!("edge cocone violation must fail verification");
+        };
+        assert!(
+            matches!(&err, PushoutError::EdgeCoconeViolation { .. }),
+            "expected EdgeCoconeViolation, got {err:?}"
+        );
+    }
+
+    // =======================================================================
+    // Exhaustive conflict resolution (COL-05)
+    // =======================================================================
+
+    #[test]
+    fn resolve_hyper_edge_chooses_side() {
+        let base = make_schema(&[("a", "object")], &[]);
+        let ours = {
+            let mut s = base.clone();
+            s.hyper_edges.insert(
+                Name::from("h"),
+                panproto_schema::HyperEdge {
+                    id: "h".into(),
+                    kind: "ours".into(),
+                    signature: HashMap::new(),
+                    parent_label: "p".into(),
+                },
+            );
+            s
+        };
+        let theirs = {
+            let mut s = base.clone();
+            s.hyper_edges.insert(
+                Name::from("h"),
+                panproto_schema::HyperEdge {
+                    id: "h".into(),
+                    kind: "theirs".into(),
+                    signature: HashMap::new(),
+                    parent_label: "p".into(),
+                },
+            );
+            s
+        };
+        let conflict = MergeConflict::BothModifiedHyperEdge {
+            hyper_edge_id: "h".to_string(),
+        };
+
+        let mut s = base.clone();
+        apply_single_resolution(
+            &mut s,
+            &base,
+            &ours,
+            &theirs,
+            &conflict,
+            &ConflictResolution::ChooseOurs,
+        );
+        assert_eq!(s.hyper_edges["h"].kind.as_ref(), "ours");
+
+        let mut s2 = base.clone();
+        apply_single_resolution(
+            &mut s2,
+            &base,
+            &ours,
+            &theirs,
+            &conflict,
+            &ConflictResolution::ChooseTheirs,
+        );
+        assert_eq!(s2.hyper_edges["h"].kind.as_ref(), "theirs");
+    }
+
+    #[test]
+    fn resolve_delete_modify_removes_when_chosen_side_deleted() {
+        let base = make_schema(&[("a", "object")], &[]);
+        let he = panproto_schema::HyperEdge {
+            id: "h".into(),
+            kind: "k".into(),
+            signature: HashMap::new(),
+            parent_label: "p".into(),
+        };
+        // ours deleted the hyper-edge; theirs kept it.
+        let ours = base.clone();
+        let theirs = {
+            let mut s = base.clone();
+            s.hyper_edges.insert(Name::from("h"), he.clone());
+            s
+        };
+        let conflict = MergeConflict::DeleteModifyHyperEdge {
+            hyper_edge_id: "h".to_string(),
+            deleted_by: Side::Ours,
+        };
+
+        // ChooseOurs (deleted) removes it from the merge.
+        let mut s = theirs.clone();
+        apply_single_resolution(
+            &mut s,
+            &base,
+            &ours,
+            &theirs,
+            &conflict,
+            &ConflictResolution::ChooseOurs,
+        );
+        assert!(!s.hyper_edges.contains_key("h"));
+
+        // ChooseTheirs (kept) leaves it present.
+        let mut s2 = base.clone();
+        apply_single_resolution(
+            &mut s2,
+            &base,
+            &ours,
+            &theirs,
+            &conflict,
+            &ConflictResolution::ChooseTheirs,
+        );
+        assert_eq!(s2.hyper_edges.get("h"), Some(&he));
+    }
+
+    #[test]
+    fn resolve_coercion_and_policy_choose_side() {
+        let base = make_schema(&[("a", "object")], &[]);
+        let key = (Name::from("s"), Name::from("t"));
+        let spec = |tag: &str| panproto_schema::CoercionSpec {
+            forward: panproto_expr::Expr::var(tag.to_owned()),
+            inverse: None,
+            class: panproto_gat::CoercionClass::Iso,
+        };
+        let ours = {
+            let mut s = base.clone();
+            s.coercions.insert(key.clone(), spec("ours"));
+            s.policies
+                .insert(Name::from("pol"), panproto_expr::Expr::var("ours"));
+            s
+        };
+        let theirs = {
+            let mut s = base.clone();
+            s.coercions.insert(key.clone(), spec("theirs"));
+            s.policies
+                .insert(Name::from("pol"), panproto_expr::Expr::var("theirs"));
+            s
+        };
+
+        let mut s = base.clone();
+        apply_single_resolution(
+            &mut s,
+            &base,
+            &ours,
+            &theirs,
+            &MergeConflict::BothModifiedCoercion {
+                key: ("s".to_string(), "t".to_string()),
+            },
+            &ConflictResolution::ChooseTheirs,
+        );
+        assert_eq!(s.coercions.get(&key), Some(&spec("theirs")));
+
+        apply_single_resolution(
+            &mut s,
+            &base,
+            &ours,
+            &theirs,
+            &MergeConflict::BothAddedPolicyDifferently {
+                sort_name: "pol".to_string(),
+            },
+            &ConflictResolution::ChooseOurs,
+        );
+        assert_eq!(
+            s.policies.get("pol"),
+            Some(&panproto_expr::Expr::var("ours"))
+        );
+    }
+
+    #[test]
+    fn resolve_span_variant_usage_nominal_choose_side() {
+        let base = make_schema(&[("a", "object"), ("b", "string")], &[]);
+        let edge_ab = Edge {
+            src: "a".into(),
+            tgt: "b".into(),
+            kind: "prop".into(),
+            name: Some("x".into()),
+        };
+        let ours = {
+            let mut s = base.clone();
+            s.spans.insert(
+                Name::from("sp"),
+                Span {
+                    id: "sp".into(),
+                    left: "a".into(),
+                    right: "a".into(),
+                },
+            );
+            s.variants.insert(
+                Name::from("u"),
+                vec![Variant {
+                    id: "v".into(),
+                    parent_vertex: "u".into(),
+                    tag: Some("ours".into()),
+                }],
+            );
+            s.usage_modes.insert(edge_ab.clone(), UsageMode::Linear);
+            s.nominal.insert(Name::from("a"), true);
+            s
+        };
+        let theirs = {
+            let mut s = base.clone();
+            s.spans.insert(
+                Name::from("sp"),
+                Span {
+                    id: "sp".into(),
+                    left: "a".into(),
+                    right: "b".into(),
+                },
+            );
+            s.variants.insert(
+                Name::from("u"),
+                vec![Variant {
+                    id: "v".into(),
+                    parent_vertex: "u".into(),
+                    tag: Some("theirs".into()),
+                }],
+            );
+            s.usage_modes.insert(edge_ab.clone(), UsageMode::Affine);
+            s.nominal.insert(Name::from("a"), false);
+            s
+        };
+
+        let mut s = base.clone();
+        apply_single_resolution(
+            &mut s,
+            &base,
+            &ours,
+            &theirs,
+            &MergeConflict::BothModifiedSpan {
+                span_id: "sp".to_string(),
+            },
+            &ConflictResolution::ChooseTheirs,
+        );
+        assert_eq!(s.spans["sp"].right.as_ref(), "b");
+
+        apply_single_resolution(
+            &mut s,
+            &base,
+            &ours,
+            &theirs,
+            &MergeConflict::BothModifiedVariant {
+                variant_id: "v".to_string(),
+                parent_vertex: "u".to_string(),
+                ours_tag: None,
+                theirs_tag: None,
+            },
+            &ConflictResolution::ChooseOurs,
+        );
+        assert_eq!(
+            s.variants["u"][0].tag.as_ref().map(AsRef::as_ref),
+            Some("ours")
+        );
+
+        apply_single_resolution(
+            &mut s,
+            &base,
+            &ours,
+            &theirs,
+            &MergeConflict::BothModifiedUsageMode {
+                edge: edge_ab.clone(),
+                ours_mode: UsageMode::Linear,
+                theirs_mode: UsageMode::Affine,
+            },
+            &ConflictResolution::ChooseOurs,
+        );
+        assert_eq!(s.usage_modes.get(&edge_ab), Some(&UsageMode::Linear));
+
+        apply_single_resolution(
+            &mut s,
+            &base,
+            &ours,
+            &theirs,
+            &MergeConflict::BothModifiedNominal {
+                vertex_id: "a".to_string(),
+                ours_value: true,
+                theirs_value: false,
+            },
+            &ConflictResolution::ChooseTheirs,
+        );
+        assert_eq!(s.nominal.get("a"), Some(&false));
+    }
+
+    // =======================================================================
+    // Pullback failure surfacing (COL-11)
+    // =======================================================================
+
+    #[test]
+    fn pullback_failure_is_recorded_not_swallowed() {
+        // A failed pullback yields no overlap but a recorded error, so it
+        // is distinguishable from a computed-empty overlap.
+        let ours_theory = schema_to_theory("ours", &make_schema(&[("a", "object")], &[]));
+        let theirs_theory = schema_to_theory("theirs", &make_schema(&[("a", "object")], &[]));
+        let (overlap, err) = overlap_from_pullback(
+            Err(panproto_gat::GatError::ModelError("boom".to_string())),
+            &ours_theory,
+            &theirs_theory,
+        );
+        assert!(overlap.is_none(), "a failed pullback records no overlap");
+        assert!(
+            err.is_some_and(|e| e.contains("boom")),
+            "the failure reason must be recorded"
+        );
+    }
+
+    #[test]
+    fn successful_merge_records_no_pullback_error() {
+        let base = make_schema(&[("a", "object")], &[]);
+        let ours = make_schema(&[("a", "object"), ("b", "string")], &[]);
+        let theirs = make_schema(&[("a", "object"), ("c", "integer")], &[]);
+        let result = three_way_merge(&base, &ours, &theirs);
+        assert!(result.pullback_error.is_none());
+        assert!(result.pullback_overlap.is_some());
     }
 }

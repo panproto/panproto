@@ -31,7 +31,6 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 from quivers.dsl._grammar_introspection import (  # noqa: E402
     BUILTIN_FUNCTIONS,
     BUILTIN_TYPES,
-    COMPOSITION_LEVELS,
     KEYWORDS,
     OPERATORS,
     SORT_KINDS,
@@ -59,13 +58,13 @@ NODE_PATTERNS = """\
 ; ---------------------------------------------------------------------------
 
 (category_decl    names: (identifier) @type)
-(object_decl      name: (identifier) @type)
+(object_decl      names: (identifier) @type)
 (rule_decl        name: (identifier) @function)
 (rule_decl        variables: (identifier) @variable.parameter)
 (schema_decl      name: (identifier) @function)
 (schema_parameter names: (identifier) @variable.parameter)
-(morphism_decl    name: (identifier) @function)
-(let_decl         name: (identifier) @function)
+(morphism_decl    names: (identifier) @function)
+(define_decl      name: (identifier) @function)
 (program_decl     name: (identifier) @function)
 (bundle_decl      name: (identifier) @function)
 (contraction_decl name: (identifier) @function)
@@ -93,13 +92,12 @@ NODE_PATTERNS = """\
 (deduction_atoms  atoms: (identifier) @constant)
 (deduction_rule   name: (identifier) @function)
 (deduction_lexicon_from_file path: (string) @string)
-(lexicon_entry    word: (string) @string)
+(lexicon_entry    words: (string) @string)
 
 ; Structural-compression declarations.
 (signature_decl   name: (identifier) @type)
 (signature_decl   params: (identifier) @type.parameter)
 (sort_decl        name: (identifier) @type)
-(sort_decl        dim: (integer) @number)
 (constructor_decl name: (identifier) @constructor)
 (constructor_decl domain: (identifier) @type)
 (constructor_decl codomain: (identifier) @type)
@@ -115,6 +113,7 @@ NODE_PATTERNS = """\
 (edge_kind_decl   tgt: (identifier) @type)
 (encoder_decl     name: (identifier) @function)
 (encoder_decl     signature: (identifier) @type)
+(encoder_op_rule  op: (identifier) @function)
 (decoder_decl     name: (identifier) @function)
 (decoder_decl     signature: (identifier) @type)
 (loss_decl        name: (identifier) @function)
@@ -147,7 +146,10 @@ NODE_PATTERNS = """\
 
 def _quote_list(items: list[str]) -> str:
     """Format a sorted Scheme string-array for a ``@keyword`` capture."""
-    rendered = "\n".join(f'  "{item}"' for item in sorted(items))
+    rendered = "\n".join(
+        '  "{}"'.format(item.replace("\\", "\\\\").replace('"', '\\"'))
+        for item in sorted(items)
+    )
     return f"[\n{rendered}\n]"
 
 
@@ -157,16 +159,10 @@ def render() -> str:
         "; keywords (derived from grammar literals)",
         "; ---------------------------------------------------------------------------",
         "",
-        _quote_list(sorted(KEYWORDS - COMPOSITION_LEVELS - SORT_KINDS)) + " @keyword",
-        "",
-        "; Composition levels.",
-        _quote_list(sorted(COMPOSITION_LEVELS)) + " @keyword.modifier",
+        _quote_list(sorted(KEYWORDS - SORT_KINDS)) + " @keyword",
         "",
         "; Sort kinds in structural-compression signatures.",
         _quote_list(sorted(SORT_KINDS)) + " @type.qualifier",
-        "",
-        "; Effect tokens carried by option-block values; not grammar literals.",
-        '"!" @operator.special',
         "",
         "; ---------------------------------------------------------------------------",
         "; builtin types (constructor / param-kind heads)",

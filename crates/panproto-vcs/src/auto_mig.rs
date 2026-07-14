@@ -114,6 +114,8 @@ pub fn derive_migration(old: &Schema, new: &Schema, diff: &SchemaDiff) -> Migrat
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         expr_resolvers: HashMap::new(),
+        domain: None,
+        codomain: None,
     };
 
     // If there are both removed and added vertices (potential renames),
@@ -164,7 +166,15 @@ fn try_hom_search_enhancement(
             .hyper_edge_map
             .clone_from(&identity_mig.hyper_edge_map);
         hom_mig.label_map.clone_from(&identity_mig.label_map);
-        Some(hom_mig)
+        // Validate the spliced candidate as a theory morphism before
+        // adopting it; a heuristic candidate that is not structure-
+        // preserving falls back to the diff-derived identity migration.
+        let (dom, cod, morph) = panproto_mig::induced_theory_morphism(old, new, &hom_mig);
+        if panproto_gat::check_morphism(&morph, &dom, &cod).is_ok() {
+            Some(hom_mig)
+        } else {
+            None
+        }
     } else {
         None
     }

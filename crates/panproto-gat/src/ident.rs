@@ -516,8 +516,8 @@ mod tests {
     #[test]
     fn name_partial_eq_str() {
         let name = Name::from("test");
-        assert!(name == "test");
-        assert!(name == "test");
+        assert_eq!(name, "test");
+        assert_eq!(name, "test");
     }
 
     #[test]

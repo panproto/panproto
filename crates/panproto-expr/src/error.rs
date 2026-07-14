@@ -81,4 +81,16 @@ pub enum ExprError {
     /// Float value is not representable as an integer (NaN, infinity, or out of range).
     #[error("float not representable as integer: {0}")]
     FloatNotRepresentable(String),
+
+    /// A builtin operation reached a category handler that does not implement it.
+    ///
+    /// The top-level dispatch in [`apply_builtin`](crate::builtin::apply_builtin)
+    /// routes each [`BuiltinOp`](crate::expr::BuiltinOp) to the category handler
+    /// that implements it. This error signals a misrouted operation: a
+    /// per-category handler received an op outside its category.
+    #[error("internal dispatch error: operation {op} routed to the wrong category handler")]
+    InternalDispatch {
+        /// The misrouted builtin operation.
+        op: String,
+    },
 }

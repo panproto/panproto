@@ -3,7 +3,7 @@ use std::sync::Arc;
 use rustc_hash::FxHashSet;
 
 use crate::error::GatError;
-use crate::morphism::TheoryMorphism;
+use crate::morphism::{OpAssignment, TheoryMorphism};
 use crate::schema_functor::{TheoryConstraint, TheoryEndofunctor, TheoryTransform};
 use crate::theory::Theory;
 
@@ -42,7 +42,11 @@ fn emit_drops(
 
     // Ops
     for op in &domain.ops {
-        let effective_name = morphism.op_map.get(&op.name).unwrap_or(&op.name);
+        let effective_name = morphism
+            .op_map
+            .get(&op.name)
+            .and_then(OpAssignment::as_op)
+            .unwrap_or(&op.name);
         if !codomain_op_names.contains(&**effective_name) {
             steps.push(TheoryEndofunctor {
                 name: Arc::from(format!("drop_op_{}", op.name)),
@@ -110,7 +114,14 @@ fn emit_adds(
     let domain_op_names_after_renames: FxHashSet<Arc<str>> = domain
         .ops
         .iter()
-        .map(|o| morphism.op_map.get(&o.name).unwrap_or(&o.name).clone())
+        .map(|o| {
+            morphism
+                .op_map
+                .get(&o.name)
+                .and_then(OpAssignment::as_op)
+                .unwrap_or(&o.name)
+                .clone()
+        })
         .collect();
 
     // Sorts to add (topologically sorted by parameter deps)
@@ -161,13 +172,7 @@ fn emit_adds(
     // Equations to add
     for eq in &codomain.eqs {
         let domain_has_eq = domain.eqs.iter().any(|deq| {
-            let mapped = deq.rename_ops(
-                &morphism
-                    .op_map
-                    .iter()
-                    .map(|(k, v)| (Arc::clone(k), Arc::clone(v)))
-                    .collect(),
-            );
+            let mapped = deq.rename_ops(&morphism.op_rename_map());
             mapped.lhs == eq.lhs && mapped.rhs == eq.rhs
         });
         if !domain_has_eq && domain.find_eq(&eq.name).is_none() {
@@ -218,6 +223,7 @@ pub fn factorize(
     let mut op_renames: Vec<(Arc<str>, Arc<str>)> = morphism
         .op_map
         .iter()
+        .filter_map(|(old, assignment)| assignment.as_op().map(|new| (old, new)))
         .filter(|(old, new)| old != new && domain.has_op(old) && codomain.has_op(new))
         .map(|(old, new)| (Arc::clone(old), Arc::clone(new)))
         .collect();
@@ -369,7 +375,7 @@ mod tests {
             "T1",
             "T2",
             HashMap::from([(Arc::from("A"), Arc::from("A"))]),
-            HashMap::new(),
+            HashMap::<Arc<str>, Arc<str>>::new(),
         );
         let result = factorize(&morph, &domain, &codomain).unwrap();
         assert_eq!(result.steps.len(), 1);
@@ -394,7 +400,7 @@ mod tests {
             "T1",
             "T2",
             HashMap::from([(Arc::from("A"), Arc::from("A"))]),
-            HashMap::new(),
+            HashMap::<Arc<str>, Arc<str>>::new(),
         );
         let result = factorize(&morph, &domain, &codomain).unwrap();
         // Should drop op f first (depends on B), then sort B
@@ -420,7 +426,7 @@ mod tests {
             "T1",
             "T2",
             HashMap::from([(Arc::from("A"), Arc::from("A"))]),
-            HashMap::new(),
+            HashMap::<Arc<str>, Arc<str>>::new(),
         );
         let result = factorize(&morph, &domain, &codomain).unwrap();
         // B must be added before C (since C depends on B)
@@ -457,9 +463,7 @@ mod tests {
                 (Arc::from("A"), Arc::from("Alpha")),
                 // B is dropped, not mapped
             ]),
-            HashMap::from([
-                // f is dropped, not mapped
-            ]),
+            HashMap::<Arc<str>, Arc<str>>::new(),
         );
         let result = factorize(&morph, &domain, &codomain).unwrap();
         // Should have: drop f, drop B, rename A→Alpha, add C, add g

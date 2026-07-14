@@ -11,7 +11,7 @@
 use panproto_parse::ParserRegistry;
 
 const QVR_HMM: &[u8] = br"
-composition product_fuzzy as algebra
+composition product_fuzzy [level=algebra]
 
 object State : FinSet 8
 object Obs : FinSet 16
@@ -20,16 +20,16 @@ morphism initial : State -> State [role=latent]
 morphism transition : State -> State [role=latent]
 morphism emission : State -> Obs [role=latent]
 
-let n_step = repeat(transition) >> emission
-let hmm = initial >> n_step
+define n_step = repeat(transition) >> emission
+define hmm = initial >> n_step
 
 export hmm
 ";
 
 const QVR_PROGRAM: &[u8] = br"
-object State : Euclidean 16
+object State : Real 16
 
-morphism transition : State -> State [role = kernel] ~ Normal(scale = 0.1)
+morphism transition : State -> State [role=kernel] ~ Normal(0.0, 0.1)
 
 program step : State -> State
     sample s <- transition
@@ -57,7 +57,7 @@ fn qvr_hmm_parses_with_expected_blocks() {
         "composition_decl",
         "object_decl",
         "morphism_decl",
-        "let_decl",
+        "define_decl",
         "export_decl",
     ] {
         assert!(

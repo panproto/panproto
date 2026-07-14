@@ -6,18 +6,11 @@ This page covers the structured-data path (JSON / YAML / TOML / XML / CSV). For 
 
 ## Prerequisites
 
-A panproto build with the `tree-sitter` feature flag enabled on `panproto-core` (or directly on `panproto-io`). The CLI ships with tree-sitter enabled by default.
+Format preservation is gated behind the `tree-sitter` feature flag on `panproto-core` (or directly on `panproto-io`). The shipped `schema` binary does not enable this feature, so its round-trips are not byte-for-byte: a format-preserving parse or emit requested from the default binary returns canonical output with no layout complement and prints a one-line notice to stderr. Byte preservation requires a build that turns the feature on, for instance a tool built against `panproto-core` with `features = ["tree-sitter"]`, or a direct dependency on `panproto-io` with the same feature. The snippets below assume such a build.
 
 ## The task
 
-The format-preserving round-trip is exposed via `schema parse emit`, which parses a file and emits it back in one step:
-
-```sh
-schema parse emit config.yaml > config.roundtripped.yaml
-diff config.yaml config.roundtripped.yaml
-```
-
-The diff is empty when the codec preserves the input. (For programmatic use, parse and emit are exposed separately by the SDK; see below.)
+The format-preserving round-trip is exposed by the codec API, not by the shipped CLI. `parse_wtype_preserving` returns the instance together with a complement carrying the CST data the schema does not see, and `emit_wtype_preserving` reconstructs the byte-for-byte original from the pair.
 
 In Rust:
 
@@ -36,6 +29,8 @@ assert_eq!(out, bytes);
 ```
 
 The complement carries the CST data that the schema does not see. `emit_wtype_preserving` reconstructs the byte-for-byte original from `(instance, complement)`. Constructors exist for each supported format: `UnifiedCodec::json`, `xml`, `yaml`, `toml`, `csv`, and `tsv`.
+
+Without the `tree-sitter` feature these constructors are compiled out. For code that must run in either build, the registry exposes `parse_wtype_preserving_or_canonical` and `emit_wtype_preserving_or_canonical`, which delegate to the preserving codecs when the feature is present and otherwise return canonical output with a stderr notice, so a caller learns the build cannot honor the request rather than silently receiving reformatted data.
 
 ## Verification
 

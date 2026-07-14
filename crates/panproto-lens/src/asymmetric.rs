@@ -10,7 +10,6 @@ use std::collections::{HashMap, HashSet};
 use panproto_gat::Name;
 use panproto_inst::{Fan, Node, WInstance, wtype_restrict};
 use panproto_schema::Edge;
-use serde::{Deserialize, Serialize};
 
 use crate::Lens;
 use crate::error::LensError;
@@ -18,85 +17,50 @@ use crate::error::LensError;
 /// The complement: data discarded by `get`, needed by `put` to restore the
 /// original source instance.
 ///
-/// When `get` projects a source instance to a target view, some nodes, arcs,
-/// and structural decisions are lost. The complement records all of this so
-/// that `put` can reconstruct the full source.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Complement {
-    /// Nodes from the source that do not appear in the target view.
-    pub dropped_nodes: HashMap<u32, Node>,
-    /// Arcs from the source that do not appear in the target view.
-    pub dropped_arcs: Vec<(u32, u32, Edge)>,
-    /// Fans from the source whose parent or children were dropped during `get`.
-    pub dropped_fans: Vec<Fan>,
-    /// Resolver decisions made during ancestor contraction.
-    pub contraction_choices: HashMap<(u32, u32), Edge>,
-    /// Original parent mapping before contraction.
-    pub original_parent: HashMap<u32, u32>,
-    /// Fingerprint of the source schema at `get` time, used by `put` to
-    /// validate that the complement matches the lens's source schema.
-    #[serde(default)]
-    pub source_fingerprint: u64,
-    /// Pre-transform `extra_fields` for nodes that had `field_transforms` applied.
-    /// Used by `put` to restore original field values.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub original_extra_fields: HashMap<u32, HashMap<String, panproto_inst::value::Value>>,
-    /// Exact edge used for every arc in the view, keyed by `(parent_id, child_id)`.
-    /// This makes `put` deterministic when the source schema has parallel edges
-    /// between the same vertex pair, ensuring the cartesian lift is unique.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub arc_edges: HashMap<(u32, u32), Edge>,
-    /// Pre-coercion `node.value` for nodes that had `__value__` field transforms applied.
-    /// Used by `put()` to restore the original leaf value.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub original_values: HashMap<u32, Option<panproto_inst::value::FieldPresence>>,
-    /// View node ids synthesized during forward eval by the nest-style
-    /// `expansion_path` mechanism. These nodes exist in the view (to
-    /// satisfy the target schema's multi-hop path) but have no
-    /// counterpart in the source instance. `put` must drop them when
-    /// reconstructing the source.
-    #[serde(default, skip_serializing_if = "std::collections::HashSet::is_empty")]
-    pub synthesized_nodes: std::collections::HashSet<u32>,
-}
+/// The canonical definition lives in [`panproto_inst::Complement`] and is
+/// shared with the restrict pipeline; it is re-exported here because the
+/// asymmetric lens is its primary producer and consumer. Composition of
+/// complements as a partial monoid is provided by [`ComplementCompose`],
+/// which lives in this crate because its conflict semantics are expressed in
+/// terms of [`LensError`].
+pub use panproto_inst::Complement;
 
-impl Complement {
-    /// Create an empty complement (no data discarded).
-    #[must_use]
-    pub fn empty() -> Self {
-        Self {
-            dropped_nodes: HashMap::new(),
-            dropped_arcs: Vec::new(),
-            dropped_fans: Vec::new(),
-            contraction_choices: HashMap::new(),
-            original_parent: HashMap::new(),
-            source_fingerprint: 0,
-            original_extra_fields: HashMap::new(),
-            arc_edges: HashMap::new(),
-            original_values: HashMap::new(),
-            synthesized_nodes: std::collections::HashSet::new(),
-        }
-    }
-
-    /// Compose two complements as a *partial commutative monoid* (in
-    /// the sense of separation-algebra / Clog-style algebras): the
-    /// merge is defined exactly when the two complements agree on
-    /// every shared key, in which case the result records everything
-    /// lost by both.
+/// Partial-commutative-monoid composition of [`Complement`]s.
+///
+/// This is an extension trait (rather than inherent methods) because the
+/// merge's conflict signalling is expressed with [`LensError`], which lives
+/// in `panproto-lens`, while the [`Complement`] type itself lives in
+/// `panproto-inst`.
+pub trait ComplementCompose: Sized {
+    /// Compose two complements as a *partial commutative monoid* (in the
+    /// sense of separation-algebra / Clog-style algebras): the merge is
+    /// defined exactly when the two complements agree on every shared key,
+    /// in which case the result records everything lost by both.
     ///
-    /// `empty()` is a two-sided identity. On the domain of definition
-    /// (pairs satisfying [`Self::is_compatible`]), composition is
-    /// associative and commutative; this is verified by the
+    /// [`Complement::empty`] is a two-sided identity. On the domain of
+    /// definition (pairs satisfying [`is_compatible`](Self::is_compatible)),
+    /// composition is associative and commutative; this is verified by the
     /// `complement_partial_monoid_*` proptests.
     ///
     /// # Errors
     ///
-    /// Returns [`LensError::ComplementConflict`] when both operands
-    /// carry distinct entries on the same key (the partial-monoid's
+    /// Returns [`LensError::ComplementConflict`] when both operands carry
+    /// distinct entries on the same key (the partial-monoid's
     /// disjointness/agreement condition fails). Returns
-    /// [`LensError::ComplementFingerprintMismatch`] when both
-    /// fingerprints are non-zero and differ; complements rooted at
-    /// different source schemas cannot be combined.
-    pub fn compose(&self, other: &Self) -> Result<Self, LensError> {
+    /// [`LensError::ComplementFingerprintMismatch`] when both fingerprints
+    /// are non-zero and differ; complements rooted at different source
+    /// schemas cannot be combined.
+    fn compose(&self, other: &Self) -> Result<Self, LensError>;
+
+    /// Returns `true` exactly when [`compose`](Self::compose) would succeed.
+    ///
+    /// Equivalent to running `compose` and discarding the result, but avoids
+    /// the allocation when only the predicate is needed.
+    fn is_compatible(&self, other: &Self) -> bool;
+}
+
+impl ComplementCompose for Complement {
+    fn compose(&self, other: &Self) -> Result<Self, LensError> {
         let source_fingerprint =
             compose_fingerprint(self.source_fingerprint, other.source_fingerprint)?;
 
@@ -152,6 +116,14 @@ impl Complement {
         let mut synthesized_nodes = self.synthesized_nodes.clone();
         synthesized_nodes.extend(other.synthesized_nodes.iter().copied());
 
+        let mut contracted_into = self.contracted_into.clone();
+        merge_keyed_with_eq(
+            &mut contracted_into,
+            &other.contracted_into,
+            "contracted_into",
+            PartialEq::eq,
+        )?;
+
         Ok(Self {
             dropped_nodes,
             dropped_arcs,
@@ -163,29 +135,12 @@ impl Complement {
             arc_edges,
             original_values,
             synthesized_nodes,
+            contracted_into,
         })
     }
 
-    /// Returns `true` exactly when [`Self::compose`] would succeed.
-    /// Equivalent to running `compose` and discarding the result, but
-    /// avoids the allocation when only the predicate is needed.
-    #[must_use]
-    pub fn is_compatible(&self, other: &Self) -> bool {
+    fn is_compatible(&self, other: &Self) -> bool {
         self.clone().compose(other).is_ok()
-    }
-
-    /// Returns `true` if the complement is empty (lossless transformation).
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.dropped_nodes.is_empty()
-            && self.dropped_arcs.is_empty()
-            && self.dropped_fans.is_empty()
-            && self.contraction_choices.is_empty()
-            && self.original_parent.is_empty()
-            && self.original_extra_fields.is_empty()
-            && self.arc_edges.is_empty()
-            && self.original_values.is_empty()
-            && self.synthesized_nodes.is_empty()
     }
 }
 
@@ -480,6 +435,9 @@ pub fn get(lens: &Lens, instance: &WInstance) -> Result<(WInstance, Complement),
         arc_edges,
         original_values,
         synthesized_nodes,
+        // The lens `get` path records no ancestor-contraction fibre; that
+        // field is populated only by the restrict pipeline.
+        contracted_into: HashMap::new(),
     };
 
     Ok((view, complement))
@@ -909,6 +867,7 @@ mod tests {
     /// commutativity on the domain of definition.
     mod partial_monoid {
         use super::*;
+        use crate::asymmetric::ComplementCompose;
         use panproto_inst::Node as InstNode;
         use panproto_schema::Edge;
 
@@ -1031,6 +990,298 @@ mod tests {
             for (k, v) in &ab.dropped_nodes {
                 let other = ba.dropped_nodes.get(k).expect("present");
                 assert!(node_equiv(v, other));
+            }
+        }
+
+        /// Property-based partial-monoid laws for [`Complement::compose`].
+        ///
+        /// These are the `complement_partial_monoid_*` proptests that the
+        /// `Complement::compose` doc comment cites. Each draws complements
+        /// with every field independently populated from a shared key pool,
+        /// so distinct draws mix disjoint keys with agreeing shared keys. On
+        /// the domain of definition the merge is an idempotent partial
+        /// commutative monoid with `empty()` as identity; off it, `compose`
+        /// reports a precise error.
+        mod props {
+            use super::*;
+            use crate::asymmetric::ComplementCompose;
+            use panproto_inst::value::{FieldPresence, Value};
+            use proptest::prelude::*;
+            use std::collections::{HashMap, HashSet};
+
+            /// Size of the shared key pool. Small enough that independently
+            /// drawn subsets overlap often (so shared keys are genuinely
+            /// exercised) yet large enough to also yield disjoint keys.
+            const KEY_POOL: u32 = 6;
+
+            /// A non-zero fingerprint used alongside `0`. Any two complements
+            /// drawn from `{0, FP}` are fingerprint-compatible, keeping the
+            /// algebraic-law generators inside the domain of definition.
+            const FP: u64 = 0xC0FF_EE00;
+
+            // Canonical value for each key. Because every field's value is a
+            // pure function of its key, two independently generated
+            // complements agree on every shared key by construction. Hence
+            // `compose` is always defined between them and the partial monoid
+            // restricted to these inputs is total, which is what lets the
+            // commutativity and associativity properties assert an
+            // unconditional equality.
+            fn canon_node(k: u32) -> InstNode {
+                mk_node(k, &format!("anchor-{}", k % 3))
+            }
+            fn canon_edge(p: u32, c: u32) -> Edge {
+                mk_edge(&format!("s{p}"), &format!("t{c}"), "prop")
+            }
+            fn canon_arc(p: u32, c: u32) -> (u32, u32, Edge) {
+                (p, c, canon_edge(p, c))
+            }
+            fn canon_fan(k: u32) -> Fan {
+                Fan::new(format!("he-{k}"), k).with_child("child", k + 100)
+            }
+            fn canon_extra_fields(k: u32) -> HashMap<String, Value> {
+                let mut m = HashMap::new();
+                m.insert("payload".to_owned(), Value::Int(i64::from(k)));
+                m
+            }
+            fn canon_presence(k: u32) -> Option<FieldPresence> {
+                // Vary across the `Option<FieldPresence>` variants so the
+                // merge's `presence_equiv` comparison exercises absent, null,
+                // and present-with-value keys.
+                match k % 3 {
+                    0 => None,
+                    1 => Some(FieldPresence::Null),
+                    _ => Some(FieldPresence::Present(Value::Str(format!("v{k}")))),
+                }
+            }
+            fn canon_parent(k: u32) -> u32 {
+                k + 100
+            }
+
+            type IdSet = HashSet<u32>;
+            type PairSet = HashSet<(u32, u32)>;
+
+            fn arb_id_set() -> impl Strategy<Value = IdSet> {
+                prop::collection::hash_set(0u32..KEY_POOL, 0..=4)
+            }
+            fn arb_pair_set() -> impl Strategy<Value = PairSet> {
+                prop::collection::hash_set((0u32..KEY_POOL, 0u32..KEY_POOL), 0..=4)
+            }
+            fn arb_fingerprint() -> impl Strategy<Value = u64> {
+                prop_oneof![Just(0u64), Just(FP)]
+            }
+
+            /// Strategy generating a [`Complement`] with `dropped_nodes`,
+            /// `dropped_arcs`, `dropped_fans`, `contraction_choices`,
+            /// `original_parent`, `original_extra_fields`, `arc_edges`,
+            /// `original_values`, `synthesized_nodes`, and a fingerprint all
+            /// independently populated from the shared key pool.
+            fn arb_complement() -> impl Strategy<Value = Complement> {
+                (
+                    arb_id_set(),
+                    arb_pair_set(),
+                    arb_id_set(),
+                    arb_pair_set(),
+                    arb_id_set(),
+                    arb_id_set(),
+                    arb_pair_set(),
+                    arb_id_set(),
+                    arb_id_set(),
+                    arb_fingerprint(),
+                )
+                    .prop_map(
+                        |(
+                            nodes,
+                            arcs,
+                            fans,
+                            contraction,
+                            parents,
+                            extra,
+                            arc_edges,
+                            values,
+                            synth,
+                            fp,
+                        )| {
+                            let mut c = Complement::empty();
+                            for k in nodes {
+                                c.dropped_nodes.insert(k, canon_node(k));
+                            }
+                            for (p, ch) in arcs {
+                                c.dropped_arcs.push(canon_arc(p, ch));
+                            }
+                            for k in fans {
+                                c.dropped_fans.push(canon_fan(k));
+                            }
+                            for (p, ch) in contraction {
+                                c.contraction_choices.insert((p, ch), canon_edge(p, ch));
+                            }
+                            for k in parents {
+                                c.original_parent.insert(k, canon_parent(k));
+                            }
+                            for k in extra {
+                                c.original_extra_fields.insert(k, canon_extra_fields(k));
+                            }
+                            for (p, ch) in arc_edges {
+                                c.arc_edges.insert((p, ch), canon_edge(p, ch));
+                            }
+                            for k in values {
+                                c.original_values.insert(k, canon_presence(k));
+                            }
+                            c.synthesized_nodes = synth;
+                            c.source_fingerprint = fp;
+                            c
+                        },
+                    )
+            }
+
+            // --- order-independent structural equality on Complement ---
+
+            fn map_equiv<K, V, F>(a: &HashMap<K, V>, b: &HashMap<K, V>, eq: F) -> bool
+            where
+                K: Eq + std::hash::Hash,
+                F: Fn(&V, &V) -> bool,
+            {
+                a.len() == b.len() && a.iter().all(|(k, v)| b.get(k).is_some_and(|w| eq(v, w)))
+            }
+
+            // Composition dedups these vectors, so equal length plus one-way
+            // containment is full set equality.
+            fn vec_set_equiv<T: PartialEq>(a: &[T], b: &[T]) -> bool {
+                a.len() == b.len() && a.iter().all(|x| b.contains(x))
+            }
+
+            fn complement_equiv(a: &Complement, b: &Complement) -> bool {
+                a.source_fingerprint == b.source_fingerprint
+                    && map_equiv(&a.dropped_nodes, &b.dropped_nodes, node_equiv)
+                    && vec_set_equiv(&a.dropped_arcs, &b.dropped_arcs)
+                    && vec_set_equiv(&a.dropped_fans, &b.dropped_fans)
+                    && map_equiv(
+                        &a.contraction_choices,
+                        &b.contraction_choices,
+                        PartialEq::eq,
+                    )
+                    && a.original_parent == b.original_parent
+                    && map_equiv(
+                        &a.original_extra_fields,
+                        &b.original_extra_fields,
+                        extra_fields_equiv,
+                    )
+                    && map_equiv(&a.arc_edges, &b.arc_edges, PartialEq::eq)
+                    && map_equiv(&a.original_values, &b.original_values, |x, y| {
+                        presence_equiv(x.as_ref(), y.as_ref())
+                    })
+                    && a.synthesized_nodes == b.synthesized_nodes
+            }
+
+            proptest! {
+                #![proptest_config(ProptestConfig::with_cases(128))]
+
+                /// `empty()` is a two-sided identity for `compose` on every
+                /// generated complement. The composite is always defined
+                /// because `empty()` carries fingerprint `0` and no keys.
+                #[test]
+                fn complement_partial_monoid_identity(c in arb_complement()) {
+                    let e = Complement::empty();
+                    let left = e.compose(&c).expect("empty is left-compatible");
+                    let right = c.compose(&e).expect("empty is right-compatible");
+                    prop_assert!(complement_equiv(&left, &c), "left identity");
+                    prop_assert!(complement_equiv(&right, &c), "right identity");
+                }
+
+                /// On the domain of definition `compose` is commutative:
+                /// `a.compose(b)` and `b.compose(a)` agree. The generator makes
+                /// every pair compatible by construction, so both sides are
+                /// defined and equality is asserted unconditionally.
+                #[test]
+                fn complement_partial_monoid_commutative(
+                    a in arb_complement(),
+                    b in arb_complement(),
+                ) {
+                    prop_assert!(a.is_compatible(&b), "compatible by construction");
+                    let ab = a.compose(&b).expect("ab defined");
+                    let ba = b.compose(&a).expect("ba defined");
+                    prop_assert!(complement_equiv(&ab, &ba));
+                }
+
+                /// On the domain of definition `compose` is associative:
+                /// `(a.b).c == a.(b.c)`. Every triple drawn from the shared
+                /// key pool is pairwise compatible, so both bracketings are
+                /// defined.
+                #[test]
+                fn complement_partial_monoid_associative(
+                    a in arb_complement(),
+                    b in arb_complement(),
+                    c in arb_complement(),
+                ) {
+                    let left = a
+                        .compose(&b)
+                        .and_then(|ab| ab.compose(&c))
+                        .expect("(ab)c defined");
+                    let right = b
+                        .compose(&c)
+                        .and_then(|bc| a.compose(&bc))
+                        .expect("a(bc) defined");
+                    prop_assert!(complement_equiv(&left, &right));
+                }
+
+                /// Off the domain of definition `compose` reports a precise
+                /// error: a shared key with distinct values yields
+                /// [`LensError::ComplementConflict`], and two distinct
+                /// non-zero fingerprints yield
+                /// [`LensError::ComplementFingerprintMismatch`].
+                #[test]
+                fn complement_partial_monoid_conflict(
+                    key in 0u32..KEY_POOL,
+                    left_tag in 0u32..3,
+                    right_tag in 0u32..3,
+                    fp_a in 1u64..0x1_0000,
+                    fp_b in 1u64..0x1_0000,
+                ) {
+                    // Distinct dropped-node values on a shared key -> conflict.
+                    if left_tag != right_tag {
+                        let mut a = Complement::empty();
+                        a.dropped_nodes.insert(key, mk_node(key, &format!("L{left_tag}")));
+                        let mut b = Complement::empty();
+                        b.dropped_nodes.insert(key, mk_node(key, &format!("R{right_tag}")));
+                        let node_conflict = matches!(
+                            a.compose(&b),
+                            Err(LensError::ComplementConflict {
+                                kind: "dropped_nodes",
+                                ..
+                            })
+                        );
+                        prop_assert!(node_conflict, "dropped_nodes conflict expected");
+                        prop_assert!(!a.is_compatible(&b));
+
+                        // The same clash surfaces through an edge-keyed field.
+                        let mut a2 = Complement::empty();
+                        a2.arc_edges
+                            .insert((0, 1), mk_edge("s", "t", &format!("L{left_tag}")));
+                        let mut b2 = Complement::empty();
+                        b2.arc_edges
+                            .insert((0, 1), mk_edge("s", "t", &format!("R{right_tag}")));
+                        let edge_conflict = matches!(
+                            a2.compose(&b2),
+                            Err(LensError::ComplementConflict {
+                                kind: "arc_edges",
+                                ..
+                            })
+                        );
+                        prop_assert!(edge_conflict, "arc_edges conflict expected");
+                    }
+
+                    // Two distinct non-zero fingerprints -> mismatch.
+                    if fp_a != fp_b {
+                        let mut a = Complement::empty();
+                        a.source_fingerprint = fp_a;
+                        let mut b = Complement::empty();
+                        b.source_fingerprint = fp_b;
+                        let fp_mismatch = matches!(
+                            a.compose(&b),
+                            Err(LensError::ComplementFingerprintMismatch { .. })
+                        );
+                        prop_assert!(fp_mismatch, "fingerprint mismatch expected");
+                    }
+                }
             }
         }
     }

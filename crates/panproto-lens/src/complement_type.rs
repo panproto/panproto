@@ -472,7 +472,7 @@ mod tests {
         let p = elementary::drop_sort("string");
         let spec = complement_spec_at(&p, &schema);
         assert_eq!(spec.kind, ComplementKind::DataCaptured);
-        assert!(spec.captured_data.len() == 1);
+        assert_eq!(spec.captured_data.len(), 1);
         assert_eq!(&*spec.captured_data[0].element_name, "string");
     }
 
@@ -492,7 +492,7 @@ mod tests {
         let p = elementary::drop_op("prop");
         let spec = complement_spec_at(&p, &schema);
         assert_eq!(spec.kind, ComplementKind::DataCaptured);
-        assert!(spec.captured_data.len() == 1);
+        assert_eq!(spec.captured_data.len(), 1);
         assert_eq!(&*spec.captured_data[0].element_name, "prop");
     }
 

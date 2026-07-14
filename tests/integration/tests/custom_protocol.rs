@@ -284,6 +284,7 @@ fn custom_protocol_build_instance_and_lift() -> Result<(), Box<dyn std::error::E
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        op_term_assignments: HashMap::new(),
         expansion_path: HashMap::new(),
     };
 
@@ -471,6 +472,8 @@ fn custom_protocol_projection_migration() -> Result<(), Box<dyn std::error::Erro
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         expr_resolvers: HashMap::new(),
+        domain: None,
+        codomain: None,
     };
 
     let compiled = compile(&src_schema, &tgt_schema, &migration)?;

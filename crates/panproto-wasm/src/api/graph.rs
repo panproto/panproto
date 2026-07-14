@@ -280,3 +280,18 @@ pub(super) fn simplify_chain(chain: &lens::ProtolensChain) -> lens::ProtolensCha
 
     lens::ProtolensChain::new(steps)
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::api::test_support;
+
+    #[test]
+    fn poly_hom_between_two_schemas() {
+        let src = rmp_serde::to_vec_named(&test_support::source_schema()).unwrap();
+        let tgt = rmp_serde::to_vec_named(&test_support::target_schema()).unwrap();
+        let hom = poly_hom(&src, &tgt).unwrap();
+        assert!(!hom.is_empty(), "poly_hom must encode a result");
+    }
+}

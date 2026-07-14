@@ -1,0 +1,12 @@
+# The pyo3 extension-module cdylibs — the Python bindings (`panproto-py`) and
+# the `panproto-grammars-*` Python companions — resolve CPython (`_Py_*`)
+# symbols when the module is loaded into an interpreter, not at link time. On
+# macOS the system linker fails on those undefined symbols unless told to defer
+# them, so building the workspace with plain `cargo build` cannot link the
+# cdylibs. These flags mirror what maturin passes; on Linux the symbols resolve
+# without them, so this is scoped to the Apple targets only.
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]
+
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]

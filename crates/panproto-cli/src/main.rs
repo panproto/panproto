@@ -97,6 +97,29 @@ enum Command {
         typecheck: bool,
     },
 
+    /// Classify backward-compatibility between two schema versions.
+    ///
+    /// Runs a structural diff then classifies it against the named
+    /// protocol, printing the changes grouped by tier. Exit codes:
+    /// `0` when no breaking changes are found, `1` when at least one
+    /// breaking change is found, and `2` on a usage or load error
+    /// (unreadable file, unknown protocol, or bad `--format`).
+    Compat {
+        /// Path to the old schema JSON file.
+        old: PathBuf,
+
+        /// Path to the new schema JSON file.
+        new: PathBuf,
+
+        /// The protocol name (e.g., "atproto").
+        #[arg(long)]
+        protocol: String,
+
+        /// Output format: `text` (default) or `json`.
+        #[arg(long, default_value = "text")]
+        format: String,
+    },
+
     /// Generate minimal test data from a protocol theory using free model construction.
     Scaffold {
         /// The protocol name (e.g., "atproto").
@@ -968,6 +991,17 @@ enum LensAction {
         #[arg(long)]
         explain: bool,
     },
+    /// Compile a lens DSL document (.ncl/.json/.yaml) to a protolens chain.
+    Compile {
+        /// Path to the lens DSL document (`.ncl`, `.json`, `.yaml`, or `.yml`).
+        doc: PathBuf,
+        /// Parent vertex under which field-level steps attach.
+        #[arg(long, default_value = "record:body")]
+        body_vertex: String,
+        /// Write the chain JSON to this file instead of stdout.
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// Apply a saved lens chain to data.
     Apply {
         /// Path to the protolens chain JSON.
@@ -1268,6 +1302,12 @@ fn dispatch(command: Command, verbose: bool) -> Result<()> {
             }
             result
         }
+        Command::Compat {
+            old,
+            new,
+            protocol,
+            format,
+        } => cmd::schema::cmd_compat(&old, &new, &protocol, &format, verbose),
         Command::Show {
             target,
             format,
@@ -1591,6 +1631,11 @@ fn dispatch_lens_commands(action: LensAction, verbose: bool) -> Result<()> {
             top_n,
             explain,
         ),
+        LensAction::Compile {
+            doc,
+            body_vertex,
+            out,
+        } => cmd::lens::cmd_lens_compile(&doc, &body_vertex, out.as_deref(), verbose),
         LensAction::Apply {
             chain,
             data,

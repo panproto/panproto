@@ -147,8 +147,31 @@ pub fn th_meta() -> Theory {
 // Theory group registration helpers
 // ═══════════════════════════════════════════════════════════════════
 
-use panproto_gat::colimit_by_name;
+use panproto_gat::pushout_by_name;
+use panproto_gat::validate_rewrite_system;
 use std::collections::HashMap;
+
+/// Gate a to-be-registered theory on the soundness of its directed rewrite
+/// system (local confluence and LPO termination under operation-declaration
+/// order). Registration is never blocked: a system that is not provably sound
+/// is reported to stderr for investigation, so a new gate cannot break the
+/// registration of built-in theories. Theories with no directed equations
+/// (every built-in composed here) pass trivially and silently.
+fn gate_rewrite_system(theory: &Theory) {
+    match validate_rewrite_system(theory) {
+        Ok(report) => {
+            for warning in report.warnings() {
+                eprintln!(
+                    "theory `{}`: rewrite-system warning: {warning}",
+                    theory.name
+                );
+            }
+        }
+        Err(e) => {
+            eprintln!("theory `{}`: rewrite-system check failed: {e}", theory.name);
+        }
+    }
+}
 
 /// Register a **constrained multigraph + W-type** theory pair (Group A).
 ///
@@ -190,22 +213,27 @@ pub fn register_constrained_multigraph_wtype<S: ::std::hash::BuildHasher>(
         .or_insert_with(|| w.clone());
 
     let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
-    let gc = colimit_by_name(&g, &c, &shared_vertex)
-        .unwrap_or_else(|e| panic!("colimit ThGraph + ThConstraint over ThVertex failed: {e}"));
+    let gc = pushout_by_name(&g, &c, &shared_vertex)
+        .unwrap_or_else(|e| panic!("colimit ThGraph + ThConstraint over ThVertex failed: {e}"))
+        .theory;
     let shared_ve = Theory::new(
         "ThVertexEdge",
         vec![Sort::simple("Vertex"), Sort::simple("Edge")],
         vec![],
         vec![],
     );
-    let mut schema_theory = colimit_by_name(&gc, &m, &shared_ve).unwrap_or_else(|e| {
-        panic!("colimit (ThGraph+ThConstraint) + ThMulti over ThVertexEdge failed: {e}")
-    });
+    let mut schema_theory = pushout_by_name(&gc, &m, &shared_ve)
+        .unwrap_or_else(|e| {
+            panic!("colimit (ThGraph+ThConstraint) + ThMulti over ThVertexEdge failed: {e}")
+        })
+        .theory;
     schema_theory.name = schema_name.into();
+    gate_rewrite_system(&schema_theory);
     registry.insert(schema_name.into(), schema_theory);
 
     let mut inst = w;
     inst.name = instance_name.into();
+    gate_rewrite_system(&inst);
     registry.insert(instance_name.into(), inst);
 }
 
@@ -242,14 +270,16 @@ pub fn register_hypergraph_functor<S: ::std::hash::BuildHasher>(
         .or_insert_with(|| f.clone());
 
     let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
-    let mut schema_theory = colimit_by_name(&h, &c, &shared_vertex).unwrap_or_else(|e| {
-        panic!("colimit ThHypergraph + ThConstraint over ThVertex failed: {e}")
-    });
+    let mut schema_theory = pushout_by_name(&h, &c, &shared_vertex)
+        .unwrap_or_else(|e| panic!("colimit ThHypergraph + ThConstraint over ThVertex failed: {e}"))
+        .theory;
     schema_theory.name = schema_name.into();
+    gate_rewrite_system(&schema_theory);
     registry.insert(schema_name.into(), schema_theory);
 
     let mut inst = f;
     inst.name = instance_name.into();
+    gate_rewrite_system(&inst);
     registry.insert(instance_name.into(), inst);
 }
 
@@ -286,14 +316,18 @@ pub fn register_simple_graph_flat<S: ::std::hash::BuildHasher>(
         .or_insert_with(|| fl.clone());
 
     let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
-    let mut schema_theory = colimit_by_name(&sg, &c, &shared_vertex).unwrap_or_else(|e| {
-        panic!("colimit ThSimpleGraph + ThConstraint over ThVertex failed: {e}")
-    });
+    let mut schema_theory = pushout_by_name(&sg, &c, &shared_vertex)
+        .unwrap_or_else(|e| {
+            panic!("colimit ThSimpleGraph + ThConstraint over ThVertex failed: {e}")
+        })
+        .theory;
     schema_theory.name = schema_name.into();
+    gate_rewrite_system(&schema_theory);
     registry.insert(schema_name.into(), schema_theory);
 
     let mut inst = fl;
     inst.name = instance_name.into();
+    gate_rewrite_system(&inst);
     registry.insert(instance_name.into(), inst);
 }
 
@@ -338,27 +372,31 @@ pub fn register_typed_graph_wtype<S: ::std::hash::BuildHasher>(
         .or_insert_with(|| w.clone());
 
     let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
-    let gc = colimit_by_name(&g, &c, &shared_vertex)
-        .unwrap_or_else(|e| panic!("colimit ThGraph + ThConstraint over ThVertex failed: {e}"));
+    let gc = pushout_by_name(&g, &c, &shared_vertex)
+        .unwrap_or_else(|e| panic!("colimit ThGraph + ThConstraint over ThVertex failed: {e}"))
+        .theory;
     let shared_ve = Theory::new(
         "ThVertexEdge",
         vec![Sort::simple("Vertex"), Sort::simple("Edge")],
         vec![],
         vec![],
     );
-    let gcm = colimit_by_name(&gc, &m, &shared_ve).unwrap_or_else(|e| {
-        panic!("colimit (ThGraph+ThConstraint) + ThMulti over ThVertexEdge failed: {e}")
-    });
+    let gcm = pushout_by_name(&gc, &m, &shared_ve)
+        .unwrap_or_else(|e| {
+            panic!("colimit (ThGraph+ThConstraint) + ThMulti over ThVertexEdge failed: {e}")
+        })
+        .theory;
     let shared_vertex_only = Theory::new("ThVertex2", vec![Sort::simple("Vertex")], vec![], vec![]);
-    let mut schema_theory =
-        colimit_by_name(&gcm, &iface, &shared_vertex_only).unwrap_or_else(|e| {
-            panic!("colimit (...+ThMulti) + ThInterface over ThVertex failed: {e}")
-        });
+    let mut schema_theory = pushout_by_name(&gcm, &iface, &shared_vertex_only)
+        .unwrap_or_else(|e| panic!("colimit (...+ThMulti) + ThInterface over ThVertex failed: {e}"))
+        .theory;
     schema_theory.name = schema_name.into();
+    gate_rewrite_system(&schema_theory);
     registry.insert(schema_name.into(), schema_theory);
 
     let mut inst = w;
     inst.name = instance_name.into();
+    gate_rewrite_system(&inst);
     registry.insert(instance_name.into(), inst);
 }
 
@@ -402,18 +440,22 @@ pub fn register_multigraph_wtype_meta<S: ::std::hash::BuildHasher>(
         .or_insert_with(|| meta.clone());
 
     let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
-    let gc = colimit_by_name(&g, &c, &shared_vertex)
-        .unwrap_or_else(|e| panic!("colimit ThGraph + ThConstraint over ThVertex failed: {e}"));
+    let gc = pushout_by_name(&g, &c, &shared_vertex)
+        .unwrap_or_else(|e| panic!("colimit ThGraph + ThConstraint over ThVertex failed: {e}"))
+        .theory;
     let shared_ve = Theory::new(
         "ThVertexEdge",
         vec![Sort::simple("Vertex"), Sort::simple("Edge")],
         vec![],
         vec![],
     );
-    let mut schema_theory = colimit_by_name(&gc, &m, &shared_ve).unwrap_or_else(|e| {
-        panic!("colimit (ThGraph+ThConstraint) + ThMulti over ThVertexEdge failed: {e}")
-    });
+    let mut schema_theory = pushout_by_name(&gc, &m, &shared_ve)
+        .unwrap_or_else(|e| {
+            panic!("colimit (ThGraph+ThConstraint) + ThMulti over ThVertexEdge failed: {e}")
+        })
+        .theory;
     schema_theory.name = schema_name.into();
+    gate_rewrite_system(&schema_theory);
     registry.insert(schema_name.into(), schema_theory);
 
     let shared_node_value = Theory::new(
@@ -422,9 +464,11 @@ pub fn register_multigraph_wtype_meta<S: ::std::hash::BuildHasher>(
         vec![],
         vec![],
     );
-    let mut inst_theory = colimit_by_name(&w, &meta, &shared_node_value)
-        .unwrap_or_else(|e| panic!("colimit ThWType + ThMeta over ThNodeValue failed: {e}"));
+    let mut inst_theory = pushout_by_name(&w, &meta, &shared_node_value)
+        .unwrap_or_else(|e| panic!("colimit ThWType + ThMeta over ThNodeValue failed: {e}"))
+        .theory;
     inst_theory.name = instance_name.into();
+    gate_rewrite_system(&inst_theory);
     registry.insert(instance_name.into(), inst_theory);
 }
 
@@ -465,22 +509,27 @@ pub fn register_constrained_graph_instance<S: ::std::hash::BuildHasher>(
         .or_insert_with(|| gi.clone());
 
     let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
-    let gc = colimit_by_name(&g, &c, &shared_vertex)
-        .unwrap_or_else(|e| panic!("colimit ThGraph + ThConstraint over ThVertex failed: {e}"));
+    let gc = pushout_by_name(&g, &c, &shared_vertex)
+        .unwrap_or_else(|e| panic!("colimit ThGraph + ThConstraint over ThVertex failed: {e}"))
+        .theory;
     let shared_ve = Theory::new(
         "ThVertexEdge",
         vec![Sort::simple("Vertex"), Sort::simple("Edge")],
         vec![],
         vec![],
     );
-    let mut schema_theory = colimit_by_name(&gc, &m, &shared_ve).unwrap_or_else(|e| {
-        panic!("colimit (ThGraph+ThConstraint) + ThMulti over ThVertexEdge failed: {e}")
-    });
+    let mut schema_theory = pushout_by_name(&gc, &m, &shared_ve)
+        .unwrap_or_else(|e| {
+            panic!("colimit (ThGraph+ThConstraint) + ThMulti over ThVertexEdge failed: {e}")
+        })
+        .theory;
     schema_theory.name = schema_name.into();
+    gate_rewrite_system(&schema_theory);
     registry.insert(schema_name.into(), schema_theory);
 
     let mut inst = gi;
     inst.name = instance_name.into();
+    gate_rewrite_system(&inst);
     registry.insert(instance_name.into(), inst);
 }
 

@@ -43,6 +43,18 @@ pub enum GatError {
         detail: String,
     },
 
+    /// Equation preservation could not be decided: the mapped equation is not
+    /// syntactically present in the codomain and normalization to a common
+    /// form exhausted its step budget. The morphism is rejected rather than
+    /// accepted on inconclusive evidence.
+    #[error("equation {equation} preservation unknown: {detail}")]
+    EquationPreservationUnknown {
+        /// The equation whose preservation could not be decided.
+        equation: String,
+        /// Details about why the check was inconclusive.
+        detail: String,
+    },
+
     /// A directed equation is not preserved by a morphism.
     #[error("directed equation {equation} not preserved: {detail}")]
     DirectedEquationNotPreserved {
@@ -50,6 +62,25 @@ pub enum GatError {
         equation: String,
         /// Details about the failure.
         detail: String,
+    },
+
+    /// An equality witness does not justify the equality it claims.
+    #[error("invalid equality witness: {reason}")]
+    WitnessInvalid {
+        /// Why the witness fails to justify its claimed equality.
+        reason: String,
+    },
+
+    /// A rewrite-driven comparison (equation-sort equality or naturality) ran
+    /// out of steps before reaching a normal form, so equality could not be
+    /// decided. This is reported instead of a spurious inequality on a
+    /// truncated normalization.
+    #[error("rewrite budget exhausted while checking {context} (step limit {limit})")]
+    RewriteBudgetExhausted {
+        /// What was being checked (an equation name or a naturality square).
+        context: String,
+        /// The step limit that was hit.
+        limit: usize,
     },
 
     /// Sort conflict during colimit computation.
@@ -187,6 +218,44 @@ pub enum GatError {
         reason: String,
     },
 
+    /// A morphism assigns an operation a derived term that references a
+    /// variable which is not one of the operation's parameters.
+    #[error(
+        "term assignment for operation {op} references unbound variable {var}; only the operation's parameters are in scope"
+    )]
+    TermAssignmentUnboundVar {
+        /// The operation being assigned.
+        op: String,
+        /// The unbound variable name.
+        var: String,
+    },
+
+    /// A morphism assigns an operation a derived term whose inferred sort
+    /// does not match the operation's mapped output sort.
+    #[error(
+        "term assignment for operation {op} has sort {got}, but the mapped output sort is {expected}"
+    )]
+    TermAssignmentSortMismatch {
+        /// The operation being assigned.
+        op: String,
+        /// The mapped output sort `F(S)`.
+        expected: String,
+        /// The inferred sort of the assigned term.
+        got: String,
+    },
+
+    /// A morphism assigns an operation a derived term that fails to
+    /// typecheck in the codomain for a reason other than an unbound
+    /// variable (e.g. an operation arity or argument-sort mismatch inside
+    /// the term).
+    #[error("term assignment for operation {op} is ill-typed: {detail}")]
+    TermAssignmentIllTyped {
+        /// The operation being assigned.
+        op: String,
+        /// The underlying type-checking failure.
+        detail: String,
+    },
+
     // --- Natural transformation errors ---
     /// Source and target morphisms of a natural transformation have different domains.
     #[error(
@@ -277,6 +346,19 @@ pub enum GatError {
     /// Cyclic sort dependencies detected in topological sort.
     #[error("cyclic sort dependencies: {0:?}")]
     CyclicSortDependency(Vec<String>),
+
+    /// Variable-sort inference failed for an equation during free-model
+    /// construction, so the equation cannot be used in congruence
+    /// closure. Rather than silently dropping the equation (which
+    /// under-quotients the model), free-model construction surfaces this
+    /// error. Wraps the underlying inference failure detail.
+    #[error("cannot infer variable sorts for equation {equation}: {detail}")]
+    VarSortInferenceFailed {
+        /// The equation whose variable sorts could not be inferred.
+        equation: String,
+        /// The underlying inference failure (from `infer_var_sorts`).
+        detail: String,
+    },
 
     // --- Quotient errors ---
     /// A case expression fails to cover every constructor of its
@@ -434,5 +516,43 @@ pub enum GatError {
         name_b: String,
         /// Reason for incompatibility.
         detail: String,
+    },
+
+    /// A colimit inclusion leg induces a non-injective rename: two shared
+    /// elements are identified with the same element in one input theory
+    /// while their images in the other input theory differ. The pushout
+    /// rejects this rather than choosing one image, since the underlying
+    /// span is not the disjoint identification the construction assumes.
+    #[error(
+        "non-injective colimit leg on {kind} `{shared_image}`: it is the shared image of two elements mapped to the distinct targets `{first}` and `{second}`"
+    )]
+    NonInjectiveIdentification {
+        /// Whether this is a `sort` or an `op`.
+        kind: &'static str,
+        /// The element in the second theory that both shared elements
+        /// map onto.
+        shared_image: String,
+        /// One of the two conflicting first-theory targets, ordered
+        /// deterministically with `second` so the message is stable.
+        first: String,
+        /// The other conflicting first-theory target.
+        second: String,
+    },
+
+    /// Model equation checking enumerated more variable assignments for a
+    /// single equation than the configured per-equation bound allows, so
+    /// the equation was not checked. An empty violation list from the
+    /// overall check is therefore not a proof that this equation holds.
+    #[error(
+        "equation `{equation}` requires {required} assignments, exceeding the per-equation bound of {limit}"
+    )]
+    ModelCheckLimitExceeded {
+        /// The equation whose assignment space exceeded the bound.
+        equation: String,
+        /// The number of assignments the equation's variable carriers
+        /// would require.
+        required: usize,
+        /// The configured per-equation assignment bound.
+        limit: usize,
     },
 }

@@ -39,7 +39,11 @@ pub fn induce_schema_morphism(
     let mut edge_map: HashMap<Edge, Edge> = HashMap::new();
     for edge in src_schema.edges.keys() {
         let mut new_edge = edge.clone();
-        if let Some(new_kind) = theory_morph.op_map.get(edge.kind.as_ref()) {
+        if let Some(new_kind) = theory_morph
+            .op_map
+            .get(edge.kind.as_ref())
+            .and_then(panproto_gat::OpAssignment::as_op)
+        {
             new_edge.kind = Name::from(&**new_kind);
         }
         edge_map.insert(edge.clone(), new_edge);
@@ -114,6 +118,7 @@ fn compile_schema_morphism(
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        op_term_assignments: HashMap::new(),
         expansion_path: HashMap::new(),
     }
 }

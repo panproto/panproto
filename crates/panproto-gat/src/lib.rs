@@ -57,13 +57,13 @@ pub use enrichment::{
 };
 pub use eq::{
     CaseBranch, DirectedEquation, Equation, Term, alpha_equivalent, alpha_equivalent_equation,
-    compose_subst, match_pattern, normalize,
+    compose_subst, match_pattern, normalize, normalize_with_status, normalize_with_witness,
 };
 pub use error::GatError;
 pub use free_model::{FreeModelConfig, FreeModelResult, free_model};
 pub use ident::{Ident, Name, NameSite, ScopeTag, SiteRename};
 pub use model::{Model, ModelValue, migrate_model};
-pub use morphism::{TheoryMorphism, check_morphism};
+pub use morphism::{OpAssignment, TheoryMorphism, check_morphism, check_morphism_with_witnesses};
 pub use nat_transform::{
     NaturalTransformation, check_interchange, check_natural_transformation, horizontal_compose,
     vertical_compose,
@@ -87,7 +87,8 @@ pub use typecheck::{
 pub use alg_struct::{AlgStruct, StructField, StructParam};
 pub use refinement::{RefinedSort, RefinementConstraint, RefinementError};
 pub use rewriting::{
-    ConfluenceReport, CriticalPair, OpPrecedence, RuleViolation, TerminationReport,
-    check_local_confluence, check_termination_via_lpo, lpo_greater,
+    ConfluenceReport, CriticalPair, OpPrecedence, RewriteSystemReport, RuleViolation,
+    TerminationReport, check_local_confluence, check_termination_via_lpo, lpo_greater,
+    validate_rewrite_system,
 };
 pub use witness::{EqWitness, WitnessJustification};

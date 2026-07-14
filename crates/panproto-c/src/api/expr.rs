@@ -8,7 +8,7 @@
 //! via [`crate::canonical`].
 //!
 //! Surface parsing and functional evaluation go through
-//! [`panproto_expr_parser`] and [`panproto_expr`] directly. GAT-term
+//! [`panproto_core::expr_parser`] and [`panproto_core::expr`]. GAT-term
 //! evaluation and type checking go through `panproto_core::gat`; the
 //! recursive term evaluator mirrors `eval_term_recursive` in the WASM
 //! helpers. Queries go through `panproto_core::inst::execute_query`.
@@ -28,9 +28,9 @@ use crate::panic::guard;
 /// Parse expression source text into a `panproto-expr` AST.
 ///
 /// `source` is the UTF-8 source bytes. On success, `out` receives the
-/// CBOR-encoded [`panproto_expr::Expr`]. Tokenizes via
-/// [`panproto_expr_parser::tokenize`] then parses via
-/// [`panproto_expr_parser::parse`]; either failure maps to
+/// CBOR-encoded [`panproto_core::expr::Expr`]. Tokenizes via
+/// [`panproto_core::expr_parser::tokenize`] then parses via
+/// [`panproto_core::expr_parser::parse`]; either failure maps to
 /// [`FfiError::Operation`].
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
@@ -39,10 +39,10 @@ pub fn pp_expr_parse(source: c_slice::Ref<'_, u8>, out: &mut repr_c::Vec<u8>) ->
         let text = std::str::from_utf8(source.as_slice())
             .map_err(|e| FfiError::Serialization(format!("source: invalid UTF-8: {e}")))?;
 
-        let tokens = panproto_expr_parser::tokenize(text)
+        let tokens = panproto_core::expr_parser::tokenize(text)
             .map_err(|e| FfiError::Operation(format!("tokenize failed: {e}")))?;
 
-        let expr = panproto_expr_parser::parse(&tokens).map_err(|errs| {
+        let expr = panproto_core::expr_parser::parse(&tokens).map_err(|errs| {
             FfiError::Operation(format!(
                 "parse failed: {}",
                 errs.iter()
@@ -59,11 +59,11 @@ pub fn pp_expr_parse(source: c_slice::Ref<'_, u8>, out: &mut repr_c::Vec<u8>) ->
 
 /// Evaluate a functional expression against an environment.
 ///
-/// `expr` is a CBOR-encoded [`panproto_expr::Expr`]; `env` is a
-/// CBOR-encoded `Vec<(String, panproto_expr::Literal)>`. On success,
-/// `out` receives the CBOR-encoded [`panproto_expr::Literal`] result.
-/// Calls [`panproto_expr::eval`] with the default
-/// [`panproto_expr::EvalConfig`] (step and depth limits).
+/// `expr` is a CBOR-encoded [`panproto_core::expr::Expr`]; `env` is a
+/// CBOR-encoded `Vec<(String, panproto_core::expr::Literal)>`. On success,
+/// `out` receives the CBOR-encoded [`panproto_core::expr::Literal`] result.
+/// Calls [`panproto_core::expr::eval`] with the default
+/// [`panproto_core::expr::EvalConfig`] (step and depth limits).
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_expr_eval_func(
@@ -72,17 +72,17 @@ pub fn pp_expr_eval_func(
     out: &mut repr_c::Vec<u8>,
 ) -> i32 {
     guard(|| {
-        let expr: panproto_expr::Expr = crate::canonical::decode(expr.as_slice())?;
-        let bindings: Vec<(String, panproto_expr::Literal)> =
+        let expr: panproto_core::expr::Expr = crate::canonical::decode(expr.as_slice())?;
+        let bindings: Vec<(String, panproto_core::expr::Literal)> =
             crate::canonical::decode(env.as_slice())?;
 
-        let env: panproto_expr::Env = bindings
+        let env: panproto_core::expr::Env = bindings
             .into_iter()
             .map(|(k, v)| (Arc::<str>::from(k.as_str()), v))
             .collect();
 
-        let config = panproto_expr::EvalConfig::default();
-        let result = panproto_expr::eval(&expr, &env, &config)
+        let config = panproto_core::expr::EvalConfig::default();
+        let result = panproto_core::expr::eval(&expr, &env, &config)
             .map_err(|e| FfiError::Operation(format!("expression evaluation failed: {e}")))?;
 
         *out = crate::canonical::encode(&result)?.into();
@@ -431,10 +431,10 @@ mod tests {
         assert_eq!(status, PpStatus::Ok as i32);
 
         // The bytes round-trip back to an `Expr`.
-        let expr: panproto_expr::Expr = decode(&parsed).unwrap();
+        let expr: panproto_core::expr::Expr = decode(&parsed).unwrap();
 
         let expr_bytes = encode(&expr).unwrap();
-        let env_bytes = encode(&Vec::<(String, panproto_expr::Literal)>::new()).unwrap();
+        let env_bytes = encode(&Vec::<(String, panproto_core::expr::Literal)>::new()).unwrap();
         let mut out: repr_c::Vec<u8> = Vec::new().into();
         let status = pp_expr_eval_func(
             slice_of(expr_bytes).as_ref(),
@@ -443,8 +443,8 @@ mod tests {
         );
         assert_eq!(status, PpStatus::Ok as i32);
 
-        let result: panproto_expr::Literal = decode(&out).unwrap();
-        assert_eq!(result, panproto_expr::Literal::Int(3));
+        let result: panproto_core::expr::Literal = decode(&out).unwrap();
+        assert_eq!(result, panproto_core::expr::Literal::Int(3));
 
         pp_buf_free(parsed);
         pp_buf_free(out);
@@ -458,11 +458,11 @@ mod tests {
             pp_expr_parse(slice_of(b"x * 2".to_vec()).as_ref(), &mut parsed),
             PpStatus::Ok as i32
         );
-        let expr: panproto_expr::Expr = decode(&parsed).unwrap();
+        let expr: panproto_core::expr::Expr = decode(&parsed).unwrap();
         pp_buf_free(parsed);
 
-        let env: Vec<(String, panproto_expr::Literal)> =
-            vec![("x".to_string(), panproto_expr::Literal::Int(21))];
+        let env: Vec<(String, panproto_core::expr::Literal)> =
+            vec![("x".to_string(), panproto_core::expr::Literal::Int(21))];
 
         let mut out: repr_c::Vec<u8> = Vec::new().into();
         assert_eq!(
@@ -473,8 +473,8 @@ mod tests {
             ),
             PpStatus::Ok as i32
         );
-        let result: panproto_expr::Literal = decode(&out).unwrap();
-        assert_eq!(result, panproto_expr::Literal::Int(42));
+        let result: panproto_core::expr::Literal = decode(&out).unwrap();
+        assert_eq!(result, panproto_core::expr::Literal::Int(42));
         pp_buf_free(out);
     }
 
@@ -489,7 +489,7 @@ mod tests {
     #[test]
     fn eval_func_rejects_garbage_expr_with_serialization_status() {
         let bad = vec![0xFFu8, 0xFE, 0xFD];
-        let env_bytes = encode(&Vec::<(String, panproto_expr::Literal)>::new()).unwrap();
+        let env_bytes = encode(&Vec::<(String, panproto_core::expr::Literal)>::new()).unwrap();
         let mut out: repr_c::Vec<u8> = Vec::new().into();
         let status = pp_expr_eval_func(
             slice_of(bad).as_ref(),

@@ -1,95 +1,519 @@
 ==================
-algebra and atoms
+category families
 ==================
 
-algebra product_fuzzy
+category C
 category S, NP, N, VP
 
 ---
 
 (source_file
-  (algebra_decl name: (identifier))
   (category_decl
-    names: (identifier)
-    names: (identifier)
-    names: (identifier)
-    names: (identifier)))
+    (identifier))
+  (category_decl
+    (identifier)
+    (identifier)
+    (identifier)
+    (identifier)))
 
 ==================
-object and morphism
+object declarations
 ==================
 
-object State : 8
-latent f : State -> State [scale=0.1] = identity(State)
+object A, B : {a, b}
+object State : FinSet 8
+object Img : Real 28 28
+object Pair : A * B
+object Sum : A + B
 
 ---
 
 (source_file
   (object_decl
-    name: (identifier)
-    type: (type_atom (integer)))
+    (identifier)
+    (identifier)
+    (enum_set_literal
+      (identifier)
+      (identifier)))
+  (object_decl
+    (identifier)
+    (discrete_constructor
+      (integer)))
+  (object_decl
+    (identifier)
+    (continuous_constructor
+      (integer)
+      (integer)))
+  (object_decl
+    (identifier)
+    (object_product
+      (object_atom
+        (identifier))
+      (object_atom
+        (identifier))))
+  (object_decl
+    (identifier)
+    (object_coproduct
+      (object_atom
+        (identifier))
+      (object_atom
+        (identifier)))))
+
+==================
+object free constructions
+==================
+
+object Cat : FreeResiduated(prims)
+object CatDeep : FreeResiduated(prims, depth=3, ops=[app, comp])
+object Str : FreeMonoid(tokens, max_length=12)
+
+---
+
+(source_file
+  (object_decl
+    (identifier)
+    (free_residuated_expr
+      (identifier)))
+  (object_decl
+    (identifier)
+    (free_residuated_expr
+      (identifier)
+      (free_residuated_arg
+        (integer))
+      (free_residuated_arg
+        (identifier)
+        (identifier))))
+  (object_decl
+    (identifier)
+    (free_monoid_expr
+      (identifier)
+      (integer))))
+
+==================
+morphism families
+==================
+
+morphism f : A -> B
+morphism enc, dec : A -> B
+
+---
+
+(source_file
   (morphism_decl
-    name: (identifier)
-    domain: (type_atom (identifier))
-    codomain: (type_atom (identifier))
-    options: (option_block
+    (identifier)
+    (object_atom
+      (identifier))
+    (object_atom
+      (identifier)))
+  (morphism_decl
+    (identifier)
+    (identifier)
+    (object_atom
+      (identifier))
+    (object_atom
+      (identifier))))
+
+==================
+morphism options with signed and scientific numbers
+==================
+
+morphism g : A -> B [scale=0.1]
+morphism h : A -> B [role=latent, shift=-0.5, jitter=1e-3, lr=2.5e-4]
+morphism k : A -> B [frozen, tags=[fast, "exact", -2], seed=mk("a", -1, 0.5)]
+
+---
+
+(source_file
+  (morphism_decl
+    (identifier)
+    (object_atom
+      (identifier))
+    (object_atom
+      (identifier))
+    (option_block
       (option_entry
-        key: (identifier)
-        value: (float)))
-    init: (identity_expr object: (identifier))))
+        (identifier)
+        (signed_number
+          (float)))))
+  (morphism_decl
+    (identifier)
+    (object_atom
+      (identifier))
+    (object_atom
+      (identifier))
+    (option_block
+      (option_entry
+        (identifier)
+        (identifier))
+      (option_entry
+        (identifier)
+        (signed_number
+          (float)))
+      (option_entry
+        (identifier)
+        (signed_number
+          (float)))
+      (option_entry
+        (identifier)
+        (signed_number
+          (float)))))
+  (morphism_decl
+    (identifier)
+    (object_atom
+      (identifier))
+    (object_atom
+      (identifier))
+    (option_block
+      (option_entry
+        (identifier))
+      (option_entry
+        (identifier)
+        (option_list
+          (identifier)
+          (string)
+          (signed_number
+            (integer))))
+      (option_entry
+        (identifier)
+        (option_call
+          (identifier)
+          (string)
+          (signed_number
+            (integer))
+          (signed_number
+            (float)))))))
 
 ==================
-type alias and space
+morphism constructor options
 ==================
 
-type Latent = Euclidean 16
-space ObsSpace : Euclidean(2, low=0.0, high=1.0)
+morphism sigma : P -> Real 1 {low=-1.0, high=1.0}
+morphism w : A -> Real 2 {low=.5} [scale=1.]
+morphism b : A -> Simplex 10 {temp=t0}
 
 ---
 
 (source_file
-  (type_alias_decl
-    name: (identifier)
-    value: (space_constructor_bare
-      constructor: (identifier)
-      arg: (integer)))
-  (space_decl
-    name: (identifier)
-    value: (space_constructor
-      constructor: (identifier)
-      args: (integer)
-      args: (space_kwarg key: (identifier) value: (float))
-      args: (space_kwarg key: (identifier) value: (float)))))
+  (morphism_decl
+    (identifier)
+    (object_atom
+      (identifier))
+    (continuous_constructor
+      (integer)
+      (constructor_options
+        (constructor_kwarg
+          (identifier)
+          (signed_number
+            (float)))
+        (constructor_kwarg
+          (identifier)
+          (signed_number
+            (float))))))
+  (morphism_decl
+    (identifier)
+    (object_atom
+      (identifier))
+    (continuous_constructor
+      (integer)
+      (constructor_options
+        (constructor_kwarg
+          (identifier)
+          (signed_number
+            (float)))))
+    (option_block
+      (option_entry
+        (identifier)
+        (signed_number
+          (float)))))
+  (morphism_decl
+    (identifier)
+    (object_atom
+      (identifier))
+    (continuous_constructor
+      (integer)
+      (constructor_options
+        (constructor_kwarg
+          (identifier)
+          (identifier))))))
 
 ==================
-continuous, stochastic, discretize, embed
+morphism initializers
 ==================
 
-continuous f[4] : A -> B ~ Normal [scale=0.1]
-stochastic g : A -> B
-discretize d : Latent -> 16
-embed e : Token -> Latent
+morphism m1 : A -> B ~ Normal(0.0, 1.0)
+morphism m2 : A -> B [role=kernel] ~ Normal(-2.5e-3, 1.0)
+morphism m3 : A -> B ~ identity(A)
+morphism m4 : A -> B ~ enc >> dec
 
 ---
 
 (source_file
-  (continuous_decl
-    name: (identifier)
-    replicate: (replicate_count (integer))
-    domain: (type_atom (identifier))
-    codomain: (type_atom (identifier))
-    family: (identifier)
-    options: (option_block
-      (option_entry key: (identifier) value: (float))))
-  (stochastic_decl
-    name: (identifier)
-    domain: (type_atom (identifier))
-    codomain: (type_atom (identifier)))
-  (discretize_decl
-    name: (identifier)
-    space: (identifier)
-    bins: (integer))
-  (embed_decl
-    name: (identifier)
-    domain: (identifier)
-    codomain: (identifier)))
+  (morphism_decl
+    (identifier)
+    (object_atom
+      (identifier))
+    (object_atom
+      (identifier))
+    (morphism_init_family
+      (identifier)
+      (signed_number
+        (float))
+      (signed_number
+        (float))))
+  (morphism_decl
+    (identifier)
+    (object_atom
+      (identifier))
+    (object_atom
+      (identifier))
+    (option_block
+      (option_entry
+        (identifier)
+        (identifier)))
+    (morphism_init_family
+      (identifier)
+      (signed_number
+        (float))
+      (signed_number
+        (float))))
+  (morphism_decl
+    (identifier)
+    (object_atom
+      (identifier))
+    (object_atom
+      (identifier))
+    (identity_expr
+      (identifier)))
+  (morphism_decl
+    (identifier)
+    (object_atom
+      (identifier))
+    (object_atom
+      (identifier))
+    (compose_expr
+      (expr_ident
+        (identifier))
+      (expr_ident
+        (identifier)))))
+
+==================
+multi-line option and enum blocks
+==================
+
+morphism wide : A -> B [
+    scale = 0.1,
+    role = latent,
+]
+object Big : {
+    a,
+    b,
+}
+
+---
+
+(source_file
+  (morphism_decl
+    (identifier)
+    (object_atom
+      (identifier))
+    (object_atom
+      (identifier))
+    (option_block
+      (option_entry
+        (identifier)
+        (signed_number
+          (float)))
+      (option_entry
+        (identifier)
+        (identifier))))
+  (object_decl
+    (identifier)
+    (enum_set_literal
+      (identifier)
+      (identifier))))
+
+==================
+bundle declarations
+==================
+
+bundle core : [app, comp]
+bundle empty : []
+
+---
+
+(source_file
+  (bundle_decl
+    (identifier)
+    (identifier)
+    (identifier))
+  (bundle_decl
+    (identifier)))
+
+==================
+contraction declarations
+==================
+
+contraction attend (q : Q -> K, kv : K -> V) : Q -> V
+contraction fuse (f : A -> B) : A -> B [check=strict]
+
+---
+
+(source_file
+  (contraction_decl
+    (identifier)
+    (contraction_input
+      (identifier)
+      (object_atom
+        (identifier))
+      (object_atom
+        (identifier)))
+    (contraction_input
+      (identifier)
+      (object_atom
+        (identifier))
+      (object_atom
+        (identifier)))
+    (object_atom
+      (identifier))
+    (object_atom
+      (identifier)))
+  (contraction_decl
+    (identifier)
+    (contraction_input
+      (identifier)
+      (object_atom
+        (identifier))
+      (object_atom
+        (identifier)))
+    (object_atom
+      (identifier))
+    (object_atom
+      (identifier))
+    (option_block
+      (option_entry
+        (identifier)
+        (identifier)))))
+
+==================
+schema declaration
+==================
+
+schema pairup (x, y : A, z : B) : A -> A * B
+
+---
+
+(source_file
+  (schema_decl
+    (identifier)
+    (schema_parameter
+      (identifier)
+      (identifier)
+      (object_atom
+        (identifier)))
+    (schema_parameter
+      (identifier)
+      (object_atom
+        (identifier)))
+    (object_atom
+      (identifier))
+    (object_product
+      (object_atom
+        (identifier))
+      (object_atom
+        (identifier)))))
+
+==================
+define with and without where
+==================
+
+define pipeline = f >> g
+define model = enc >> dec where
+    define enc = f
+    define dec = g
+
+---
+
+(source_file
+  (define_decl
+    (identifier)
+    (compose_expr
+      (expr_ident
+        (identifier))
+      (expr_ident
+        (identifier))))
+  (define_decl
+    (identifier)
+    (compose_expr
+      (expr_ident
+        (identifier))
+      (expr_ident
+        (identifier)))
+    (define_decl
+      (identifier)
+      (expr_ident
+        (identifier)))
+    (define_decl
+      (identifier)
+      (expr_ident
+        (identifier)))))
+
+==================
+export declarations
+==================
+
+export pipeline
+export enc >> dec
+
+---
+
+(source_file
+  (export_decl
+    (expr_ident
+      (identifier)))
+  (export_decl
+    (compose_expr
+      (expr_ident
+        (identifier))
+      (expr_ident
+        (identifier)))))
+
+==================
+composition declarations
+==================
+
+composition plain
+composition leveled [level=algebra]
+composition custom [level=rule]
+    unit = 1.0
+    compose(f, g) = f * g
+
+---
+
+(source_file
+  (composition_decl
+    (identifier))
+  (composition_decl
+    (identifier)
+    (option_block
+      (option_entry
+        (identifier)
+        (identifier))))
+  (composition_decl
+    (identifier)
+    (option_block
+      (option_entry
+        (identifier)
+        (identifier)))
+    (composition_rule_entry
+      (identifier)
+      (let_literal
+        (float)))
+    (composition_rule_entry
+      (identifier)
+      (identifier)
+      (identifier)
+      (let_binop
+        (let_var
+          (identifier))
+        (let_var
+          (identifier))))))

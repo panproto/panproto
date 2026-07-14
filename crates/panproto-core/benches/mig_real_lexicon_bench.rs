@@ -163,6 +163,8 @@ fn rename_all_migration(schema: &Schema) -> Migration {
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         expr_resolvers: HashMap::new(),
+        domain: None,
+        codomain: None,
     }
 }
 

@@ -5,7 +5,7 @@
 
 use pyo3::prelude::*;
 
-use panproto_expr::{self, Env, EvalConfig, Expr};
+use panproto_core::expr::{self, Env, EvalConfig, Expr};
 
 use crate::convert;
 
@@ -31,7 +31,7 @@ impl PyExpr {
     fn eval(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let env = Env::new();
         let config = EvalConfig::default();
-        let value = panproto_expr::eval(&self.inner, &env, &config)
+        let value = expr::eval(&self.inner, &env, &config)
             .map_err(|e| crate::error::ExprError::new_err(format!("eval failed: {e}")))?;
         convert::to_python(py, &value)
     }
@@ -43,11 +43,11 @@ impl PyExpr {
 
     /// Pretty-print the expression in Haskell-style surface syntax.
     fn pretty(&self) -> String {
-        panproto_expr_parser::pretty_print(&self.inner)
+        panproto_core::expr_parser::pretty_print(&self.inner)
     }
 
     fn __repr__(&self) -> String {
-        let pp = panproto_expr_parser::pretty_print(&self.inner);
+        let pp = panproto_core::expr_parser::pretty_print(&self.inner);
         if pp.len() > 80 {
             format!("Expr({}...)", &pp[..77])
         } else {
@@ -86,9 +86,9 @@ impl PyExpr {
 /// '\\x -> x + 1'
 #[pyfunction]
 pub fn parse_expr(source: &str) -> PyResult<PyExpr> {
-    let tokens = panproto_expr_parser::tokenize(source)
+    let tokens = panproto_core::expr_parser::tokenize(source)
         .map_err(|e| crate::error::ExprError::new_err(format!("tokenize failed: {e:?}")))?;
-    let expr = panproto_expr_parser::parse(&tokens)
+    let expr = panproto_core::expr_parser::parse(&tokens)
         .map_err(|e| crate::error::ExprError::new_err(format!("parse failed: {e:?}")))?;
     Ok(PyExpr { inner: expr })
 }
@@ -96,7 +96,7 @@ pub fn parse_expr(source: &str) -> PyResult<PyExpr> {
 /// Pretty-print an expression to Haskell-style surface syntax.
 #[pyfunction]
 pub fn pretty_print_expr(expr: &PyExpr) -> String {
-    panproto_expr_parser::pretty_print(&expr.inner)
+    panproto_core::expr_parser::pretty_print(&expr.inner)
 }
 
 /// Register expression types and functions on the parent module.

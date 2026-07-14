@@ -5,6 +5,7 @@
 # Tutorials
 
 - [Overview](./tutorials/index.md)
+- [Your first diff](./tutorials/your-first-diff.md)
 - [Your first schema](./tutorials/your-first-schema.md)
 - [Your first migration](./tutorials/your-first-migration.md)
 - [Schema version control basics](./tutorials/schema-vcs-basics.md)
@@ -66,6 +67,7 @@
 
 - [Overview](./explanation/index.md)
 - [What panproto solves](./explanation/what-panproto-solves.md)
+- [The vocabulary in plain terms](./explanation/decoder-ring.md)
 - [Schemas as theories](./explanation/schemas-as-theories.md)
 - [Migrations as morphisms](./explanation/migrations-as-morphisms.md)
 - [Lenses and round-trip laws](./explanation/lenses-roundtrip.md)

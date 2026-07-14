@@ -42,6 +42,16 @@ pub enum VcsError {
         count: usize,
     },
 
+    /// Pushout verification of a merge failed.
+    ///
+    /// Raised when the cocone conditions of the merge pushout do not
+    /// hold: a migration is not total, or the two base-to-merged paths
+    /// disagree on a shared base vertex. Surfaced from the production
+    /// merge, rebase, and cherry-pick paths so a mathematically invalid
+    /// merge fails loudly instead of committing a wrong schema.
+    #[error("pushout verification failed: {0}")]
+    PushoutVerification(#[from] crate::merge::PushoutError),
+
     /// A branch already exists.
     #[error("branch already exists: {name}")]
     BranchExists {
@@ -132,6 +142,14 @@ pub enum VcsError {
         expected: String,
         /// The actual type name.
         got: String,
+    },
+
+    /// A version-control square failed to commute: migrating a data set forward
+    /// and back through a schema change did not reconstruct the original.
+    #[error("non-commuting square: {detail}")]
+    SquareNonCommuting {
+        /// Which data set diverged, and how.
+        detail: String,
     },
 
     /// I/O error from a string description (for cases where

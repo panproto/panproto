@@ -47,3 +47,25 @@ pub fn get_builtin_protocol(name: &[u8]) -> Result<Vec<u8>, JsError> {
         .into()
     })
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn list_and_fetch_builtin_protocol() {
+        let list_bytes = list_builtin_protocols();
+        let names: Vec<String> = rmp_serde::from_slice(&list_bytes).unwrap();
+        assert!(
+            !names.is_empty(),
+            "there must be at least one builtin protocol"
+        );
+        let first = &names[0];
+        let proto_bytes = get_builtin_protocol(first.as_bytes()).unwrap();
+        assert!(
+            !proto_bytes.is_empty(),
+            "builtin protocol should decode to bytes"
+        );
+    }
+}

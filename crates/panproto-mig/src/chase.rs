@@ -1,10 +1,26 @@
-//! Chase algorithm for enforcing equational constraints.
+//! The chase for functor instances.
 //!
-//! The chase enforces embedded dependencies (EDs) on functor instances
-//! by iteratively finding active triggers and applying consequences
-//! until a fixpoint is reached. This is Phase 6 of the migration
-//! pipeline, running after `Sigma_F` (left Kan extension) to ensure
-//! the extended instance satisfies the target schema's path equations.
+//! This module provides two operations over a set-valued functor instance
+//! ([`FInstance`]):
+//!
+//! 1. [`saturate_row_existence`]: a lightweight row-existence saturation
+//!    over *ground* dependencies ("if a row matching some column-value
+//!    pattern exists in one vertex table, then a row must exist in
+//!    another"). It carries no variables, labeled nulls, or equalities; it
+//!    runs after `Sigma_F` to close the extended instance under
+//!    referential integrity.
+//!
+//! 2. [`chase`]: a term-level chase over tuple- and equality-generating
+//!    dependencies ([`Dependency`]) with variables, labeled nulls, and
+//!    null-aware equality merging. Triggers are detected by homomorphism
+//!    search of a dependency's body into the instance; a firing
+//!    tuple-generating dependency invents fresh [`Value::LabeledNull`]s for
+//!    its existential positions, and an equality-generating dependency
+//!    merges two positions via union-find over labeled nulls, failing on a
+//!    constant-versus-constant conflict. Iteration and null budgets bound
+//!    the run, yielding a [`ChaseOutcome::NonTermination`] rather than
+//!    looping. Dependencies are derived from a theory's equations by
+//!    freezing their variables ([`term_dependencies_from_theory`]).
 
 use std::collections::HashMap;
 
@@ -34,9 +50,19 @@ pub struct EmbeddedDependency {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum ChaseError {
-    /// Chase did not reach fixpoint within the iteration limit.
-    #[error("chase did not terminate after {0} iterations")]
+    /// Row-existence saturation did not reach fixpoint within the
+    /// iteration limit.
+    #[error("row-existence saturation did not terminate after {0} iterations")]
     NonTermination(usize),
+    /// An equality-generating dependency tried to equate two distinct
+    /// constants; the instance is inconsistent with the dependency.
+    #[error("EGD conflict: cannot equate distinct constants `{left}` and `{right}`")]
+    Inconsistent {
+        /// The left constant.
+        left: String,
+        /// The right constant.
+        right: String,
+    },
 }
 
 /// Returns `true` if the given row matches all of the required column-value pairs.
@@ -54,20 +80,23 @@ fn table_contains_match(
     rows.iter().any(|row| row_matches(row, required))
 }
 
-/// Run the chase algorithm on a functor instance.
+/// Saturate a functor instance under ground row-existence dependencies.
 ///
 /// Iteratively finds active triggers (pattern matches without
-/// corresponding consequences) and adds the missing rows/values.
-/// Returns the fixpoint instance satisfying all dependencies.
+/// corresponding consequences) and adds the missing rows. Returns the
+/// fixpoint instance satisfying all dependencies. This is the
+/// referential-integrity closure run after `Sigma_F`; it carries no
+/// variables, labeled nulls, or equalities. For the full term-level chase,
+/// see [`chase`].
 ///
 /// Terminates when no active triggers remain or `max_iterations`
 /// is reached.
 ///
 /// # Errors
 ///
-/// Returns [`ChaseError::NonTermination`] if the chase does not
+/// Returns [`ChaseError::NonTermination`] if saturation does not
 /// converge within `max_iterations` steps.
-pub fn chase_functor(
+pub fn saturate_row_existence(
     instance: &FInstance,
     dependencies: &[EmbeddedDependency],
     max_iterations: usize,
@@ -112,7 +141,7 @@ pub fn chase_functor(
     Err(ChaseError::NonTermination(max_iterations))
 }
 
-/// Extract embedded dependencies from a schema's structural constraints.
+/// Extract row-existence dependencies from a schema's structural constraints.
 ///
 /// Generates two kinds of dependencies:
 ///
@@ -120,7 +149,7 @@ pub fn chase_functor(
 ///    "if a row exists for vertex V, then a row must exist for the target
 ///    vertex of each required edge." This captures referential integrity.
 ///
-/// 2. **See [`dependencies_from_theory`]** for path-equation dependencies
+/// 2. **See [`dependencies_from_theory`]** for the row-existence dependencies
 ///    derived from GAT equations.
 #[must_use]
 pub fn dependencies_from_schema(schema: &Schema) -> Vec<EmbeddedDependency> {
@@ -140,34 +169,26 @@ pub fn dependencies_from_schema(schema: &Schema) -> Vec<EmbeddedDependency> {
     deps
 }
 
-/// Extract embedded dependencies from a GAT theory's equations.
+/// Extract row-existence dependencies from a GAT theory's equations.
 ///
-/// Each equation `lhs = rhs` in the theory is translated into an
-/// embedded dependency. The translation handles the common equation
-/// patterns found in panproto's schema theories:
+/// Each equation `lhs = rhs` is inspected only for the *outermost operation*
+/// on each side; from those operations' output/input sorts this records which
+/// vertex tables must be co-inhabited. The equality asserted by the equation —
+/// that the two sides denote the same value — is dropped entirely. No term
+/// structure, variables, or value constraints are captured, so the resulting
+/// dependencies cannot enforce the equation on data; they assert only
+/// non-emptiness relationships between tables.
 ///
-/// - **Retraction**: `f(g(x)) = x` (e.g., `variant_of(injection(v)) = v`)
-///   → if `g` applied to a value exists, the result of `f` on it must
-///   equal the original value.
-///
-/// - **Involution**: `f(f(x)) = x` (e.g., `inv(inv(e)) = e`)
-///   → applying `f` twice must return the original.
-///
-/// - **Commutativity with composition**: `f(g(x)) = h(x)` (e.g.,
-///   `src(inv(e)) = tgt(e)`) → if `g` is applied, `f` on the result
-///   must equal `h` on the original.
-///
-/// The dependencies are expressed at the operation level (using
-/// operation names as vertex identifiers). Each operation `op: A → B`
-/// maps to a dependency where the pattern matches rows in the `A`
-/// table and the consequence requires rows in the `B` table.
+/// The equation shapes matched below (retraction, involution, commutativity)
+/// are recognized by outermost-operation pattern only, as a naming aid; the
+/// recognition gives the dependencies no equational force.
 ///
 /// # Arguments
 ///
 /// * `theory` - The GAT theory whose equations to translate.
-/// * `schema` - The schema providing vertex/edge context for the
-///   operations. Operations in the theory that don't correspond to
-///   schema edges are skipped.
+/// * `schema` - The schema providing vertex/edge context for the operations.
+///   Operations in the theory that don't correspond to schema vertex kinds are
+///   skipped.
 #[must_use]
 pub fn dependencies_from_theory(theory: &Theory, schema: &Schema) -> Vec<EmbeddedDependency> {
     let mut deps = Vec::new();
@@ -179,18 +200,24 @@ pub fn dependencies_from_theory(theory: &Theory, schema: &Schema) -> Vec<Embedde
     deps
 }
 
-/// Translate a single GAT equation into embedded dependencies.
+/// Translate a single GAT equation into row-existence dependencies.
 ///
-/// Handles three patterns:
+/// This does not represent the equation's equality. It looks only at the
+/// outermost operation on each side and emits dependencies asserting that the
+/// vertex tables for the relevant operation sorts must be co-inhabited. The
+/// three shapes below are distinguished by outermost-operation pattern only:
 ///
-/// 1. `op(inner_op(var)) = var`: retraction/section, where if `inner_op`
-///    produced a value, op applied to it must recover the original.
+/// 1. `op(inner_op(var)) = var`: a dependency between the tables for `op`'s
+///    output sort and the variable's sort.
 ///
-/// 2. `op(inner_op(var)) = other_op(var)`: commutativity, where the
-///    composition `op∘inner_op` must agree with `other_op`.
+/// 2. `op(inner_op(var)) = other_op(var)`: a dependency between the tables for
+///    the two outermost operations' output sorts.
 ///
-/// 3. General case: records the equation as a dependency between
-///    the outermost operations on each side.
+/// 3. General case: a dependency between the outermost operations' sorts.
+///
+/// In every case the equality itself, the inner term structure, and the
+/// variables are discarded; the emitted dependencies carry empty value
+/// constraints.
 fn translate_equation(eq: &Equation, theory: &Theory, schema: &Schema) -> Vec<EmbeddedDependency> {
     let mut deps = Vec::new();
 
@@ -289,6 +316,431 @@ fn find_vertex_by_kind(schema: &Schema, sort_name: &str) -> Option<String> {
         .map(|v| v.id.to_string())
 }
 
+// ===========================================================================
+// Term-level chase: variables, labeled nulls, and EGDs.
+// ===========================================================================
+
+/// A term in a chase atom's column position: a dependency variable or a
+/// constant value.
+#[derive(Clone, Debug, PartialEq)]
+pub enum AtomTerm {
+    /// A variable shared across the dependency's body and head. The same
+    /// variable name always denotes the same value within one firing.
+    Var(String),
+    /// A constant value.
+    Const(Value),
+}
+
+/// An atom: a required tuple in a table, each column bound to an
+/// [`AtomTerm`].
+///
+/// Tables are named by vertex or relation; a relation for an operation `f`
+/// is a table whose columns bind the operation's inputs and output.
+#[derive(Clone, Debug)]
+pub struct Atom {
+    /// The table (vertex or relation) name.
+    pub table: String,
+    /// Column-to-term bindings the tuple must satisfy.
+    pub columns: HashMap<String, AtomTerm>,
+}
+
+impl Atom {
+    /// Build an atom from a table name and an iterator of column/term pairs.
+    pub fn new<I, S>(table: impl Into<String>, columns: I) -> Self
+    where
+        I: IntoIterator<Item = (S, AtomTerm)>,
+        S: Into<String>,
+    {
+        Self {
+            table: table.into(),
+            columns: columns.into_iter().map(|(k, v)| (k.into(), v)).collect(),
+        }
+    }
+}
+
+/// A dependency for the term-level chase.
+#[derive(Clone, Debug)]
+pub enum Dependency {
+    /// Tuple-generating: whenever `body` matches, `head` must hold. Head
+    /// variables not bound by the body become fresh labeled nulls.
+    Tgd {
+        /// The premise atoms.
+        body: Vec<Atom>,
+        /// The atoms that must exist when the premise matches.
+        head: Vec<Atom>,
+    },
+    /// Equality-generating: whenever `body` matches, `left` and `right`
+    /// denote the same value.
+    Egd {
+        /// The premise atoms.
+        body: Vec<Atom>,
+        /// The left term of the enforced equality.
+        left: AtomTerm,
+        /// The right term of the enforced equality.
+        right: AtomTerm,
+    },
+}
+
+/// Budgets bounding a chase run.
+#[derive(Clone, Copy, Debug)]
+pub struct ChaseBudget {
+    /// Maximum number of trigger-firing rounds before giving up.
+    pub max_iterations: usize,
+    /// Maximum number of fresh labeled nulls the chase may introduce.
+    pub max_nulls: usize,
+}
+
+impl ChaseBudget {
+    /// A budget with the given iteration and null limits.
+    #[must_use]
+    pub const fn new(max_iterations: usize, max_nulls: usize) -> Self {
+        Self {
+            max_iterations,
+            max_nulls,
+        }
+    }
+}
+
+/// The outcome of a term-level chase run.
+#[derive(Clone, Debug)]
+pub enum ChaseOutcome {
+    /// The chase reached a fixpoint; every dependency is satisfied.
+    Saturated(FInstance),
+    /// A budget was exhausted before a fixpoint was reached.
+    NonTermination,
+}
+
+/// A variable-to-value binding produced by homomorphism search.
+type Binding = HashMap<String, Value>;
+
+/// Run the term-level chase on a functor instance.
+///
+/// Repeatedly fires active triggers: tuple-generating dependencies add
+/// required tuples (inventing fresh [`Value::LabeledNull`]s for
+/// existential positions), and equality-generating dependencies merge two
+/// positions with null-aware union-find. The chase runs the restricted
+/// (standard) chase: a tuple-generating dependency fires only when its head
+/// is not already satisfied.
+///
+/// The run is bounded by `budget`: exceeding either the iteration or the
+/// null limit yields [`ChaseOutcome::NonTermination`] rather than looping.
+///
+/// # Errors
+///
+/// Returns [`ChaseError::Inconsistent`] when an equality-generating
+/// dependency tries to equate two distinct constants.
+pub fn chase(
+    instance: &FInstance,
+    dependencies: &[Dependency],
+    budget: ChaseBudget,
+) -> Result<ChaseOutcome, ChaseError> {
+    let mut result = instance.clone();
+    let mut next_null = fresh_null_seed(&result);
+    let mut nulls_created = 0usize;
+
+    for _ in 0..budget.max_iterations {
+        let mut changed = false;
+
+        for dep in dependencies {
+            match dep {
+                Dependency::Tgd { body, head } => {
+                    for binding in match_body(body, &result) {
+                        if head_satisfied(head, &result, &binding) {
+                            continue;
+                        }
+                        // Fresh labeled nulls for head-only variables.
+                        let mut firing = binding.clone();
+                        for atom in head {
+                            for term in atom.columns.values() {
+                                if let AtomTerm::Var(v) = term {
+                                    if !firing.contains_key(v) {
+                                        if nulls_created >= budget.max_nulls {
+                                            return Ok(ChaseOutcome::NonTermination);
+                                        }
+                                        firing.insert(v.clone(), Value::LabeledNull(next_null));
+                                        next_null += 1;
+                                        nulls_created += 1;
+                                    }
+                                }
+                            }
+                        }
+                        for atom in head {
+                            let row = instantiate_row(atom, &firing);
+                            result
+                                .tables
+                                .entry(atom.table.clone())
+                                .or_default()
+                                .push(row);
+                        }
+                        changed = true;
+                    }
+                }
+                Dependency::Egd { body, left, right } => {
+                    // Collect the equalities to enforce before mutating, so
+                    // the match set is taken against a stable instance.
+                    let mut equalities: Vec<(Value, Value)> = Vec::new();
+                    for binding in match_body(body, &result) {
+                        let a = resolve_term(left, &binding);
+                        let b = resolve_term(right, &binding);
+                        if let (Some(a), Some(b)) = (a, b) {
+                            if a != b {
+                                equalities.push((a, b));
+                            }
+                        }
+                    }
+                    for (a, b) in equalities {
+                        if merge_values(&a, &b, &mut result)? {
+                            changed = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        if !changed {
+            return Ok(ChaseOutcome::Saturated(result));
+        }
+    }
+
+    Ok(ChaseOutcome::NonTermination)
+}
+
+/// The first labeled-null id not already used anywhere in the instance.
+fn fresh_null_seed(instance: &FInstance) -> u64 {
+    let mut max_id: Option<u64> = None;
+    for rows in instance.tables.values() {
+        for row in rows {
+            for value in row.values() {
+                if let Value::LabeledNull(id) = value {
+                    max_id = Some(max_id.map_or(*id, |m| m.max(*id)));
+                }
+            }
+        }
+    }
+    max_id.map_or(0, |m| m + 1)
+}
+
+/// Resolve an atom term to a concrete value under a binding, or `None` when
+/// a variable is unbound.
+fn resolve_term(term: &AtomTerm, binding: &Binding) -> Option<Value> {
+    match term {
+        AtomTerm::Const(v) => Some(v.clone()),
+        AtomTerm::Var(v) => binding.get(v).cloned(),
+    }
+}
+
+/// All bindings extending the empty binding that satisfy every body atom.
+///
+/// This is the homomorphism search: a conjunctive-query match of the body
+/// atoms against the instance tables, joining on shared variables.
+fn match_body(body: &[Atom], instance: &FInstance) -> Vec<Binding> {
+    let mut bindings = vec![Binding::new()];
+    for atom in body {
+        let mut next = Vec::new();
+        for binding in &bindings {
+            extend_binding(atom, instance, binding, &mut next);
+        }
+        bindings = next;
+        if bindings.is_empty() {
+            break;
+        }
+    }
+    bindings
+}
+
+/// Extend `binding` with every way of matching `atom` against a row of its
+/// table, pushing each successful extension into `out`.
+fn extend_binding(atom: &Atom, instance: &FInstance, binding: &Binding, out: &mut Vec<Binding>) {
+    let Some(rows) = instance.tables.get(&atom.table) else {
+        return;
+    };
+    for row in rows {
+        let mut candidate = binding.clone();
+        if unify_atom(atom, row, &mut candidate) {
+            out.push(candidate);
+        }
+    }
+}
+
+/// Try to unify an atom's columns against a row under a mutable binding.
+fn unify_atom(atom: &Atom, row: &HashMap<String, Value>, binding: &mut Binding) -> bool {
+    for (col, term) in &atom.columns {
+        let Some(row_val) = row.get(col) else {
+            return false;
+        };
+        match term {
+            AtomTerm::Const(v) => {
+                if v != row_val {
+                    return false;
+                }
+            }
+            AtomTerm::Var(v) => match binding.get(v) {
+                Some(bound) if bound != row_val => return false,
+                Some(_) => {}
+                None => {
+                    binding.insert(v.clone(), row_val.clone());
+                }
+            },
+        }
+    }
+    true
+}
+
+/// Whether the head atoms are already satisfied under some extension of
+/// `binding` (the restricted-chase applicability check).
+fn head_satisfied(head: &[Atom], instance: &FInstance, binding: &Binding) -> bool {
+    let mut bindings = vec![binding.clone()];
+    for atom in head {
+        let mut next = Vec::new();
+        for b in &bindings {
+            extend_binding(atom, instance, b, &mut next);
+        }
+        bindings = next;
+        if bindings.is_empty() {
+            return false;
+        }
+    }
+    !bindings.is_empty()
+}
+
+/// Build a concrete row from a head atom under a (fully-instantiated)
+/// binding. Head variables are guaranteed to be bound (to a body value or a
+/// fresh null) before this is called.
+fn instantiate_row(atom: &Atom, binding: &Binding) -> HashMap<String, Value> {
+    atom.columns
+        .iter()
+        .map(|(col, term)| {
+            let value = match term {
+                AtomTerm::Const(v) => v.clone(),
+                AtomTerm::Var(v) => binding
+                    .get(v)
+                    .cloned()
+                    .unwrap_or(Value::LabeledNull(u64::MAX)),
+            };
+            (col.clone(), value)
+        })
+        .collect()
+}
+
+/// Merge two values under an equality-generating dependency.
+///
+/// A labeled null is merged into the other value by substituting it
+/// throughout the instance; two distinct constants are a conflict. Returns
+/// whether the instance changed.
+///
+/// # Errors
+///
+/// Returns [`ChaseError::Inconsistent`] when both values are distinct
+/// constants.
+fn merge_values(a: &Value, b: &Value, instance: &mut FInstance) -> Result<bool, ChaseError> {
+    if a == b {
+        return Ok(false);
+    }
+    match (a.as_labeled_null(), b.as_labeled_null()) {
+        // Merge the higher-id null into the lower, or a null into a constant.
+        (Some(na), Some(nb)) => {
+            let (from, to) = if na >= nb {
+                (na, b.clone())
+            } else {
+                (nb, a.clone())
+            };
+            substitute_null(instance, from, &to);
+            Ok(true)
+        }
+        (Some(na), None) => {
+            substitute_null(instance, na, b);
+            Ok(true)
+        }
+        (None, Some(nb)) => {
+            substitute_null(instance, nb, a);
+            Ok(true)
+        }
+        (None, None) => Err(ChaseError::Inconsistent {
+            left: format!("{a:?}"),
+            right: format!("{b:?}"),
+        }),
+    }
+}
+
+/// Replace every occurrence of `Value::LabeledNull(from)` in the instance's
+/// table rows with `to`.
+fn substitute_null(instance: &mut FInstance, from: u64, to: &Value) {
+    for rows in instance.tables.values_mut() {
+        for row in rows.iter_mut() {
+            for value in row.values_mut() {
+                if *value == Value::LabeledNull(from) {
+                    *value = to.clone();
+                }
+            }
+        }
+    }
+}
+
+/// Derive term-level dependencies from a theory's equations by freezing
+/// their variables.
+///
+/// Each equation `lhs = rhs` is unfolded into relational atoms: an
+/// application `f(a₁, …, aₙ)` becomes a tuple of the relation named `f`
+/// with columns `in0, …, in{n-1}` bound to the arguments' results and `out`
+/// bound to a fresh variable denoting the application's result. The
+/// equation then becomes an equality-generating dependency whose body is
+/// the union of both sides' atoms and whose enforced equality is between
+/// the two sides' result terms — the retraction/involution/commutativity
+/// law made effective on data.
+#[must_use]
+pub fn term_dependencies_from_theory(theory: &Theory) -> Vec<Dependency> {
+    theory
+        .eqs
+        .iter()
+        .filter_map(equation_to_dependency)
+        .collect()
+}
+
+/// Translate one equation into an equality-generating dependency, or `None`
+/// when both sides are bare variables (a trivial equation with no atoms).
+fn equation_to_dependency(eq: &Equation) -> Option<Dependency> {
+    let mut counter = 0usize;
+    let (mut body, left) = unfold_term(&eq.lhs, &mut counter);
+    let (rhs_atoms, right) = unfold_term(&eq.rhs, &mut counter);
+    body.extend(rhs_atoms);
+    if body.is_empty() {
+        return None;
+    }
+    Some(Dependency::Egd { body, left, right })
+}
+
+/// Unfold a term into the relational atoms that compute it, returning the
+/// atoms and the [`AtomTerm`] denoting the term's result.
+fn unfold_term(term: &Term, counter: &mut usize) -> (Vec<Atom>, AtomTerm) {
+    match term {
+        Term::Var(name) => (Vec::new(), AtomTerm::Var(name.to_string())),
+        Term::App { op, args } => {
+            let mut atoms = Vec::new();
+            let mut columns: HashMap<String, AtomTerm> = HashMap::new();
+            for (i, arg) in args.iter().enumerate() {
+                let (arg_atoms, arg_result) = unfold_term(arg, counter);
+                atoms.extend(arg_atoms);
+                columns.insert(format!("in{i}"), arg_result);
+            }
+            let result_var = format!("_{op}_{counter}");
+            *counter += 1;
+            columns.insert("out".to_string(), AtomTerm::Var(result_var.clone()));
+            atoms.push(Atom {
+                table: op.to_string(),
+                columns,
+            });
+            (atoms, AtomTerm::Var(result_var))
+        }
+        // Case, Hole, and Let do not correspond to a relational atom in the
+        // frozen-instance translation; treat them as opaque with no result.
+        Term::Case { .. } | Term::Hole { .. } | Term::Let { .. } => {
+            let result_var = format!("_opaque_{counter}");
+            *counter += 1;
+            (Vec::new(), AtomTerm::Var(result_var))
+        }
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -300,6 +752,174 @@ mod tests {
     /// Helper: build a single-column row.
     fn row(col: &str, val: Value) -> HashMap<String, Value> {
         HashMap::from([(col.to_owned(), val)])
+    }
+
+    /// Helper: build a two-column row.
+    fn row2(c0: &str, v0: Value, c1: &str, v1: Value) -> HashMap<String, Value> {
+        HashMap::from([(c0.to_owned(), v0), (c1.to_owned(), v1)])
+    }
+
+    /// A theory `A →f B →r A` with the retraction law `r(f(x)) = x`.
+    fn retraction_theory() -> Theory {
+        use panproto_gat::{Equation, Operation, Sort};
+        let f = Operation::unary("f", "x", "A", "B");
+        let r = Operation::unary("r", "y", "B", "A");
+        let retract = Equation::new(
+            "retract",
+            Term::app("r", vec![Term::app("f", vec![Term::var("x")])]),
+            Term::var("x"),
+        );
+        Theory::new(
+            "Retract",
+            vec![Sort::simple("A"), Sort::simple("B")],
+            vec![f, r],
+            vec![retract],
+        )
+    }
+
+    #[test]
+    fn chase_enforces_retraction_equation() {
+        // The retraction law derived from the theory becomes an EGD; when
+        // `r`'s output is an unknown (labeled null), the chase fills it in
+        // to equal `x`, enforcing `r(f(x)) = x` on the data.
+        let deps = term_dependencies_from_theory(&retraction_theory());
+        assert!(
+            matches!(deps.as_slice(), [Dependency::Egd { .. }]),
+            "retraction equation must yield a single EGD, got {deps:?}",
+        );
+
+        let instance = FInstance::new()
+            .with_table(
+                "f",
+                vec![row2(
+                    "in0",
+                    Value::Str("a".into()),
+                    "out",
+                    Value::Str("b".into()),
+                )],
+            )
+            .with_table(
+                "r",
+                vec![row2(
+                    "in0",
+                    Value::Str("b".into()),
+                    "out",
+                    Value::LabeledNull(0),
+                )],
+            );
+
+        let outcome = chase(&instance, &deps, ChaseBudget::new(50, 50)).unwrap();
+        let ChaseOutcome::Saturated(result) = outcome else {
+            panic!("expected saturation, got {outcome:?}");
+        };
+        // r's output null is merged with x = "a".
+        let r_rows = result.tables.get("r").unwrap();
+        assert_eq!(r_rows.len(), 1);
+        assert_eq!(r_rows[0].get("out"), Some(&Value::Str("a".into())));
+    }
+
+    #[test]
+    fn chase_egd_merges_null() {
+        // An EGD equating two columns merges a labeled null with a constant.
+        let instance = FInstance::new().with_table(
+            "t",
+            vec![row2(
+                "a",
+                Value::Str("x".into()),
+                "b",
+                Value::LabeledNull(0),
+            )],
+        );
+        let egd = Dependency::Egd {
+            body: vec![Atom::new(
+                "t",
+                [
+                    ("a", AtomTerm::Var("v".into())),
+                    ("b", AtomTerm::Var("w".into())),
+                ],
+            )],
+            left: AtomTerm::Var("v".into()),
+            right: AtomTerm::Var("w".into()),
+        };
+
+        let outcome = chase(&instance, &[egd], ChaseBudget::new(50, 50)).unwrap();
+        let ChaseOutcome::Saturated(result) = outcome else {
+            panic!("expected saturation, got {outcome:?}");
+        };
+        let rows = result.tables.get("t").unwrap();
+        assert_eq!(rows[0].get("b"), Some(&Value::Str("x".into())));
+        // The constant-versus-null merge conflicting with a constant fails.
+        let bad = Dependency::Egd {
+            body: vec![Atom::new("t", [("a", AtomTerm::Var("v".into()))])],
+            left: AtomTerm::Var("v".into()),
+            right: AtomTerm::Const(Value::Str("z".into())),
+        };
+        let err = chase(&instance, &[bad], ChaseBudget::new(50, 50)).unwrap_err();
+        assert!(
+            matches!(err, ChaseError::Inconsistent { .. }),
+            "constant-constant EGD conflict must be rejected, got {err:?}",
+        );
+    }
+
+    #[test]
+    fn chase_budget_nontermination() {
+        // A tuple-generating dependency that regenerates itself with a fresh
+        // null each round exhausts the null budget and reports
+        // non-termination rather than looping.
+        let instance = FInstance::new().with_table("chain", vec![row("val", Value::Int(0))]);
+        let tgd = Dependency::Tgd {
+            body: vec![Atom::new("chain", [("val", AtomTerm::Var("v".into()))])],
+            head: vec![Atom::new(
+                "chain",
+                [
+                    ("prev", AtomTerm::Var("v".into())),
+                    ("val", AtomTerm::Var("w".into())),
+                ],
+            )],
+        };
+
+        let outcome = chase(&instance, &[tgd], ChaseBudget::new(1000, 3)).unwrap();
+        assert!(
+            matches!(outcome, ChaseOutcome::NonTermination),
+            "exhausting the null budget must yield NonTermination, got {outcome:?}",
+        );
+    }
+
+    #[test]
+    fn chase_fixpoint_on_satisfied_instance() {
+        // An instance already satisfying the retraction EGD reaches a
+        // fixpoint without changing.
+        let deps = term_dependencies_from_theory(&retraction_theory());
+        let instance = FInstance::new()
+            .with_table(
+                "f",
+                vec![row2(
+                    "in0",
+                    Value::Str("a".into()),
+                    "out",
+                    Value::Str("b".into()),
+                )],
+            )
+            .with_table(
+                "r",
+                vec![row2(
+                    "in0",
+                    Value::Str("b".into()),
+                    "out",
+                    Value::Str("a".into()),
+                )],
+            );
+
+        let outcome = chase(&instance, &deps, ChaseBudget::new(50, 50)).unwrap();
+        let ChaseOutcome::Saturated(result) = outcome else {
+            panic!("expected saturation, got {outcome:?}");
+        };
+        assert_eq!(
+            result.tables.get("r").unwrap()[0].get("out"),
+            Some(&Value::Str("a".into())),
+            "an already-satisfied instance is unchanged",
+        );
+        assert_eq!(result.tables.get("f").unwrap().len(), 1);
     }
 
     #[test]
@@ -316,7 +936,7 @@ mod tests {
             consequence_values: HashMap::from([("y".to_owned(), Value::Int(2))]),
         };
 
-        let result = chase_functor(&instance, &[dep], 10).unwrap();
+        let result = saturate_row_existence(&instance, &[dep], 10).unwrap();
         assert_eq!(result.row_count("A"), 1);
         assert_eq!(result.row_count("B"), 1);
     }
@@ -333,7 +953,7 @@ mod tests {
             consequence_values: HashMap::from([("y".to_owned(), Value::Int(2))]),
         };
 
-        let result = chase_functor(&instance, &[dep], 10).unwrap();
+        let result = saturate_row_existence(&instance, &[dep], 10).unwrap();
         assert_eq!(result.row_count("A"), 1);
         assert_eq!(result.row_count("B"), 1);
 
@@ -361,7 +981,7 @@ mod tests {
             },
         ];
 
-        let result = chase_functor(&instance, &deps, 10).unwrap();
+        let result = saturate_row_existence(&instance, &deps, 10).unwrap();
         assert_eq!(result.row_count("A"), 1);
         assert_eq!(result.row_count("B"), 1);
         assert_eq!(result.row_count("C"), 1);
@@ -403,7 +1023,7 @@ mod tests {
             consequence_values: HashMap::from([("y".to_owned(), Value::Int(2))]),
         };
 
-        let err = chase_functor(&instance, &[dep], 0).unwrap_err();
+        let err = saturate_row_existence(&instance, &[dep], 0).unwrap_err();
         assert!(
             matches!(err, ChaseError::NonTermination(0)),
             "expected NonTermination(0), got {err:?}"
@@ -422,7 +1042,7 @@ mod tests {
             consequence_values: HashMap::from([("y".to_owned(), Value::Int(2))]),
         };
 
-        let result = chase_functor(&instance, &[dep], 10).unwrap();
+        let result = saturate_row_existence(&instance, &[dep], 10).unwrap();
         assert_eq!(result.row_count("B"), 0);
     }
 

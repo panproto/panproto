@@ -33,11 +33,16 @@ pub struct LensDocument {
     pub source: String,
     pub target: String,
 
-    // Body: exactly one of the four variants is present.
-    pub steps:   Option<Vec<Step>>,
-    pub rules:   Option<Vec<Rule>>,
-    pub compose: Option<ComposeSpec>,
-    pub auto:    Option<AutoSpec>,
+    // Body: exactly one of the six variants is present.
+    pub steps:     Option<Vec<Step>>,
+    pub rules:     Option<Vec<Rule>>,
+    pub compose:   Option<ComposeSpec>,
+    pub auto:      Option<AutoSpec>,
+    pub from_diff: Option<FromDiffSpec>,
+    pub symmetric: Option<SymmetricSpec>,
+
+    // Modifier: oriented rewrites appended to the compiled chain.
+    pub directed_equations: Option<Vec<DirectedEquationSpec>>,
 
     // Rule-variant metadata.
     pub passthrough: Option<Passthrough>,
@@ -79,7 +84,9 @@ pub enum Step {
 }
 ```
 
-The top-level type is `LensDocument`, not `LensSpec`. The document carries `source` and `target` NSID fields naming the two schemas, and exactly one body variant (`steps`, `rules`, `compose`, or `auto`). The resolver loads the source schema and the compiler applies the body to it, then checks that the result matches the named `target`. See `panproto_lens_dsl::compile`.
+The top-level type is `LensDocument`, not `LensSpec`. The document carries `source` and `target` NSID fields naming the two schemas and exactly one body variant: `steps`, `rules`, `compose`, `symmetric`, `auto`, or `from_diff`. A `directed_equations` modifier may accompany a body, appending oriented rewrites to the compiled chain.
+
+Compilation has two entry points. `compile` is schema-independent: it handles the schema-parametric bodies (`steps`, `rules`, `compose`, `symmetric`) and rejects `auto` and `from_diff`, which need a concrete source and target schema, with `LensDslError::AutoRequiresSchemas`. `compile_with_schemas` handles those two as well, running the auto-generation engine for `auto` and `diff_to_protolens` for `from_diff`. It also verifies the compiled chain against the declared `target`: the chain is instantiated at the source schema and the NSID of its output schema is compared against `target`, yielding `LensDslError::TargetMismatch` on divergence. The schema-independent path cannot run that comparison, since it has no schema to instantiate against.
 
 ## Semantic domain
 
@@ -113,7 +120,7 @@ $$
 \textbf{PutPut:} \quad \mathsf{put}(\mathsf{put}(s, v_1, c), v_2, c) = \mathsf{put}(s, v_2, c)
 $$
 
-`panproto_lens::laws::check_get_put`, `check_put_get`, and `check_put_put` are property-test runners that sample $s$, $v$, $v_1$, $v_2$ from the schema's value space and assert each equation.
+`panproto_lens::laws::check_get_put`, `check_put_get`, and `check_put_put` are deterministic runtime checkers: each takes a lens and a given instance, derives the views and complements it needs from that instance ($\mathsf{check\_put\_get}$ perturbs a single leaf value; $\mathsf{check\_put\_put}$ reuses one complement on both puts), and asserts the corresponding equation.
 
 ## Semantic equations
 
@@ -170,7 +177,9 @@ The fingerprint is a 64-bit hash of the source schema (computed with the standar
 
 ## Soundness
 
-The compilation function preserves lawfulness: if every step compiles to a lawful lens (which the combinator algebra guarantees), the composed result is lawful. Property tests in [`crates/panproto-lens/src/laws.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-lens/src/laws.rs) verify each combinator against random inputs sampled from the schema's value space.
+The compilation function preserves lawfulness: if every step compiles to a lawful lens (which the combinator algebra guarantees), the composed result is lawful. The checks that back this are sampled, not exhaustive. The property tests in [`crates/panproto-lens/src/laws.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-lens/src/laws.rs) run GetPut, PutGet, and PutPut over generated scenarios that span the identity and projection families, nested trees of depth three, lenses carrying vertex and edge remaps, and field-transform lenses, with the PutGet and PutPut views drawn from a view-mutation strategy rather than a single canned perturbation. The DSL side adds [`crates/panproto-lens-dsl/tests/step_laws.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-lens-dsl/tests/step_laws.rs), which compiles a document per step constructor and runs the same runtime law checks on the instantiated chain. A `coerce_sort` step (and each `directed_equations` entry) is checked for honesty when the DSL compiles it: the declared coercion class's round-trip laws are run against sampled inputs of the source kind, and a class that fails on those samples is refused with `LensDslError::CoercionNotHonest`. Each of these is evidence, not proof; the samples that were tried do not certify a law for inputs that were not.
+
+The runtime checkers above remain deterministic smoke checks: they assert each law of a supplied lens on one instance, and they are not the sampling layer.
 
 ## What is intentionally not modelled
 

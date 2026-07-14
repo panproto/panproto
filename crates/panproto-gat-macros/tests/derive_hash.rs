@@ -44,7 +44,11 @@ fn derive_hash_builds_valid_instance_morphism() {
     let morph = instance_vertex_hash(&class_theory, &target).expect("hash instance must validate");
     assert_eq!(&*morph.domain, "ThHash");
     assert_eq!(
-        morph.op_map.get(&Arc::from("hash")).map(|s| &**s),
+        morph
+            .op_map
+            .get(&Arc::from("hash"))
+            .and_then(|s| s.as_op())
+            .map(|s| &**s),
         Some("vertex_hash"),
     );
 }

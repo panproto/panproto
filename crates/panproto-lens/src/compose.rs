@@ -8,6 +8,7 @@ use std::collections::HashMap;
 
 use panproto_gat::Name;
 use panproto_inst::CompiledMigration;
+use panproto_mig::{OnMissing, compose_relabeling};
 use panproto_schema::Edge;
 
 use crate::Lens;
@@ -27,7 +28,12 @@ pub fn compose(l1: &Lens, l2: &Lens) -> Result<Lens, LensError> {
     {
         return Err(LensError::CompositionMismatch);
     }
-    // Check that vertex IDs match exactly
+    // The middle boundary must agree not only on vertices but on the
+    // relational structure carried over them: the edge set and the
+    // hyper-edge set. Two schemas with identical vertices but a differing
+    // edge, edge kind, or fan would compose into a lens whose declared
+    // intermediate schema does not exist, silently dropping or misrouting
+    // arcs. Compare the vertex, edge, and hyper-edge key sets exactly.
     if l1
         .tgt_schema
         .vertices
@@ -36,6 +42,32 @@ pub fn compose(l1: &Lens, l2: &Lens) -> Result<Lens, LensError> {
         != l2
             .src_schema
             .vertices
+            .keys()
+            .collect::<std::collections::BTreeSet<_>>()
+    {
+        return Err(LensError::CompositionMismatch);
+    }
+    if l1
+        .tgt_schema
+        .edges
+        .keys()
+        .collect::<std::collections::BTreeSet<_>>()
+        != l2
+            .src_schema
+            .edges
+            .keys()
+            .collect::<std::collections::BTreeSet<_>>()
+    {
+        return Err(LensError::CompositionMismatch);
+    }
+    if l1
+        .tgt_schema
+        .hyper_edges
+        .keys()
+        .collect::<std::collections::BTreeSet<_>>()
+        != l2
+            .src_schema
+            .hyper_edges
             .keys()
             .collect::<std::collections::BTreeSet<_>>()
     {
@@ -81,13 +113,15 @@ pub(crate) fn compose_compiled_migrations(
         }
     }
 
-    // Compose vertex remaps: apply m1's remap, then m2's remap
-    let mut vertex_remap = HashMap::new();
-    for (src, mid) in &m1.vertex_remap {
-        let final_v = m2.vertex_remap.get(mid).unwrap_or(mid).clone();
-        vertex_remap.insert(src.clone(), final_v);
-    }
-    // Also include m2 remaps for vertices not in m1's remap
+    // Compose vertex remaps through the shared relabeling kernel: apply m1's
+    // remap, then m2's remap, keeping m1's target where m2 does not remap it.
+    let mut vertex_remap = compose_relabeling(
+        &m1.vertex_remap,
+        &m2.vertex_remap,
+        OnMissing::KeepIntermediate,
+    )
+    .map;
+    // Also include m2 remaps for vertices not in m1's remap.
     for (mid, tgt) in &m2.vertex_remap {
         if !m1.vertex_remap.values().any(|v| v == mid) {
             vertex_remap
@@ -96,12 +130,9 @@ pub(crate) fn compose_compiled_migrations(
         }
     }
 
-    // Compose edge remaps
-    let mut edge_remap: HashMap<Edge, Edge> = HashMap::new();
-    for (src_e, mid_e) in &m1.edge_remap {
-        let final_e = m2.edge_remap.get(mid_e).unwrap_or(mid_e).clone();
-        edge_remap.insert(src_e.clone(), final_e);
-    }
+    // Compose edge remaps through the same kernel.
+    let edge_remap: HashMap<Edge, Edge> =
+        compose_relabeling(&m1.edge_remap, &m2.edge_remap, OnMissing::KeepIntermediate).map;
 
     // Compose resolvers
     let mut resolver = m1.resolver.clone();
@@ -116,6 +147,7 @@ pub(crate) fn compose_compiled_migrations(
     }
 
     let field_transforms = compose_field_transforms(m1, m2);
+    let op_term_assignments = compose_op_term_assignments(m1, m2);
     let conditional_survival = compose_conditional_survival(m1, m2);
 
     // Compose expansion paths: m1's paths may need to be extended by m2's
@@ -152,6 +184,7 @@ pub(crate) fn compose_compiled_migrations(
         hyper_resolver,
         field_transforms,
         conditional_survival,
+        op_term_assignments,
         expansion_path,
     }
 }
@@ -179,15 +212,38 @@ fn compose_field_transforms(
     m1: &CompiledMigration,
     m2: &CompiledMigration,
 ) -> HashMap<panproto_gat::Name, Vec<panproto_inst::wtype::FieldTransform>> {
-    let mut result = m1.field_transforms.clone();
-    for (m2_anchor, m2_transforms) in &m2.field_transforms {
+    compose_anchor_keyed_lists(m1, &m1.field_transforms, &m2.field_transforms)
+}
+
+/// Compose `op_term_assignments` from two migrations, re-keying through
+/// `vertex_remap` with the same fixed-point discipline as
+/// [`compose_field_transforms`].
+fn compose_op_term_assignments(
+    m1: &CompiledMigration,
+    m2: &CompiledMigration,
+) -> HashMap<panproto_gat::Name, Vec<panproto_inst::wtype::TermAssignment>> {
+    compose_anchor_keyed_lists(m1, &m1.op_term_assignments, &m2.op_term_assignments)
+}
+
+/// Compose two anchor-keyed transform lists, re-keying `m2`'s entries into
+/// `m1`'s source frame via `m1.vertex_remap`. An `m2`-anchor that is
+/// neither the image of an `m1`-source anchor nor a fixed point under `m1`
+/// lives only in `m1`'s target space; its entries have no representation
+/// in `m1`'s source and are dropped to preserve the keyspace invariant.
+fn compose_anchor_keyed_lists<T: Clone>(
+    m1: &CompiledMigration,
+    m1_map: &HashMap<panproto_gat::Name, Vec<T>>,
+    m2_map: &HashMap<panproto_gat::Name, Vec<T>>,
+) -> HashMap<panproto_gat::Name, Vec<T>> {
+    let mut result = m1_map.clone();
+    for (m2_anchor, m2_entries) in m2_map {
         let mut found = false;
         for (m1_src, m1_tgt) in &m1.vertex_remap {
             if m1_tgt == m2_anchor {
                 result
                     .entry(m1_src.clone())
                     .or_default()
-                    .extend(m2_transforms.iter().cloned());
+                    .extend(m2_entries.iter().cloned());
                 found = true;
             }
         }
@@ -195,11 +251,8 @@ fn compose_field_transforms(
             result
                 .entry(m2_anchor.clone())
                 .or_default()
-                .extend(m2_transforms.iter().cloned());
+                .extend(m2_entries.iter().cloned());
         }
-        // else: m2_anchor exists only in m1's target space (introduced
-        // or renamed by m1); its transforms have no representation in
-        // m1's source and are dropped to preserve keyspace integrity.
     }
     result
 }
@@ -381,6 +434,62 @@ mod tests {
             lens.tgt_schema.vertex_count(),
             schema.vertex_count(),
             "composed tgt schema should match original"
+        );
+    }
+
+    #[test]
+    fn compose_rejects_edge_mismatch() {
+        use std::collections::BTreeSet;
+        let schema = three_node_schema();
+        // Identical vertices, but the middle boundary differs by one edge.
+        let mut altered = schema.clone();
+        let victim = altered.edges.keys().next().cloned();
+        if let Some(victim) = victim {
+            altered.edges.remove(&victim);
+        }
+
+        // Precondition of the test: vertex sets still match exactly, so
+        // the vertex-only check would have let this through.
+        assert_eq!(
+            schema.vertices.keys().collect::<BTreeSet<_>>(),
+            altered.vertices.keys().collect::<BTreeSet<_>>(),
+            "vertex sets must be identical for this test to exercise the edge check"
+        );
+
+        let l1 = identity_lens(&schema);
+        let l2 = identity_lens(&altered);
+        let result = compose(&l1, &l2);
+        assert!(
+            matches!(result, Err(LensError::CompositionMismatch)),
+            "composition across an edge mismatch must be rejected: {result:?}"
+        );
+    }
+
+    #[test]
+    fn compose_rejects_hyper_edge_mismatch() {
+        use panproto_gat::Name;
+        use panproto_schema::HyperEdge;
+        use std::collections::HashMap;
+
+        let schema = three_node_schema();
+        // Identical vertices and edges, but add a hyper-edge to one side.
+        let mut altered = schema.clone();
+        altered.hyper_edges.insert(
+            Name::from("fan"),
+            HyperEdge {
+                id: Name::from("fan"),
+                kind: Name::from("fan"),
+                signature: HashMap::new(),
+                parent_label: Name::from("post:body"),
+            },
+        );
+
+        let l1 = identity_lens(&schema);
+        let l2 = identity_lens(&altered);
+        let result = compose(&l1, &l2);
+        assert!(
+            matches!(result, Err(LensError::CompositionMismatch)),
+            "composition across a hyper-edge mismatch must be rejected: {result:?}"
         );
     }
 }

@@ -1,0 +1,220 @@
+==================
+encoder with every entry kind
+==================
+
+encoder enc : Sig [factory=gnn]
+    dim term = 64
+    iterations 3
+    op app(f, a) |-> f + a
+    op cons(h, x) recurrent h |-> gru(h, x)
+    op select(q, ks) attention q |-> attend(q, ks)
+    op unit |-> zero_vec
+    init leaf(x) |-> embed(x)
+    message [child](s, t) |-> s + t
+    update [node](self, msgs) |-> self + msgs
+    var_init term |-> zero_vec
+    var_init term from emb as anno |-> proj(anno)
+    readout |-> pool
+
+---
+
+(source_file
+  (encoder_decl
+    (identifier)
+    (identifier)
+    (option_block
+      (option_entry
+        (identifier)
+        (identifier)))
+    (encoder_dim
+      (identifier)
+      (integer))
+    (encoder_iterations
+      (integer))
+    (encoder_op_rule
+      (identifier)
+      (identifier)
+      (identifier)
+      (let_binop
+        (let_var
+          (identifier))
+        (let_var
+          (identifier))))
+    (encoder_op_rule
+      (identifier)
+      (identifier)
+      (identifier)
+      (identifier)
+      (let_call
+        (identifier)
+        (let_var
+          (identifier))
+        (let_var
+          (identifier))))
+    (encoder_op_rule
+      (identifier)
+      (identifier)
+      (identifier)
+      (identifier)
+      (let_call
+        (identifier)
+        (let_var
+          (identifier))
+        (let_var
+          (identifier))))
+    (encoder_op_rule
+      (identifier)
+      (let_var
+        (identifier)))
+    (encoder_init_rule
+      (identifier)
+      (identifier)
+      (let_call
+        (identifier)
+        (let_var
+          (identifier))))
+    (encoder_message_rule
+      (identifier)
+      (identifier)
+      (identifier)
+      (let_binop
+        (let_var
+          (identifier))
+        (let_var
+          (identifier))))
+    (encoder_update_rule
+      (identifier)
+      (identifier)
+      (identifier)
+      (let_binop
+        (let_var
+          (identifier))
+        (let_var
+          (identifier))))
+    (encoder_var_init
+      (identifier)
+      (let_var
+        (identifier)))
+    (encoder_var_init
+      (identifier)
+      (identifier)
+      (identifier)
+      (let_call
+        (identifier)
+        (let_var
+          (identifier))))
+    (encoder_readout
+      (let_var
+        (identifier)))))
+
+==================
+encoder headers without bodies
+==================
+
+encoder small : Sig(E, T)
+encoder tiny : Sig [factory=deep]
+
+---
+
+(source_file
+  (encoder_decl
+    (identifier)
+    (identifier)
+    (identifier)
+    (identifier))
+  (encoder_decl
+    (identifier)
+    (identifier)
+    (option_block
+      (option_entry
+        (identifier)
+        (identifier)))))
+
+==================
+decoder with every entry kind
+==================
+
+decoder dec : Sig(E) [beam=4]
+    dim term = 64
+    structure (h) |-> softmax(h)
+    primitive (h) |-> vocab(h)
+    factor (h) |-> weigh(h)
+    binder_select (h) |-> pick(h)
+    body |-> recursive
+
+---
+
+(source_file
+  (decoder_decl
+    (identifier)
+    (identifier)
+    (identifier)
+    (option_block
+      (option_entry
+        (identifier)
+        (signed_number
+          (integer))))
+    (decoder_dim
+      (identifier)
+      (integer))
+    (decoder_structure
+      (identifier)
+      (let_call
+        (identifier)
+        (let_var
+          (identifier))))
+    (decoder_primitive
+      (identifier)
+      (let_call
+        (identifier)
+        (let_var
+          (identifier))))
+    (decoder_factor
+      (identifier)
+      (let_call
+        (identifier)
+        (let_var
+          (identifier))))
+    (decoder_binder_select
+      (identifier)
+      (let_call
+        (identifier)
+        (let_var
+          (identifier))))
+    (decoder_body_default)))
+
+==================
+loss declarations
+==================
+
+loss recon
+    mse(x, y)
+loss weighted [weight=0.5]
+    recon_term + 0.1 * kl
+
+---
+
+(source_file
+  (loss_decl
+    (identifier)
+    (let_call
+      (identifier)
+      (let_var
+        (identifier))
+      (let_var
+        (identifier))))
+  (loss_decl
+    (identifier)
+    (option_block
+      (option_entry
+        (identifier)
+        (signed_number
+          (float))))
+    (let_binop
+      (let_var
+        (identifier))
+      (let_binop
+        (let_literal
+          (float))
+        (let_var
+          (identifier))))))

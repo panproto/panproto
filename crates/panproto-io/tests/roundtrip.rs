@@ -517,11 +517,100 @@ tabular_functor_roundtrip!(
 fn all_protocols_have_roundtrip_tests() {
     // This test ensures we haven't missed any protocol.
     // The count of tests in this file must match the registry.
+    // The generic text-format protocols (yaml, toml, csv) are added
+    // only under the tree-sitter feature; their round-trip tests below
+    // are gated the same way.
     let reg = registry();
+    let expected = if cfg!(feature = "tree-sitter") {
+        53
+    } else {
+        50
+    };
     assert_eq!(
         reg.len(),
-        50,
-        "registry should have 50 protocols; if you add a protocol, add a round-trip test"
+        expected,
+        "registry should have {expected} protocols; if you add a protocol, add a round-trip test"
+    );
+}
+
+// ── Generic text-format protocols (tree-sitter only) ───────────────────
+//
+// The `yaml`, `toml`, and `csv` protocols wire the format-preserving
+// `UnifiedCodec` into `default_registry`. These round-trips go through
+// the registry's canonical `parse_wtype`/`parse_functor` path (matching
+// the other protocol tests here); the byte-preserving path is covered in
+// `registry_preserving.rs`.
+
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn roundtrip_yaml() {
+    let reg = registry();
+    let schema = open_schema("yaml");
+    let input = b"name: Alice\nage: 30\n";
+
+    let instance = reg.parse_wtype("yaml", &schema, input).expect("parse yaml");
+    assert!(
+        instance.node_count() >= 1,
+        "yaml: expected at least the root"
+    );
+
+    let emitted = reg
+        .emit_wtype("yaml", &schema, &instance)
+        .expect("emit yaml");
+    let reparsed = reg
+        .parse_wtype("yaml", &schema, &emitted)
+        .expect("re-parse yaml");
+    assert_eq!(
+        instance.node_count(),
+        reparsed.node_count(),
+        "yaml: node count mismatch after round-trip"
+    );
+}
+
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn roundtrip_toml() {
+    let reg = registry();
+    let schema = open_schema("toml");
+    let input = b"title = \"demo\"\nport = 8080\n";
+
+    let instance = reg.parse_wtype("toml", &schema, input).expect("parse toml");
+    assert!(
+        instance.node_count() >= 1,
+        "toml: expected at least the root"
+    );
+
+    let emitted = reg
+        .emit_wtype("toml", &schema, &instance)
+        .expect("emit toml");
+    let reparsed = reg
+        .parse_wtype("toml", &schema, &emitted)
+        .expect("re-parse toml");
+    assert_eq!(
+        instance.node_count(),
+        reparsed.node_count(),
+        "toml: node count mismatch after round-trip"
+    );
+}
+
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn roundtrip_csv() {
+    let reg = registry();
+    let schema = tabular_schema("csv");
+    let input = b"name,age\nAlice,30\nBob,25\n";
+
+    let instance = reg.parse_functor("csv", &schema, input).expect("parse csv");
+    let emitted = reg
+        .emit_functor("csv", &schema, &instance)
+        .expect("emit csv");
+    let reparsed = reg
+        .parse_functor("csv", &schema, &emitted)
+        .expect("re-parse csv");
+    assert_eq!(
+        instance.tables.len(),
+        reparsed.tables.len(),
+        "csv: table count mismatch after round-trip"
     );
 }
 

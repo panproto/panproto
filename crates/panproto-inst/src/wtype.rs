@@ -69,6 +69,15 @@ pub struct CompiledMigration {
     /// value-dependent predicate (vertex set membership AND value predicate).
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub conditional_survival: HashMap<Name, panproto_expr::Expr>,
+    /// Value-level op-to-term assignments applied to surviving rows/nodes.
+    ///
+    /// Keyed by source vertex anchor, mirroring [`Self::field_transforms`].
+    /// Each assignment computes a migrated field by substituting the row's
+    /// field values into a term; this is the substitution action of
+    /// `Delta` and `Sigma` on values. `panproto-mig`'s compiler emits its
+    /// value transforms here rather than as direct [`FieldTransform`]s.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub op_term_assignments: HashMap<Name, Vec<TermAssignment>>,
     /// Multi-hop expansion paths for nest-style migrations.
     ///
     /// When a direct edge `src --> tgt` existed in the source schema but
@@ -278,6 +287,259 @@ pub struct CaseBranch {
     pub transforms: Vec<FieldTransform>,
 }
 
+/// The scope of field values a [`TermAssignment::Compute`] term sees.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum TermScope {
+    /// Bind only the target field (single-field substitution). The term's
+    /// free variable is the target field's own name.
+    Field,
+    /// Bind the whole row: every field plus, for tree instances, the
+    /// scalar values of immediate child nodes.
+    Row,
+}
+
+/// A branch of a [`TermAssignment::Case`] analysis.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TermBranch {
+    /// Predicate evaluated with the row's values bound as variables.
+    pub predicate: panproto_expr::Expr,
+    /// Assignments applied when the predicate holds.
+    pub assignments: Vec<TermAssignment>,
+}
+
+/// An op-to-term assignment: how one migrated field is produced from a
+/// source row.
+///
+/// A [`Self::Compute`] assignment carries a term (`panproto_expr::Expr`)
+/// whose free variables are source field names; evaluating it substitutes
+/// the row's field values for those variables. This is the substitution
+/// semantics through which the migration functors act on values: `Delta`
+/// ([`crate::functor::functor_restrict`]) and `Sigma`
+/// ([`wtype_extend`], [`crate::functor::functor_extend`]) compute migrated
+/// columns by substituting each surviving row. The remaining variants
+/// describe structural field operations (rename, drop, keep, default,
+/// reference remap, nested-path scoping, and case analysis).
+///
+/// Every [`FieldTransform`] variant translates to a `TermAssignment` via
+/// [`Self::from_field_transform`] and lowers back via
+/// [`Self::to_field_transform`]; applying a translated assignment produces
+/// the same result as applying the original transform. Migrations produced
+/// by `panproto-mig`'s compiler carry their value transforms as term
+/// assignments rather than direct [`FieldTransform`]s.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum TermAssignment {
+    /// Compute `target` by substituting the row's values into `term`.
+    Compute {
+        /// The migrated field written by this assignment.
+        target: String,
+        /// Which source fields the term sees.
+        scope: TermScope,
+        /// The term computing the field.
+        term: panproto_expr::Expr,
+        /// Optional inverse for round-tripping.
+        inverse: Option<panproto_expr::Expr>,
+        /// Round-trip classification of this assignment.
+        coercion_class: panproto_gat::CoercionClass,
+    },
+    /// Rename field `old` to `new`.
+    Rename {
+        /// The current field name.
+        old: String,
+        /// The new field name.
+        new: String,
+    },
+    /// Drop field `key`.
+    Drop {
+        /// The field to remove.
+        key: String,
+    },
+    /// Add `value` at `key` when the field is absent.
+    Default {
+        /// The field to add.
+        key: String,
+        /// The default value.
+        value: Value,
+    },
+    /// Keep only the listed fields.
+    Keep {
+        /// The fields to retain.
+        keys: Vec<String>,
+    },
+    /// Remap string references in `field` through `rename_map`.
+    MapReferences {
+        /// The field carrying references.
+        field: String,
+        /// Old-name to new-name map (`None` removes the reference).
+        rename_map: HashMap<String, Option<String>>,
+    },
+    /// Apply `inner` at a nested `path` within the row's `Value` tree.
+    AtPath {
+        /// The path of nested object keys.
+        path: Vec<String>,
+        /// The assignment applied at the resolved path.
+        inner: Box<Self>,
+    },
+    /// First matching branch's assignments apply.
+    Case {
+        /// Ordered branches; the first matching predicate wins.
+        branches: Vec<TermBranch>,
+    },
+}
+
+impl TermAssignment {
+    /// Translate a [`FieldTransform`] into the equivalent term assignment.
+    #[must_use]
+    pub fn from_field_transform(ft: &FieldTransform) -> Self {
+        match ft {
+            FieldTransform::RenameField { old_key, new_key } => Self::Rename {
+                old: old_key.clone(),
+                new: new_key.clone(),
+            },
+            FieldTransform::DropField { key } => Self::Drop { key: key.clone() },
+            FieldTransform::AddField { key, value } => Self::Default {
+                key: key.clone(),
+                value: value.clone(),
+            },
+            FieldTransform::KeepFields { keys } => Self::Keep { keys: keys.clone() },
+            FieldTransform::ApplyExpr {
+                key,
+                expr,
+                inverse,
+                coercion_class,
+            } => Self::Compute {
+                target: key.clone(),
+                scope: TermScope::Field,
+                term: expr.clone(),
+                inverse: inverse.clone(),
+                coercion_class: *coercion_class,
+            },
+            FieldTransform::ComputeField {
+                target_key,
+                expr,
+                inverse,
+                coercion_class,
+            } => Self::Compute {
+                target: target_key.clone(),
+                scope: TermScope::Row,
+                term: expr.clone(),
+                inverse: inverse.clone(),
+                coercion_class: *coercion_class,
+            },
+            FieldTransform::PathTransform { path, inner } => Self::AtPath {
+                path: path.clone(),
+                inner: Box::new(Self::from_field_transform(inner)),
+            },
+            FieldTransform::MapReferences { field, rename_map } => Self::MapReferences {
+                field: field.clone(),
+                rename_map: rename_map.clone(),
+            },
+            FieldTransform::Case { branches } => Self::Case {
+                branches: branches
+                    .iter()
+                    .map(|b| TermBranch {
+                        predicate: b.predicate.clone(),
+                        assignments: b
+                            .transforms
+                            .iter()
+                            .map(Self::from_field_transform)
+                            .collect(),
+                    })
+                    .collect(),
+            },
+        }
+    }
+
+    /// Lower this term assignment to the equivalent [`FieldTransform`].
+    #[must_use]
+    pub fn to_field_transform(&self) -> FieldTransform {
+        match self {
+            Self::Rename { old, new } => FieldTransform::RenameField {
+                old_key: old.clone(),
+                new_key: new.clone(),
+            },
+            Self::Drop { key } => FieldTransform::DropField { key: key.clone() },
+            Self::Default { key, value } => FieldTransform::AddField {
+                key: key.clone(),
+                value: value.clone(),
+            },
+            Self::Keep { keys } => FieldTransform::KeepFields { keys: keys.clone() },
+            Self::Compute {
+                target,
+                scope: TermScope::Field,
+                term,
+                inverse,
+                coercion_class,
+            } => FieldTransform::ApplyExpr {
+                key: target.clone(),
+                expr: term.clone(),
+                inverse: inverse.clone(),
+                coercion_class: *coercion_class,
+            },
+            Self::Compute {
+                target,
+                scope: TermScope::Row,
+                term,
+                inverse,
+                coercion_class,
+            } => FieldTransform::ComputeField {
+                target_key: target.clone(),
+                expr: term.clone(),
+                inverse: inverse.clone(),
+                coercion_class: *coercion_class,
+            },
+            Self::MapReferences { field, rename_map } => FieldTransform::MapReferences {
+                field: field.clone(),
+                rename_map: rename_map.clone(),
+            },
+            Self::AtPath { path, inner } => FieldTransform::PathTransform {
+                path: path.clone(),
+                inner: Box::new(inner.to_field_transform()),
+            },
+            Self::Case { branches } => FieldTransform::Case {
+                branches: branches
+                    .iter()
+                    .map(|b| CaseBranch {
+                        predicate: b.predicate.clone(),
+                        transforms: b.assignments.iter().map(Self::to_field_transform).collect(),
+                    })
+                    .collect(),
+            },
+        }
+    }
+
+    /// Round-trip classification of this assignment, matching the
+    /// classification of its lowered [`FieldTransform`].
+    #[must_use]
+    pub fn coercion_class(&self) -> panproto_gat::CoercionClass {
+        self.to_field_transform().coercion_class()
+    }
+}
+
+/// Apply a sequence of op-to-term assignments to a flat relational row,
+/// substituting the row's field values.
+///
+/// The row is wrapped in a scratch node so the shared field-transform
+/// evaluator ([`apply_field_transforms`]) performs the substitution; a
+/// flat row has no child fibers, so the child-scalar environment is empty.
+/// This is the value action of `Delta` and `Sigma` on set-valued
+/// (relational) instances.
+pub fn apply_term_assignments_to_row(
+    row: &mut HashMap<String, Value>,
+    assignments: &[TermAssignment],
+) {
+    if assignments.is_empty() {
+        return;
+    }
+    let transforms: Vec<FieldTransform> = assignments
+        .iter()
+        .map(TermAssignment::to_field_transform)
+        .collect();
+    let mut node = Node::new(0, "");
+    node.extra_fields = std::mem::take(row);
+    apply_field_transforms(&mut node, &transforms, &HashMap::new());
+    *row = node.extra_fields;
+}
+
 impl CompiledMigration {
     /// Compute the composite coercion class of all field transforms in this migration.
     ///
@@ -291,6 +553,26 @@ impl CompiledMigration {
             .fold(panproto_gat::CoercionClass::Iso, |acc, t| {
                 acc.compose(t.coercion_class())
             })
+    }
+
+    /// All value transforms for `anchor`: the legacy [`FieldTransform`]s
+    /// followed by the lowered op-to-term assignments.
+    ///
+    /// Tree-instance consumers apply this unified sequence so that a
+    /// migration whose value transforms are carried as op-to-term
+    /// assignments behaves the same as one carrying direct field
+    /// transforms.
+    #[must_use]
+    pub fn value_transforms(&self, anchor: &Name) -> Vec<FieldTransform> {
+        let mut out: Vec<FieldTransform> = self
+            .field_transforms
+            .get(anchor)
+            .cloned()
+            .unwrap_or_default();
+        if let Some(assignments) = self.op_term_assignments.get(anchor) {
+            out.extend(assignments.iter().map(TermAssignment::to_field_transform));
+        }
+        out
     }
 
     /// Add a field rename transform for a vertex.
@@ -813,9 +1095,10 @@ pub fn wtype_restrict(
                 // Apply value-level field transforms if any exist for this vertex.
                 // Collect scalar child values from the original instance so that
                 // ComputeField / Case / ApplyExpr can access the full fiber.
-                if let Some(transforms) = migration.field_transforms.get(&child_node.anchor) {
+                let transforms = migration.value_transforms(&child_node.anchor);
+                if !transforms.is_empty() {
                     let scalars = collect_scalar_child_values(instance, child_id);
-                    apply_field_transforms(&mut new_node, transforms, &scalars);
+                    apply_field_transforms(&mut new_node, &transforms, &scalars);
                 }
                 new_nodes.insert(child_id, new_node.clone());
 
@@ -1274,10 +1557,8 @@ pub fn build_env_from_extra_fields(fields: &HashMap<String, Value>) -> panproto_
 /// literal in the expression language. Non-string elements are
 /// silently dropped from the joined form — `value_to_expr_literal`
 /// represents the projection `List Value → List Str ↪ Str`, which is
-/// the composition of the obvious forgetful map and the join. This
-/// matches the pre-existing (pre-`Value::List`) semantics of the
-/// encoded-array path, which also only contributed string leaves to
-/// the joined representation.
+/// the composition of the obvious forgetful map and the join. Only
+/// the string leaves of a list contribute to the joined representation.
 #[must_use]
 pub fn value_to_expr_literal(val: &Value) -> panproto_expr::Literal {
     match val {
@@ -1330,11 +1611,6 @@ pub fn expr_literal_to_value(lit: &panproto_expr::Literal) -> Value {
 // Left Kan extension (Σ_F) for W-type instances
 // ---------------------------------------------------------------------------
 
-/// Left Kan extension (`Sigma_F`) for W-type instances.
-///
-/// Pushes a W-type instance forward along a migration morphism.
-/// Unlike [`wtype_restrict`] (which drops unmapped nodes), extend
-/// maps all source nodes into the target schema, remapping anchors
 /// Prepare the root node for restriction: remap anchor, check conditional
 /// survival, and apply field transforms.
 fn prepare_root_node(
@@ -1356,25 +1632,80 @@ fn prepare_root_node(
             return Err(RestrictError::RootPruned);
         }
     }
-    if let Some(transforms) = migration.field_transforms.get(&root_node.anchor) {
+    let transforms = migration.value_transforms(&root_node.anchor);
+    if !transforms.is_empty() {
         let scalars = collect_scalar_child_values(instance, root_node.id);
-        apply_field_transforms(&mut node, transforms, &scalars);
+        apply_field_transforms(&mut node, &transforms, &scalars);
     }
     Ok(node)
 }
 
-/// and edges according to the compiled migration.
+/// Left Kan extension (`Sigma_F`) for W-type instances.
+///
+/// Pushes a W-type instance forward along a migration morphism, mapping
+/// every source node into the target schema and remapping anchors and edges
+/// according to the compiled migration.
+///
+/// This is a *total* operation. Left Kan extension along a total functor
+/// never deletes: every source node's anchor must be either remapped
+/// (present as a key in `vertex_remap`) or surviving (present in
+/// `surviving_verts`). A node whose anchor satisfies neither has no image in
+/// the target schema, and rather than drop it silently `wtype_extend`
+/// returns [`RestrictError::UnmappedAnchor`]. Callers that genuinely want
+/// partial extension — keeping the mappable nodes and learning which nodes
+/// were dropped — should use [`wtype_extend_partial`] instead.
 ///
 /// # Errors
 ///
-/// Returns [`RestrictError`] if edge resolution fails or the root
-/// cannot be mapped.
+/// Returns [`RestrictError::UnmappedAnchor`] if any source node's anchor is
+/// neither remapped nor surviving, [`RestrictError::RootPruned`] if the root
+/// itself cannot be mapped, or another [`RestrictError`] variant if edge
+/// resolution fails.
 pub fn wtype_extend(
     instance: &WInstance,
     tgt_schema: &Schema,
     migration: &CompiledMigration,
 ) -> Result<WInstance, RestrictError> {
+    let (extended, _dropped) = wtype_extend_inner(instance, tgt_schema, migration, false)?;
+    Ok(extended)
+}
+
+/// Partial left Kan extension: extend what can be mapped, report the rest.
+///
+/// Like [`wtype_extend`], but instead of failing on a node whose anchor is
+/// neither remapped nor surviving, this variant drops that node and records
+/// its id. The returned `Vec<u32>` lists the dropped source node ids (empty
+/// when the migration is total, in which case the result equals that of
+/// [`wtype_extend`]). Arcs touching a dropped node are dropped as well.
+///
+/// Use this variant when partial extension is intended, and inspect the
+/// returned ids so the dropped nodes are surfaced rather than lost silently.
+///
+/// # Errors
+///
+/// Returns [`RestrictError::RootPruned`] if the root cannot be mapped, or
+/// another [`RestrictError`] variant if edge resolution fails.
+pub fn wtype_extend_partial(
+    instance: &WInstance,
+    tgt_schema: &Schema,
+    migration: &CompiledMigration,
+) -> Result<(WInstance, Vec<u32>), RestrictError> {
+    wtype_extend_inner(instance, tgt_schema, migration, true)
+}
+
+/// Shared implementation for [`wtype_extend`] and [`wtype_extend_partial`].
+///
+/// When `partial` is `false`, an unmapped-anchor node yields
+/// [`RestrictError::UnmappedAnchor`]. When `partial` is `true`, such a node
+/// is dropped and its id is collected into the returned vector.
+fn wtype_extend_inner(
+    instance: &WInstance,
+    tgt_schema: &Schema,
+    migration: &CompiledMigration,
+    partial: bool,
+) -> Result<(WInstance, Vec<u32>), RestrictError> {
     // Check root can be mapped
+    let mut dropped_nodes: Vec<u32> = Vec::new();
     let root_node = instance
         .nodes
         .get(&instance.root)
@@ -1394,15 +1725,25 @@ pub fn wtype_extend(
         if let Some(remapped) = migration.vertex_remap.get(&node.anchor) {
             new_node.anchor.clone_from(remapped);
         } else if !migration.surviving_verts.contains(&node.anchor) {
-            // Node's anchor has no remap and doesn't survive; skip it
-            continue;
+            // Node's anchor has no image in the target schema. A total left
+            // Kan extension cannot map it, so report the loss; only the
+            // partial variant records the id and continues.
+            if partial {
+                dropped_nodes.push(id);
+                continue;
+            }
+            return Err(RestrictError::UnmappedAnchor {
+                anchor: node.anchor.clone(),
+                node_id: id,
+            });
         }
         // Apply field transforms (coercions) to the extended node.
         // Collect scalar child values from the original instance for the
         // full fiber projection.
-        if let Some(transforms) = migration.field_transforms.get(&node.anchor) {
+        let transforms = migration.value_transforms(&node.anchor);
+        if !transforms.is_empty() {
             let scalars = collect_scalar_child_values(instance, id);
-            apply_field_transforms(&mut new_node, transforms, &scalars);
+            apply_field_transforms(&mut new_node, &transforms, &scalars);
         }
         new_nodes.insert(id, new_node);
     }
@@ -1458,12 +1799,15 @@ pub fn wtype_extend(
         .cloned()
         .unwrap_or_else(|| instance.schema_root.clone());
 
-    Ok(WInstance::new(
-        new_nodes,
-        new_arcs,
-        new_fans,
-        instance.root,
-        new_schema_root,
+    Ok((
+        WInstance::new(
+            new_nodes,
+            new_arcs,
+            new_fans,
+            instance.root,
+            new_schema_root,
+        ),
+        dropped_nodes,
     ))
 }
 
@@ -1708,6 +2052,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            op_term_assignments: HashMap::new(),
             expansion_path: HashMap::new(),
         };
         let result = wtype_extend(&inst, &schema, &migration).unwrap();
@@ -1763,6 +2108,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            op_term_assignments: HashMap::new(),
             expansion_path: HashMap::new(),
         };
         let result = wtype_extend(&inst, &tgt_schema, &migration).unwrap();
@@ -1815,6 +2161,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            op_term_assignments: HashMap::new(),
             expansion_path: HashMap::new(),
         };
         let result = wtype_extend(&inst, &tgt_schema, &migration).unwrap();
@@ -1858,6 +2205,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            op_term_assignments: HashMap::new(),
             expansion_path: HashMap::new(),
         };
         let result = wtype_extend(&inst, &schema, &migration).unwrap();
@@ -1869,6 +2217,52 @@ mod tests {
         // Verify values are preserved
         assert!(result.nodes[&1].has_value());
         assert!(result.nodes[&2].has_value());
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn extend_errors_on_unmapped_anchor() {
+        // three_node_instance: post:body(0) -> post:body.text(1),
+        //                      post:body(0) -> post:body.createdAt(2).
+        let inst = three_node_instance();
+        let edge_text = Edge {
+            src: "post:body".into(),
+            tgt: "post:body.text".into(),
+            kind: "prop".into(),
+            name: Some("text".into()),
+        };
+        // Target schema omits createdAt entirely.
+        let schema = make_test_schema(
+            &["post:body", "post:body.text"],
+            std::slice::from_ref(&edge_text),
+        );
+        // Migration keeps body and body.text but neither remaps nor survives
+        // post:body.createdAt, so node 2 has no image in the target schema.
+        let migration = CompiledMigration {
+            surviving_verts: HashSet::from([Name::from("post:body"), Name::from("post:body.text")]),
+            surviving_edges: HashSet::from([edge_text]),
+            vertex_remap: HashMap::new(),
+            edge_remap: HashMap::new(),
+            resolver: HashMap::new(),
+            hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
+            conditional_survival: HashMap::new(),
+            op_term_assignments: HashMap::new(),
+            expansion_path: HashMap::new(),
+        };
+
+        // Total extend must error rather than silently drop node 2.
+        let err = wtype_extend(&inst, &schema, &migration).unwrap_err();
+        assert!(
+            matches!(err, RestrictError::UnmappedAnchor { node_id: 2, .. }),
+            "expected UnmappedAnchor for node 2, got {err:?}"
+        );
+
+        // The explicit partial variant drops node 2 and reports its id.
+        let (extended, dropped) = wtype_extend_partial(&inst, &schema, &migration).unwrap();
+        assert_eq!(dropped, vec![2]);
+        assert_eq!(extended.node_count(), 2);
+        assert!(!extended.nodes.contains_key(&2));
     }
 
     /// Regression test: renamed vertices must survive restrict.
@@ -1983,6 +2377,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            op_term_assignments: HashMap::new(),
             expansion_path: HashMap::new(),
         };
 
@@ -2185,9 +2580,8 @@ mod tests {
     fn value_to_expr_literal_drops_non_string_list_elements() {
         // Non-string elements must be SILENTLY DROPPED from the joined
         // form (not Debug-formatted, which would make `Contains(s, "42")`
-        // spuriously match on an `Int(42)` element). This preserves the
-        // pre-existing `__array_len` semantics, under which non-string
-        // entries simply didn't contribute to the joined string.
+        // spuriously match on an `Int(42)` element). Non-string entries
+        // do not contribute to the joined string.
         let val = Value::List(vec![
             Value::Str("keep".into()),
             Value::Int(42),
@@ -2371,6 +2765,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            op_term_assignments: HashMap::new(),
             expansion_path: HashMap::new(),
         };
         migration.add_conditional_survival("item", predicate);
@@ -2468,6 +2863,7 @@ mod tests {
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
             conditional_survival: HashMap::new(),
+            op_term_assignments: HashMap::new(),
             expansion_path: HashMap::new(),
         };
 
@@ -2844,6 +3240,115 @@ mod tests {
         assert_eq!(result1, result2, "ComputeField must be deterministic");
     }
 
+    /// Every [`FieldTransform`] variant, translated to a [`TermAssignment`]
+    /// and lowered back, produces the same result as applying the original
+    /// transform directly. This certifies that the term-assignment algebra
+    /// faithfully re-expresses each field transform.
+    #[test]
+    fn field_transform_term_equivalence() {
+        use panproto_expr::{BuiltinOp, Expr, Literal};
+        use std::sync::Arc;
+
+        fn fixture() -> Node {
+            let mut node = Node::new(0, "row");
+            node.extra_fields
+                .insert("a".into(), Value::Str("hello".into()));
+            node.extra_fields.insert(
+                "refs".into(),
+                Value::List(vec![Value::Str("x".into()), Value::Str("keep".into())]),
+            );
+            let mut attrs = HashMap::new();
+            attrs.insert("k".into(), Value::Int(1));
+            node.extra_fields
+                .insert("attrs".into(), Value::Unknown(attrs));
+            node
+        }
+
+        let variants: Vec<FieldTransform> = vec![
+            FieldTransform::RenameField {
+                old_key: "a".into(),
+                new_key: "b".into(),
+            },
+            FieldTransform::DropField { key: "a".into() },
+            FieldTransform::AddField {
+                key: "c".into(),
+                value: Value::Int(7),
+            },
+            FieldTransform::KeepFields {
+                keys: vec!["a".into()],
+            },
+            FieldTransform::ApplyExpr {
+                key: "a".into(),
+                expr: Expr::Builtin(
+                    BuiltinOp::Concat,
+                    vec![
+                        Expr::Var(Arc::from("a")),
+                        Expr::Lit(Literal::Str("!".into())),
+                    ],
+                ),
+                inverse: None,
+                coercion_class: panproto_gat::CoercionClass::Opaque,
+            },
+            FieldTransform::ComputeField {
+                target_key: "d".into(),
+                expr: Expr::Var(Arc::from("a")),
+                inverse: None,
+                coercion_class: panproto_gat::CoercionClass::Projection,
+            },
+            FieldTransform::PathTransform {
+                path: vec!["attrs".into()],
+                inner: Box::new(FieldTransform::RenameField {
+                    old_key: "k".into(),
+                    new_key: "kk".into(),
+                }),
+            },
+            FieldTransform::MapReferences {
+                field: "refs".into(),
+                rename_map: HashMap::from([("x".to_string(), Some("y".to_string()))]),
+            },
+            FieldTransform::Case {
+                branches: vec![CaseBranch {
+                    predicate: Expr::Lit(Literal::Bool(true)),
+                    transforms: vec![FieldTransform::AddField {
+                        key: "flag".into(),
+                        value: Value::Bool(true),
+                    }],
+                }],
+            },
+        ];
+
+        for ft in &variants {
+            let mut direct = fixture();
+            apply_field_transforms(&mut direct, std::slice::from_ref(ft), &HashMap::new());
+
+            // Round-trip the transform through the term-assignment algebra
+            // and apply the lowered assignment.
+            let assignment = TermAssignment::from_field_transform(ft);
+            let mut via_term = fixture();
+            apply_field_transforms(
+                &mut via_term,
+                std::slice::from_ref(&assignment.to_field_transform()),
+                &HashMap::new(),
+            );
+
+            assert_eq!(
+                direct.extra_fields, via_term.extra_fields,
+                "term-assignment path must match direct field transform for {ft:?}",
+            );
+
+            // The flat-row substitution path agrees for the whole-row cases
+            // that carry over to a relational row.
+            let mut row = fixture().extra_fields;
+            let mut expected = fixture();
+            apply_field_transforms(&mut expected, std::slice::from_ref(ft), &HashMap::new());
+            apply_term_assignments_to_row(&mut row, std::slice::from_ref(&assignment));
+            assert_eq!(
+                row, expected.extra_fields,
+                "flat-row term substitution must match for {ft:?}",
+            );
+        }
+    }
+
     // --- Property-based tests ---
 
     #[cfg(test)]
@@ -3050,6 +3555,7 @@ mod tests {
                     hyper_resolver: HashMap::new(),
                     field_transforms: HashMap::new(),
                     conditional_survival: HashMap::new(),
+                    op_term_assignments: HashMap::new(),
                     expansion_path: HashMap::new(),
                 };
 

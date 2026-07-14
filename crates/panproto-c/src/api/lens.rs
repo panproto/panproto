@@ -727,7 +727,7 @@ pub fn pp_lens_symmetric_sync(
 /// (`json` or `yaml`); `body_vertex` is the UTF-8 parent vertex id for
 /// field-level steps. On success, `out_handle` receives a fresh
 /// [`Resource::ProtolensChain`](crate::handle::Resource) handle. Calls
-/// `panproto_lens_dsl::{eval, compile}`.
+/// `panproto_core::lens_dsl::{eval, compile}`.
 ///
 /// Nickel (`ncl`) is intentionally unsupported here, matching the WASM
 /// boundary: Nickel evaluation requires a filesystem for its contract
@@ -749,8 +749,8 @@ pub fn pp_lens_compile_document(
             .map_err(|e| FfiError::Operation(format!("invalid body_vertex UTF-8: {e}")))?;
 
         let doc = match format_str {
-            "json" => panproto_lens_dsl::eval::eval_json(source_str),
-            "yaml" | "yml" => panproto_lens_dsl::eval::eval_yaml(source_str),
+            "json" => panproto_core::lens_dsl::eval::eval_json(source_str),
+            "yaml" | "yml" => panproto_core::lens_dsl::eval::eval_yaml(source_str),
             other => {
                 return Err(FfiError::Operation(format!(
                     "unsupported lens DSL format '{other}'; expected 'json' or 'yaml'"
@@ -759,7 +759,67 @@ pub fn pp_lens_compile_document(
         }
         .map_err(|e| FfiError::Operation(format!("lens DSL eval: {e}")))?;
 
-        let compiled = panproto_lens_dsl::compile(&doc, body, &|_| None)
+        let compiled = panproto_core::lens_dsl::compile(&doc, body, &|_| None)
+            .map_err(|e| FfiError::Operation(format!("lens DSL compile: {e}")))?;
+
+        *out_handle = handle::alloc(Resource::ProtolensChain(Box::new(compiled.chain)));
+        Ok(PpStatus::Ok)
+    })
+}
+
+/// Compile a lens DSL document, resolving `compose` named references
+/// against a bundle of sibling documents.
+///
+/// `source`, `format`, and `body_vertex` match
+/// [`pp_lens_compile_document`]. `refs` is a CBOR-encoded
+/// `map<string, string>` from each referenced lens `id` to its document
+/// source (in the same `format`); a `compose` body's `ref` entries are
+/// resolved against this map. On success, `out_handle` receives a fresh
+/// [`Resource::ProtolensChain`](crate::handle::Resource) handle. Calls
+/// `panproto_core::lens_dsl::compile_with_refs`.
+///
+/// Nickel (`ncl`) is intentionally unsupported, matching
+/// [`pp_lens_compile_document`].
+#[must_use = "FFI status codes should not be discarded"]
+#[ffi_export]
+pub fn pp_lens_compile_document_with_refs(
+    source: c_slice::Ref<'_, u8>,
+    format: c_slice::Ref<'_, u8>,
+    body_vertex: c_slice::Ref<'_, u8>,
+    refs: c_slice::Ref<'_, u8>,
+    out_handle: &mut u32,
+) -> i32 {
+    guard(|| {
+        let format_str = std::str::from_utf8(format.as_slice())
+            .map_err(|e| FfiError::Operation(format!("invalid format UTF-8: {e}")))?;
+        let body = std::str::from_utf8(body_vertex.as_slice())
+            .map_err(|e| FfiError::Operation(format!("invalid body_vertex UTF-8: {e}")))?;
+
+        let parse = |text: &str| -> Result<panproto_core::lens_dsl::LensDocument, FfiError> {
+            match format_str {
+                "json" => panproto_core::lens_dsl::eval::eval_json(text),
+                "yaml" | "yml" => panproto_core::lens_dsl::eval::eval_yaml(text),
+                other => {
+                    return Err(FfiError::Operation(format!(
+                        "unsupported lens DSL format '{other}'; expected 'json' or 'yaml'"
+                    )));
+                }
+            }
+            .map_err(|e| FfiError::Operation(format!("lens DSL eval: {e}")))
+        };
+
+        let source_str = std::str::from_utf8(source.as_slice())
+            .map_err(|e| FfiError::Operation(format!("invalid source UTF-8: {e}")))?;
+        let doc = parse(source_str)?;
+
+        let ref_sources: std::collections::HashMap<String, String> =
+            canonical::decode(refs.as_slice())?;
+        let mut docs_by_id = std::collections::HashMap::new();
+        for (id, ref_source) in &ref_sources {
+            docs_by_id.insert(id.clone(), parse(ref_source)?);
+        }
+
+        let compiled = panproto_core::lens_dsl::compile_with_refs(&doc, body, &docs_by_id)
             .map_err(|e| FfiError::Operation(format!("lens DSL compile: {e}")))?;
 
         *out_handle = handle::alloc(Resource::ProtolensChain(Box::new(compiled.chain)));

@@ -24,7 +24,8 @@ Why the system is shaped the way it is. What schemas, migrations, lenses, and me
 
 | You are... | Start at |
 |---|---|
-| New to panproto | [Your first schema](./tutorials/your-first-schema.md) |
+| New to panproto | [Your first diff](./tutorials/your-first-diff.md) |
+| Looking up a term of art | [The vocabulary in plain terms](./explanation/decoder-ring.md) |
 | Adding panproto to an existing project | [Install](./how-to/install/index.md) |
 | Looking up a CLI flag | [CLI reference](./reference/cli.md) |
 | Wondering what schemas-as-theories means | [Schemas as theories](./explanation/schemas-as-theories.md) |

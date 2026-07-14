@@ -253,7 +253,7 @@ fn incremental_import_sets_no_local_refs() {
 
     let mut store = MemStore::new();
     let result = import_git_repo(&repo, &mut store, "HEAD").unwrap();
-    assert!(result.head_id != panproto_vcs::ObjectId::ZERO);
+    assert_ne!(result.head_id, panproto_vcs::ObjectId::ZERO);
 
     // No refs should exist under refs/ after an import (regression test
     // for the removed hardcoded "refs/heads/main" write).

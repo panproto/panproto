@@ -379,9 +379,13 @@ fn apply_pullback(theory: &Theory, morphism: &TheoryMorphism) -> Theory {
             result = apply_rename_sort(&result, old, new);
         }
     }
-    for (old, new) in &morphism.op_map {
-        if old != new {
-            result = apply_rename_op(&result, old, new);
+    for (old, assignment) in &morphism.op_map {
+        // A pullback along a morphism renames operations; a derived-term
+        // assignment is not a rename and does not apply here.
+        if let Some(new) = assignment.as_op() {
+            if old != new {
+                result = apply_rename_op(&result, old, new);
+            }
         }
     }
     result

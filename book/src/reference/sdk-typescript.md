@@ -38,7 +38,7 @@ The SDK exposes (selected; see [`bindings/typescript/src/index.ts`](https://gith
 | `MigrationBuilder` | Builder. `.map(srcVertex, tgtVertex)`, `.mapEdge(srcEdge, tgtEdge)`, `.resolve(...)`, `.compile()` returns `CompiledMigration`. |
 | `CompiledMigration` | A migration that *is* a lens. `.lift(record)` returns `LiftResult { data, _rawBytes? }`; `.get(record)` returns `GetResult { view, complement }`; `.put(view, complement)` returns `LiftResult`. |
 | `LensHandle` | A free-standing protolens chain. `.get(bytes)`, `.put(view, complement)`, `.checkLaws(instance)` returns `LawCheckResult { holds, violation }`; `.checkGetPut`, `.checkPutGet` for individual laws; `.toJson()`. |
-| `FullDiffReport` / `CompatReport` | Returned by `Panproto.diffFull(old, new)`. Call `.classify(protocol)` on the diff to get a `CompatReport` with `classification` of `fully-compatible` / `backward-compatible` / `breaking`. |
+| `FullDiffReport` / `CompatReport` | Returned by `Panproto.diffFull(old, new)`. Call `.classify(protocol)` on the diff to get a `CompatReport` with a `classification` field (the kebab-case string `"fully-compatible"`, `"backward-compatible"`, or `"breaking"`) alongside a `breaking` list, a `non_breaking` list, and a `compatible` boolean. |
 | `executeQuery(query, instance, wasm)` | Standalone query function. The `query` is `InstanceQuery { anchor, predicate?, projection?, path?, groupBy?, limit? }`; the `predicate` is an `Expr` object, not a source string. |
 | `parseExpr`, `evalExpr`, `formatExpr`, `ExprBuilder` | Expression-language entry points. |
 | `IoRegistry` | Multi-protocol parse/emit registry. |

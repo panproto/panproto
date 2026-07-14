@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 /// time; the compiler checks again at compile time.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LensDocument {
-    /// Unique lens identifier (reverse-DNS, e.g. `dev.cospan.repo.db-projection`).
+    /// Unique lens identifier (reverse-DNS, e.g. `dev.example.repo.db-projection`).
     pub id: String,
 
     /// Human-readable description.
@@ -44,6 +44,29 @@ pub struct LensDocument {
     /// Auto-generation configuration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto: Option<AutoSpec>,
+
+    /// Generate the chain from the structural diff of the source and
+    /// target schemas (via `diff_to_protolens`). Like `auto`, this body
+    /// variant requires schema context and is only compilable through
+    /// [`compile_with_schemas`](crate::compile::compile_with_schemas).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_diff: Option<FromDiffSpec>,
+
+    /// Symmetric-lens body: two step pipelines (`left` and `right`)
+    /// meeting at a shared middle. Compiles to a pair of protolens
+    /// chains that
+    /// [`SymmetricLens::from_protolens_chains`](panproto_lens::SymmetricLens::from_protolens_chains)
+    /// can assemble at a concrete overlap schema.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub symmetric: Option<SymmetricSpec>,
+
+    // -- Modifiers (accompany a body) --
+    /// Directed equations appended to the compiled chain. Each becomes a
+    /// `directed_eq` protolens step (an oriented rewrite `lhs → rhs` with
+    /// a computable implementation), mapping onto the lens crate's
+    /// directed-equation machinery. Typically paired with a `steps` body.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub directed_equations: Option<Vec<DirectedEquationSpec>>,
 
     // -- Rule-specific metadata --
     /// Behavior for features not matched by any rule.
@@ -323,11 +346,19 @@ pub struct PullbackSpec {
 pub struct CoerceSortSpec {
     /// Sort to coerce.
     pub sort: String,
+    /// Source vertex kind of the coerced values. Determines which sample
+    /// inputs the construction-time honesty check draws when verifying the
+    /// declared coercion class. Absent means the check draws samples of
+    /// every kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_kind: Option<String>,
     /// Target vertex kind.
     pub target_kind: String,
-    /// Forward coercion expression.
+    /// Forward coercion expression. The coerced value is bound as the free
+    /// variable `v`.
     pub expr: String,
-    /// Optional inverse expression.
+    /// Optional inverse expression. The forward result is bound as the free
+    /// variable `v`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inverse: Option<String>,
     /// Round-trip classification.
@@ -548,6 +579,90 @@ pub struct AutoSpec {
     /// and scoring preferences.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hints: Option<HintSpec>,
+}
+
+// ---------------------------------------------------------------------------
+// From-diff
+// ---------------------------------------------------------------------------
+
+/// Configuration for the `from_diff` body variant.
+///
+/// The chain is derived from the structural difference between the
+/// source and target schemas supplied to
+/// [`compile_with_schemas`](crate::compile::compile_with_schemas): the
+/// added/removed vertices and edges, and vertex kind changes, are
+/// converted to elementary protolenses via
+/// [`diff_to_protolens`](panproto_lens::diff_to_protolens()).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct FromDiffSpec {
+    /// When `true`, edge kind changes are emitted as renames rather than
+    /// drop-then-add. Reserved for future use; the current structural
+    /// differ always emits drops and adds.
+    #[serde(default)]
+    pub rename_edges: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Symmetric
+// ---------------------------------------------------------------------------
+
+/// Configuration for the `symmetric` body variant.
+///
+/// A symmetric lens is a span `A ←l− M −r→ B`: two directions sharing a
+/// middle. The DSL surface holds the two step pipelines; each compiles
+/// to a [`ProtolensChain`](panproto_lens::ProtolensChain), and the pair
+/// is stored on [`CompiledLens::symmetric`](crate::compile::CompiledLens).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SymmetricSpec {
+    /// Steps for the left leg (middle → left view).
+    pub left: Vec<Step>,
+    /// Steps for the right leg (middle → right view).
+    pub right: Vec<Step>,
+    /// Optional focus vertex for both legs. When empty, the compiler's
+    /// `body_vertex` argument is used for both legs.
+    #[serde(default)]
+    pub focus: String,
+}
+
+// ---------------------------------------------------------------------------
+// Directed equations
+// ---------------------------------------------------------------------------
+
+/// A directed (oriented) equation: an executable rewrite `lhs → rhs`.
+///
+/// Maps to [`panproto_gat::DirectedEquation`] and, through
+/// [`elementary::directed_eq`](panproto_lens::elementary::directed_eq),
+/// to a protolens step. Unlike a plain [`EquationSpec`], a directed
+/// equation carries a computable forward implementation and, optionally,
+/// an inverse for the backward (`put`) direction.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirectedEquationSpec {
+    /// Human-readable name.
+    pub name: String,
+    /// Left-hand side term (pattern), in the term grammar.
+    pub lhs: String,
+    /// Right-hand side term (rewrite target), in the term grammar.
+    pub rhs: String,
+    /// The computable forward implementation, as a panproto expression.
+    #[serde(rename = "impl", alias = "impl_term")]
+    pub impl_term: String,
+    /// Optional inverse expression for the backward direction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inverse: Option<String>,
+    /// Optional source value kind (for value-level coercions).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_kind: Option<String>,
+    /// Optional target value kind (for value-level coercions).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_kind: Option<String>,
+    /// Round-trip classification. Defaults to [`CoercionKind::Iso`].
+    #[serde(default = "default_iso_coercion")]
+    pub coercion: CoercionKind,
+}
+
+/// Default coercion class for a directed equation: [`CoercionKind::Iso`].
+const fn default_iso_coercion() -> CoercionKind {
+    CoercionKind::Iso
 }
 
 // ---------------------------------------------------------------------------

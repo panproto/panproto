@@ -10,6 +10,7 @@
 //! removed and added vertices, then performs greedy bipartite matching
 //! to find the most likely rename pairs above a configurable threshold.
 
+use panproto_check::diff::{self, SchemaDiff};
 use panproto_gat::{Name, NameSite, SiteRename};
 use panproto_schema::Schema;
 
@@ -20,6 +21,30 @@ pub struct DetectedRename {
     pub rename: SiteRename,
     /// Confidence in \[0.0, 1.0\], based on structural similarity.
     pub confidence: f64,
+}
+
+/// Compute a structural diff between two schemas that is rename-aware.
+///
+/// Runs [`diff::diff`], detects likely vertex renames above `threshold`
+/// via [`detect_vertex_renames`], and feeds them back into the diff with
+/// [`diff::apply_renames`] so a rename is reported as a single
+/// [`SchemaDiff::renamed_vertices`] entry rather than an unrelated
+/// removal plus addition.
+///
+/// This is the wiring point that lets the classifier in `panproto-check`
+/// observe renames without depending on this crate (which would form a
+/// cycle): callers that want rename-aware compatibility classification
+/// diff through here and then classify the result.
+#[must_use]
+pub fn diff_with_detected_renames(old: &Schema, new: &Schema, threshold: f64) -> SchemaDiff {
+    let mut schema_diff = diff::diff(old, new);
+    let detected = detect_vertex_renames(old, new, threshold);
+    let pairs: Vec<(String, String)> = detected
+        .iter()
+        .map(|d| (d.rename.old.to_string(), d.rename.new.to_string()))
+        .collect();
+    diff::apply_renames(&mut schema_diff, &pairs);
+    schema_diff
 }
 
 /// Detect likely vertex renames between two schema versions.
@@ -329,5 +354,42 @@ mod tests {
         assert!(!renames.is_empty(), "should detect edge rename");
         assert_eq!(renames[0].rename.old.as_ref(), "label");
         assert_eq!(renames[0].rename.new.as_ref(), "labels");
+    }
+
+    #[test]
+    fn rename_aware_diff_records_rename_not_remove_add() {
+        // root.text -> root.body: same kind, structurally similar.
+        let old = build_schema(
+            &[("root", "object"), ("root.text", "string")],
+            &[("root", "root.text", "prop", "text")],
+        );
+        let new = build_schema(
+            &[("root", "object"), ("root.body", "string")],
+            &[("root", "root.body", "prop", "body")],
+        );
+
+        let d = diff_with_detected_renames(&old, &new, 0.3);
+        assert_eq!(
+            d.renamed_vertices,
+            vec![("root.text".to_string(), "root.body".to_string())]
+        );
+        assert!(
+            !d.removed_vertices.contains(&"root.text".to_string()),
+            "the renamed old vertex must not appear as a removal"
+        );
+        assert!(
+            !d.added_vertices.contains(&"root.body".to_string()),
+            "the renamed new vertex must not appear as an addition"
+        );
+
+        // Classifying the rename-aware diff yields a single rename.
+        let proto = test_protocol();
+        let report = panproto_check::classify(&d, &proto);
+        assert!(
+            report
+                .breaking
+                .iter()
+                .any(|b| matches!(b, panproto_check::BreakingChange::RenamedVertex { .. }))
+        );
     }
 }

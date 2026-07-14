@@ -322,6 +322,7 @@ pub fn compose_compiled(c1: &CompiledMigration, c2: &CompiledMigration) -> Compi
         hyper_resolver: c2.hyper_resolver.clone(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        op_term_assignments: HashMap::new(),
         expansion_path: HashMap::new(),
     }
 }

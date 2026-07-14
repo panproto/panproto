@@ -54,6 +54,7 @@ fn delta_f_is_functor_restrict() -> Result<(), Box<dyn std::error::Error>> {
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        op_term_assignments: HashMap::new(),
         expansion_path: HashMap::new(),
     };
 
@@ -96,7 +97,8 @@ fn theory_morphism_as_schema_functor() -> Result<(), Box<dyn std::error::Error>>
         ("Employee".into(), "Worker".into()),
         ("Department".into(), "Team".into()),
     ]);
-    let op_map = HashMap::from([("works_in".into(), "assigned_to".into())]);
+    let op_map: HashMap<std::sync::Arc<str>, std::sync::Arc<str>> =
+        HashMap::from([("works_in".into(), "assigned_to".into())]);
 
     let morphism = TheoryMorphism::new(
         "schema_mapping",
@@ -150,6 +152,7 @@ fn functor_restrict_with_fk_is_delta() -> Result<(), Box<dyn std::error::Error>>
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        op_term_assignments: HashMap::new(),
         expansion_path: HashMap::new(),
     };
 
@@ -189,7 +192,7 @@ fn sigma_as_theory_morphism_left_adjoint() -> Result<(), Box<dyn std::error::Err
         "Small",
         "Big",
         HashMap::from([("A".into(), "A".into())]),
-        HashMap::new(),
+        HashMap::<std::sync::Arc<str>, std::sync::Arc<str>>::new(),
     );
 
     check_morphism(&morphism, &source, &target)?;
@@ -212,6 +215,7 @@ fn sigma_as_theory_morphism_left_adjoint() -> Result<(), Box<dyn std::error::Err
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        op_term_assignments: HashMap::new(),
         expansion_path: HashMap::new(),
     };
 

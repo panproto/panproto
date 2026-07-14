@@ -88,6 +88,7 @@ fn put_preserves_view_edit_on_renamed_record_field() {
         hyper_resolver: HashMap::new(),
         field_transforms,
         conditional_survival: HashMap::new(),
+        op_term_assignments: HashMap::new(),
         expansion_path: HashMap::new(),
     };
 

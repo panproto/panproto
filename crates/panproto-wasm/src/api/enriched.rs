@@ -201,7 +201,7 @@ pub fn schema_add_coercion(
 ) -> Result<u32, JsError> {
     let schema = slab::with_resource(schema_handle, |r| Ok(slab::as_schema(r)?.clone()))?;
 
-    let coercion_expr: panproto_expr::Expr =
+    let coercion_expr: panproto_core::expr::Expr =
         rmp_serde::from_slice(expr_bytes).map_err(|e| WasmError::DeserializationFailed {
             reason: format!("coercion expression: {e}"),
         })?;
@@ -561,4 +561,20 @@ pub fn refinement_subsort(
         .all(|(s, v)| refined_set.contains(&(s.as_str(), v.as_str())));
 
     Ok(is_subsort)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::api::test_support;
+
+    #[test]
+    fn schema_add_default_on_existing_vertex() {
+        let schema_h = test_support::schema_handle(&test_support::target_schema());
+        let value = panproto_core::inst::value::Value::Int(1);
+        let value_bytes = rmp_serde::to_vec_named(&value).unwrap();
+        let new_h = schema_add_default(schema_h, "post", &value_bytes).unwrap();
+        assert_ne!(new_h, u32::MAX, "should allocate an updated schema handle");
+    }
 }

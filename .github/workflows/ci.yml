@@ -302,9 +302,10 @@ jobs:
       # invocation. They're thin FFI wrappers, not public-API-promise crates
       # for SDK consumers, so we exclude them from semver checking.
       #
-      # `panproto-c` is excluded until its first publish lands on
-      # crates.io: cargo-semver-checks needs a baseline version to
-      # diff against, and a never-published crate has none.
+      # `panproto-c` and `panproto-dsl-eval` are excluded until their
+      # first publish lands on crates.io: cargo-semver-checks needs a
+      # baseline version to diff against, and a never-published crate
+      # has none.
       - uses: obi1kenobi/cargo-semver-checks-action@v2
         with:
-          exclude: panproto-jit,panproto-llvm,panproto-c
+          exclude: panproto-jit,panproto-llvm,panproto-c,panproto-dsl-eval

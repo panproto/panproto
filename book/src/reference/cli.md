@@ -27,6 +27,7 @@ Usage: schema [OPTIONS] <COMMAND>
 Commands:
   validate      Validate a schema against a protocol
   check         Check existence conditions for a migration between two schemas
+  compat        Classify backward-compatibility between two schema versions
   scaffold      Generate minimal test data from a protocol theory using free model construction
   normalize     Simplify a schema by merging equivalent elements
   typecheck     Type-check a migration between two schemas at the GAT level
@@ -103,6 +104,38 @@ Options:
       --mapping <MAPPING>  Path to the migration mapping JSON file
       --typecheck          Also type-check the migration morphism at the GAT level
   -h, --help               Print help
+```
+
+### `schema compat`
+
+```text
+Classify backward-compatibility between two schema versions.
+
+Runs a structural diff then classifies it against the named protocol, printing the changes grouped by tier. Exit codes: `0` when no breaking changes are found, `1` when at least one breaking change is found, and `2` on a usage or load error (unreadable file, unknown protocol, or bad `--format`).
+
+Usage: schema compat [OPTIONS] --protocol <PROTOCOL> <OLD> <NEW>
+
+Arguments:
+  <OLD>
+          Path to the old schema JSON file
+
+  <NEW>
+          Path to the new schema JSON file
+
+Options:
+      --protocol <PROTOCOL>
+          The protocol name (e.g., "atproto")
+
+  -v, --verbose
+          Enable verbose output
+
+      --format <FORMAT>
+          Output format: `text` (default) or `json`
+          
+          [default: text]
+
+  -h, --help
+          Print help (see a summary with '-h')
 ```
 
 ### `schema scaffold`
@@ -1269,6 +1302,7 @@ Usage: schema lens [OPTIONS] <COMMAND>
 
 Commands:
   generate  Generate a lens between two schemas
+  compile   Compile a lens DSL document (.ncl/.json/.yaml) to a protolens chain
   apply     Apply a saved lens chain to data
   compose   Compose two protolens chains or schemas
   verify    Verify lens laws on test data
@@ -1350,6 +1384,23 @@ Options:
 
   -h, --help
           Print help (see a summary with '-h')
+```
+
+#### `schema lens compile`
+
+```text
+Compile a lens DSL document (.ncl/.json/.yaml) to a protolens chain
+
+Usage: schema lens compile [OPTIONS] <DOC>
+
+Arguments:
+  <DOC>  Path to the lens DSL document (`.ncl`, `.json`, `.yaml`, or `.yml`)
+
+Options:
+      --body-vertex <BODY_VERTEX>  Parent vertex under which field-level steps attach [default: record:body]
+  -v, --verbose                    Enable verbose output
+      --out <OUT>                  Write the chain JSON to this file instead of stdout
+  -h, --help                       Print help
 ```
 
 #### `schema lens apply`

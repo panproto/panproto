@@ -127,6 +127,8 @@ pub fn invert(
         resolver: inv_resolver,
         hyper_resolver: inv_hyper_resolver,
         expr_resolvers: HashMap::new(),
+        domain: None,
+        codomain: None,
     })
 }
 
@@ -292,6 +294,8 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            domain: None,
+            codomain: None,
         };
 
         let result = invert(&mig, &src, &tgt);
@@ -328,6 +332,8 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            domain: None,
+            codomain: None,
         };
 
         let tgt2 = test_schema(&[("a", "object")], &[]);

@@ -97,7 +97,7 @@ mod tests {
         // single isolated vertex. Guards against panics on the thinnest
         // legal schema.
         let s = schema(&[("only", "string")]);
-        assert!(exact_anchors(&s, &s).len() == 1);
+        assert_eq!(exact_anchors(&s, &s).len(), 1);
     }
 
     #[test]

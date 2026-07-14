@@ -2,6 +2,42 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [0.57.0] - 2026-07-13
+
+### Added
+
+- **Theory morphisms map an operation to a derived term, not only to another operation** (`panproto-gat`, `panproto-inst`, `panproto-mig`): a `TheoryMorphism`'s operation map now carries an `OpAssignment` — either a single target operation or a whole term built from target operations and variables — so a source operation with no one-to-one counterpart (say, `midpoint(a, b)` sent to `scale(add(a, b), half)`) can still be mapped. `Delta` and `Sigma` migration evaluate the assignment by substituting the source arguments into the term rather than by a name lookup, and the migration compiler records the per-operation term assignments (`TermAssignment`, `TermScope`, `TermBranch`) it needs to replay that substitution over an instance.
+- **The chase runs at the term level, with variables, labeled nulls, and equality-generating dependencies** (`panproto-mig`, `panproto-inst`): the migration chase gains a real embedded-dependency engine. A tuple-generating dependency whose head has an existential invents a fresh *labeled null* (`Value::LabeledNull`) instead of a placeholder string, an equality-generating dependency unifies two labeled nulls (or fails on a constant clash), and the whole run is bounded by a `ChaseBudget`, so a non-terminating dependency set surfaces as budget exhaustion rather than hanging. `Dependency`, `Atom`, and `ChaseOutcome` expose the engine, and the dependencies a migration must satisfy are read off the target theory.
+- **Equalities carry a checkable proof** (`panproto-gat`): normalization records the chain of rewrite steps it took, and an `EqWitness` bundles that chain into a proof that two terms are equal in a theory. A verifier replays a witness step by step and rejects one whose steps don't hold, so an equality claim is auditable rather than trusted. Checking a theory morphism emits, for each source equation, a witness that the equation's image is derivable in the target.
+- **Instance homomorphisms are first-class, and the Sigma/Delta adjunction is explicit** (`panproto-inst`): homomorphisms between instances (weighted and finite) are values you can build, compose, and check. The migration adjunction exposes its structure directly — `w_unit`/`w_counit` and the finite `f_*` counterparts, and the `Sigma ⊣ Delta` hom-set bijection through `w_transpose_left`/`w_transpose_right`, with an `AdjunctionError` for the ways a transpose can fail. `sigma_functoriality` is strengthened from a sorts-and-ops check to a genuine instance isomorphism.
+- **Attributed C-sets keep entities and attributes apart** (`panproto-inst`): an instance now distinguishes its *entity* sorts from its *attribute* sorts — the columns holding primitive values (a string, a number) rather than references to other rows. Migration and homomorphism search respect the split: an attribute is matched by value while an entity is matched up to the homomorphism, so a value column is never mistaken for a foreign key.
+- **The version-control history is a double category** (`panproto-vcs`): commits compose along one axis and migrations along the other, and a square — a commit-then-migrate that must agree with the migrate-then-commit on the other two sides — is checked by `verify_square`. Rebase and cherry-pick are squares in this structure; their coherence is checked when they run and exercised by property tests.
+- **`panproto-dsl-eval`, a shared Nickel/YAML/JSON evaluation crate** (new crate): the Nickel, YAML, and JSON evaluation that the theory and lens DSLs both needed now lives in one crate that owns the `nickel-lang` dependency, exposing `eval_nickel`/`eval_yaml`/`eval_json` and a `DslEvalError` that carries source spans for Nickel failures.
+- **Value-preserving YAML, TOML, and CSV codecs are registered with the built-in protocols** (`panproto-protocols`, `panproto-io`): parsing and re-emitting an instance through these formats preserves the structure the protocol layer round-trips on, so a migration over a YAML, TOML, or CSV instance keeps its shape instead of losing it to a bare re-serialization.
+- **The QVR grammar tracks Quivers 0.15.0** (`grammars/qvr`, `panproto-parse`): the vendored Quivers tree-sitter grammar is refreshed to 0.15.0, which renames `let` to `define`, moves algebra selection into a `[level=algebra]` attribute, and adds positional distribution arguments; the QVR parse tests are updated to the new surface syntax. Closes #213.
+
+### Changed
+
+- **A theory registers only if its equations form a terminating, confluent rewrite system** (`panproto-gat`): registration orients each equation into a rewrite rule, checks that the system terminates (by a lexicographic path order) and is confluent, and rejects a theory whose equations do not converge, rather than letting it produce nondeterministic normal forms later.
+- **`normalize` reports when it exhausts its rewrite budget** (`panproto-gat`): instead of silently returning a possibly-unnormalized term, `normalize` surfaces budget exhaustion, so a caller can tell "this is the normal form" from "I stopped early".
+- **Morphism checking verifies equation preservation by derivability** (`panproto-gat`, `panproto-mig`): a theory morphism is accepted when each source equation's image is *derivable* in the target, not only when it appears verbatim, so a morphism into a theory that proves the same equations by different rules is correctly accepted.
+- **Pushouts verify the universal property at construction** (`panproto-vcs`): a schema merge builds the pushout and then checks that both sides include into it and that the result is the minimal such schema, so a merge that is not a genuine pushout fails loudly instead of producing a plausible-looking wrong schema. This runs for rebase and cherry-pick as well as a direct merge.
+- **One `Complement` type across the lens and instance layers** (`panproto-inst`, `panproto-lens`): the duplicated complement representations collapse into a single `Complement`, whose `contracted_into` map records where a dropped node's children were reattached, and lens and migration composition route through the same shared logic.
+- **Protolenses generate a natural transformation the GAT checker can verify** (`panproto-lens`): each step in the protolens vocabulary carries a symbolic proof of its lens laws, and a protolens as a whole is turned into a `NaturalTransformation` that the GAT layer's morphism checker validates.
+- **Grammar-pack manifests are generated from a single source file** (`xtask`, `grammar-packs.toml`): the ten `panproto-grammars-*` crate manifests are generated by `xtask gen-grammar-packs` from one `grammar-packs.toml`, so their shared boilerplate and the workspace-version pin stay in sync automatically.
+- **`git2` is declared once in `[workspace.dependencies]`** (workspace `Cargo.toml`): the crates that use `git2` inherit a single pinned version instead of each declaring their own.
+- **`panproto-core` re-exports the expression and DSL crates** (`panproto-core`): `panproto-expr`, `panproto-expr-parser`, `panproto-lens-dsl`, and `panproto-theory-dsl` are reachable through `panproto-core`, so a downstream consumer depends on one crate rather than five.
+
+### Fixed
+
+- **macOS links the whole workspace under plain `cargo build`** (`.cargo/config.toml`): the pyo3 extension-module cdylibs (`panproto-py` and the `panproto-grammars-*` companions) resolve CPython symbols when loaded into an interpreter, not at link time, which the macOS linker rejects. A `.cargo/config.toml` passes the `-undefined dynamic_lookup` flags maturin uses, scoped to the Apple targets, so a local `cargo build --workspace` links instead of failing on undefined `_Py_*` symbols.
+- **Nickel evaluation errors point at the source** (`panproto-theory-dsl`, `panproto-dsl-eval`): a Nickel error raised while evaluating a theory DSL source now carries the byte span it came from, so the message locates the offending expression instead of only naming the file.
+- **`gat-macros` book examples compile in CI** (`book-doctest-stub`, `xtask`): the derive-macro examples in the book are compiled as part of the doc gate, so an example that drifts from the macro's real API breaks the build instead of shipping wrong.
+
+### Security
+
+- **`anyhow` 1.0.102 → 1.0.103** (workspace): clears RUSTSEC-2026-0190, undefined behavior in `anyhow`'s `Error::downcast_mut` when called on an error that had context added via `Error::context`.
+
 ## [0.56.1] - 2026-06-18
 
 ### Fixed

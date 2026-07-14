@@ -3,10 +3,15 @@ use std::sync::Arc;
 
 use rustc_hash::FxHashMap;
 
-use crate::eq::{Term, alpha_equivalent, normalize};
+use crate::eq::{Term, alpha_equivalent, normalize_with_status};
 use crate::error::GatError;
-use crate::morphism::TheoryMorphism;
+use crate::morphism::{OpAssignment, TheoryMorphism};
 use crate::theory::Theory;
+
+/// Step budget for normalizing the two sides of a naturality square before
+/// comparison. A comparison that exhausts this budget is reported as
+/// [`GatError::RewriteBudgetExhausted`] rather than a spurious violation.
+const NAT_STEP_LIMIT: usize = 1000;
 
 /// A natural transformation between two theory morphisms F, G: T1 -> T2.
 ///
@@ -86,11 +91,13 @@ pub fn check_natural_transformation(
         let f_op = f
             .op_map
             .get(&op.name)
+            .and_then(OpAssignment::as_op)
             .cloned()
             .unwrap_or_else(|| Arc::clone(&op.name));
         let g_op = g
             .op_map
             .get(&op.name)
+            .and_then(OpAssignment::as_op)
             .cloned()
             .unwrap_or_else(|| Arc::clone(&op.name));
 
@@ -130,10 +137,18 @@ pub fn check_natural_transformation(
         // theory (directed equations plus undirected equations applied
         // bidirectionally) before comparison.
         let all_rules = full_rewrite_rules(codomain);
-        let lhs_norm = normalize(&lhs, &all_rules, 1000);
-        let rhs_norm = normalize(&rhs, &all_rules, 1000);
+        let (lhs_norm, lhs_exhausted) = normalize_with_status(&lhs, &all_rules, NAT_STEP_LIMIT);
+        let (rhs_norm, rhs_exhausted) = normalize_with_status(&rhs, &all_rules, NAT_STEP_LIMIT);
 
         if !alpha_equivalent(&lhs_norm, &rhs_norm) {
+            // A truncated normalization cannot decide the naturality square:
+            // report budget exhaustion rather than a spurious violation.
+            if lhs_exhausted || rhs_exhausted {
+                return Err(GatError::RewriteBudgetExhausted {
+                    context: format!("naturality square of `{}`", op.name),
+                    limit: NAT_STEP_LIMIT,
+                });
+            }
             return Err(GatError::NaturalityViolation {
                 op: op.name.to_string(),
                 lhs: format!("{lhs_norm:?}"),
@@ -153,7 +168,7 @@ pub fn check_natural_transformation(
 /// theory) but not complete (some equivalences require multi-step reasoning
 /// that innermost rewriting cannot reach). The naturality check normalizes
 /// both sides and compares, which catches the common cases.
-fn full_rewrite_rules(theory: &Theory) -> Vec<crate::eq::DirectedEquation> {
+pub fn full_rewrite_rules(theory: &Theory) -> Vec<crate::eq::DirectedEquation> {
     use crate::eq::DirectedEquation;
     use crate::sort::CoercionClass;
 
@@ -535,6 +550,50 @@ mod tests {
     }
 
     #[test]
+    fn naturality_budget_exhaustion_reported() {
+        // Domain has f: A -> B.
+        let theory = two_sort_theory();
+        // Codomain adds a looping bidirectional equation `bad = bad2`, which
+        // full_rewrite_rules turns into bad -> bad2 and bad2 -> bad; normalizing
+        // either constant cycles forever and exhausts the step budget.
+        let codomain = Theory::new(
+            "T",
+            vec![Sort::simple("A"), Sort::simple("B")],
+            vec![
+                Operation::unary("f", "x", "A", "B"),
+                Operation::nullary("bad", "B"),
+                Operation::nullary("bad2", "B"),
+            ],
+            vec![crate::eq::Equation::new(
+                "swap",
+                Term::constant("bad"),
+                Term::constant("bad2"),
+            )],
+        );
+        let morph = identity_morphism(&codomain, "id");
+
+        // Same shape as the violation test: alpha_A = x, alpha_B = bad. The
+        // naturality square for f compares a `bad`-rooted term (which loops)
+        // against f(x), so normalization is truncated and the check reports
+        // budget exhaustion rather than a spurious violation.
+        let mut components = HashMap::new();
+        components.insert(Arc::from("A"), Term::var("x"));
+        components.insert(Arc::from("B"), Term::constant("bad"));
+        let nt = NaturalTransformation {
+            name: Arc::from("loopy_nt"),
+            source: Arc::from("id"),
+            target: Arc::from("id"),
+            components,
+        };
+
+        let result = check_natural_transformation(&nt, &morph, &morph, &theory, &codomain);
+        assert!(
+            matches!(result, Err(GatError::RewriteBudgetExhausted { .. })),
+            "expected RewriteBudgetExhausted, got {result:?}"
+        );
+    }
+
+    #[test]
     fn missing_component_detected() {
         let theory = two_sort_theory();
         let morph = identity_morphism(&theory, "id");
@@ -566,14 +625,14 @@ mod tests {
             "T1",
             "T1",
             HashMap::from([(Arc::from("A"), Arc::from("A"))]),
-            HashMap::new(),
+            HashMap::<Arc<str>, Arc<str>>::new(),
         );
         let g = TheoryMorphism::new(
             "g",
             "T2",
             "T2",
             HashMap::from([(Arc::from("B"), Arc::from("B"))]),
-            HashMap::new(),
+            HashMap::<Arc<str>, Arc<str>>::new(),
         );
 
         let nt = NaturalTransformation {

@@ -46,13 +46,16 @@ pub mod refs;
 pub mod rename_detect;
 pub mod repo;
 pub mod reset;
+pub mod square;
 pub mod stash;
 pub mod status;
 pub mod store;
 pub mod tree;
 
 // Re-exports for convenience.
-pub use data_mig::{StaleData, detect_staleness, migrate_backward, migrate_forward};
+pub use data_mig::{
+    StaleData, detect_staleness, lift_commit_data, migrate_backward, migrate_forward,
+};
 pub use edit_mig::{decode_edit_log, encode_edit_log, incremental_migrate};
 pub use error::VcsError;
 pub use expr::{load_expr, store_expr};

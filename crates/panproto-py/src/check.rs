@@ -2,7 +2,7 @@
 
 use pyo3::prelude::*;
 
-use panproto_core::check::{self, CompatReport, SchemaDiff};
+use panproto_core::check::{self, Classification, CompatReport, SchemaDiff};
 
 use crate::convert;
 use crate::schema::{PyProtocol, PySchema};
@@ -62,6 +62,17 @@ impl PyCompatReport {
         self.inner.compatible
     }
 
+    /// The tri-state compatibility verdict: `"fully-compatible"`,
+    /// `"backward-compatible"`, or `"breaking"`.
+    #[getter]
+    const fn classification(&self) -> &'static str {
+        match self.inner.classification {
+            Classification::FullyCompatible => "fully-compatible",
+            Classification::BackwardCompatible => "backward-compatible",
+            Classification::Breaking => "breaking",
+        }
+    }
+
     /// Breaking changes as a list of dicts.
     #[getter]
     fn breaking_changes(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
@@ -90,7 +101,8 @@ impl PyCompatReport {
 
     fn __repr__(&self) -> String {
         format!(
-            "CompatReport(compatible={}, breaking={}, non_breaking={})",
+            "CompatReport(classification={}, compatible={}, breaking={}, non_breaking={})",
+            self.classification(),
             self.inner.compatible,
             self.inner.breaking.len(),
             self.inner.non_breaking.len()

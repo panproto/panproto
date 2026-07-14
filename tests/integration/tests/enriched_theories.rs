@@ -1265,6 +1265,8 @@ fn provenance_rename() -> Result<(), Box<dyn std::error::Error>> {
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         expr_resolvers: HashMap::new(),
+        domain: None,
+        codomain: None,
     };
 
     // Verify provenance: old_name maps to new_name.
@@ -1287,6 +1289,8 @@ fn provenance_rename() -> Result<(), Box<dyn std::error::Error>> {
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         expr_resolvers: HashMap::new(),
+        domain: None,
+        codomain: None,
     };
 
     let composed = panproto_mig::compose(&mig, &id_mig)?;

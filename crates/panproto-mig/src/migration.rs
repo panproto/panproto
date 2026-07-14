@@ -16,6 +16,13 @@ use serde::{Deserialize, Serialize};
 /// The vertex and edge maps define the core graph morphism. The resolver
 /// and hyper-resolver handle contraction ambiguities that arise when
 /// intermediate vertices are dropped.
+///
+/// The optional `domain` and `codomain` carry a schema identifier (a
+/// content hash or a protocol-qualified name) for the source and target
+/// schemas. When both are present on a composable pair, they let
+/// [`compose`](fn@crate::compose) reject a composition whose intermediate
+/// schemas do not agree. Both default to `None`, in which case
+/// composition is permissive.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Migration {
     /// Maps source vertex IDs to target vertex IDs.
@@ -39,6 +46,14 @@ pub struct Migration {
     /// Expression-based resolvers for enriched migrations.
     #[serde(default, with = "panproto_schema::serde_helpers::map_as_vec_default")]
     pub expr_resolvers: HashMap<(Name, Name), panproto_expr::Expr>,
+    /// Identifier of the source schema (content hash or protocol-qualified
+    /// name). `None` when the migration carries no schema identity.
+    #[serde(default)]
+    pub domain: Option<Name>,
+    /// Identifier of the target schema (content hash or protocol-qualified
+    /// name). `None` when the migration carries no schema identity.
+    #[serde(default)]
+    pub codomain: Option<Name>,
 }
 
 impl Migration {
@@ -58,7 +73,23 @@ impl Migration {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            domain: None,
+            codomain: None,
         }
+    }
+
+    /// Create an identity migration carrying source and target schema
+    /// identifiers.
+    ///
+    /// Like [`identity`](Self::identity), but records `id` as both the
+    /// `domain` and `codomain`, since an identity migration maps a schema
+    /// to itself.
+    #[must_use]
+    pub fn identity_for(vertices: &[Name], edges: &[Edge], id: Name) -> Self {
+        let mut mig = Self::identity(vertices, edges);
+        mig.domain = Some(id.clone());
+        mig.codomain = Some(id);
+        mig
     }
 
     /// Create an empty migration (no mappings).
@@ -72,6 +103,16 @@ impl Migration {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            domain: None,
+            codomain: None,
         }
+    }
+
+    /// Set the source and target schema identifiers, returning `self`.
+    #[must_use]
+    pub fn with_endpoints(mut self, domain: Option<Name>, codomain: Option<Name>) -> Self {
+        self.domain = domain;
+        self.codomain = codomain;
+        self
     }
 }

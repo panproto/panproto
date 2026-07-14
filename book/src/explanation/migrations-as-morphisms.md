@@ -18,24 +18,26 @@ Schemas live in a category whose objects are schema theories and whose morphisms
 - **Restrict** $\Delta_f : T\text{-Inst} \to S\text{-Inst}$: pulls a $T$-instance back to an $S$-instance along $f$. Used to check existence conditions: which $S$-records does $T$ require to be present?
 - **Lift** $\Sigma_f : S\text{-Inst} \to T\text{-Inst}$: pushes an $S$-instance forward to a $T$-instance along $f$. Used to actually migrate data.
 
-The pair forms an adjunction $\Sigma_f \dashv \Delta_f$ in the categories of instances: lift is left adjoint to restrict. (This follows the convention in @spivakwisnesky2015relational, where $\Sigma_f$ is the dependent sum over the fibres of $f$ and $\Delta_f$ is its right adjoint by base change.) The adjunction is the structure that lets panproto check, before any data moves, whether a migration is well-defined.
+In panproto, $\Sigma_f$ and $\Delta_f$ are implemented as operations, not as a verified adjunction: lift is `panproto-mig::lift` (built on `panproto-inst::wtype_extend`) and restrict is `panproto-inst::wtype_restrict`. The intended semantics is the adjunction $\Sigma_f \dashv \Delta_f$ on the categories of instances, following the convention in @spivakwisnesky2015relational, where $\Sigma_f$ is the dependent sum over the fibres of $f$ and $\Delta_f$ is its right adjoint by base change. That adjunction is scoped to migrations that are total on vertices, and its unit, counit, and hom-set bijection are not yet constructed or property-tested in code. What panproto actually checks before any data moves is `panproto-check`'s existence condition: whether every input a migration requires is present. This scoping can be restored to a tested-for-total-vertex-maps claim once the unit and counit are constructed and the hom bijection is property-tested.
 
 A migration may also include a value-level transform: not just *where* a field comes from, but *how* its value is computed. These are written in the [expression language](./semantics/expression-language.md) and applied during lift.
 
-## Three classes of migration
+## Compatibility tiers
 
-| Class | Diff classification | Example | Lift behaviour |
+The shipped classifier sorts a migration into three tiers, recorded as the `classification` field on `CompatReport`. The two non-breaking tiers split apart the case where nothing of consequence changed from the case where old data still lifts through a non-breaking change.
+
+| Tier | `classification` | Example | Lift behaviour |
 |---|---|---|---|
-| Fully compatible | Refinement | Add an optional field with a default. | Total; old records lift unchanged. |
-| Backward compatible | Inclusion | Add a required field whose value is computed from existing fields. | Total; old records lift via the value-level transform. |
-| Breaking | Neither | Remove a required field with no recovery. | Partial; some old records cannot be lifted. `panproto-check` flags this. |
+| Fully compatible | `fully-compatible` | No breaking and no non-breaking changes; the two schemas agree in shape. | Total; old records lift unchanged. |
+| Backward compatible | `backward-compatible` | Add an optional field with a default, or add a required field whose value is computed from existing fields. | Total; old records lift, either unchanged or via the value-level transform. |
+| Breaking | `breaking` | Remove a required field with no recovery. | Partial; some old records cannot be lifted. `panproto-check` flags this. |
 
-`panproto-check` runs the existence check on a migration without applying it, so CI can gate on the classification before merge. See [Breaking-change gate](../how-to/ci/breaking-change-gate.md).
+`panproto-check` runs the existence check on a migration without applying it, so CI can gate on the result before merge. See [Breaking-change gate](../how-to/ci/breaking-change-gate.md).
 
 ## What this gives you
 
 - You write the migration *map* (what goes where), not the migration *script* (how to execute it). The script is generated from the map and the schema theories.
-- You get a precise classification of whether the change is breaking, before any data is touched.
+- You get a precise classification of the change into one of three compatibility tiers, before any data is touched.
 - You get a *bidirectional* artifact: the lift forward is paired with a put backward, so the migration is also a [lens](./lenses-roundtrip.md). Round-trip laws apply.
 - Migrations compose. If $f : S \to T$ and $g : T \to U$, then $g \circ f : S \to U$ is a migration whose lift agrees with applying $f$'s lift then $g$'s. The migration history of a schema is a chain of these compositions.
 

@@ -114,6 +114,17 @@ pub enum Value {
     /// `Value`. Used for schema-unanchored arrays and for transforms
     /// that operate on ordered collections carried in `extra_fields`.
     List(Vec<Self>),
+    /// A labeled null: an existential placeholder carrying a distinct
+    /// identity.
+    ///
+    /// Labeled nulls are introduced by the term-level chase in
+    /// `panproto-mig` when a tuple-generating dependency fires: the
+    /// existentially-quantified positions of its head are filled with
+    /// fresh labeled nulls. Two labeled nulls with the same identity are
+    /// the same unknown value; equality-generating dependencies may merge
+    /// a labeled null with another value (a constant or another null).
+    /// Distinct from [`Self::Null`], which is a concrete (SQL-style) null.
+    LabeledNull(u64),
 }
 
 impl Value {
@@ -133,7 +144,23 @@ impl Value {
             Self::Opaque { .. } => "opaque",
             Self::Unknown(_) => "unknown",
             Self::List(_) => "list",
+            Self::LabeledNull(_) => "labeled-null",
         }
+    }
+
+    /// Returns the identity of this value if it is a labeled null.
+    #[must_use]
+    pub const fn as_labeled_null(&self) -> Option<u64> {
+        match self {
+            Self::LabeledNull(id) => Some(*id),
+            _ => None,
+        }
+    }
+
+    /// Returns `true` if this value is a labeled null.
+    #[must_use]
+    pub const fn is_labeled_null(&self) -> bool {
+        matches!(self, Self::LabeledNull(_))
     }
 }
 

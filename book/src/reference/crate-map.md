@@ -14,7 +14,7 @@ The `panproto-*` crates in the workspace, with one-line descriptions and depende
 | `panproto-lens` | Bidirectional lenses: get/put/complement, the three round-trip laws, fibration over schemas, optic kinds, protolenses, the cross-crate `enrichment_registry` for layout and other schema-level fibres. |
 | `panproto-lens-dsl` | Declarative lens DSL with Nickel, JSON, and YAML surfaces. |
 | `panproto-theory-dsl` | Declarative theory DSL for defining custom protocols. |
-| `panproto-check` | Breaking-change detection: classifies schema diffs as fully compatible, backward compatible, or breaking. |
+| `panproto-check` | Breaking-change detection: classifies a schema diff as fully compatible, backward compatible, or breaking via the `Classification` enum, alongside the `breaking`/`non_breaking` lists and `compatible` boolean on `CompatReport`. |
 | `panproto-protocols` | Built-in protocol definitions composed via theory colimits. |
 | `panproto-expr` | Pure, total expression language: terms, types, environment evaluation. |
 | `panproto-expr-parser` | Haskell-style surface syntax parser for `panproto-expr`. |
@@ -42,7 +42,7 @@ The `panproto-*` crates in the workspace, with one-line descriptions and depende
 
 | Crate | Description |
 |---|---|
-| `panproto-vcs` | Schematic version control: DAG, refs, commit/branch/merge, pushout-based merge with universal-property verification, data versioning. |
+| `panproto-vcs` | Schematic version control: DAG, refs, commit/branch/merge, pushout-based merge with a merge-time cocone check, data versioning. |
 | `panproto-git` | Bidirectional bridge between `panproto-vcs` and git. |
 | `panproto-git-remote` | Custom git remote helper for cloning panproto repositories over git. |
 | `panproto-xrpc` | XRPC client for cospan-node VCS operations. |
@@ -51,19 +51,13 @@ The `panproto-*` crates in the workspace, with one-line descriptions and depende
 
 | Crate | Description |
 |---|---|
-| `panproto-core` | Public re-export facade. The single dependency a downstream Rust user needs. |
+| `panproto-core` | Public re-export facade over the nine always-on library crates (`gat`, `schema`, `inst`, `mig`, `lens`, `check`, `protocols`, `io`, `vcs`); the expression and DSL crates (`panproto-expr`, `panproto-expr-parser`, `panproto-lens-dsl`, `panproto-theory-dsl`) are separate dependencies. |
 | `panproto-cli` | The `schema` binary. |
 | `panproto-wasm` | WebAssembly bindings; consumed by the TypeScript SDK. |
 | `panproto-py` | Native Python bindings via PyO3. |
 | `panproto-c` | C ABI for non-Rust language bindings; the Haskell binding consumes its 112-entry surface. |
-| `panproto-repl` | REPL engine for theories, terms, and morphisms. |
 
-## Acceleration
-
-| Crate | Description |
-|---|---|
-| `panproto-jit` | LLVM JIT compilation for accelerated migrations. |
-| `panproto-llvm` | LLVM IR protocol definition and lowering. |
+The interactive REPL for theories, terms, and morphisms is part of `panproto-cli`, reachable as `schema theory repl`; it is not a separate crate.
 
 ## Repository tasks
 

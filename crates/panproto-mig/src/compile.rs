@@ -31,6 +31,16 @@ pub fn compile(
     tgt: &Schema,
     migration: &Migration,
 ) -> Result<CompiledMigration, ExistenceError> {
+    // Step 0: The mapped fragment must be a structure-preserving theory
+    // morphism: every mapped edge must connect the images of its own
+    // endpoints. This rejects crossed edge maps before any per-record
+    // work is compiled.
+    crate::schema_theory::check_migration_morphism(src, tgt, migration).map_err(|e| {
+        ExistenceError::NotAMorphism {
+            detail: e.to_string(),
+        }
+    })?;
+
     // Step 1: Compute surviving vertices (target vertices in the image of vertex_map).
     let mut surviving_verts = HashSet::new();
     let mut vertex_remap = HashMap::new();
@@ -63,8 +73,11 @@ pub fn compile(
         }
     }
 
-    // Step 3: Generate field_transforms from schema coercions.
-    let mut field_transforms = HashMap::new();
+    // Step 3: Generate value transforms from schema coercions, carried as
+    // op-to-term assignments. A kind-changing vertex map computes the
+    // coerced value by substituting the source value into the coercion's
+    // forward term; `Delta` and `Sigma` apply this by substitution.
+    let mut op_term_assignments = HashMap::new();
     for (src_v, tgt_v) in &migration.vertex_map {
         if let (Some(src_vert), Some(tgt_vert)) = (src.vertex(src_v), tgt.vertex(tgt_v)) {
             if src_vert.kind != tgt_vert.kind {
@@ -72,12 +85,13 @@ pub fn compile(
                     .coercions
                     .get(&(src_vert.kind.clone(), tgt_vert.kind.clone()))
                 {
-                    field_transforms
+                    op_term_assignments
                         .entry(src_v.clone())
                         .or_insert_with(Vec::new)
-                        .push(panproto_inst::FieldTransform::ApplyExpr {
-                            key: "__value__".to_string(),
-                            expr: coercion_spec.forward.clone(),
+                        .push(panproto_inst::TermAssignment::Compute {
+                            target: "__value__".to_string(),
+                            scope: panproto_inst::TermScope::Field,
+                            term: coercion_spec.forward.clone(),
                             inverse: coercion_spec.inverse.clone(),
                             coercion_class: coercion_spec.class,
                         });
@@ -104,14 +118,15 @@ pub fn compile(
         edge_remap,
         resolver,
         hyper_resolver,
-        field_transforms,
+        field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        op_term_assignments,
         expansion_path: HashMap::new(),
     })
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
     use panproto_gat::Name;
@@ -233,6 +248,8 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            domain: None,
+            codomain: None,
         };
 
         let compiled = compile(&src, &tgt, &mig);
@@ -240,5 +257,105 @@ mod tests {
         let c = compiled.unwrap_or_else(|_| panic!("compile should succeed"));
         assert_eq!(c.surviving_verts.len(), 2);
         assert!(!c.surviving_verts.contains("c"));
+    }
+
+    #[test]
+    fn compile_emits_coercion_as_term_assignment() {
+        use panproto_gat::CoercionClass;
+        use panproto_schema::CoercionSpec;
+
+        // Source vertex `a` is an `int`; target `a` is a `string`. The
+        // target schema registers an int→string coercion, so `compile`
+        // must carry it as an op-to-term assignment rather than a direct
+        // field transform.
+        let edge = Edge {
+            src: "a".into(),
+            tgt: "b".into(),
+            kind: "prop".into(),
+            name: Some("x".into()),
+        };
+        let src = test_schema(
+            &[("a", "int"), ("b", "string")],
+            std::slice::from_ref(&edge),
+        );
+        let mut tgt = test_schema(
+            &[("a", "string"), ("b", "string")],
+            std::slice::from_ref(&edge),
+        );
+        tgt.coercions.insert(
+            (Name::from("int"), Name::from("string")),
+            CoercionSpec {
+                forward: panproto_expr::Expr::Builtin(
+                    panproto_expr::BuiltinOp::IntToStr,
+                    vec![panproto_expr::Expr::Var(std::sync::Arc::from("__value__"))],
+                ),
+                inverse: None,
+                class: CoercionClass::Retraction,
+            },
+        );
+
+        let mig = Migration::identity(&["a".into(), "b".into()], std::slice::from_ref(&edge));
+        let compiled = compile(&src, &tgt, &mig).expect("compile should succeed");
+
+        assert!(
+            compiled.field_transforms.is_empty(),
+            "compile routes value transforms through op-to-term assignments",
+        );
+        let assignments = compiled
+            .op_term_assignments
+            .get(&Name::from("a"))
+            .expect("coercion for vertex a is present");
+        assert!(
+            matches!(
+                assignments.as_slice(),
+                [panproto_inst::TermAssignment::Compute { target, .. }] if target == "__value__"
+            ),
+            "the coercion is carried as a Compute term assignment",
+        );
+    }
+
+    #[test]
+    fn compile_rejects_non_morphism_migration() {
+        // edge a->b is mapped to an edge c->b, whose source is not the
+        // image of a, so the mapped fragment is not a morphism.
+        let source_edge = Edge {
+            src: "a".into(),
+            tgt: "b".into(),
+            kind: "prop".into(),
+            name: Some("x".into()),
+        };
+        let crossed_edge = Edge {
+            src: "c".into(),
+            tgt: "b".into(),
+            kind: "prop".into(),
+            name: Some("x".into()),
+        };
+
+        let src = test_schema(
+            &[("a", "object"), ("b", "string")],
+            std::slice::from_ref(&source_edge),
+        );
+        let tgt = test_schema(
+            &[("a", "object"), ("b", "string"), ("c", "object")],
+            std::slice::from_ref(&crossed_edge),
+        );
+
+        let mig = Migration {
+            vertex_map: HashMap::from([("a".into(), "a".into()), ("b".into(), "b".into())]),
+            edge_map: HashMap::from([(source_edge, crossed_edge)]),
+            hyper_edge_map: HashMap::new(),
+            label_map: HashMap::new(),
+            resolver: HashMap::new(),
+            hyper_resolver: HashMap::new(),
+            expr_resolvers: HashMap::new(),
+            domain: None,
+            codomain: None,
+        };
+
+        let compiled = compile(&src, &tgt, &mig);
+        assert!(
+            matches!(compiled, Err(ExistenceError::NotAMorphism { .. })),
+            "expected NotAMorphism, got {compiled:?}"
+        );
     }
 }

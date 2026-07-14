@@ -305,6 +305,10 @@ pub fn cmd_merge(cmd_opts: &MergeCmdOptions<'_>, migrate_dir: Option<&Path>) -> 
         miette::bail!("merge failed with {} conflict(s)", result.conflicts.len());
     }
 
+    if let Some(ref err) = result.pullback_error {
+        println!("pullback overlap unavailable: {err}");
+    }
+
     if cmd_opts.verbose {
         if let Some(ref overlap) = result.pullback_overlap {
             println!("\nPullback overlap detection:");

@@ -3,10 +3,19 @@
 //! A [`DirectedEquation`] carries a
 //! [`CoercionClass`] that declares the
 //! round-trip fidelity of its forward (`impl_term`) and backward
-//! (`inverse`) expressions. Nothing in the construction path checks
-//! that the declaration is honest. The functions in this module run a
-//! declared class's round-trip laws against a user-supplied set of
-//! sample inputs and report any violations.
+//! (`inverse`) expressions. The functions in this module run a
+//! declared class's round-trip laws against a supplied set of sample
+//! inputs and report any violations.
+//!
+//! The checked elementary constructors
+//! [`sort_coerce_checked`](crate::protolens::elementary::sort_coerce_checked)
+//! and
+//! [`directed_eq_checked`](crate::protolens::elementary::directed_eq_checked)
+//! call [`check_coercion_honesty`] at construction time, so a dishonest
+//! declaration is rejected where it is built rather than silently
+//! accepted (the older infallible constructors remain as the
+//! `*_unchecked`-style escape hatch). The check is *evidence, not
+//! proof*: it exercises the declared laws on the supplied samples only.
 //!
 //! # Laws by class
 //!
@@ -40,6 +49,7 @@
 //! forward-injectivity side is a property of the underlying function
 //! and is not sample-testable here.
 
+use std::fmt;
 use std::sync::Arc;
 
 use panproto_expr::{Env, EvalConfig, Expr, Literal, eval};
@@ -494,6 +504,77 @@ pub fn check_directed_equation_with_registry(
         return Vec::new();
     }
     check_directed_equation_coercion_law(deq, samples, var_name)
+}
+
+/// A construction-time rejection: a declared [`CoercionClass`] failed
+/// its sample-based round-trip laws.
+///
+/// Returned by [`check_coercion_honesty`] and by the checked elementary
+/// constructors. The [`Display`](fmt::Display) rendering carries the
+/// *evidence, not proof* caveat: the samples that were tried do not
+/// round-trip under the declared class, so the declaration cannot be
+/// honest — but passing would not have proved honesty in general.
+#[derive(Debug, Clone)]
+pub struct CoercionHonestyError {
+    /// The declared class that failed verification.
+    pub class: CoercionClass,
+    /// The per-sample violations that were found (non-empty).
+    pub violations: Vec<CoercionLawViolation>,
+}
+
+impl fmt::Display for CoercionHonestyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "declared coercion class {:?} is not honest: {} sample(s) failed its \
+             round-trip laws. This is evidence, not proof — the samples that were \
+             tried do not round-trip, so the declaration cannot hold in general. \
+             Violations: {:?}",
+            self.class,
+            self.violations.len(),
+            self.violations,
+        )
+    }
+}
+
+impl std::error::Error for CoercionHonestyError {}
+
+/// Sample-check a forward / inverse pair declared as `class` at
+/// construction time, drawing samples for `source_kind` from `registry`.
+///
+/// When `registry` has no samples for `source_kind`, the `Any` bucket is
+/// used as a fallback. When neither has samples, the check passes
+/// vacuously (there is nothing to test).
+///
+/// This is the honesty gate wired into the checked elementary
+/// constructors. It is *evidence, not proof*: an empty violation list
+/// means every supplied sample satisfied the declared laws, not that the
+/// declaration holds for all inputs.
+///
+/// # Errors
+///
+/// Returns [`CoercionHonestyError`] carrying every sample-level violation
+/// when the declared class cannot be verified on the drawn samples.
+pub fn check_coercion_honesty(
+    forward: &Expr,
+    inverse: Option<&Expr>,
+    class: CoercionClass,
+    source_kind: ValueKind,
+    var_name: &str,
+    registry: &CoercionSampleRegistry,
+) -> Result<(), CoercionHonestyError> {
+    let primary = registry.samples_for(source_kind);
+    let samples: &[Literal] = if primary.is_empty() {
+        registry.samples_for(ValueKind::Any)
+    } else {
+        primary
+    };
+    let violations = check_coercion_laws(forward, inverse, class, samples, var_name);
+    if violations.is_empty() {
+        Ok(())
+    } else {
+        Err(CoercionHonestyError { class, violations })
+    }
 }
 
 /// Report produced by [`check_theory`].

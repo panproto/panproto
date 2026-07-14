@@ -58,7 +58,13 @@ pub struct FreeModelResult {
 ///
 /// # Errors
 ///
-/// Returns [`GatError::ModelError`] if the term count exceeds bounds.
+/// Returns [`GatError::ModelError`] if the term count exceeds bounds,
+/// [`GatError::CyclicSortDependency`] if the theory's sorts have a cyclic
+/// dependency, or [`GatError::VarSortInferenceFailed`] if the variable
+/// sorts of an axiom with free variables cannot be inferred. In the last
+/// case the equation cannot participate in congruence closure, so it is
+/// surfaced as an error rather than silently dropped (which would
+/// under-quotient the model).
 pub fn free_model(theory: &Theory, config: &FreeModelConfig) -> Result<FreeModelResult, GatError> {
     let (terms_by_fiber, is_complete) = generate_terms(theory, config)?;
     // Collapse fiber-indexed terms to head-indexed terms for the
@@ -70,8 +76,8 @@ pub fn free_model(theory: &Theory, config: &FreeModelConfig) -> Result<FreeModel
         terms_by_sort.entry(Arc::clone(&sort.name)).or_default();
     }
     let (term_to_global, total_terms) = assign_global_indices(&terms_by_sort);
-    let mut uf = quotient_by_equations(theory, &terms_by_sort, &term_to_global, total_terms);
-    let model = build_model(theory, &terms_by_sort, &term_to_global, &mut uf);
+    let mut uf = quotient_by_equations(theory, &terms_by_sort, &term_to_global, total_terms)?;
+    let model = build_model(theory, &terms_by_sort, &term_to_global, &mut uf)?;
     Ok(FreeModelResult { model, is_complete })
 }
 
@@ -326,23 +332,34 @@ fn quotient_by_equations(
     terms_by_sort: &FxHashMap<Arc<str>, Vec<Term>>,
     term_to_global: &FxHashMap<Arc<str>, Vec<usize>>,
     total_terms: usize,
-) -> UnionFind {
+) -> Result<UnionFind, GatError> {
     let mut uf = UnionFind::new(total_terms);
 
-    // Precompute variable sorts for each equation.
-    let eq_info: Vec<_> = theory
-        .eqs
-        .iter()
-        .map(|eq| {
-            let vars: Vec<Arc<str>> = {
-                let mut all = eq.lhs.free_vars();
-                all.extend(eq.rhs.free_vars());
-                all.into_iter().collect()
-            };
-            let var_sorts = crate::typecheck::infer_var_sorts(eq, theory).ok();
-            (eq, vars, var_sorts)
-        })
-        .collect();
+    // Precompute variable sorts for each equation. An equation with free
+    // variables cannot participate in congruence closure without them, so
+    // an inference failure is propagated as an error (naming the equation)
+    // rather than silently dropping the equation and under-quotienting the
+    // model. Constants-only equations need no variable sorts and skip the
+    // inference call entirely.
+    let mut eq_info = Vec::with_capacity(theory.eqs.len());
+    for eq in &theory.eqs {
+        let vars: Vec<Arc<str>> = {
+            let mut all = eq.lhs.free_vars();
+            all.extend(eq.rhs.free_vars());
+            all.into_iter().collect()
+        };
+        let var_sorts = if vars.is_empty() {
+            None
+        } else {
+            Some(crate::typecheck::infer_var_sorts(eq, theory).map_err(|e| {
+                GatError::VarSortInferenceFailed {
+                    equation: eq.name.to_string(),
+                    detail: e.to_string(),
+                }
+            })?)
+        };
+        eq_info.push((eq, vars, var_sorts));
+    }
 
     // Build a congruence index: for each compound term f(a1, ..., an),
     // record (op_name, [global_idx_of_a1, ..., global_idx_of_an]) -> global_idx.
@@ -360,6 +377,10 @@ fn quotient_by_equations(
                 continue;
             }
 
+            // Non-empty vars always carry inferred sorts here: the
+            // precompute loop propagated any inference failure as an
+            // error, so `var_sorts` is `Some` for every equation with
+            // free variables.
             let Some(vs) = var_sorts else {
                 continue;
             };
@@ -376,7 +397,7 @@ fn quotient_by_equations(
         }
     }
 
-    uf
+    Ok(uf)
 }
 
 /// Entry in the congruence index: a compound term with its operation name,
@@ -524,17 +545,17 @@ fn build_model(
     terms_by_sort: &FxHashMap<Arc<str>, Vec<Term>>,
     term_to_global: &FxHashMap<Arc<str>, Vec<usize>>,
     uf: &mut UnionFind,
-) -> Model {
+) -> Result<Model, GatError> {
     let mut model = Model::new(&*theory.name);
 
-    // String-keyed representative lookup. Safe because the free-model
+    // String-keyed representative lookup. Correct because the free-model
     // generator emits only `Term::App` nodes via `extend_op_tuples`;
     // `term_to_string` is injective on App-only terms with App-only
-    // arguments, so stringification does not collide across terms.
-    // The debug assertion guards the invariant: every term seen here
-    // must be App-only (holes, case terms, and let bindings are
-    // produced by user input to the typechecker, never by the free
-    // model enumerator).
+    // arguments, so stringification does not collide across terms. Holes,
+    // case terms, and let bindings arise only from user input to the
+    // typechecker, so their appearance here would break that injectivity;
+    // the runtime guard below rejects any such term rather than emitting a
+    // colliding representative string.
     let mut class_rep_string: FxHashMap<usize, String> = FxHashMap::default();
     let mut string_to_rep: FxHashMap<String, String> = FxHashMap::default();
     for (sort, terms) in terms_by_sort {
@@ -542,10 +563,11 @@ fn build_model(
         let mut seen_classes: FxHashSet<usize> = FxHashSet::default();
 
         for (i, term) in terms.iter().enumerate() {
-            debug_assert!(
-                is_app_only(term),
-                "free-model generator emitted a non-App term: {term:?}",
-            );
+            if !is_app_only(term) {
+                return Err(GatError::ModelError(format!(
+                    "free-model carrier construction encountered a non-App term for sort '{sort}': {term:?}"
+                )));
+            }
             let rep = uf.find(indices[i]);
             if seen_classes.insert(rep) {
                 // First term in this class becomes the representative string.
@@ -612,7 +634,7 @@ fn build_model(
         });
     }
 
-    model
+    Ok(model)
 }
 
 /// Merge terms identified by a constants-only equation.
@@ -801,6 +823,34 @@ mod tests {
         let model = free_model(&theory, &FreeModelConfig::default())?.model;
         assert_eq!(model.sort_interp["S"].len(), 1);
         Ok(())
+    }
+
+    #[test]
+    fn free_model_var_sort_inference_failure_is_error() {
+        // `x` is constrained to sort `A` by `f`'s input and to sort `B`
+        // by `g`'s input, so its variable sort cannot be inferred. Rather
+        // than silently dropping this axiom from congruence closure (which
+        // would under-quotient the returned model with no signal),
+        // free_model must surface an error that names the equation.
+        let theory = Theory::new(
+            "ConflictingSorts",
+            vec![Sort::simple("A"), Sort::simple("B")],
+            vec![
+                Operation::unary("f", "x", "A", "A"),
+                Operation::unary("g", "x", "B", "B"),
+            ],
+            vec![Equation::new(
+                "conflicting_var",
+                Term::app("f", vec![Term::var("x")]),
+                Term::app("g", vec![Term::var("x")]),
+            )],
+        );
+        match free_model(&theory, &FreeModelConfig::default()) {
+            Err(GatError::VarSortInferenceFailed { equation, .. }) => {
+                assert_eq!(&*equation, "conflicting_var");
+            }
+            other => panic!("expected VarSortInferenceFailed naming the equation, got {other:?}"),
+        }
     }
 
     #[test]
@@ -1257,5 +1307,83 @@ mod tests {
             matches!(result, Err(GatError::CyclicSortDependency(_))),
             "cyclic sort dependencies should be rejected"
         );
+    }
+
+    #[test]
+    fn is_app_only_rejects_non_app_terms() {
+        use crate::eq::CaseBranch;
+
+        // A plain variable and application are App-only.
+        assert!(is_app_only(&Term::var("x")));
+        assert!(is_app_only(&Term::app("f", vec![Term::var("x")])));
+
+        // A case term is not App-only, so the carrier-construction guard
+        // must reject it.
+        let case = Term::Case {
+            scrutinee: Box::new(Term::var("x")),
+            branches: vec![CaseBranch {
+                constructor: Arc::from("c"),
+                binders: Vec::new(),
+                body: Term::var("x"),
+            }],
+        };
+        assert!(!is_app_only(&case));
+
+        // A hole and a let binding are likewise rejected.
+        assert!(!is_app_only(&Term::Hole { name: None }));
+        assert!(!is_app_only(&Term::Let {
+            name: Arc::from("y"),
+            bound: Box::new(Term::var("x")),
+            body: Box::new(Term::var("y")),
+        }));
+
+        // An application whose argument is a non-App term is also rejected.
+        let nested = Term::app("f", vec![Term::Hole { name: None }]);
+        assert!(!is_app_only(&nested));
+    }
+
+    #[test]
+    fn free_model_incomplete_when_truncated() -> Result<(), Box<dyn std::error::Error>> {
+        // An unbounded successor chain keeps producing new terms at every
+        // depth, so a small depth bound leaves the model provably
+        // incomplete.
+        let theory = Theory::new(
+            "Chain",
+            vec![Sort::simple("S")],
+            vec![
+                Operation::nullary("zero", "S"),
+                Operation::unary("succ", "x", "S", "S"),
+            ],
+            Vec::new(),
+        );
+        let config = FreeModelConfig {
+            max_depth: 2,
+            max_terms_per_sort: 1000,
+        };
+        let result = free_model(&theory, &config)?;
+        assert!(
+            !result.is_complete,
+            "a depth-2 truncation of an infinite chain must report is_complete = false"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn free_model_complete_when_saturated() -> Result<(), Box<dyn std::error::Error>> {
+        // A theory whose only operation is a nullary constant saturates at
+        // depth 0: no deeper level adds a term, so the model is provably
+        // the initial one.
+        let theory = Theory::new(
+            "PointedSet",
+            vec![Sort::simple("Carrier")],
+            vec![Operation::nullary("unit", "Carrier")],
+            Vec::new(),
+        );
+        let result = free_model(&theory, &FreeModelConfig::default())?;
+        assert!(
+            result.is_complete,
+            "a saturated free model must report is_complete = true"
+        );
+        Ok(())
     }
 }

@@ -306,3 +306,110 @@ fn json_value_kind(value: &serde_json::Value) -> String {
         _ => "string".to_owned(),
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::*;
+    use crate::document::{FeaturePattern, Replacement};
+
+    const BODY: &str = "record:body";
+
+    fn named_pattern(name: &str) -> FeaturePattern {
+        FeaturePattern {
+            name: Some(name.to_owned()),
+            type_id: None,
+        }
+    }
+
+    #[test]
+    fn rename_rule_expands_to_rename_sort() {
+        let rules = vec![Rule {
+            match_: named_pattern("heading"),
+            replace: Some(Replacement {
+                name: Some(ReplacementName::Literal("header".to_owned())),
+                rename_attrs: None,
+                add_attrs: None,
+                drop_attrs: None,
+                keep_attrs: None,
+                map_attr_value: None,
+            }),
+        }];
+        let compiled = compile_rules(&rules, None, BODY).unwrap();
+        assert!(
+            !compiled.chain.steps.is_empty(),
+            "a rename rule should emit at least one chain step"
+        );
+    }
+
+    #[test]
+    fn drop_rule_requires_a_match_name() {
+        // `replace: None` on a pattern with no name cannot resolve to a
+        // sort to drop.
+        let rules = vec![Rule {
+            match_: FeaturePattern {
+                name: None,
+                type_id: Some("app.some.type".to_owned()),
+            },
+            replace: None,
+        }];
+        let err = compile_rules(&rules, None, BODY).unwrap_err();
+        assert!(matches!(err, LensDslError::RuleCompile { .. }));
+    }
+
+    #[test]
+    fn drop_rule_with_name_compiles() {
+        let rules = vec![Rule {
+            match_: named_pattern("obsolete"),
+            replace: None,
+        }];
+        let compiled = compile_rules(&rules, None, BODY).unwrap();
+        assert!(!compiled.chain.steps.is_empty());
+    }
+
+    #[test]
+    fn passthrough_drop_emits_keep_fields() {
+        let rules = vec![Rule {
+            match_: named_pattern("kept"),
+            replace: Some(Replacement {
+                name: Some(ReplacementName::Literal("kept".to_owned())),
+                rename_attrs: None,
+                add_attrs: None,
+                drop_attrs: None,
+                keep_attrs: None,
+                map_attr_value: None,
+            }),
+        }];
+        let compiled = compile_rules(&rules, Some(Passthrough::Drop), BODY).unwrap();
+        let key = panproto_gat::Name::from(BODY);
+        let transforms = compiled.field_transforms.get(&key).unwrap();
+        assert!(
+            transforms
+                .iter()
+                .any(|t| matches!(t, panproto_inst::FieldTransform::KeepFields { keys } if keys.iter().any(|k| k == "kept"))),
+            "passthrough=drop should emit a KeepFields transform retaining `kept`"
+        );
+    }
+
+    #[test]
+    fn add_attrs_rule_emits_add_field() {
+        let mut add_attrs = HashMap::new();
+        add_attrs.insert("published".to_owned(), serde_json::Value::Bool(true));
+        let rules = vec![Rule {
+            match_: named_pattern("post"),
+            replace: Some(Replacement {
+                name: Some(ReplacementName::Literal("post".to_owned())),
+                rename_attrs: None,
+                add_attrs: Some(add_attrs),
+                drop_attrs: None,
+                keep_attrs: None,
+                map_attr_value: None,
+            }),
+        }];
+        let compiled = compile_rules(&rules, None, BODY).unwrap();
+        // add_attrs expands to an add_field step (schema-level).
+        assert!(!compiled.chain.steps.is_empty());
+    }
+}

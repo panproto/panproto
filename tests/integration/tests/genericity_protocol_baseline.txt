@@ -2,7 +2,9 @@
 # Protocol/format/database name leakage, pinned to current tree.
 # Each line is `<relative-path>\t<term>`. The test fails if the set grows.
 # Regenerate by running with UPDATE_GENERICITY_BASELINE=1.
+crates/panproto-check/src/classify.rs	nsid
 crates/panproto-check/src/diff.rs	nsid
+crates/panproto-check/src/report.rs	nsid
 crates/panproto-check/src/scope.rs	nsid
 crates/panproto-cli/src/cmd/helpers.rs	atproto
 crates/panproto-cli/src/cmd/schema.rs	atproto
@@ -10,6 +12,8 @@ crates/panproto-cli/src/main.rs	atproto
 crates/panproto-gat/src/ident.rs	bsky
 crates/panproto-gat/src/ident.rs	nsid
 crates/panproto-inst/src/acset.rs	nsid
+crates/panproto-inst/src/adjunction.rs	nsid
+crates/panproto-inst/src/attributes.rs	nsid
 crates/panproto-inst/src/hom.rs	nsid
 crates/panproto-inst/src/parse.rs	atproto
 crates/panproto-inst/src/parse.rs	nsid
@@ -22,19 +26,23 @@ crates/panproto-inst/src/wtype.rs	nsid
 crates/panproto-lens-dsl/src/compile.rs	atproto
 crates/panproto-lens-dsl/src/compile.rs	nsid
 crates/panproto-lens-dsl/src/document.rs	nsid
+crates/panproto-lens-dsl/src/error.rs	nsid
 crates/panproto-lens-dsl/src/steps.rs	atproto
+crates/panproto-lens/src/cost.rs	nsid
 crates/panproto-lens/src/edit_lens.rs	at-uri
 crates/panproto-lens/src/error.rs	nsid
 crates/panproto-lens/src/laws.rs	nsid
 crates/panproto-lens/src/lib.rs	nsid
 crates/panproto-lens/src/protolens.rs	atproto
 crates/panproto-lens/src/protolens.rs	nsid
+crates/panproto-lens/src/protolens_nat.rs	nsid
 crates/panproto-mig/src/chase.rs	nsid
 crates/panproto-mig/src/compile.rs	nsid
 crates/panproto-mig/src/coverage.rs	nsid
 crates/panproto-mig/src/existence.rs	nsid
 crates/panproto-mig/src/invert.rs	nsid
 crates/panproto-mig/src/lift.rs	nsid
+crates/panproto-mig/src/schema_theory.rs	nsid
 crates/panproto-py/src/io.rs	atproto
 crates/panproto-py/src/lexicon.rs	atproto
 crates/panproto-py/src/lexicon.rs	lexicon

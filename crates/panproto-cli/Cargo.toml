@@ -18,19 +18,13 @@ path = "src/main.rs"
 
 [dependencies]
 panproto-core = { workspace = true }
-panproto-expr = { workspace = true }
-panproto-expr-parser = { workspace = true }
-panproto-lens-dsl = { workspace = true }
-panproto-theory-dsl = { workspace = true }
 panproto-parse = { workspace = true }
 panproto-project = { workspace = true }
 panproto-git = { workspace = true }
-panproto-llvm = { workspace = true }
 clap = { workspace = true }
-git2 = { version = "0.21", features = ["vendored-libgit2", "vendored-openssl"] }
+git2 = { workspace = true }
 panproto-xrpc = { workspace = true }
 panproto-vcs = { workspace = true }
-panproto-repl = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread"] }
 rustyline = "14"
 miette = { workspace = true }

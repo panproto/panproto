@@ -735,8 +735,8 @@ pub fn compile_lens_document(
         })?;
 
     let doc = match format {
-        "json" => panproto_lens_dsl::eval::eval_json(source),
-        "yaml" | "yml" => panproto_lens_dsl::eval::eval_yaml(source),
+        "json" => panproto_core::lens_dsl::eval::eval_json(source),
+        "yaml" | "yml" => panproto_core::lens_dsl::eval::eval_yaml(source),
         other => {
             return Err(WasmError::DeserializationFailed {
                 reason: format!("unsupported lens DSL format '{other}'; expected 'json' or 'yaml'"),
@@ -748,11 +748,76 @@ pub fn compile_lens_document(
         reason: e.to_string(),
     })?;
 
-    let compiled = panproto_lens_dsl::compile(&doc, body_vertex, &|_| None).map_err(|e| {
+    let compiled = panproto_core::lens_dsl::compile(&doc, body_vertex, &|_| None).map_err(|e| {
         WasmError::LensConstructionFailed {
             reason: e.to_string(),
         }
     })?;
+
+    Ok(slab::alloc(Resource::ProtolensChain(Box::new(
+        compiled.chain,
+    ))))
+}
+
+/// Compile a lens DSL document, resolving `compose` named references
+/// against a bundle of sibling documents.
+///
+/// `source_bytes` is the UTF-8 DSL source; `format` is `"json"` or
+/// `"yaml"`; `body_vertex` is the field-attach parent vertex.
+/// `refs_bytes` is `MessagePack`-encoded `HashMap<String, String>`
+/// mapping each referenced lens `id` to its document source (in the same
+/// `format`). A `compose` body's `ref` entries are resolved against this
+/// map, so named-reference composition works without a filesystem.
+///
+/// Returns a handle to the compiled `ProtolensChain`.
+///
+/// # Errors
+///
+/// Returns `JsError` if `format` is unknown, any source fails to parse,
+/// a reference is unresolved, or compilation fails.
+#[wasm_bindgen]
+pub fn compile_lens_document_with_refs(
+    source_bytes: &[u8],
+    format: &str,
+    body_vertex: &str,
+    refs_bytes: &[u8],
+) -> Result<u32, JsError> {
+    let parse = |bytes: &[u8]| -> Result<panproto_core::lens_dsl::LensDocument, WasmError> {
+        let text = std::str::from_utf8(bytes).map_err(|e| WasmError::DeserializationFailed {
+            reason: format!("invalid UTF-8: {e}"),
+        })?;
+        let doc = match format {
+            "json" => panproto_core::lens_dsl::eval::eval_json(text),
+            "yaml" | "yml" => panproto_core::lens_dsl::eval::eval_yaml(text),
+            other => {
+                return Err(WasmError::DeserializationFailed {
+                    reason: format!(
+                        "unsupported lens DSL format '{other}'; expected 'json' or 'yaml'"
+                    ),
+                });
+            }
+        };
+        doc.map_err(|e| WasmError::DeserializationFailed {
+            reason: e.to_string(),
+        })
+    };
+
+    let doc = parse(source_bytes)?;
+
+    let refs: std::collections::HashMap<String, String> = rmp_serde::from_slice(refs_bytes)
+        .map_err(|e| WasmError::DeserializationFailed {
+            reason: e.to_string(),
+        })?;
+
+    let mut docs_by_id = std::collections::HashMap::new();
+    for (id, ref_source) in &refs {
+        docs_by_id.insert(id.clone(), parse(ref_source.as_bytes())?);
+    }
+
+    let compiled = panproto_core::lens_dsl::compile_with_refs(&doc, body_vertex, &docs_by_id)
+        .map_err(|e| WasmError::LensConstructionFailed {
+            reason: e.to_string(),
+        })?;
 
     Ok(slab::alloc(Resource::ProtolensChain(Box::new(
         compiled.chain,
@@ -984,7 +1049,7 @@ pub fn auto_generate_protolens_with_hints(
 
 /// Auto-generate a protolens chain with a full hint specification.
 ///
-/// Accepts `MessagePack`-encoded [`panproto_lens_dsl::HintSpec`]:
+/// Accepts `MessagePack`-encoded [`panproto_core::lens_dsl::HintSpec`]:
 /// `{ anchors: { src: tgt, ... }, constraints: [...] }`.
 ///
 /// Runs forward-chaining anchor derivation and constrained morphism search.
@@ -996,8 +1061,8 @@ pub fn auto_generate_protolens_with_hint_spec(
     schema2: u32,
     hint_spec_bytes: &[u8],
 ) -> Result<u32, JsError> {
-    let hint_spec: panproto_lens_dsl::HintSpec =
-        rmp_serde::from_slice(hint_spec_bytes).map_err(|e| WasmError::DeserializationFailed {
+    let hint_spec: panproto_core::lens_dsl::HintSpec = rmp_serde::from_slice(hint_spec_bytes)
+        .map_err(|e| WasmError::DeserializationFailed {
             reason: e.to_string(),
         })?;
 
@@ -1022,10 +1087,10 @@ pub fn auto_generate_protolens_with_hint_spec(
     };
     if let Some(s) = hint_spec.stringency {
         config.stringency = match s {
-            panproto_lens_dsl::HintStringency::Strict => Stringency::Strict,
-            panproto_lens_dsl::HintStringency::Balanced => Stringency::Balanced,
-            panproto_lens_dsl::HintStringency::Lenient => Stringency::Lenient,
-            panproto_lens_dsl::HintStringency::Exploratory => Stringency::Exploratory,
+            panproto_core::lens_dsl::HintStringency::Strict => Stringency::Strict,
+            panproto_core::lens_dsl::HintStringency::Balanced => Stringency::Balanced,
+            panproto_core::lens_dsl::HintStringency::Lenient => Stringency::Lenient,
+            panproto_core::lens_dsl::HintStringency::Exploratory => Stringency::Exploratory,
         };
     }
     for cluster in &hint_spec.alias_clusters {
@@ -1098,7 +1163,7 @@ mod tests {
     /// a fully populated `HintSpec`.
     #[test]
     fn hint_spec_msgpack_round_trip_preserves_every_field() {
-        use panproto_lens_dsl::{Constraint, HintSpec, HintStringency, PreferencePredicate};
+        use panproto_core::lens_dsl::{Constraint, HintSpec, HintStringency, PreferencePredicate};
         use std::collections::HashMap;
 
         let mut anchors = HashMap::new();

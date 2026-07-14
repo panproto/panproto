@@ -2,6 +2,8 @@
 
 use std::fmt;
 
+use panproto_gat::Name;
+
 /// Errors from instance construction or manipulation.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -88,6 +90,50 @@ pub enum RestrictError {
         vertex: String,
         /// Number of source vertices in the fiber.
         count: usize,
+    },
+
+    /// A source node's anchor is neither remapped by `vertex_remap` nor
+    /// present in `surviving_verts`, so a *total* operation (left Kan
+    /// extension `Sigma_F`, right Kan extension `Pi_F`) has no target
+    /// vertex to map it to. These operations never drop data silently;
+    /// they report the unmapped anchor instead.
+    #[error("node {node_id} has anchor `{anchor}` that is neither remapped nor surviving")]
+    UnmappedAnchor {
+        /// The anchor that has no image in the target schema.
+        anchor: Name,
+        /// The offending source node ID.
+        node_id: u32,
+    },
+
+    /// Two source vertices in a right Kan extension (`Pi_F`) fiber contribute
+    /// the same column with conflicting values, so the product-row attribute
+    /// merge would have to silently overwrite one. The merge rejects instead.
+    #[error(
+        "attribute collision on column `{column}` for vertex `{vertex}`: \
+         fiber sources disagree on its value"
+    )]
+    AttributeCollision {
+        /// The target vertex whose fiber product collides.
+        vertex: String,
+        /// The colliding column name.
+        column: String,
+    },
+
+    /// A vertex map sends two or more distinct source vertices to a single
+    /// target vertex. The W-type right Kan extension ([`wtype_pi`]) is only
+    /// defined here for vertex-injective migrations, since a non-injective
+    /// map would require constructing a product of subtrees.
+    ///
+    /// [`wtype_pi`]: crate::wtype_pi
+    #[error(
+        "non-injective vertex map: {} source vertices map to target `{target}`",
+        sources.len()
+    )]
+    NonInjectiveVertexMap {
+        /// The target vertex receiving multiple source vertices.
+        target: Name,
+        /// The source vertices in the fiber (sorted for determinism).
+        sources: Vec<Name>,
     },
 }
 

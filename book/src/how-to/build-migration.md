@@ -24,7 +24,13 @@ To also type-check at the GAT level (equivalent to a separate `schema typecheck`
 schema check --src schemas/v1.json --tgt schemas/v2.json --mapping migrations/v1-to-v2.json --typecheck
 ```
 
-For schema-level diff classification, generate a lens between the two schemas:
+For schema-level diff classification, run `schema compat`:
+
+```sh
+schema compat schemas/v1.json schemas/v2.json --protocol atproto
+```
+
+It prints the changes grouped by tier and exits 0 when the change is non-breaking, 1 when it is breaking. To inspect the generated lens chain as well, pair `schema lens generate` with `schema diff --lens`:
 
 ```sh
 schema lens generate --protocol atproto schemas/v1.json schemas/v2.json --save lens.json
@@ -50,13 +56,13 @@ mig.put(view, complement);                       // backward
 
 ## Verification
 
-`schema check` exits zero if the migration is well-defined (existence conditions hold). For diff classification, use `panproto.diff_and_classify(old, new, protocol)` in Python, or `panproto_check::diff(old, new)` followed by `panproto_check::classify(&diff, &protocol)` in Rust. In TypeScript the equivalent is `Panproto.diffFull(old, new).classify(protocol)`, which returns a `CompatReport` with one of:
+`schema check` exits zero if the migration is well-defined (existence conditions hold). For diff classification, use `panproto.diff_and_classify(old, new, protocol)` in Python, or `panproto_check::diff(old, new)` followed by `panproto_check::classify(&diff, &protocol)` in Rust. In TypeScript the equivalent is `Panproto.diffFull(old, new).classify(protocol)`. Each returns a `CompatReport` whose `classification` field records one of three tiers, alongside a list of breaking changes, a list of non-breaking changes, and a `compatible` boolean:
 
-| Classification | Meaning |
+| `classification` | Meaning |
 |---|---|
-| `fully-compatible` | Old data lifts unchanged; the migration is a refinement. |
-| `backward-compatible` | Old data lifts via a value-level transform. |
-| `breaking` | Some old records cannot be lifted; CI should reject. |
+| `fully-compatible` | No breaking and no non-breaking changes; the two schemas agree in shape. Old data lifts unchanged. |
+| `backward-compatible` | Non-breaking changes only; old data lifts, either unchanged or via a value-level transform. |
+| `breaking` | At least one change cannot be lifted safely; CI should reject. |
 
 For wiring this into CI, see [Breaking-change gate](./ci/breaking-change-gate.md).
 

@@ -58,6 +58,8 @@ fn migration_msgpack_roundtrip() -> Result<(), Box<dyn std::error::Error>> {
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         expr_resolvers: HashMap::new(),
+        domain: None,
+        codomain: None,
     };
 
     let bytes = rmp_serde::to_vec(&migration)?;
@@ -104,6 +106,7 @@ fn complement_msgpack_roundtrip() -> Result<(), Box<dyn std::error::Error>> {
 
     let complement = Complement {
         dropped_nodes: HashMap::from([(99, dropped_node)]),
+        contracted_into: HashMap::new(),
         dropped_arcs: vec![(
             0,
             99,
@@ -153,6 +156,7 @@ fn compiled_migration_msgpack_roundtrip() -> Result<(), Box<dyn std::error::Erro
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        op_term_assignments: HashMap::new(),
         expansion_path: HashMap::new(),
     };
 

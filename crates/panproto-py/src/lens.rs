@@ -344,7 +344,7 @@ impl PyProtolensChain {
         protocol: &PyProtocol,
         hints: String,
     ) -> PyResult<Self> {
-        let hint_spec: panproto_lens_dsl::HintSpec = serde_json::from_str(&hints)
+        let hint_spec: panproto_core::lens_dsl::HintSpec = serde_json::from_str(&hints)
             .map_err(|e| crate::error::LensError::new_err(format!("invalid hints JSON: {e}")))?;
 
         let parts = lens::hint::HintParts {
@@ -364,10 +364,10 @@ impl PyProtolensChain {
         };
         if let Some(s) = hint_spec.stringency {
             config.stringency = match s {
-                panproto_lens_dsl::HintStringency::Strict => Stringency::Strict,
-                panproto_lens_dsl::HintStringency::Balanced => Stringency::Balanced,
-                panproto_lens_dsl::HintStringency::Lenient => Stringency::Lenient,
-                panproto_lens_dsl::HintStringency::Exploratory => Stringency::Exploratory,
+                panproto_core::lens_dsl::HintStringency::Strict => Stringency::Strict,
+                panproto_core::lens_dsl::HintStringency::Balanced => Stringency::Balanced,
+                panproto_core::lens_dsl::HintStringency::Lenient => Stringency::Lenient,
+                panproto_core::lens_dsl::HintStringency::Exploratory => Stringency::Exploratory,
             };
         }
         for cluster in &hint_spec.alias_clusters {
@@ -450,8 +450,8 @@ impl PyProtolensChain {
     /// uses it to anchor the per-step protolens construction.
     #[staticmethod]
     fn from_dsl_json(source: &str, body_vertex: &str) -> PyResult<Self> {
-        let doc = panproto_lens_dsl::eval::eval_json(source).map_err(|e| lens_dsl_err(&e))?;
-        let compiled = panproto_lens_dsl::compile(&doc, body_vertex, &|_| None)
+        let doc = panproto_core::lens_dsl::eval::eval_json(source).map_err(|e| lens_dsl_err(&e))?;
+        let compiled = panproto_core::lens_dsl::compile(&doc, body_vertex, &|_| None)
             .map_err(|e| lens_dsl_err(&e))?;
         Ok(Self {
             inner: Arc::new(compiled.chain),
@@ -463,8 +463,8 @@ impl PyProtolensChain {
     /// Same body shape as :meth:`from_dsl_json`, in YAML.
     #[staticmethod]
     fn from_dsl_yaml(source: &str, body_vertex: &str) -> PyResult<Self> {
-        let doc = panproto_lens_dsl::eval::eval_yaml(source).map_err(|e| lens_dsl_err(&e))?;
-        let compiled = panproto_lens_dsl::compile(&doc, body_vertex, &|_| None)
+        let doc = panproto_core::lens_dsl::eval::eval_yaml(source).map_err(|e| lens_dsl_err(&e))?;
+        let compiled = panproto_core::lens_dsl::compile(&doc, body_vertex, &|_| None)
             .map_err(|e| lens_dsl_err(&e))?;
         Ok(Self {
             inner: Arc::new(compiled.chain),
@@ -485,9 +485,9 @@ impl PyProtolensChain {
         import_paths: Option<Vec<std::path::PathBuf>>,
     ) -> PyResult<Self> {
         let paths = import_paths.unwrap_or_default();
-        let doc =
-            panproto_lens_dsl::eval::eval_nickel(source, &paths).map_err(|e| lens_dsl_err(&e))?;
-        let compiled = panproto_lens_dsl::compile(&doc, body_vertex, &|_| None)
+        let doc = panproto_core::lens_dsl::eval::eval_nickel(source, &paths)
+            .map_err(|e| lens_dsl_err(&e))?;
+        let compiled = panproto_core::lens_dsl::compile(&doc, body_vertex, &|_| None)
             .map_err(|e| lens_dsl_err(&e))?;
         Ok(Self {
             inner: Arc::new(compiled.chain),
@@ -497,10 +497,68 @@ impl PyProtolensChain {
     /// Compile a lens-DSL document from a file, dispatching on
     /// extension (``.ncl`` → Nickel, ``.json`` → JSON, ``.yaml`` /
     /// ``.yml`` → YAML).
+    ///
+    /// Named references in a ``compose`` body resolve against the other
+    /// lens documents in the same directory as ``path``.
     #[staticmethod]
     #[allow(clippy::needless_pass_by_value)] // pyo3 #[staticmethod] requires an owned argument here.
     fn from_dsl_path(path: std::path::PathBuf, body_vertex: &str) -> PyResult<Self> {
-        let compiled = panproto_lens_dsl::load_and_compile(&path, body_vertex)
+        let compiled = panproto_core::lens_dsl::load_and_compile(&path, body_vertex)
+            .map_err(|e| lens_dsl_err(&e))?;
+        Ok(Self {
+            inner: Arc::new(compiled.chain),
+        })
+    }
+
+    /// Compile a JSON or YAML lens-DSL document, resolving ``compose``
+    /// named references against a map of sibling documents.
+    ///
+    /// ``refs`` maps a lens ``id`` to the source of the lens document
+    /// (in the same ``format``). When the compiled document's
+    /// ``compose`` body references a lens by ``id``, the matching entry
+    /// in ``refs`` is compiled and its chain spliced in. This is the
+    /// binding surface for named-reference composition without touching
+    /// the filesystem.
+    ///
+    /// Example
+    /// -------
+    /// ```python
+    /// drop_a = '{"id":"dev.ex.drop-a","source":"s","target":"t",'\
+    ///          '"steps":[{"remove_field":"a"}]}'
+    /// main = '{"id":"dev.ex.main","source":"s","target":"t",'\
+    ///        '"compose":{"mode":"vertical",'\
+    ///        '"lenses":[{"ref":"dev.ex.drop-a"},'\
+    ///        '{"inline":{"steps":[{"remove_field":"b"}]}}]}}'
+    /// chain = ProtolensChain.from_dsl_with_refs(
+    ///     main, "json", "record:body", {"dev.ex.drop-a": drop_a})
+    /// ```
+    #[staticmethod]
+    #[allow(clippy::needless_pass_by_value)]
+    fn from_dsl_with_refs(
+        source: &str,
+        format: &str,
+        body_vertex: &str,
+        refs: std::collections::HashMap<String, String>,
+    ) -> PyResult<Self> {
+        let parse = |src: &str| match format {
+            "json" => panproto_core::lens_dsl::eval::eval_json(src),
+            "yaml" | "yml" => panproto_core::lens_dsl::eval::eval_yaml(src),
+            other => Err(
+                panproto_core::lens_dsl::LensDslError::UnsupportedExtension {
+                    ext: other.to_owned(),
+                },
+            ),
+        };
+
+        let doc = parse(source).map_err(|e| lens_dsl_err(&e))?;
+
+        let mut docs_by_id = std::collections::HashMap::new();
+        for (id, ref_source) in &refs {
+            let ref_doc = parse(ref_source).map_err(|e| lens_dsl_err(&e))?;
+            docs_by_id.insert(id.clone(), ref_doc);
+        }
+
+        let compiled = panproto_core::lens_dsl::compile_with_refs(&doc, body_vertex, &docs_by_id)
             .map_err(|e| lens_dsl_err(&e))?;
         Ok(Self {
             inner: Arc::new(compiled.chain),
@@ -676,6 +734,6 @@ pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
 }
 
 /// Map a `panproto-lens-dsl` error to a Python exception.
-fn lens_dsl_err(e: &panproto_lens_dsl::LensDslError) -> PyErr {
+fn lens_dsl_err(e: &panproto_core::lens_dsl::LensDslError) -> PyErr {
     crate::error::LensError::new_err(format!("lens DSL error: {e}"))
 }

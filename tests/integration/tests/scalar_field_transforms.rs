@@ -141,6 +141,7 @@ fn compute_field_survives_restrict() {
         hyper_resolver: HashMap::new(),
         field_transforms,
         conditional_survival: HashMap::new(),
+        op_term_assignments: HashMap::new(),
         expansion_path: HashMap::new(),
     };
 
@@ -236,6 +237,7 @@ fn at_uri_decomposition_end_to_end() {
         hyper_resolver: HashMap::new(),
         field_transforms,
         conditional_survival: HashMap::new(),
+        op_term_assignments: HashMap::new(),
         expansion_path: HashMap::new(),
     };
 
@@ -311,6 +313,7 @@ fn multiple_scalar_transforms_compose() {
         hyper_resolver: HashMap::new(),
         field_transforms,
         conditional_survival: HashMap::new(),
+        op_term_assignments: HashMap::new(),
         expansion_path: HashMap::new(),
     };
 
@@ -346,6 +349,7 @@ fn scalar_child_identity_roundtrip() {
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        op_term_assignments: HashMap::new(),
         expansion_path: HashMap::new(),
     };
 
@@ -465,6 +469,7 @@ mod property {
                 hyper_resolver: HashMap::new(),
                 field_transforms,
                 conditional_survival: HashMap::new(),
+                op_term_assignments: HashMap::new(),
                 expansion_path: HashMap::new(),
             };
 
@@ -496,6 +501,7 @@ mod property {
                 hyper_resolver: HashMap::new(),
                 field_transforms: HashMap::new(),
                 conditional_survival: HashMap::new(),
+                op_term_assignments: HashMap::new(),
                 expansion_path: HashMap::new(),
             };
 

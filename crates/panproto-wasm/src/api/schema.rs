@@ -691,6 +691,7 @@ pub fn classify_diff(proto: u32, diff_bytes: &[u8]) -> Vec<u8> {
             breaking: Vec::new(),
             non_breaking: Vec::new(),
             compatible: true,
+            classification: check::Classification::FullyCompatible,
         };
         rmp_serde::to_vec_named(&empty).unwrap_or_default()
     })
@@ -788,4 +789,62 @@ pub fn validate_schema(schema_handle: u32, proto: u32) -> Result<Vec<u8>, JsErro
         }
         .into()
     })
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::api::test_support;
+    use crate::slab::{self, Resource};
+
+    #[test]
+    fn classify_diff_serializes_classification_key() {
+        let protocol = panproto_core::schema::Protocol {
+            name: "test".into(),
+            schema_theory: "ThTest".into(),
+            instance_theory: "ThWType".into(),
+            ..Default::default()
+        };
+        let proto_h = slab::alloc(Resource::Protocol(protocol));
+
+        // Adding a vertex is a backward-compatible change.
+        let diff = check::SchemaDiff {
+            added_vertices: vec!["x".into()],
+            ..Default::default()
+        };
+        let diff_bytes = rmp_serde::to_vec_named(&diff).unwrap();
+
+        let out = classify_diff(proto_h, &diff_bytes);
+        let value: serde_json::Value = rmp_serde::from_slice(&out).unwrap();
+        assert!(
+            value.get("classification").is_some(),
+            "serialized CompatReport must carry a classification key: {value}"
+        );
+        assert_eq!(value["classification"], "backward-compatible");
+    }
+
+    #[test]
+    fn define_protocol_build_schema_and_metadata() {
+        let proto_h = define_protocol(&test_support::protocol_msgpack()).unwrap();
+        let schema_h = build_schema(proto_h, &test_support::build_ops_msgpack()).unwrap();
+        let meta = schema_metadata(schema_h).unwrap();
+        let value: serde_json::Value = rmp_serde::from_slice(&meta).unwrap();
+        assert_eq!(
+            value.get("protocol").and_then(serde_json::Value::as_str),
+            Some("test")
+        );
+    }
+
+    #[test]
+    fn diff_normalize_and_validate_built_schemas() {
+        let s1 = test_support::schema_handle(&test_support::source_schema());
+        let s2 = test_support::schema_handle(&test_support::target_schema());
+        let diff = diff_schemas(s1, s2);
+        assert!(!diff.is_empty(), "diff must encode a result");
+        let _normalized = normalize_schema(s1).unwrap();
+        let proto_h = test_support::protocol_handle();
+        let report = validate_schema(s1, proto_h).unwrap();
+        assert!(!report.is_empty());
+    }
 }

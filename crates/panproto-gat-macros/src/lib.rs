@@ -253,6 +253,26 @@ impl Parse for ClassInput {
 
 /// Expand to a `pub fn theory_<lower>() -> panproto_gat::Theory` that
 /// builds the theory.
+///
+/// # Examples
+///
+/// ```
+/// use panproto_gat_macros::class;
+///
+/// class! {
+///     ThEq<A, Bool> {
+///         eq(x: A, y: A) -> Bool;
+///         neq(x: A, y: A) -> Bool;
+///
+///         axiom sym: eq(x, y) = eq(y, x);
+///     }
+/// }
+///
+/// let theory = theory_theq();
+/// assert_eq!(&*theory.name, "ThEq");
+/// assert_eq!(theory.ops.len(), 2);
+/// assert_eq!(theory.eqs.len(), 1);
+/// ```
 #[proc_macro]
 pub fn class(input: TokenStream) -> TokenStream {
     let ClassInput {
@@ -423,6 +443,36 @@ impl Parse for InstanceInput {
 }
 
 /// Expand to a `pub fn instance_<lower>(class, target) -> Result<TheoryMorphism, GatError>`.
+///
+/// # Examples
+///
+/// ```no_run
+/// use panproto_gat::Theory;
+/// use panproto_gat_macros::{class, instance};
+///
+/// class! {
+///     ThEq<A, Bool> {
+///         eq(x: A, y: A) -> Bool;
+///         neq(x: A, y: A) -> Bool;
+///     }
+/// }
+///
+/// instance! {
+///     EqInt: ThEq<Int, Bool> in ThArith {
+///         eq = int_eq;
+///         neq = int_neq;
+///     }
+/// }
+///
+/// // `target` must supply the `int_eq` / `int_neq` operations the
+/// // bindings map onto (build one with `Theory::new`).
+/// # fn demo(target: &Theory) -> Result<(), panproto_gat::GatError> {
+/// let class_theory = theory_theq();
+/// let morphism = instance_eqint(&class_theory, target)?;
+/// assert_eq!(&*morphism.domain, "ThEq");
+/// # Ok(())
+/// # }
+/// ```
 #[proc_macro]
 pub fn instance(input: TokenStream) -> TokenStream {
     let InstanceInput {
@@ -563,15 +613,22 @@ impl Parse for DeriveTheoryInput {
 
 /// Build a theory together with auto-generated class instances.
 ///
-/// Surface:
+/// # Examples
 ///
-/// ```text
+/// ```
+/// use panproto_gat_macros::derive_theory;
+///
 /// derive_theory! {
-///     #[derive(Eq, Hash)]
-///     ThVertex<Vertex, Str> {
-///         name(x: Vertex) -> Str;
+///     #[derive(Eq)]
+///     ThVertex<Vertex, Bool> {
+///         name(x: Vertex) -> Bool;
 ///     }
 /// }
+///
+/// // The theory builder is generated alongside one instance builder
+/// // per listed derive (here, `instance_vertex_eq`).
+/// let theory = theory_thvertex();
+/// assert_eq!(&*theory.name, "ThVertex");
 /// ```
 ///
 /// Expands to the `class!`-style theory builder (`pub fn theory_thvertex()`)
@@ -817,15 +874,22 @@ impl Parse for InductiveInput {
 
 /// Build a closed inductive theory.
 ///
-/// Surface:
+/// # Examples
 ///
-/// ```text
+/// ```
+/// use panproto_gat_macros::inductive;
+///
 /// inductive! {
 ///     Nat {
 ///         zero : Nat,
 ///         succ(n: Nat) : Nat,
 ///     }
 /// }
+///
+/// let theory = theory_nat();
+/// assert_eq!(&*theory.name, "Nat");
+/// assert!(theory.find_op("zero").is_some());
+/// assert!(theory.find_op("succ").is_some());
 /// ```
 ///
 /// Expands to `pub fn theory_nat() -> panproto_gat::Theory` returning a

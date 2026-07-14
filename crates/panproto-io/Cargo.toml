@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Instance-level presentation functors for panproto — blazingly fast parse/emit for 77 protocols"
+description = "Instance-level presentation functors for panproto — blazingly fast parse/emit for 50 protocols"
 
 [lints]
 workspace = true
@@ -56,7 +56,6 @@ tree-sitter = ["dep:panproto-parse", "dep:panproto-grammars", "dep:tree-sitter",
 
 [dev-dependencies]
 divan = { workspace = true }
-proptest = { workspace = true }
 
 [[bench]]
 name = "io_bench"

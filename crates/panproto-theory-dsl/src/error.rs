@@ -6,12 +6,36 @@ use thiserror::Error;
 /// Errors arising from loading, evaluating, or compiling theory documents.
 #[derive(Debug, Error, Diagnostic)]
 pub enum TheoryDslError {
-    /// Nickel evaluation failed.
+    /// Nickel evaluation failed, with no locatable source span.
+    ///
+    /// The fallback for [`Self::NickelEvalSpanned`]: raised when the
+    /// Nickel diagnostic carries no label that resolves to a byte range
+    /// within the evaluated source (for instance, an error originating
+    /// wholly inside an imported module).
     #[error("nickel evaluation failed: {message}")]
     #[diagnostic(code(panproto_theory_dsl::nickel_eval))]
     NickelEval {
         /// Human-readable error message from the Nickel evaluator.
         message: String,
+    },
+
+    /// Nickel evaluation failed, with a source-pointed diagnostic.
+    ///
+    /// Populated when the Nickel diagnostic carries a label whose byte
+    /// range falls within the evaluated source, so a compile error from
+    /// a malformed canonical (`.ncl`) theory points at the offending
+    /// location instead of losing it through Nickel evaluation.
+    #[error("nickel evaluation failed: {message}")]
+    #[diagnostic(code(panproto_theory_dsl::nickel_eval_spanned))]
+    NickelEvalSpanned {
+        /// Human-readable error message from the Nickel evaluator.
+        message: String,
+        /// The evaluated source text, used by miette for rendering.
+        #[source_code]
+        src: String,
+        /// Span into `src` pointing at the failing element.
+        #[label("here")]
+        span: miette::SourceSpan,
     },
 
     /// JSON deserialization failed.
@@ -33,26 +57,6 @@ pub enum TheoryDslError {
     UnsupportedExtension {
         /// The extension that was not recognized.
         ext: String,
-    },
-
-    /// The theory document has no body variant.
-    #[error(
-        "theory document '{id}' has no body: expected one of theory, morphism, compose, protocol, or bundle"
-    )]
-    #[diagnostic(code(panproto_theory_dsl::no_body))]
-    NoBody {
-        /// The document ID.
-        id: String,
-    },
-
-    /// The theory document has multiple body variants.
-    #[error("theory document '{id}' has multiple bodies: {variants}")]
-    #[diagnostic(code(panproto_theory_dsl::multiple_bodies))]
-    MultipleBodies {
-        /// The document ID.
-        id: String,
-        /// Comma-separated list of present variants.
-        variants: String,
     },
 
     /// Term parsing failed.
@@ -147,14 +151,6 @@ pub enum TheoryDslError {
         name: String,
     },
 
-    /// Dependency cycle detected.
-    #[error("dependency cycle: {cycle}")]
-    #[diagnostic(code(panproto_theory_dsl::cycle))]
-    DependencyCycle {
-        /// Human-readable cycle description.
-        cycle: String,
-    },
-
     /// IO error reading a theory file.
     #[error("IO error: {0}")]
     #[diagnostic(code(panproto_theory_dsl::io))]
@@ -207,9 +203,11 @@ pub enum TheoryDslError {
 
     /// Sample-based coercion law check detected a declared coercion
     /// class whose forward/inverse pair falsifies the declared law on
-    /// the sample registry's samples. Surfaced only by
-    /// [`crate::compile_theory_with_law_check`]; the plain compile
-    /// path ignores declared classes.
+    /// the sample registry's samples. Raised by the default
+    /// [`compile`](fn@crate::compile) path (which runs the check against the
+    /// built-in sample registry) and by
+    /// [`crate::compile_theory_with_law_check`];
+    /// [`crate::compile_unchecked`] skips the check.
     #[error(
         "coercion law violation in theory '{theory}': {} violation(s) across {distinct_equations} equation(s)",
         violations.len(),
@@ -251,5 +249,23 @@ pub struct CoercionLawViolationDetail {
 impl std::fmt::Display for CoercionLawViolationDetail {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}: {:?}", self.equation, self.violation)
+    }
+}
+
+impl From<panproto_dsl_eval::DslEvalError> for TheoryDslError {
+    fn from(err: panproto_dsl_eval::DslEvalError) -> Self {
+        match err {
+            panproto_dsl_eval::DslEvalError::NickelEval { message } => Self::NickelEval { message },
+            panproto_dsl_eval::DslEvalError::NickelEvalSpanned { message, src, span } => {
+                Self::NickelEvalSpanned {
+                    message,
+                    src,
+                    span: miette::SourceSpan::new(span.0.into(), span.1),
+                }
+            }
+            panproto_dsl_eval::DslEvalError::Json(e) => Self::Json(e),
+            panproto_dsl_eval::DslEvalError::Yaml { message } => Self::Yaml { message },
+            panproto_dsl_eval::DslEvalError::Io(e) => Self::Io(e),
+        }
     }
 }

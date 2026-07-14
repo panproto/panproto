@@ -23,6 +23,17 @@ pub enum ModelValue {
     List(Vec<Self>),
     /// A map of key-value pairs.
     Map(FxHashMap<String, Self>),
+    /// A constructor-tagged value: the result of applying a constructor
+    /// operation of a closed sort, carrying the constructor's name and its
+    /// evaluated arguments. Case analysis in set-theoretic model checking
+    /// matches a scrutinee of this form against branch constructors.
+    Constructor {
+        /// The name of the constructor operation.
+        tag: String,
+        /// The evaluated constructor arguments, one per input of the
+        /// constructor operation.
+        args: Vec<Self>,
+    },
     /// A null / absent value.
     Null,
 }
@@ -133,8 +144,14 @@ pub fn migrate_model(morphism: &TheoryMorphism, model: &Model) -> Result<Model, 
             .insert(domain_sort.to_string(), values.clone());
     }
 
-    // Reindex operation interpretations.
-    for (domain_op, codomain_op) in &morphism.op_map {
+    // Reindex operation interpretations. Model migration reindexes each
+    // domain operation to the interpretation of the codomain operation it
+    // renames to; derived-term assignments have no single interpretation
+    // to reindex and are skipped.
+    for (domain_op, assignment) in &morphism.op_map {
+        let Some(codomain_op) = assignment.as_op() else {
+            continue;
+        };
         let interp = model.op_interp.get(codomain_op.as_ref()).ok_or_else(|| {
             GatError::ModelError(format!(
                 "operation interpretation for '{codomain_op}' not found in model"
@@ -247,7 +264,7 @@ mod tests {
             "X",
             "Empty",
             sort_map,
-            std::collections::HashMap::new(),
+            std::collections::HashMap::<Arc<str>, Arc<str>>::new(),
         );
         let result = migrate_model(&morphism, &model);
         assert!(matches!(result, Err(GatError::ModelError(_))));

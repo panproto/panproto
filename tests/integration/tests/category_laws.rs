@@ -292,6 +292,7 @@ fn restrict_functor_contravariance() -> Result<(), Box<dyn std::error::Error>> {
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        op_term_assignments: HashMap::new(),
         expansion_path: HashMap::new(),
     };
 
@@ -305,6 +306,7 @@ fn restrict_functor_contravariance() -> Result<(), Box<dyn std::error::Error>> {
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        op_term_assignments: HashMap::new(),
         expansion_path: HashMap::new(),
     };
 
@@ -318,6 +320,7 @@ fn restrict_functor_contravariance() -> Result<(), Box<dyn std::error::Error>> {
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        op_term_assignments: HashMap::new(),
         expansion_path: HashMap::new(),
     };
 
@@ -394,6 +397,7 @@ fn migration_compose_identity_roundtrip() -> Result<(), Box<dyn std::error::Erro
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        op_term_assignments: HashMap::new(),
         expansion_path: HashMap::new(),
     };
 
@@ -489,6 +493,7 @@ mod property {
                         hyper_resolver: HashMap::new(),
                         field_transforms: HashMap::new(),
                         conditional_survival: HashMap::new(),
+                        op_term_assignments: HashMap::new(),
                         expansion_path: HashMap::new(),
                     };
 
@@ -557,6 +562,7 @@ mod property {
                         hyper_resolver: HashMap::new(),
                         field_transforms: HashMap::new(),
                         conditional_survival: HashMap::new(),
+                        op_term_assignments: HashMap::new(),
                         expansion_path: HashMap::new(),
                     };
 
@@ -570,6 +576,7 @@ mod property {
                         hyper_resolver: HashMap::new(),
                         field_transforms: HashMap::new(),
                         conditional_survival: HashMap::new(),
+                        op_term_assignments: HashMap::new(),
                         expansion_path: HashMap::new(),
                     };
 
@@ -583,6 +590,7 @@ mod property {
                         hyper_resolver: HashMap::new(),
                         field_transforms: HashMap::new(),
                         conditional_survival: HashMap::new(),
+                        op_term_assignments: HashMap::new(),
                         expansion_path: HashMap::new(),
                     };
 
@@ -787,6 +795,7 @@ fn sigma_delta_unit_wtype() -> Result<(), Box<dyn std::error::Error>> {
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        op_term_assignments: HashMap::new(),
         expansion_path: HashMap::new(),
     };
 
@@ -822,6 +831,7 @@ fn sigma_delta_unit_wtype() -> Result<(), Box<dyn std::error::Error>> {
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        op_term_assignments: HashMap::new(),
         expansion_path: HashMap::new(),
     };
     let restricted = wtype_restrict(&extended, &s1, &s1, &reverse_mig)?;
@@ -869,6 +879,7 @@ fn functor_identity_restrict() -> Result<(), Box<dyn std::error::Error>> {
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
         conditional_survival: HashMap::new(),
+        op_term_assignments: HashMap::new(),
         expansion_path: HashMap::new(),
     };
 

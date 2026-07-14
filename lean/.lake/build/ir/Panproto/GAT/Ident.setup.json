@@ -1,7 +1,0 @@
-{"plugins": [],
- "package": "panproto",
- "options": {"autoImplicit": false},
- "name": "Panproto.GAT.Ident",
- "isModule": false,
- "importArts": {},
- "dynlibs": []}

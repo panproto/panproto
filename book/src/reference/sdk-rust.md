@@ -18,8 +18,6 @@ Full type signatures, constructors, and method documentation live on docs.rs:
 | `full-parse` | Pulls in `panproto-parse` and tree-sitter-based AST parsing. |
 | `project` | Pulls in `panproto-project` for multi-file project assembly. |
 | `git` | Pulls in `panproto-git` for the git bridge. |
-| `llvm` | Enables LLVM-backed lowering via `panproto-llvm`. |
-| `jit` | Enables JIT-compiled migration via `panproto-jit`. |
 | `tree-sitter` | Enables tree-sitter-based format-preserving parsing for built-in protocols (forwards to `panproto-io/tree-sitter`). |
 
 The default feature set re-exports the always-on crates: `panproto-gat`, `panproto-schema`, `panproto-inst`, `panproto-mig`, `panproto-lens`, `panproto-check`, `panproto-protocols`, `panproto-io`, and `panproto-vcs`. The feature flags above pull in the optional crates on top.
