@@ -135,6 +135,11 @@ pub(crate) struct Output<'a> {
 #[derive(Clone)]
 pub(crate) struct OutputSnapshot {
     pub(crate) tokens_len: usize,
+    /// The active per-vertex `ptrace` budget at snapshot time. Restored with
+    /// the token stream so a REPEAT/OPTIONAL iteration that rolls back also
+    /// rolls back any separator budget it spent (a `_terminator` that picked
+    /// `;;` inside a zero-progress iteration must un-spend it).
+    ptrace_budget: std::collections::HashMap<String, usize>,
 }
 
 impl<'a> Output<'a> {
@@ -333,11 +338,13 @@ impl<'a> Output<'a> {
     pub(crate) fn snapshot(&self) -> OutputSnapshot {
         OutputSnapshot {
             tokens_len: self.tokens.len(),
+            ptrace_budget: super::snapshot_ptrace_budget(),
         }
     }
 
     pub(crate) fn restore(&mut self, snap: OutputSnapshot) {
         self.tokens.truncate(snap.tokens_len);
+        super::restore_ptrace_budget(snap.ptrace_budget);
     }
 
     /// True iff at least one `Token::Lit` was pushed since `snap`.

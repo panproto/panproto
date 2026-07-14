@@ -46,7 +46,7 @@ fn line_comment_does_not_absorb_following_item() {
         let src = b"// doc\npub mod schema;\n";
         let parsed = reg.parse_with_protocol("rust", src, "a.rs").expect("parse");
         let original = kind_multiset(&parsed);
-        let mut abs = parsed.clone();
+        let mut abs = parsed;
         abs.forget_layout_in_place();
         let bytes = reg
             .emit_pretty_with_protocol("rust", &abs)
@@ -82,7 +82,7 @@ fn opaque_token_tree_leaf_emits_verbatim() {
             .values()
             .find(|v| {
                 v.kind.as_ref() == "token_tree"
-                    && parsed.outgoing_edges(&v.id.to_string()).iter().any(|e| {
+                    && parsed.outgoing_edges(v.id.as_str()).iter().any(|e| {
                         parsed
                             .vertices
                             .get(&e.tgt)
@@ -94,9 +94,9 @@ fn opaque_token_tree_leaf_emits_verbatim() {
 
         // Collapse it to the opaque-leaf encoding: no children, one
         // literal-value carrying the whole run (including the `::`).
-        let mut s = parsed.clone();
+        let mut s = parsed;
         let child_ids: Vec<_> = s
-            .outgoing_edges(&tt_id.to_string())
+            .outgoing_edges(tt_id.as_str())
             .iter()
             .map(|e| e.tgt.clone())
             .collect();
@@ -169,7 +169,7 @@ fn forget_layout_strips_blank_lines_before() {
             recorded > 0,
             "expected the walker to record blank-lines-before on the spaced items"
         );
-        let mut abs = parsed.clone();
+        let mut abs = parsed;
         abs.forget_layout_in_place();
         let remaining = abs
             .constraints

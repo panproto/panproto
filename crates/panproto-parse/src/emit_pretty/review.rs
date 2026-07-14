@@ -31,13 +31,14 @@ use super::{
     alt_satisfies_pre_alias_constraints, byte_span_consistent_with_parent, children_for,
     classify_seq_positions, clear_field_context, collect_field_names,
     collect_inner_field_names_expanded, contains_newline_pattern, current_field_context,
-    first_unconsumed_target_fingerprint, has_field_in, has_relevant_constraint, has_repeat_in,
-    is_blank_line_rule, is_connector_punctuation, is_immediate_token, is_newline_alt,
-    is_newline_like_pattern, is_no_space_external, is_whitespace_external,
-    is_whitespace_only_pattern, is_word_like, leaf_terminal_role, left_recursive_alts,
-    literal_strings, literal_value, mandatory_field_names, member_has_leading_bracket,
-    pattern_absorbs_leading_space, placeholder_for_pattern, pre_alias_symbol, prec_value,
-    push_field_context, reconstruct_subtree_bytes, reduces_to_immediate_token, referenced_symbols,
+    enter_ptrace_budget, first_unconsumed_target_fingerprint, has_field_in,
+    has_relevant_constraint, has_repeat_in, is_blank_line_rule, is_connector_punctuation,
+    is_immediate_token, is_newline_alt, is_newline_like_pattern, is_no_space_external,
+    is_ptrace_budget_owner, is_whitespace_external, is_whitespace_only_pattern, is_word_like,
+    leaf_terminal_role, left_recursive_alts, literal_strings, literal_value, mandatory_field_names,
+    member_has_leading_bracket, pattern_absorbs_leading_space, placeholder_for_pattern,
+    pre_alias_symbol, prec_value, ptrace_budget_allows, ptrace_budget_consume, push_field_context,
+    reconstruct_subtree_bytes, reduces_to_immediate_token, referenced_symbols,
     repeat_body_is_whole_vertex_item, repeat_has_bracket_keyed_member, seq_bracket_triggers_indent,
     seq_open_bracket_index, unbounded_negated_class, unwrap_prec, unwrap_to_string,
     vertex_has_byte_span, vertex_id_kind, yield_of_production,
@@ -735,6 +736,31 @@ pub(crate) fn walk_in_mu_frame(
     result
 }
 
+/// The per-vertex `ptrace`-literal budget for `vertex_id`: for each anonymous
+/// grammar token the parser recorded (`ptrace-<slot> = T<lit>`), the number of
+/// times that exact literal occurred in source. Because the parser records
+/// EVERY anonymous token of a node, this count is the literal's true source
+/// multiplicity — the byte-faithful cap on how many separator CHOICEs the
+/// vertex's by-construction walk may resolve to it (see [`EMIT_PTRACE_BUDGET`]).
+/// Empty when the vertex carries no `ptrace` fibre (canonical / transpiled
+/// schemas), leaving the literal tie-break unbounded as before.
+fn compute_ptrace_budget(
+    schema: &Schema,
+    vertex_id: &panproto_gat::Name,
+) -> std::collections::HashMap<String, usize> {
+    let mut budget = std::collections::HashMap::new();
+    if let Some(cs) = schema.constraints.get(vertex_id) {
+        for c in cs {
+            if c.sort.as_ref().starts_with("ptrace-") {
+                if let Some(lit) = c.value.strip_prefix('T') {
+                    *budget.entry(lit.to_owned()).or_insert(0) += 1;
+                }
+            }
+        }
+    }
+    budget
+}
+
 pub(crate) fn emit_production(
     protocol: &str,
     schema: &Schema,
@@ -744,6 +770,19 @@ pub(crate) fn emit_production(
     cursor: &mut ChildCursor<'_>,
     out: &mut Output<'_>,
 ) -> Result<(), ParseError> {
+    // Install this vertex's `ptrace` budget the first time the walk descends
+    // into it (owner changes). A nested walk of the SAME vertex — a hidden
+    // rule inlined onto it (bash `_statements`), or the successive SEQ members
+    // / REPEAT iterations of its own rule — keeps the budget already installed,
+    // so a separator literal spent at one CHOICE site stays spent at the next.
+    // Descending into a CHILD vertex installs (and, on unwind, restores) that
+    // child's own budget, so a `;;` inside a nested `case` cannot exhaust the
+    // outer case_item's budget.
+    let _budget_guard = if is_ptrace_budget_owner(vertex_id) {
+        None
+    } else {
+        enter_ptrace_budget(vertex_id, compute_ptrace_budget(schema, vertex_id))
+    };
     let depth = EMIT_DEPTH.with(|d| {
         let v = d.get() + 1;
         d.set(v);
@@ -1189,7 +1228,17 @@ pub(crate) fn emit_production_inner(
 ) -> Result<(), ParseError> {
     match production {
         Production::String { value } => {
-            out.token(value);
+            // Per-vertex `ptrace` budget: a literal recorded N times in source
+            // may be emitted at most N times across this vertex's walk. When a
+            // variant CHOICE has already spent the budget for this literal (the
+            // second/third `;;` a bash `case_item`'s separator CHOICEs would
+            // otherwise fabricate), suppress the duplicate. Literals with no
+            // recorded budget (canonical / by-construction schemas, and every
+            // token the parser never traced) are always admitted.
+            if ptrace_budget_allows(value) {
+                out.token(value);
+                ptrace_budget_consume(value);
+            }
             Ok(())
         }
         Production::Pattern { value } => {
@@ -1382,7 +1431,13 @@ pub(crate) fn emit_production_inner(
                         .find(|c| c.sort.as_ref() == sort)
                         .map(|c| c.value.clone())
                 }) {
-                    out.token(&v);
+                    // A `field:<name>` anonymous token is a redundant copy of a
+                    // `ptrace` slot, so it draws on the same per-vertex budget:
+                    // emit it only while that literal's source count is unspent.
+                    if ptrace_budget_allows(&v) {
+                        out.token(&v);
+                        ptrace_budget_consume(&v);
+                    }
                 }
                 // Otherwise surface nothing; the surrounding REPEAT /
                 // OPTIONAL / CHOICE backtracks when it sees no progress.
@@ -1668,6 +1723,14 @@ pub(crate) fn emit_production_inner(
                             }
                         });
                         out.token_with_role(value, Some(role));
+                        // Spend one unit of this literal's per-vertex budget: a
+                        // CHOICE just resolved to a recorded anonymous token, so
+                        // a later separator CHOICE on the same vertex may not
+                        // re-emit the same literal past its source count. A
+                        // snapshot/restore around a rolled-back REPEAT iteration
+                        // un-spends it. No-op for literals with no `ptrace`
+                        // budget.
+                        ptrace_budget_consume(value);
                         Ok(())
                     }
                     _ => {
@@ -2813,7 +2876,7 @@ pub(crate) fn pick_choice_with_cursor<'a>(
     for alt in alternatives {
         collect_field_names(alt, &mut alt_field_names);
     }
-    let trace_tokens: Vec<String> = schema
+    let mut trace_tokens: Vec<String> = schema
         .constraints
         .get(vertex_id)
         .map(|cs| {
@@ -2832,6 +2895,15 @@ pub(crate) fn pick_choice_with_cursor<'a>(
                 .collect()
         })
         .unwrap_or_default();
+    // Per-vertex `ptrace`-literal budget: drop any recorded literal whose
+    // emission budget is already spent, so the variant-tag tie-break below
+    // cannot re-satisfy the SAME separator at a later CHOICE site. bash
+    // `case_item` records one `;;` (as `ptrace` and, for a non-last item, a
+    // redundant `field:termination`), yet its walk visits three separator
+    // CHOICEs; once the first has claimed the `;;`, the rest fall through to
+    // their newline / BLANK alternative. Vertices with no `ptrace` fibre carry
+    // no budget, so this is a no-op on canonical / by-construction schemas.
+    trace_tokens.retain(|t| ptrace_budget_allows(t));
     // The recorded `field:<name>=<value>` pairs. An alternative that binds
     // field <name> to a literal set excluding <value> contradicts the parse
     // and is rejected before maximal-munch (JS `for (const x of …)`: the
