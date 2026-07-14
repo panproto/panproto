@@ -26,7 +26,7 @@ git2 = { workspace = true }
 panproto-xrpc = { workspace = true }
 panproto-vcs = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread"] }
-rustyline = "14"
+rustyline = "18"
 miette = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
