@@ -171,6 +171,11 @@ impl<'a> AstWalker<'a> {
         parent_vertex_id: Option<&str>,
     ) -> Result<SchemaBuilder, ParseError> {
         // Skip anonymous tokens (punctuation, keywords like `{`, `}`, `,`, etc.).
+        // Error-recovery MISSING anonymous tokens (a zero-width `}`, `)`, `,`,
+        // or keyword tree-sitter *inserts* to recover) are anonymous too, so
+        // they would be dropped here; they are instead surfaced in
+        // `walk_children_with_interstitials`, which scans every node's children
+        // for them before the named-child walk (which also skips them).
         if !node.is_named() {
             return Ok(builder);
         }
@@ -361,6 +366,44 @@ impl<'a> AstWalker<'a> {
         Ok(builder)
     }
 
+    /// Emit a zero-width, `ERROR`-kinded marker vertex for a tree-sitter
+    /// error-recovery MISSING anonymous token, attached to `parent_vertex_id`.
+    ///
+    /// The marker is kinded like a genuine `ERROR` node where the protocol or
+    /// theory admits that kind, else the closed-protocol `node` fallback. Its
+    /// zero-width span (`start == end`, as for any inserted token) and its
+    /// `missing` constraint (recording the elided token) let a downstream
+    /// schema walker distinguish a recovered-incomplete parse from a complete
+    /// one; a missing *named* token is already surfaced as a zero-width vertex
+    /// by the normal walk, so this only closes the gap for anonymous ones.
+    fn emit_missing_marker(
+        &self,
+        missing: tree_sitter::Node<'_>,
+        mut builder: SchemaBuilder,
+        id_gen: &mut IdGenerator,
+        parent_vertex_id: &str,
+    ) -> Result<SchemaBuilder, ParseError> {
+        let admits_error = self.protocol.obj_kinds.is_empty()
+            || self.protocol.obj_kinds.iter().any(|k| k == "ERROR")
+            || self.theory_meta.vertex_kinds.iter().any(|k| k == "ERROR");
+        let marker_kind = if admits_error { "ERROR" } else { "node" };
+        let vertex_id = id_gen.anonymous_id();
+        builder = builder.vertex(&vertex_id, marker_kind, None).map_err(|e| {
+            ParseError::SchemaConstruction {
+                reason: format!("missing-token marker '{vertex_id}': {e}"),
+            }
+        })?;
+        builder = builder
+            .edge(parent_vertex_id, &vertex_id, "child_of", None)
+            .map_err(|e| ParseError::SchemaConstruction {
+                reason: format!("missing-token edge {parent_vertex_id} -> {vertex_id}: {e}"),
+            })?;
+        builder = builder.constraint(&vertex_id, "start-byte", &missing.start_byte().to_string());
+        builder = builder.constraint(&vertex_id, "end-byte", &missing.end_byte().to_string());
+        builder = builder.constraint(&vertex_id, "missing", missing.kind());
+        Ok(builder)
+    }
+
     /// Walk named children, capturing interstitial text between them.
     ///
     /// Also computes a `chose-alt-fingerprint` constraint by trimming
@@ -412,6 +455,21 @@ impl<'a> AstWalker<'a> {
             }
             builder = self.walk_node(*child, builder, id_gen, Some(vertex_id))?;
             prev_end = child.end_byte();
+        }
+
+        // Surface error-recovery MISSING anonymous tokens among this node's
+        // direct children. Tree-sitter inserts a zero-width MISSING token (a
+        // `}`, `)`, `,`, or keyword) to recover from an incomplete construct;
+        // because it is anonymous it is skipped by the named-children walk
+        // above, so a recovered-incomplete parse would otherwise carry no ERROR
+        // vertex and no zero-width vertex — indistinguishable from a complete
+        // parse. Emit a marker for each so schema walkers that reject ERROR /
+        // zero-width vertices detect the recovery.
+        let missing_cursor = &mut node.walk();
+        for child in node.children(missing_cursor) {
+            if child.is_missing() && !child.is_named() {
+                builder = self.emit_missing_marker(child, builder, id_gen, vertex_id)?;
+            }
         }
 
         // Trailing interstitial after the last child.
