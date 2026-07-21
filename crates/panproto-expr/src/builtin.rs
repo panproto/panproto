@@ -274,9 +274,15 @@ fn apply_string(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError> {
             }
             _ => Err(type_err("(string, string, string)", &args[0])),
         },
+        // `Contains` is overloaded on its first argument: substring
+        // containment on a string, element membership on a list. The list
+        // case is what predicates over a list-valued field use — the field
+        // arrives as a `Literal::List`, so membership is tested directly
+        // rather than against a flattened string.
         BuiltinOp::Contains => match (&args[0], &args[1]) {
             (Literal::Str(s), Literal::Str(substr)) => Ok(Literal::Bool(s.contains(&**substr))),
-            _ => Err(type_err("(string, string)", &args[0])),
+            (Literal::List(items), needle) => Ok(Literal::Bool(items.iter().any(|i| i == needle))),
+            _ => Err(type_err("(string, string) or (list, any)", &args[0])),
         },
         _ => Err(ExprError::InternalDispatch {
             op: format!("{op:?}"),

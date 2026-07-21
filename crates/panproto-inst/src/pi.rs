@@ -352,7 +352,7 @@ pub fn wtype_pi(
         let transforms = migration.value_transforms(&node.anchor);
         if !transforms.is_empty() {
             let scalars = crate::wtype::collect_scalar_child_values(instance, id);
-            crate::wtype::apply_field_transforms(&mut new_node, &transforms, &scalars);
+            crate::wtype::apply_field_transforms(&mut new_node, &transforms, &scalars)?;
         }
         new_nodes.insert(id, new_node);
     }

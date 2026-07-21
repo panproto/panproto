@@ -658,12 +658,45 @@ fn desugar_do(stmts: Vec<DoStmt>) -> Expr {
     })
 }
 
+/// Permute a higher-order list builtin's arguments from surface order
+/// into evaluator order.
+///
+/// The surface syntax follows the usual functional convention of naming
+/// the function first (`map f xs`, `fold f z xs`), while [`Expr::Builtin`]
+/// takes the list first and the function last. The two orders are
+/// deliberately distinct: `Expr` is serialized into stored lens
+/// documents, so its argument order is the compatibility-bearing one and
+/// the surface syntax lowers into it.
+///
+/// Applied only once the builtin is saturated, since a partial
+/// application has no complete order to permute. Builtins outside this
+/// set take their arguments in the same order at both layers and pass
+/// through untouched.
+fn lower_list_builtin_args(op: BuiltinOp, args: Vec<Expr>) -> Vec<Expr> {
+    match (op, args.len()) {
+        // `map f xs` / `filter p xs` / `flat_map f xs` -> [xs, f]
+        (BuiltinOp::Map | BuiltinOp::Filter | BuiltinOp::FlatMap, 2) => {
+            let mut args = args;
+            args.swap(0, 1);
+            args
+        }
+        // `fold f z xs` -> [xs, z, f]
+        (BuiltinOp::Fold, 3) => {
+            let mut args = args;
+            args.swap(0, 2);
+            args
+        }
+        _ => args,
+    }
+}
+
 /// Resolve function application, detecting builtin names.
 fn resolve_application(func: Expr, arg: Expr) -> Expr {
     match &func {
         Expr::Var(name) => {
             if let Some(op) = resolve_builtin(name) {
-                Expr::Builtin(op, vec![arg])
+                let args = lower_list_builtin_args(op, vec![arg]);
+                Expr::Builtin(op, args)
             } else {
                 Expr::App(Box::new(func), Box::new(arg))
             }
@@ -671,7 +704,7 @@ fn resolve_application(func: Expr, arg: Expr) -> Expr {
         Expr::Builtin(op, args) if args.len() < op.arity() => {
             let mut new_args = args.clone();
             new_args.push(arg);
-            Expr::Builtin(*op, new_args)
+            Expr::Builtin(*op, lower_list_builtin_args(*op, new_args))
         }
         _ => Expr::App(Box::new(func), Box::new(arg)),
     }
@@ -907,12 +940,66 @@ mod tests {
 
     #[test]
     fn parse_builtin_application() {
+        // Surface order is `map f xs`; the stored form is list-first,
+        // which is the order `eval_map` reads.
         assert_eq!(
             parse_ok("map f xs"),
             Expr::Builtin(
                 BuiltinOp::Map,
-                vec![Expr::Var(Arc::from("f")), Expr::Var(Arc::from("xs"))]
+                vec![Expr::Var(Arc::from("xs")), Expr::Var(Arc::from("f"))]
             )
+        );
+    }
+
+    #[test]
+    fn parse_fold_lowers_list_first() {
+        assert_eq!(
+            parse_ok("fold f z xs"),
+            Expr::Builtin(
+                BuiltinOp::Fold,
+                vec![
+                    Expr::Var(Arc::from("xs")),
+                    Expr::Var(Arc::from("z")),
+                    Expr::Var(Arc::from("f")),
+                ]
+            )
+        );
+    }
+
+    #[test]
+    fn parsed_list_builtins_evaluate() {
+        // The lowering exists so that surface-authored list expressions
+        // actually run: before it, every `map` / `filter` / `fold` failed
+        // with `expected list, got function`.
+        let env = panproto_expr::Env::new().extend(
+            Arc::from("xs"),
+            panproto_expr::Literal::List(vec![
+                panproto_expr::Literal::Int(1),
+                panproto_expr::Literal::Int(2),
+                panproto_expr::Literal::Int(3),
+            ]),
+        );
+        let config = panproto_expr::EvalConfig::default();
+        let eval = |src: &str| panproto_expr::eval(&parse_ok(src), &env, &config);
+
+        assert_eq!(
+            eval("map (\\x -> x * 2) xs").expect("map should evaluate"),
+            panproto_expr::Literal::List(vec![
+                panproto_expr::Literal::Int(2),
+                panproto_expr::Literal::Int(4),
+                panproto_expr::Literal::Int(6),
+            ])
+        );
+        assert_eq!(
+            eval("filter (\\x -> x > 1) xs").expect("filter should evaluate"),
+            panproto_expr::Literal::List(vec![
+                panproto_expr::Literal::Int(2),
+                panproto_expr::Literal::Int(3),
+            ])
+        );
+        assert_eq!(
+            eval("fold (\\a -> \\b -> a + b) 0 xs").expect("fold should evaluate"),
+            panproto_expr::Literal::Int(6)
         );
     }
 

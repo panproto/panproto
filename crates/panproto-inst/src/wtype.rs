@@ -523,12 +523,18 @@ impl TermAssignment {
 /// flat row has no child fibers, so the child-scalar environment is empty.
 /// This is the value action of `Delta` and `Sigma` on set-valued
 /// (relational) instances.
+///
+/// # Errors
+///
+/// Returns [`RestrictError::FieldTransformFailed`] if an assignment's
+/// lowered transform fails to evaluate. The row is restored to its
+/// pre-transform contents before the error propagates.
 pub fn apply_term_assignments_to_row(
     row: &mut HashMap<String, Value>,
     assignments: &[TermAssignment],
-) {
+) -> Result<(), RestrictError> {
     if assignments.is_empty() {
-        return;
+        return Ok(());
     }
     let transforms: Vec<FieldTransform> = assignments
         .iter()
@@ -536,8 +542,11 @@ pub fn apply_term_assignments_to_row(
         .collect();
     let mut node = Node::new(0, "");
     node.extra_fields = std::mem::take(row);
-    apply_field_transforms(&mut node, &transforms, &HashMap::new());
+    let outcome = apply_field_transforms(&mut node, &transforms, &HashMap::new());
+    // Restore the row whether or not the transforms succeeded: `mem::take`
+    // emptied it, so an early return would hand back a blank row.
     *row = node.extra_fields;
+    outcome
 }
 
 impl CompiledMigration {
@@ -1098,7 +1107,7 @@ pub fn wtype_restrict(
                 let transforms = migration.value_transforms(&child_node.anchor);
                 if !transforms.is_empty() {
                     let scalars = collect_scalar_child_values(instance, child_id);
-                    apply_field_transforms(&mut new_node, &transforms, &scalars);
+                    apply_field_transforms(&mut new_node, &transforms, &scalars)?;
                 }
                 new_nodes.insert(child_id, new_node.clone());
 
@@ -1280,11 +1289,18 @@ fn connect_ancestor_to_child(
 ///   computed columns or database views with derived columns. `PutGet`
 ///   holds for the independent (non-derived) components of the view,
 ///   and derived components are re-computed deterministically.
+///
+/// # Errors
+///
+/// Returns [`RestrictError::FieldTransformFailed`] if a transform's
+/// expression fails to evaluate. A failed transform is reported rather
+/// than skipped: leaving the field untouched makes a broken lens
+/// indistinguishable from one that ran and changed nothing.
 pub fn apply_field_transforms(
     node: &mut Node,
     transforms: &[FieldTransform],
     child_scalars: &HashMap<String, Value>,
-) {
+) -> Result<(), RestrictError> {
     for transform in transforms {
         match transform {
             FieldTransform::RenameField { old_key, new_key } => {
@@ -1313,11 +1329,15 @@ pub fn apply_field_transforms(
                             .extend(std::sync::Arc::from("v"), input.clone())
                             .extend(std::sync::Arc::from("__value__"), input);
                         let config = panproto_expr::EvalConfig::default();
-                        if let Ok(result) = panproto_expr::eval(expr, &env, &config) {
-                            node.value = Some(crate::value::FieldPresence::Present(
-                                expr_literal_to_value(&result),
-                            ));
-                        }
+                        let result = panproto_expr::eval(expr, &env, &config).map_err(|source| {
+                            RestrictError::FieldTransformFailed {
+                                key: key.clone(),
+                                source,
+                            }
+                        })?;
+                        node.value = Some(crate::value::FieldPresence::Present(
+                            expr_literal_to_value(&result),
+                        ));
                     }
                 } else if let Some(val) = node
                     .extra_fields
@@ -1334,10 +1354,14 @@ pub fn apply_field_transforms(
                     let env =
                         panproto_expr::Env::new().extend(std::sync::Arc::from(key.as_str()), input);
                     let config = panproto_expr::EvalConfig::default();
-                    if let Ok(result) = panproto_expr::eval(expr, &env, &config) {
-                        node.extra_fields
-                            .insert(key.clone(), expr_literal_to_value(&result));
-                    }
+                    let result = panproto_expr::eval(expr, &env, &config).map_err(|source| {
+                        RestrictError::FieldTransformFailed {
+                            key: key.clone(),
+                            source,
+                        }
+                    })?;
+                    node.extra_fields
+                        .insert(key.clone(), expr_literal_to_value(&result));
                 }
             }
             FieldTransform::ComputeField {
@@ -1345,18 +1369,22 @@ pub fn apply_field_transforms(
             } => {
                 let env = build_env_with_children(&node.extra_fields, child_scalars);
                 let config = panproto_expr::EvalConfig::default();
-                if let Ok(result) = panproto_expr::eval(expr, &env, &config) {
-                    node.extra_fields
-                        .insert(target_key.clone(), expr_literal_to_value(&result));
-                }
+                let result = panproto_expr::eval(expr, &env, &config).map_err(|source| {
+                    RestrictError::FieldTransformFailed {
+                        key: target_key.clone(),
+                        source,
+                    }
+                })?;
+                node.extra_fields
+                    .insert(target_key.clone(), expr_literal_to_value(&result));
             }
             FieldTransform::PathTransform { path, inner } => {
                 if path.is_empty() {
                     // Empty path = apply directly. PathTransform operates on nested
                     // extra_fields, not the instance tree, so child_scalars is empty.
-                    apply_field_transforms(node, std::slice::from_ref(inner), &HashMap::new());
+                    apply_field_transforms(node, std::slice::from_ref(inner), &HashMap::new())?;
                 } else {
-                    apply_path_transform(node, path, inner);
+                    apply_path_transform(node, path, inner)?;
                 }
             }
             FieldTransform::MapReferences { field, rename_map } => {
@@ -1368,40 +1396,57 @@ pub fn apply_field_transforms(
                 // scalar child values.
                 let env = build_env_with_children(&node.extra_fields, child_scalars);
                 let config = panproto_expr::EvalConfig::default();
-                for branch in branches {
-                    let result = panproto_expr::eval(&branch.predicate, &env, &config);
-                    if matches!(result, Ok(panproto_expr::Literal::Bool(true))) {
-                        apply_field_transforms(node, &branch.transforms, child_scalars);
+                for (index, branch) in branches.iter().enumerate() {
+                    let result = panproto_expr::eval(&branch.predicate, &env, &config).map_err(
+                        |source| RestrictError::FieldTransformFailed {
+                            key: format!("<case branch {index}>"),
+                            source,
+                        },
+                    )?;
+                    if matches!(result, panproto_expr::Literal::Bool(true)) {
+                        apply_field_transforms(node, &branch.transforms, child_scalars)?;
                         break;
                     }
                 }
             }
         }
     }
+    Ok(())
 }
 
 /// Navigate into nested `Value::Unknown` maps along `path` and apply the
 /// inner transform at the resolved location.
-fn apply_path_transform(node: &mut Node, path: &[String], inner: &FieldTransform) {
+fn apply_path_transform(
+    node: &mut Node,
+    path: &[String],
+    inner: &FieldTransform,
+) -> Result<(), RestrictError> {
     let first = &path[0];
-    if let Some(Value::Unknown(map)) = node.extra_fields.get_mut(first) {
-        if path.len() == 1 {
-            // At the target; apply inner transform to this map.
-            // PathTransform operates on nested extra_fields, not the
-            // instance tree, so child_scalars is empty.
-            let mut temp_node = Node::new(0, "");
-            temp_node.extra_fields = std::mem::take(map);
-            apply_field_transforms(&mut temp_node, std::slice::from_ref(inner), &HashMap::new());
-            *map = temp_node.extra_fields;
-        } else {
-            // Recurse deeper; wrap the remaining path in a temporary node
-            let rest = &path[1..];
-            let mut temp_node = Node::new(0, "");
-            temp_node.extra_fields = std::mem::take(map);
-            apply_path_transform(&mut temp_node, rest, inner);
-            *map = temp_node.extra_fields;
-        }
+    let Some(Value::Unknown(map)) = node.extra_fields.get_mut(first) else {
+        return Ok(());
+    };
+
+    // Move the nested map into a temporary node so the transform can run
+    // against it as an ordinary `extra_fields` map.
+    let mut temp_node = Node::new(0, "");
+    temp_node.extra_fields = std::mem::take(map);
+
+    let outcome = if path.len() == 1 {
+        // At the target; apply inner transform to this map.
+        // PathTransform operates on nested extra_fields, not the
+        // instance tree, so child_scalars is empty.
+        apply_field_transforms(&mut temp_node, std::slice::from_ref(inner), &HashMap::new())
+    } else {
+        apply_path_transform(&mut temp_node, &path[1..], inner)
+    };
+
+    // Restore the map before propagating: the node was left holding an
+    // empty map by `mem::take`, so an early return on failure would
+    // otherwise erase the nested fields it was asked to transform.
+    if let Some(Value::Unknown(slot)) = node.extra_fields.get_mut(first) {
+        *slot = temp_node.extra_fields;
     }
+    outcome
 }
 
 /// Apply a `MapReferences` transform to a node's field, handling both
@@ -1551,14 +1596,28 @@ pub fn build_env_from_extra_fields(fields: &HashMap<String, Value>) -> panproto_
 
 /// Convert an instance `Value` to a `panproto_expr::Literal` for expression evaluation.
 ///
-/// `Value::List` is flattened to a comma-separated `Literal::Str`
-/// containing only the list's string elements, so that predicate
-/// builtins like `Contains` can test membership without needing a list
-/// literal in the expression language. Non-string elements are
-/// silently dropped from the joined form — `value_to_expr_literal`
-/// represents the projection `List Value → List Str ↪ Str`, which is
-/// the composition of the obvious forgetful map and the join. Only
-/// the string leaves of a list contribute to the joined representation.
+/// The conversion is structure-preserving on the two container
+/// variants: `Value::List` maps to `Literal::List` and `Value::Unknown`
+/// maps to `Literal::Record`, in both cases converting the contents
+/// recursively. This makes list- and record-valued fields reachable by
+/// `map` / `fold` / `head` and by field projection, rather than
+/// collapsing them to a scalar before the expression ever runs.
+///
+/// Record fields are emitted in sorted key order. `Value::Unknown` is
+/// backed by a `HashMap`, whose iteration order varies between runs, so
+/// sorting is what makes the conversion a function: the same map always
+/// yields the same `Literal::Record`, and equality and hashing over the
+/// result are stable.
+///
+/// Membership predicates over a list are served by `Contains`, which
+/// accepts a list argument directly and tests element membership. The
+/// list is therefore never flattened to a joined string on the way into
+/// the environment.
+///
+/// The remaining variants — `CidLink`, `Blob`, `Token`, `Opaque`, and
+/// `LabeledNull` — have no faithful `Literal` counterpart and convert to
+/// `Literal::Null`. An expression reading one of those fields sees a
+/// null rather than a lossy re-encoding.
 #[must_use]
 pub fn value_to_expr_literal(val: &Value) -> panproto_expr::Literal {
     match val {
@@ -1566,15 +1625,17 @@ pub fn value_to_expr_literal(val: &Value) -> panproto_expr::Literal {
         Value::Int(i) => panproto_expr::Literal::Int(*i),
         Value::Float(f) => panproto_expr::Literal::Float(*f),
         Value::Str(s) => panproto_expr::Literal::Str(s.clone()),
+        Value::Bytes(b) => panproto_expr::Literal::Bytes(b.clone()),
         Value::List(items) => {
-            let parts: Vec<&str> = items
+            panproto_expr::Literal::List(items.iter().map(value_to_expr_literal).collect())
+        }
+        Value::Unknown(map) => {
+            let mut fields: Vec<(std::sync::Arc<str>, panproto_expr::Literal)> = map
                 .iter()
-                .filter_map(|item| match item {
-                    Value::Str(s) => Some(s.as_str()),
-                    _ => None,
-                })
+                .map(|(k, v)| (std::sync::Arc::from(k.as_str()), value_to_expr_literal(v)))
                 .collect();
-            panproto_expr::Literal::Str(parts.join(","))
+            fields.sort_by(|(a, _), (b, _)| a.cmp(b));
+            panproto_expr::Literal::Record(fields)
         }
         _ => panproto_expr::Literal::Null,
     }
@@ -1582,8 +1643,19 @@ pub fn value_to_expr_literal(val: &Value) -> panproto_expr::Literal {
 
 /// Convert a `panproto_expr::Literal` back to an instance `Value`.
 ///
+/// The inverse direction of [`value_to_expr_literal`], and
+/// structure-preserving on the same containers: `Literal::List` maps to
+/// `Value::List` and `Literal::Record` to `Value::Unknown`, recursively.
+/// An expression that *returns* a list of records — the shape produced
+/// by `map (\x -> { .. }) xs` — is therefore written back as structured
+/// data rather than collapsing to a null.
+///
 /// Integer-valued floats are normalized to `Value::Int` for round-trip
 /// fidelity with JSON (which doesn't distinguish int/float).
+///
+/// `Literal::Closure` has no instance counterpart and converts to
+/// `Value::Null`: a closure is an intermediate of evaluation, never a
+/// value that should be persisted into a record.
 #[must_use]
 pub fn expr_literal_to_value(lit: &panproto_expr::Literal) -> Value {
     match lit {
@@ -1603,7 +1675,17 @@ pub fn expr_literal_to_value(lit: &panproto_expr::Literal) -> Value {
             }
         }
         panproto_expr::Literal::Str(s) => Value::Str(s.clone()),
-        _ => Value::Null,
+        panproto_expr::Literal::Bytes(b) => Value::Bytes(b.clone()),
+        panproto_expr::Literal::List(items) => {
+            Value::List(items.iter().map(expr_literal_to_value).collect())
+        }
+        panproto_expr::Literal::Record(fields) => Value::Unknown(
+            fields
+                .iter()
+                .map(|(k, v)| (k.to_string(), expr_literal_to_value(v)))
+                .collect(),
+        ),
+        panproto_expr::Literal::Null | panproto_expr::Literal::Closure { .. } => Value::Null,
     }
 }
 
@@ -1635,7 +1717,7 @@ fn prepare_root_node(
     let transforms = migration.value_transforms(&root_node.anchor);
     if !transforms.is_empty() {
         let scalars = collect_scalar_child_values(instance, root_node.id);
-        apply_field_transforms(&mut node, &transforms, &scalars);
+        apply_field_transforms(&mut node, &transforms, &scalars)?;
     }
     Ok(node)
 }
@@ -1743,7 +1825,7 @@ fn wtype_extend_inner(
         let transforms = migration.value_transforms(&node.anchor);
         if !transforms.is_empty() {
             let scalars = collect_scalar_child_values(instance, id);
-            apply_field_transforms(&mut new_node, &transforms, &scalars);
+            apply_field_transforms(&mut new_node, &transforms, &scalars)?;
         }
         new_nodes.insert(id, new_node);
     }
@@ -2444,7 +2526,7 @@ mod tests {
                 new_key: "new_attr".to_string(),
             }),
         };
-        apply_field_transforms(&mut node, &[transform], &HashMap::new());
+        apply_field_transforms(&mut node, &[transform], &HashMap::new()).expect("transform should evaluate");
 
         match node.extra_fields.get("attrs") {
             Some(Value::Unknown(map)) => {
@@ -2468,7 +2550,7 @@ mod tests {
                 new_key: "colour".to_string(),
             }),
         };
-        apply_field_transforms(&mut node, &[transform], &HashMap::new());
+        apply_field_transforms(&mut node, &[transform], &HashMap::new()).expect("transform should evaluate");
 
         assert!(!node.extra_fields.contains_key("color"));
         assert_eq!(
@@ -2492,7 +2574,7 @@ mod tests {
             field: "parent".to_string(),
             rename_map,
         };
-        apply_field_transforms(&mut node, &[transform], &HashMap::new());
+        apply_field_transforms(&mut node, &[transform], &HashMap::new()).expect("transform should evaluate");
 
         assert_eq!(
             node.extra_fields.get("parent"),
@@ -2520,7 +2602,7 @@ mod tests {
             field: "parents".to_string(),
             rename_map,
         };
-        apply_field_transforms(&mut node, &[transform], &HashMap::new());
+        apply_field_transforms(&mut node, &[transform], &HashMap::new()).expect("transform should evaluate");
 
         match node.extra_fields.get("parents") {
             Some(Value::List(items)) => {
@@ -2551,7 +2633,7 @@ mod tests {
             field: "refs".to_string(),
             rename_map,
         };
-        apply_field_transforms(&mut node, &[transform], &HashMap::new());
+        apply_field_transforms(&mut node, &[transform], &HashMap::new()).expect("transform should evaluate");
 
         match node.extra_fields.get("refs") {
             Some(Value::List(items)) => {
@@ -2562,48 +2644,102 @@ mod tests {
     }
 
     #[test]
-    fn value_to_expr_literal_joins_string_list() {
-        // A list of strings becomes a comma-separated `Literal::Str`.
-        // This is what `Contains` substring predicates operate on.
+    fn value_to_expr_literal_preserves_string_list() {
+        // A list converts to `Literal::List`, element-wise, so that `map`
+        // and `fold` can reach it. It is NOT joined into a string.
         let val = Value::List(vec![
             Value::Str("a".into()),
             Value::Str("b".into()),
             Value::Str("c".into()),
         ]);
         match value_to_expr_literal(&val) {
-            panproto_expr::Literal::Str(s) => assert_eq!(s, "a,b,c"),
-            other => panic!("expected Literal::Str, got {other:?}"),
+            panproto_expr::Literal::List(items) => assert_eq!(
+                items,
+                vec![
+                    panproto_expr::Literal::Str("a".into()),
+                    panproto_expr::Literal::Str("b".into()),
+                    panproto_expr::Literal::Str("c".into()),
+                ]
+            ),
+            other => panic!("expected Literal::List, got {other:?}"),
         }
     }
 
     #[test]
-    fn value_to_expr_literal_drops_non_string_list_elements() {
-        // Non-string elements must be SILENTLY DROPPED from the joined
-        // form (not Debug-formatted, which would make `Contains(s, "42")`
-        // spuriously match on an `Int(42)` element). Non-string entries
-        // do not contribute to the joined string.
+    fn value_to_expr_literal_keeps_non_string_list_elements() {
+        // Mixed-type elements all survive. The previous joined-string
+        // projection dropped every non-string element, which turned a list
+        // of integers into an empty string.
         let val = Value::List(vec![
             Value::Str("keep".into()),
             Value::Int(42),
             Value::Bool(true),
-            Value::Str("alsokeep".into()),
             Value::Null,
         ]);
         match value_to_expr_literal(&val) {
-            panproto_expr::Literal::Str(s) => assert_eq!(
-                s, "keep,alsokeep",
-                "non-string list elements should be filtered out, not Debug-formatted"
+            panproto_expr::Literal::List(items) => assert_eq!(
+                items,
+                vec![
+                    panproto_expr::Literal::Str("keep".into()),
+                    panproto_expr::Literal::Int(42),
+                    panproto_expr::Literal::Bool(true),
+                    panproto_expr::Literal::Null,
+                ],
+                "non-string list elements must survive the conversion"
             ),
-            other => panic!("expected Literal::Str, got {other:?}"),
+            other => panic!("expected Literal::List, got {other:?}"),
         }
     }
 
     #[test]
-    fn value_to_expr_literal_empty_list_is_empty_string() {
-        let val = Value::List(Vec::new());
+    fn value_to_expr_literal_empty_list_is_empty_list() {
+        match value_to_expr_literal(&Value::List(Vec::new())) {
+            panproto_expr::Literal::List(items) => assert!(items.is_empty()),
+            other => panic!("expected Literal::List, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn value_to_expr_literal_nests_lists_and_records() {
+        // A list of records: the shape an ATProto array-of-objects field
+        // takes, and the one `map (\o -> o.a) objs` has to traverse.
+        let val = Value::List(vec![Value::Unknown(HashMap::from([
+            ("a".to_string(), Value::Int(1)),
+            ("b".to_string(), Value::Int(10)),
+        ]))]);
         match value_to_expr_literal(&val) {
-            panproto_expr::Literal::Str(s) => assert!(s.is_empty()),
-            other => panic!("expected Literal::Str, got {other:?}"),
+            panproto_expr::Literal::List(items) => match &items[..] {
+                [panproto_expr::Literal::Record(fields)] => {
+                    assert_eq!(fields.len(), 2);
+                    assert_eq!(&*fields[0].0, "a");
+                    assert_eq!(fields[0].1, panproto_expr::Literal::Int(1));
+                    assert_eq!(&*fields[1].0, "b");
+                    assert_eq!(fields[1].1, panproto_expr::Literal::Int(10));
+                }
+                other => panic!("expected one Record element, got {other:?}"),
+            },
+            other => panic!("expected Literal::List, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn value_to_expr_literal_record_fields_are_sorted() {
+        // `Value::Unknown` is a HashMap, so field order must be imposed
+        // rather than inherited: the same map must always produce the same
+        // `Literal::Record`, or equality and hashing over it are unstable.
+        let val = Value::Unknown(HashMap::from([
+            ("zulu".to_string(), Value::Int(3)),
+            ("alpha".to_string(), Value::Int(1)),
+            ("mike".to_string(), Value::Int(2)),
+        ]));
+        for _ in 0..16 {
+            match value_to_expr_literal(&val) {
+                panproto_expr::Literal::Record(fields) => {
+                    let keys: Vec<&str> = fields.iter().map(|(k, _)| &**k).collect();
+                    assert_eq!(keys, vec!["alpha", "mike", "zulu"]);
+                }
+                other => panic!("expected Literal::Record, got {other:?}"),
+            }
         }
     }
 
@@ -2621,12 +2757,441 @@ mod tests {
             value_to_expr_literal(&Value::Null),
             panproto_expr::Literal::Null
         ));
-        // Unknown (record) maps to Null because it has no natural
-        // coercion to a Literal without a projection.
+        assert_eq!(
+            value_to_expr_literal(&Value::Bytes(vec![1, 2, 3])),
+            panproto_expr::Literal::Bytes(vec![1, 2, 3])
+        );
+        // An empty record is a record, not a null.
         assert!(matches!(
             value_to_expr_literal(&Value::Unknown(HashMap::new())),
+            panproto_expr::Literal::Record(ref f) if f.is_empty()
+        ));
+        // Variants with no faithful Literal counterpart stay Null.
+        assert!(matches!(
+            value_to_expr_literal(&Value::Token("t".into())),
             panproto_expr::Literal::Null
         ));
+    }
+
+    #[test]
+    fn expr_literal_to_value_preserves_lists_and_records() {
+        // The reverse direction: an expression that RETURNS a list of
+        // records must be written back as structured data, not collapsed
+        // to a null.
+        let lit = panproto_expr::Literal::List(vec![panproto_expr::Literal::Record(vec![
+            (std::sync::Arc::from("x"), panproto_expr::Literal::Int(1)),
+            (
+                std::sync::Arc::from("y"),
+                panproto_expr::Literal::Str("s".into()),
+            ),
+        ])]);
+        match expr_literal_to_value(&lit) {
+            Value::List(items) => match &items[..] {
+                [Value::Unknown(map)] => {
+                    assert_eq!(map.get("x"), Some(&Value::Int(1)));
+                    assert_eq!(map.get("y"), Some(&Value::Str("s".into())));
+                }
+                other => panic!("expected one Unknown element, got {other:?}"),
+            },
+            other => panic!("expected Value::List, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn value_literal_round_trip_is_identity_on_containers() {
+        // The two converters are mutually inverse on the container
+        // variants, which is what makes a transform's output re-readable
+        // by the next transform in the sequence.
+        let val = Value::Unknown(HashMap::from([
+            (
+                "nums".to_string(),
+                Value::List(vec![Value::Int(1), Value::Int(2)]),
+            ),
+            (
+                "nested".to_string(),
+                Value::Unknown(HashMap::from([("a".to_string(), Value::Str("z".into()))])),
+            ),
+            ("flag".to_string(), Value::Bool(false)),
+        ]));
+        assert_eq!(expr_literal_to_value(&value_to_expr_literal(&val)), val);
+    }
+
+    // -----------------------------------------------------------------
+    // List- and record-valued field transforms
+    //
+    // Each of these mirrors one of the reproduction cases reported
+    // against `@panproto/core` 0.59.0, where the transform applied
+    // cleanly to a scalar field but silently no-op'd on a list- or
+    // object-valued one. They fail on the joined-string conversion.
+    // -----------------------------------------------------------------
+
+    /// A node carrying the four field shapes from the report: a scalar
+    /// array, an array of objects, and a nested object.
+    fn node_with_container_fields() -> Node {
+        let mut node = Node::new(0, "rec");
+        node.extra_fields.insert(
+            "nums".to_string(),
+            Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3)]),
+        );
+        node.extra_fields.insert(
+            "objs".to_string(),
+            Value::List(vec![
+                Value::Unknown(HashMap::from([
+                    ("a".to_string(), Value::Int(1)),
+                    ("b".to_string(), Value::Int(10)),
+                ])),
+                Value::Unknown(HashMap::from([
+                    ("a".to_string(), Value::Int(2)),
+                    ("b".to_string(), Value::Int(20)),
+                ])),
+            ]),
+        );
+        node.extra_fields.insert(
+            "nested".to_string(),
+            Value::Unknown(HashMap::from([
+                ("a".to_string(), Value::Int(7)),
+                ("b".to_string(), Value::Int(70)),
+            ])),
+        );
+        node
+    }
+
+    /// `\x -> x + 1` as a lambda expression.
+    fn increment_lambda() -> panproto_expr::Expr {
+        panproto_expr::Expr::Lam(
+            std::sync::Arc::from("x"),
+            Box::new(panproto_expr::Expr::Builtin(
+                panproto_expr::BuiltinOp::Add,
+                vec![
+                    panproto_expr::Expr::Var(std::sync::Arc::from("x")),
+                    panproto_expr::Expr::Lit(panproto_expr::Literal::Int(1)),
+                ],
+            )),
+        )
+    }
+
+    #[test]
+    fn apply_expr_maps_over_an_integer_list() {
+        // `map (\x -> x + 1) nums` over [1,2,3].
+        let mut node = node_with_container_fields();
+        let transform = FieldTransform::ApplyExpr {
+            key: "nums".to_string(),
+            expr: panproto_expr::Expr::Builtin(
+                panproto_expr::BuiltinOp::Map,
+                vec![
+                    panproto_expr::Expr::Var(std::sync::Arc::from("nums")),
+                    increment_lambda(),
+                ],
+            ),
+            inverse: None,
+            coercion_class: panproto_gat::CoercionClass::Projection,
+        };
+        apply_field_transforms(&mut node, &[transform], &HashMap::new())
+            .expect("map over a list field should evaluate");
+
+        assert_eq!(
+            node.extra_fields.get("nums"),
+            Some(&Value::List(vec![
+                Value::Int(2),
+                Value::Int(3),
+                Value::Int(4)
+            ])),
+            "map over an integer list must produce the incremented list, not leave it untouched"
+        );
+    }
+
+    #[test]
+    fn apply_expr_maps_a_projection_over_a_record_list() {
+        // `map (\o -> o.a) objs` over [{a:1,b:10},{a:2,b:20}].
+        let mut node = node_with_container_fields();
+        let project_a = panproto_expr::Expr::Lam(
+            std::sync::Arc::from("o"),
+            Box::new(panproto_expr::Expr::Field(
+                Box::new(panproto_expr::Expr::Var(std::sync::Arc::from("o"))),
+                std::sync::Arc::from("a"),
+            )),
+        );
+        let transform = FieldTransform::ApplyExpr {
+            key: "objs".to_string(),
+            expr: panproto_expr::Expr::Builtin(
+                panproto_expr::BuiltinOp::Map,
+                vec![
+                    panproto_expr::Expr::Var(std::sync::Arc::from("objs")),
+                    project_a,
+                ],
+            ),
+            inverse: None,
+            coercion_class: panproto_gat::CoercionClass::Projection,
+        };
+        apply_field_transforms(&mut node, &[transform], &HashMap::new())
+            .expect("map over a record list should evaluate");
+
+        assert_eq!(
+            node.extra_fields.get("objs"),
+            Some(&Value::List(vec![Value::Int(1), Value::Int(2)])),
+            "field projection over a list of records must reach each record's fields"
+        );
+    }
+
+    #[test]
+    fn compute_field_reads_through_a_nested_record() {
+        // `nested.a` where nested = {a:7,b:70}.
+        let mut node = node_with_container_fields();
+        let transform = FieldTransform::ComputeField {
+            target_key: "out".to_string(),
+            expr: panproto_expr::Expr::Field(
+                Box::new(panproto_expr::Expr::Var(std::sync::Arc::from("nested"))),
+                std::sync::Arc::from("a"),
+            ),
+            inverse: None,
+            coercion_class: panproto_gat::CoercionClass::Projection,
+        };
+        apply_field_transforms(&mut node, &[transform], &HashMap::new())
+            .expect("field access into a nested record should evaluate");
+
+        assert_eq!(
+            node.extra_fields.get("out"),
+            Some(&Value::Int(7)),
+            "field access into a nested object must resolve, not emit nothing"
+        );
+    }
+
+    #[test]
+    fn compute_field_folds_over_a_list() {
+        // `fold (\x y -> x + y) 0 nums` over [1,2,3].
+        let mut node = node_with_container_fields();
+        let add = panproto_expr::Expr::Lam(
+            std::sync::Arc::from("x"),
+            Box::new(panproto_expr::Expr::Lam(
+                std::sync::Arc::from("y"),
+                Box::new(panproto_expr::Expr::Builtin(
+                    panproto_expr::BuiltinOp::Add,
+                    vec![
+                        panproto_expr::Expr::Var(std::sync::Arc::from("x")),
+                        panproto_expr::Expr::Var(std::sync::Arc::from("y")),
+                    ],
+                )),
+            )),
+        );
+        let transform = FieldTransform::ComputeField {
+            target_key: "out".to_string(),
+            expr: panproto_expr::Expr::Builtin(
+                panproto_expr::BuiltinOp::Fold,
+                vec![
+                    panproto_expr::Expr::Var(std::sync::Arc::from("nums")),
+                    panproto_expr::Expr::Lit(panproto_expr::Literal::Int(0)),
+                    add,
+                ],
+            ),
+            inverse: None,
+            coercion_class: panproto_gat::CoercionClass::Projection,
+        };
+        apply_field_transforms(&mut node, &[transform], &HashMap::new())
+            .expect("fold over a list field should evaluate");
+
+        assert_eq!(
+            node.extra_fields.get("out"),
+            Some(&Value::Int(6)),
+            "fold over an integer list must sum it"
+        );
+    }
+
+    #[test]
+    fn compute_field_builds_a_nested_record_list() {
+        // The regroup shape the report is blocked on: build a list of
+        // records from a list of records, nesting some of the source
+        // fields one level deeper. Exercises structure preservation in
+        // BOTH directions in a single transform.
+        let mut node = node_with_container_fields();
+        let regroup = panproto_expr::Expr::Lam(
+            std::sync::Arc::from("o"),
+            Box::new(panproto_expr::Expr::Record(vec![
+                (
+                    std::sync::Arc::from("outer"),
+                    panproto_expr::Expr::Field(
+                        Box::new(panproto_expr::Expr::Var(std::sync::Arc::from("o"))),
+                        std::sync::Arc::from("a"),
+                    ),
+                ),
+                (
+                    std::sync::Arc::from("inner"),
+                    panproto_expr::Expr::Record(vec![(
+                        std::sync::Arc::from("deep"),
+                        panproto_expr::Expr::Field(
+                            Box::new(panproto_expr::Expr::Var(std::sync::Arc::from("o"))),
+                            std::sync::Arc::from("b"),
+                        ),
+                    )]),
+                ),
+            ])),
+        );
+        let transform = FieldTransform::ComputeField {
+            target_key: "regrouped".to_string(),
+            expr: panproto_expr::Expr::Builtin(
+                panproto_expr::BuiltinOp::Map,
+                vec![
+                    panproto_expr::Expr::Var(std::sync::Arc::from("objs")),
+                    regroup,
+                ],
+            ),
+            inverse: None,
+            coercion_class: panproto_gat::CoercionClass::Projection,
+        };
+        apply_field_transforms(&mut node, &[transform], &HashMap::new())
+            .expect("building a nested record list should evaluate");
+
+        let expected = Value::List(vec![
+            Value::Unknown(HashMap::from([
+                ("outer".to_string(), Value::Int(1)),
+                (
+                    "inner".to_string(),
+                    Value::Unknown(HashMap::from([("deep".to_string(), Value::Int(10))])),
+                ),
+            ])),
+            Value::Unknown(HashMap::from([
+                ("outer".to_string(), Value::Int(2)),
+                (
+                    "inner".to_string(),
+                    Value::Unknown(HashMap::from([("deep".to_string(), Value::Int(20))])),
+                ),
+            ])),
+        ]);
+        assert_eq!(node.extra_fields.get("regrouped"), Some(&expected));
+    }
+
+    #[test]
+    fn contains_tests_membership_on_a_list_field() {
+        // Membership predicates over a list field are what the joined
+        // string used to serve. `Contains` now takes the list directly.
+        let mut node = Node::new(0, "rec");
+        node.extra_fields.insert(
+            "tags".to_string(),
+            Value::List(vec![
+                Value::Str("alpha".into()),
+                Value::Str("beta".into()),
+            ]),
+        );
+
+        let case = FieldTransform::Case {
+            branches: vec![CaseBranch {
+                predicate: panproto_expr::Expr::builtin(
+                    panproto_expr::BuiltinOp::Contains,
+                    vec![
+                        panproto_expr::Expr::Var(std::sync::Arc::from("tags")),
+                        panproto_expr::Expr::Lit(panproto_expr::Literal::Str("beta".into())),
+                    ],
+                ),
+                transforms: vec![FieldTransform::AddField {
+                    key: "matched".into(),
+                    value: Value::Bool(true),
+                }],
+            }],
+        };
+        apply_field_transforms(&mut node, &[case], &HashMap::new())
+            .expect("membership predicate should evaluate");
+
+        assert_eq!(
+            node.extra_fields.get("matched"),
+            Some(&Value::Bool(true)),
+            "Contains must test element membership on a list-valued field"
+        );
+    }
+
+    #[test]
+    fn contains_on_a_list_does_not_match_a_substring_of_an_element() {
+        // Membership is exact-element, not substring. Under the old
+        // joined-string form `Contains(["alpha"], "lph")` matched, which
+        // is not what a membership predicate means.
+        let mut node = Node::new(0, "rec");
+        node.extra_fields.insert(
+            "tags".to_string(),
+            Value::List(vec![Value::Str("alpha".into())]),
+        );
+
+        let case = FieldTransform::Case {
+            branches: vec![CaseBranch {
+                predicate: panproto_expr::Expr::builtin(
+                    panproto_expr::BuiltinOp::Contains,
+                    vec![
+                        panproto_expr::Expr::Var(std::sync::Arc::from("tags")),
+                        panproto_expr::Expr::Lit(panproto_expr::Literal::Str("lph".into())),
+                    ],
+                ),
+                transforms: vec![FieldTransform::AddField {
+                    key: "matched".into(),
+                    value: Value::Bool(true),
+                }],
+            }],
+        };
+        apply_field_transforms(&mut node, &[case], &HashMap::new())
+            .expect("membership predicate should evaluate");
+
+        assert!(
+            !node.extra_fields.contains_key("matched"),
+            "list membership must be exact-element, not substring"
+        );
+    }
+
+    #[test]
+    fn failed_transform_reports_instead_of_silently_skipping() {
+        // The diagnosability half of the fix: an expression that cannot
+        // evaluate surfaces an error naming the field, rather than
+        // leaving the field untouched and returning success.
+        let mut node = Node::new(0, "rec");
+        node.extra_fields
+            .insert("n".to_string(), Value::Int(1));
+
+        let transform = FieldTransform::ComputeField {
+            target_key: "out".to_string(),
+            // `missing` is unbound in this environment.
+            expr: panproto_expr::Expr::Var(std::sync::Arc::from("missing")),
+            inverse: None,
+            coercion_class: panproto_gat::CoercionClass::Projection,
+        };
+        let err = apply_field_transforms(&mut node, &[transform], &HashMap::new())
+            .expect_err("an unevaluable transform must report");
+
+        match err {
+            RestrictError::FieldTransformFailed { key, .. } => assert_eq!(key, "out"),
+            other => panic!("expected FieldTransformFailed, got {other:?}"),
+        }
+        assert!(
+            !node.extra_fields.contains_key("out"),
+            "a failed transform must not write a partial result"
+        );
+    }
+
+    #[test]
+    fn failed_nested_transform_preserves_the_nested_map() {
+        // `apply_path_transform` moves the nested map out to operate on
+        // it. A failure mid-way must still put it back, or the transform
+        // that could not run would also erase what it was reading.
+        let mut node = Node::new(0, "rec");
+        node.extra_fields.insert(
+            "outer".to_string(),
+            Value::Unknown(HashMap::from([("kept".to_string(), Value::Int(5))])),
+        );
+
+        let transform = FieldTransform::PathTransform {
+            path: vec!["outer".to_string()],
+            inner: Box::new(FieldTransform::ComputeField {
+                target_key: "out".to_string(),
+                expr: panproto_expr::Expr::Var(std::sync::Arc::from("missing")),
+                inverse: None,
+                coercion_class: panproto_gat::CoercionClass::Projection,
+            }),
+        };
+        apply_field_transforms(&mut node, &[transform], &HashMap::new())
+            .expect_err("an unevaluable nested transform must report");
+
+        assert_eq!(
+            node.extra_fields.get("outer"),
+            Some(&Value::Unknown(HashMap::from([(
+                "kept".to_string(),
+                Value::Int(5)
+            )]))),
+            "the nested map must survive a failed transform"
+        );
     }
 
     #[test]
@@ -2654,7 +3219,7 @@ mod tests {
             field: "mixed".to_string(),
             rename_map,
         };
-        apply_field_transforms(&mut node, &[transform], &HashMap::new());
+        apply_field_transforms(&mut node, &[transform], &HashMap::new()).expect("transform should evaluate");
 
         match node.extra_fields.get("mixed") {
             Some(Value::List(items)) => {
@@ -2899,7 +3464,7 @@ mod tests {
             inverse: None,
             coercion_class: panproto_gat::CoercionClass::Opaque,
         };
-        apply_field_transforms(&mut node, &[transform], &HashMap::new());
+        apply_field_transforms(&mut node, &[transform], &HashMap::new()).expect("transform should evaluate");
 
         assert_eq!(
             node.extra_fields.get("name"),
@@ -2935,7 +3500,7 @@ mod tests {
             inverse: None,
             coercion_class: panproto_gat::CoercionClass::Opaque,
         };
-        apply_field_transforms(&mut node, &[transform], &HashMap::new());
+        apply_field_transforms(&mut node, &[transform], &HashMap::new()).expect("transform should evaluate");
 
         assert_eq!(
             node.extra_fields.get("name"),
@@ -2983,7 +3548,7 @@ mod tests {
             ],
         };
 
-        apply_field_transforms(&mut node, &[case], &HashMap::new());
+        apply_field_transforms(&mut node, &[case], &HashMap::new()).expect("transform should evaluate");
 
         assert_eq!(
             node.extra_fields.get("name"),
@@ -3046,7 +3611,7 @@ mod tests {
             inverse: None,
             coercion_class: panproto_gat::CoercionClass::Projection,
         };
-        apply_field_transforms(&mut node, &[transform], &scalars);
+        apply_field_transforms(&mut node, &[transform], &scalars).expect("transform should evaluate");
 
         assert_eq!(
             node.extra_fields.get("repo_copy"),
@@ -3077,7 +3642,7 @@ mod tests {
             inverse: None,
             coercion_class: panproto_gat::CoercionClass::Projection,
         };
-        apply_field_transforms(&mut node, &[transform], &scalars);
+        apply_field_transforms(&mut node, &[transform], &scalars).expect("transform should evaluate");
 
         assert_eq!(
             node.extra_fields.get("text"),
@@ -3110,7 +3675,7 @@ mod tests {
                 }],
             }],
         };
-        apply_field_transforms(&mut node, &[case], &scalars);
+        apply_field_transforms(&mut node, &[case], &scalars).expect("transform should evaluate");
 
         assert_eq!(
             node.extra_fields.get("has_did"),
@@ -3130,7 +3695,7 @@ mod tests {
         let transform = FieldTransform::DropField {
             key: "drop_me".into(),
         };
-        apply_field_transforms(&mut node, &[transform], &HashMap::new());
+        apply_field_transforms(&mut node, &[transform], &HashMap::new()).expect("transform should evaluate");
 
         assert!(node.extra_fields.contains_key("keep"));
         assert!(!node.extra_fields.contains_key("drop_me"));
@@ -3154,7 +3719,7 @@ mod tests {
             inverse: None,
             coercion_class: panproto_gat::CoercionClass::Projection,
         };
-        apply_field_transforms(&mut node, &[transform], &child_scalars);
+        apply_field_transforms(&mut node, &[transform], &child_scalars).expect("transform should evaluate");
 
         assert_eq!(
             node.extra_fields.get("repo_copy"),
@@ -3230,11 +3795,11 @@ mod tests {
         };
 
         let mut node1 = Node::new(0, "body");
-        apply_field_transforms(&mut node1, std::slice::from_ref(&transform), &scalars);
+        apply_field_transforms(&mut node1, std::slice::from_ref(&transform), &scalars).expect("transform should evaluate");
         let result1 = node1.extra_fields.get("derived").cloned();
 
         let mut node2 = Node::new(0, "body");
-        apply_field_transforms(&mut node2, std::slice::from_ref(&transform), &scalars);
+        apply_field_transforms(&mut node2, std::slice::from_ref(&transform), &scalars).expect("transform should evaluate");
         let result2 = node2.extra_fields.get("derived").cloned();
 
         assert_eq!(result1, result2, "ComputeField must be deterministic");
@@ -3319,7 +3884,7 @@ mod tests {
 
         for ft in &variants {
             let mut direct = fixture();
-            apply_field_transforms(&mut direct, std::slice::from_ref(ft), &HashMap::new());
+            apply_field_transforms(&mut direct, std::slice::from_ref(ft), &HashMap::new()).expect("transform should evaluate");
 
             // Round-trip the transform through the term-assignment algebra
             // and apply the lowered assignment.
@@ -3329,7 +3894,8 @@ mod tests {
                 &mut via_term,
                 std::slice::from_ref(&assignment.to_field_transform()),
                 &HashMap::new(),
-            );
+            )
+            .expect("transform should evaluate");
 
             assert_eq!(
                 direct.extra_fields, via_term.extra_fields,
@@ -3340,8 +3906,8 @@ mod tests {
             // that carry over to a relational row.
             let mut row = fixture().extra_fields;
             let mut expected = fixture();
-            apply_field_transforms(&mut expected, std::slice::from_ref(ft), &HashMap::new());
-            apply_term_assignments_to_row(&mut row, std::slice::from_ref(&assignment));
+            apply_field_transforms(&mut expected, std::slice::from_ref(ft), &HashMap::new()).expect("transform should evaluate");
+            apply_term_assignments_to_row(&mut row, std::slice::from_ref(&assignment)).expect("transform should evaluate");
             assert_eq!(
                 row, expected.extra_fields,
                 "flat-row term substitution must match for {ft:?}",
@@ -3455,7 +4021,7 @@ mod tests {
                         coercion_class: panproto_gat::CoercionClass::Projection,
                     };
                     let mut node = Node::new(0, "root");
-                    apply_field_transforms(&mut node, &[transform], &scalars);
+                    apply_field_transforms(&mut node, &[transform], &scalars).expect("transform should evaluate");
                     let expected = scalars.get(name);
                     let actual = node.extra_fields.get(&format!("{name}_copy"));
                     prop_assert_eq!(

@@ -351,7 +351,10 @@ impl BuiltinOp {
                 &[ExprType::Str, ExprType::Str, ExprType::Str],
                 ExprType::Str,
             )),
-            Self::Contains => Some((&[ExprType::Str, ExprType::Str], ExprType::Bool)),
+            // Overloaded on the first argument: substring containment on a
+            // string, element membership on a list. Inputs are `Any`; only
+            // the `Bool` result is fixed.
+            Self::Contains => Some((&[ExprType::Any, ExprType::Any], ExprType::Bool)),
             Self::TruncateStr => Some((&[ExprType::Str, ExprType::Int], ExprType::Str)),
 
             // List operations.

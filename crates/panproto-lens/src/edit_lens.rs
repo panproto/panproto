@@ -160,20 +160,24 @@ impl EditLens {
     ///
     /// Since the lens is an isomorphism, the complement is unit and
     /// never changes. This method only remaps anchors and edges.
-    #[must_use]
-    pub fn translate_iso(&self, edit: TreeEdit) -> TreeEdit {
-        match edit {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EditLensError::Restrict`] if a field transform carried by
+    /// the migration fails to evaluate.
+    pub fn translate_iso(&self, edit: TreeEdit) -> Result<TreeEdit, EditLensError> {
+        let translated = match edit {
             TreeEdit::Identity => TreeEdit::Identity,
             TreeEdit::SetField {
                 node_id,
                 ref field,
                 ref value,
             } => {
-                let translated = self.translate_field_edit(field.as_ref(), value);
+                let (name, val) = self.translate_field_edit(field.as_ref(), value)?;
                 TreeEdit::SetField {
                     node_id,
-                    field: Name::from(translated.0.as_str()),
-                    value: translated.1,
+                    field: Name::from(name.as_str()),
+                    value: val,
                 }
             }
             TreeEdit::RemoveField { node_id, ref field } => {
@@ -193,7 +197,7 @@ impl EditLens {
                 ref node,
                 ref edge,
             } => {
-                let remapped_node = self.remap_and_transform_node(node);
+                let remapped_node = self.remap_and_transform_node(node)?;
                 let remapped_edge = self.remap_edge_forward(edge);
                 TreeEdit::InsertNode {
                     parent,
@@ -212,7 +216,8 @@ impl EditLens {
                 edge: self.remap_edge_forward(edge),
             },
             other => other,
-        }
+        };
+        Ok(translated)
     }
 
     /// Translate an edit through a prismatic lens.
@@ -427,7 +432,7 @@ impl EditLens {
                 child_id,
                 node,
                 edge,
-            } => Ok(self.get_edit_insert(parent, child_id, node, edge)),
+            } => self.get_edit_insert(parent, child_id, node, edge),
             TreeEdit::DeleteNode { id } => Ok(self.get_edit_delete(id)),
             TreeEdit::SetField {
                 node_id,
@@ -463,7 +468,7 @@ impl EditLens {
             } => Ok(TreeEdit::JoinFeatures {
                 primary,
                 joined,
-                produce: self.remap_and_transform_node(&produce),
+                produce: self.remap_and_transform_node(&produce)?,
             }),
             TreeEdit::Sequence(steps) => self.get_edit_sequence(steps),
         }
@@ -475,7 +480,7 @@ impl EditLens {
         child_id: u32,
         node: panproto_inst::Node,
         edge: Edge,
-    ) -> TreeEdit {
+    ) -> Result<TreeEdit, EditLensError> {
         // Step 1: anchor survival.
         let target_anchor = self
             .compiled
@@ -485,7 +490,7 @@ impl EditLens {
         if !self.compiled.surviving_verts.contains(target_anchor) {
             self.complement.dropped_nodes.insert(child_id, node);
             self.complement.dropped_arcs.push((parent, child_id, edge));
-            return TreeEdit::Identity;
+            return Ok(TreeEdit::Identity);
         }
 
         // Step 2: conditional survival.
@@ -498,19 +503,19 @@ impl EditLens {
             ) {
                 self.complement.dropped_nodes.insert(child_id, node);
                 self.complement.dropped_arcs.push((parent, child_id, edge));
-                return TreeEdit::Identity;
+                return Ok(TreeEdit::Identity);
             }
         }
 
         // Steps 3-4: structural remap and field transforms.
-        let remapped_node = self.remap_and_transform_node(&node);
+        let remapped_node = self.remap_and_transform_node(&node)?;
         let remapped_edge = self.remap_edge_forward(&edge);
-        TreeEdit::InsertNode {
+        Ok(TreeEdit::InsertNode {
             parent,
             child_id,
             node: remapped_node,
             edge: remapped_edge,
-        }
+        })
     }
 
     fn get_edit_delete(&mut self, id: u32) -> TreeEdit {
@@ -541,7 +546,7 @@ impl EditLens {
         // specifies any for this node's source anchor: translate the field
         // name and possibly coerce the value.
         let field_str = field.to_string();
-        let translated = self.translate_field_edit(&field_str, value);
+        let translated = self.translate_field_edit(&field_str, value)?;
 
         // Refinement type checking: validate the translated value against
         // the target schema's constraints for the target vertex.
@@ -596,7 +601,7 @@ impl EditLens {
                 self.complement
                     .dropped_arcs
                     .retain(|&(_, child, _)| child != id);
-                let mut remapped = self.remap_and_transform_node(&node);
+                let mut remapped = self.remap_and_transform_node(&node)?;
                 remapped.anchor = self.remap_anchor_forward(&new_anchor);
                 let parent = self.complement.original_parent.get(&id).copied();
                 if let Some(p) = parent {
@@ -867,7 +872,15 @@ impl EditLens {
     /// so child scalar values are unavailable. `ComputeField` transforms that
     /// read child scalars will only see `extra_fields` here. For full fiber
     /// access, use the restrict/extend pipeline instead.
-    fn remap_and_transform_node(&self, node: &panproto_inst::Node) -> panproto_inst::Node {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EditLensError::Restrict`] if one of the node's field
+    /// transforms fails to evaluate.
+    fn remap_and_transform_node(
+        &self,
+        node: &panproto_inst::Node,
+    ) -> Result<panproto_inst::Node, EditLensError> {
         let mut remapped = node.clone();
         // Apply field transforms if any exist for this source anchor.
         if let Some(transforms) = self.compiled.field_transforms.get(&node.anchor) {
@@ -875,10 +888,10 @@ impl EditLens {
                 &mut remapped,
                 transforms,
                 &std::collections::HashMap::new(),
-            );
+            )?;
         }
         remapped.anchor = self.remap_anchor_forward(&node.anchor);
-        remapped
+        Ok(remapped)
     }
 
     fn remap_node_backward(&self, node: &panproto_inst::Node) -> panproto_inst::Node {
@@ -1007,11 +1020,17 @@ impl EditLens {
 
     /// Translate a field edit (name + value) through field transforms.
     /// Returns the translated (name, value) pair.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EditLensError::Restrict`] if an `ApplyExpr` transform's
+    /// expression fails to evaluate, rather than passing the untransformed
+    /// value through as though the transform had been a no-op.
     fn translate_field_edit(
         &self,
         field: &str,
         value: &panproto_inst::Value,
-    ) -> (String, panproto_inst::Value) {
+    ) -> Result<(String, panproto_inst::Value), EditLensError> {
         let mut name = field.to_owned();
         let mut val = value.clone();
 
@@ -1029,38 +1048,20 @@ impl EditLens {
                         let env = panproto_expr::Env::new()
                             .extend(std::sync::Arc::from(key.as_str()), input);
                         let config = panproto_expr::EvalConfig::default();
-                        if let Ok(result) = panproto_expr::eval(expr, &env, &config) {
-                            val = expr_literal_to_value(&result);
-                        }
+                        let result = panproto_expr::eval(expr, &env, &config).map_err(|source| {
+                            panproto_inst::RestrictError::FieldTransformFailed {
+                                key: key.clone(),
+                                source,
+                            }
+                        })?;
+                        val = panproto_inst::expr_literal_to_value(&result);
                     }
                     _ => {}
                 }
             }
         }
 
-        (name, val)
-    }
-}
-
-/// Convert an expression literal to a panproto `Value`.
-fn expr_literal_to_value(lit: &panproto_expr::Literal) -> panproto_inst::Value {
-    match lit {
-        panproto_expr::Literal::Bool(b) => panproto_inst::Value::Bool(*b),
-        panproto_expr::Literal::Int(i) => panproto_inst::Value::Int(*i),
-        panproto_expr::Literal::Float(f) => {
-            // Normalize integer-valued floats for JSON round-trip fidelity.
-            #[allow(clippy::cast_precision_loss)]
-            let fits = f.fract() == 0.0 && *f >= i64::MIN as f64 && *f <= i64::MAX as f64;
-            if fits {
-                #[allow(clippy::cast_possible_truncation)]
-                let i = *f as i64;
-                panproto_inst::Value::Int(i)
-            } else {
-                panproto_inst::Value::Float(*f)
-            }
-        }
-        panproto_expr::Literal::Str(s) => panproto_inst::Value::Str(s.clone()),
-        _ => panproto_inst::Value::Null,
+        Ok((name, val))
     }
 }
 
