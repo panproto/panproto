@@ -967,6 +967,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn parsed_list_builtins_evaluate() {
         // The lowering exists so that surface-authored list expressions
         // actually run: before it, every `map` / `filter` / `fold` failed

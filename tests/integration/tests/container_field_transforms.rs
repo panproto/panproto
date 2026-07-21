@@ -4,7 +4,7 @@
 //! The companion to `scalar_field_transforms`, covering the container
 //! case: a transform whose expression reads or returns an array or a
 //! nested object. Records of this shape are the normal case rather than
-//! the exception, since a protocol like ATProto keeps arrays and nested
+//! the exception, since a protocol like `ATProto` keeps arrays and nested
 //! objects inline in `extra_fields` rather than as child vertices.
 //!
 //! Two properties are exercised together, because a transform needs both
@@ -129,8 +129,8 @@ fn run_transform(transform: FieldTransform) -> serde_json::Value {
         expansion_path: HashMap::new(),
     };
 
-    let restricted = wtype_restrict(&instance, &schema, &schema, &migration)
-        .expect("restrict should succeed");
+    let restricted =
+        wtype_restrict(&instance, &schema, &schema, &migration).expect("restrict should succeed");
     to_json(&schema, &restricted)
 }
 
@@ -247,8 +247,8 @@ fn transforms_compose_over_containers() {
         expansion_path: HashMap::new(),
     };
 
-    let restricted = wtype_restrict(&instance, &schema, &schema, &migration)
-        .expect("restrict should succeed");
+    let restricted =
+        wtype_restrict(&instance, &schema, &schema, &migration).expect("restrict should succeed");
     let out = to_json(&schema, &restricted);
 
     assert_eq!(out["nums"], serde_json::json!([10, 20, 30]));
@@ -344,8 +344,8 @@ fn membership_predicate_reads_a_list_field() {
         expansion_path: HashMap::new(),
     };
 
-    let restricted = wtype_restrict(&instance, &schema, &schema, &migration)
-        .expect("restrict should succeed");
+    let restricted =
+        wtype_restrict(&instance, &schema, &schema, &migration).expect("restrict should succeed");
     let out = to_json(&schema, &restricted);
     assert_eq!(
         out["matched"],

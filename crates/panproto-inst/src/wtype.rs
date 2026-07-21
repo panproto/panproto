@@ -1329,12 +1329,13 @@ pub fn apply_field_transforms(
                             .extend(std::sync::Arc::from("v"), input.clone())
                             .extend(std::sync::Arc::from("__value__"), input);
                         let config = panproto_expr::EvalConfig::default();
-                        let result = panproto_expr::eval(expr, &env, &config).map_err(|source| {
-                            RestrictError::FieldTransformFailed {
-                                key: key.clone(),
-                                source,
-                            }
-                        })?;
+                        let result =
+                            panproto_expr::eval(expr, &env, &config).map_err(|source| {
+                                RestrictError::FieldTransformFailed {
+                                    key: key.clone(),
+                                    source,
+                                }
+                            })?;
                         node.value = Some(crate::value::FieldPresence::Present(
                             expr_literal_to_value(&result),
                         ));
@@ -2512,6 +2513,7 @@ mod tests {
     // --- PathTransform tests ---
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn path_transform_renames_nested_field() {
         let mut node = Node::new(0, "v");
         let mut inner_map = HashMap::new();
@@ -2526,7 +2528,8 @@ mod tests {
                 new_key: "new_attr".to_string(),
             }),
         };
-        apply_field_transforms(&mut node, &[transform], &HashMap::new()).expect("transform should evaluate");
+        apply_field_transforms(&mut node, &[transform], &HashMap::new())
+            .expect("transform should evaluate");
 
         match node.extra_fields.get("attrs") {
             Some(Value::Unknown(map)) => {
@@ -2538,6 +2541,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn path_transform_empty_path_is_identity() {
         let mut node = Node::new(0, "v");
         node.extra_fields
@@ -2550,7 +2554,8 @@ mod tests {
                 new_key: "colour".to_string(),
             }),
         };
-        apply_field_transforms(&mut node, &[transform], &HashMap::new()).expect("transform should evaluate");
+        apply_field_transforms(&mut node, &[transform], &HashMap::new())
+            .expect("transform should evaluate");
 
         assert!(!node.extra_fields.contains_key("color"));
         assert_eq!(
@@ -2562,6 +2567,7 @@ mod tests {
     // --- MapReferences tests ---
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn map_references_renames_string_field() {
         let mut node = Node::new(0, "v");
         node.extra_fields
@@ -2574,7 +2580,8 @@ mod tests {
             field: "parent".to_string(),
             rename_map,
         };
-        apply_field_transforms(&mut node, &[transform], &HashMap::new()).expect("transform should evaluate");
+        apply_field_transforms(&mut node, &[transform], &HashMap::new())
+            .expect("transform should evaluate");
 
         assert_eq!(
             node.extra_fields.get("parent"),
@@ -2583,6 +2590,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn map_references_filters_list() {
         let mut node = Node::new(0, "v");
         node.extra_fields.insert(
@@ -2602,7 +2610,8 @@ mod tests {
             field: "parents".to_string(),
             rename_map,
         };
-        apply_field_transforms(&mut node, &[transform], &HashMap::new()).expect("transform should evaluate");
+        apply_field_transforms(&mut node, &[transform], &HashMap::new())
+            .expect("transform should evaluate");
 
         match node.extra_fields.get("parents") {
             Some(Value::List(items)) => {
@@ -2615,6 +2624,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn map_references_drops_removed_entries() {
         let mut node = Node::new(0, "v");
         node.extra_fields.insert(
@@ -2633,7 +2643,8 @@ mod tests {
             field: "refs".to_string(),
             rename_map,
         };
-        apply_field_transforms(&mut node, &[transform], &HashMap::new()).expect("transform should evaluate");
+        apply_field_transforms(&mut node, &[transform], &HashMap::new())
+            .expect("transform should evaluate");
 
         match node.extra_fields.get("refs") {
             Some(Value::List(items)) => {
@@ -2871,6 +2882,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn apply_expr_maps_over_an_integer_list() {
         // `map (\x -> x + 1) nums` over [1,2,3].
         let mut node = node_with_container_fields();
@@ -2901,6 +2913,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn apply_expr_maps_a_projection_over_a_record_list() {
         // `map (\o -> o.a) objs` over [{a:1,b:10},{a:2,b:20}].
         let mut node = node_with_container_fields();
@@ -2934,6 +2947,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn compute_field_reads_through_a_nested_record() {
         // `nested.a` where nested = {a:7,b:70}.
         let mut node = node_with_container_fields();
@@ -2957,6 +2971,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn compute_field_folds_over_a_list() {
         // `fold (\x y -> x + y) 0 nums` over [1,2,3].
         let mut node = node_with_container_fields();
@@ -2997,6 +3012,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn compute_field_builds_a_nested_record_list() {
         // The regroup shape the report is blocked on: build a list of
         // records from a list of records, nesting some of the source
@@ -3060,16 +3076,14 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn contains_tests_membership_on_a_list_field() {
         // Membership predicates over a list field are what the joined
         // string used to serve. `Contains` now takes the list directly.
         let mut node = Node::new(0, "rec");
         node.extra_fields.insert(
             "tags".to_string(),
-            Value::List(vec![
-                Value::Str("alpha".into()),
-                Value::Str("beta".into()),
-            ]),
+            Value::List(vec![Value::Str("alpha".into()), Value::Str("beta".into())]),
         );
 
         let case = FieldTransform::Case {
@@ -3098,6 +3112,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn contains_on_a_list_does_not_match_a_substring_of_an_element() {
         // Membership is exact-element, not substring. Under the old
         // joined-string form `Contains(["alpha"], "lph")` matched, which
@@ -3133,13 +3148,13 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn failed_transform_reports_instead_of_silently_skipping() {
         // The diagnosability half of the fix: an expression that cannot
         // evaluate surfaces an error naming the field, rather than
         // leaving the field untouched and returning success.
         let mut node = Node::new(0, "rec");
-        node.extra_fields
-            .insert("n".to_string(), Value::Int(1));
+        node.extra_fields.insert("n".to_string(), Value::Int(1));
 
         let transform = FieldTransform::ComputeField {
             target_key: "out".to_string(),
@@ -3162,6 +3177,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn failed_nested_transform_preserves_the_nested_map() {
         // `apply_path_transform` moves the nested map out to operate on
         // it. A failure mid-way must still put it back, or the transform
@@ -3195,6 +3211,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn map_references_preserves_non_string_elements() {
         // MapReferences is the action of the rename on *string leaves*;
         // non-string elements in a list pass through unchanged. This
@@ -3219,7 +3236,8 @@ mod tests {
             field: "mixed".to_string(),
             rename_map,
         };
-        apply_field_transforms(&mut node, &[transform], &HashMap::new()).expect("transform should evaluate");
+        apply_field_transforms(&mut node, &[transform], &HashMap::new())
+            .expect("transform should evaluate");
 
         match node.extra_fields.get("mixed") {
             Some(Value::List(items)) => {
@@ -3442,6 +3460,7 @@ mod tests {
     // --- ComputeField tests ---
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn computed_field_template_name() {
         let mut node = Node::new(0, "heading");
         node.extra_fields.insert("level".to_string(), Value::Int(2));
@@ -3464,7 +3483,8 @@ mod tests {
             inverse: None,
             coercion_class: panproto_gat::CoercionClass::Opaque,
         };
-        apply_field_transforms(&mut node, &[transform], &HashMap::new()).expect("transform should evaluate");
+        apply_field_transforms(&mut node, &[transform], &HashMap::new())
+            .expect("transform should evaluate");
 
         assert_eq!(
             node.extra_fields.get("name"),
@@ -3473,6 +3493,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn computed_field_reads_nested_attrs() {
         let mut node = Node::new(0, "heading");
         let mut attrs = HashMap::new();
@@ -3500,7 +3521,8 @@ mod tests {
             inverse: None,
             coercion_class: panproto_gat::CoercionClass::Opaque,
         };
-        apply_field_transforms(&mut node, &[transform], &HashMap::new()).expect("transform should evaluate");
+        apply_field_transforms(&mut node, &[transform], &HashMap::new())
+            .expect("transform should evaluate");
 
         assert_eq!(
             node.extra_fields.get("name"),
@@ -3509,6 +3531,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn case_transform_sets_field_conditionally() {
         use crate::value::Value;
         use panproto_expr::{BuiltinOp, Expr, Literal};
@@ -3548,7 +3571,8 @@ mod tests {
             ],
         };
 
-        apply_field_transforms(&mut node, &[case], &HashMap::new()).expect("transform should evaluate");
+        apply_field_transforms(&mut node, &[case], &HashMap::new())
+            .expect("transform should evaluate");
 
         assert_eq!(
             node.extra_fields.get("name"),
@@ -3594,6 +3618,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn compute_field_reads_scalar_child() {
         // ComputeField must read string fields stored as child
         // vertices, not just those in `extra_fields`. This unit test
@@ -3611,7 +3636,8 @@ mod tests {
             inverse: None,
             coercion_class: panproto_gat::CoercionClass::Projection,
         };
-        apply_field_transforms(&mut node, &[transform], &scalars).expect("transform should evaluate");
+        apply_field_transforms(&mut node, &[transform], &scalars)
+            .expect("transform should evaluate");
 
         assert_eq!(
             node.extra_fields.get("repo_copy"),
@@ -3623,6 +3649,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn apply_expr_on_scalar_child() {
         let (_instance, scalars) = instance_with_scalar_children();
         let mut node = Node::new(0, "body");
@@ -3642,7 +3669,8 @@ mod tests {
             inverse: None,
             coercion_class: panproto_gat::CoercionClass::Projection,
         };
-        apply_field_transforms(&mut node, &[transform], &scalars).expect("transform should evaluate");
+        apply_field_transforms(&mut node, &[transform], &scalars)
+            .expect("transform should evaluate");
 
         assert_eq!(
             node.extra_fields.get("text"),
@@ -3652,6 +3680,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn case_branch_on_scalar_child() {
         use panproto_expr::{BuiltinOp, Expr, Literal};
         use std::sync::Arc;
@@ -3685,6 +3714,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn drop_field_on_extra_field_still_works() {
         let mut node = Node::new(0, "v");
         node.extra_fields
@@ -3695,13 +3725,15 @@ mod tests {
         let transform = FieldTransform::DropField {
             key: "drop_me".into(),
         };
-        apply_field_transforms(&mut node, &[transform], &HashMap::new()).expect("transform should evaluate");
+        apply_field_transforms(&mut node, &[transform], &HashMap::new())
+            .expect("transform should evaluate");
 
         assert!(node.extra_fields.contains_key("keep"));
         assert!(!node.extra_fields.contains_key("drop_me"));
     }
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn child_scalars_do_not_override_extra_fields() {
         // When a key exists in both extra_fields and child_scalars,
         // extra_fields must take precedence (binding order correctness).
@@ -3719,7 +3751,8 @@ mod tests {
             inverse: None,
             coercion_class: panproto_gat::CoercionClass::Projection,
         };
-        apply_field_transforms(&mut node, &[transform], &child_scalars).expect("transform should evaluate");
+        apply_field_transforms(&mut node, &[transform], &child_scalars)
+            .expect("transform should evaluate");
 
         assert_eq!(
             node.extra_fields.get("repo_copy"),
@@ -3782,6 +3815,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn compute_field_deterministic() {
         // Applying the same ComputeField twice produces the same result
         // (fiber endomorphism idempotence when source data is unchanged).
@@ -3795,11 +3829,13 @@ mod tests {
         };
 
         let mut node1 = Node::new(0, "body");
-        apply_field_transforms(&mut node1, std::slice::from_ref(&transform), &scalars).expect("transform should evaluate");
+        apply_field_transforms(&mut node1, std::slice::from_ref(&transform), &scalars)
+            .expect("transform should evaluate");
         let result1 = node1.extra_fields.get("derived").cloned();
 
         let mut node2 = Node::new(0, "body");
-        apply_field_transforms(&mut node2, std::slice::from_ref(&transform), &scalars).expect("transform should evaluate");
+        apply_field_transforms(&mut node2, std::slice::from_ref(&transform), &scalars)
+            .expect("transform should evaluate");
         let result2 = node2.extra_fields.get("derived").cloned();
 
         assert_eq!(result1, result2, "ComputeField must be deterministic");
@@ -3810,6 +3846,7 @@ mod tests {
     /// transform directly. This certifies that the term-assignment algebra
     /// faithfully re-expresses each field transform.
     #[test]
+    #[allow(clippy::expect_used)]
     fn field_transform_term_equivalence() {
         use panproto_expr::{BuiltinOp, Expr, Literal};
         use std::sync::Arc;
@@ -3884,7 +3921,8 @@ mod tests {
 
         for ft in &variants {
             let mut direct = fixture();
-            apply_field_transforms(&mut direct, std::slice::from_ref(ft), &HashMap::new()).expect("transform should evaluate");
+            apply_field_transforms(&mut direct, std::slice::from_ref(ft), &HashMap::new())
+                .expect("transform should evaluate");
 
             // Round-trip the transform through the term-assignment algebra
             // and apply the lowered assignment.
@@ -3906,8 +3944,10 @@ mod tests {
             // that carry over to a relational row.
             let mut row = fixture().extra_fields;
             let mut expected = fixture();
-            apply_field_transforms(&mut expected, std::slice::from_ref(ft), &HashMap::new()).expect("transform should evaluate");
-            apply_term_assignments_to_row(&mut row, std::slice::from_ref(&assignment)).expect("transform should evaluate");
+            apply_field_transforms(&mut expected, std::slice::from_ref(ft), &HashMap::new())
+                .expect("transform should evaluate");
+            apply_term_assignments_to_row(&mut row, std::slice::from_ref(&assignment))
+                .expect("transform should evaluate");
             assert_eq!(
                 row, expected.extra_fields,
                 "flat-row term substitution must match for {ft:?}",
@@ -4008,6 +4048,7 @@ mod tests {
             }
 
             #[test]
+            #[allow(clippy::expect_used)]
             fn prop_compute_field_reads_any_child(
                 (_instance, scalars, names) in arb_instance_with_scalars()
             ) {

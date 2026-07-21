@@ -1048,12 +1048,13 @@ impl EditLens {
                         let env = panproto_expr::Env::new()
                             .extend(std::sync::Arc::from(key.as_str()), input);
                         let config = panproto_expr::EvalConfig::default();
-                        let result = panproto_expr::eval(expr, &env, &config).map_err(|source| {
-                            panproto_inst::RestrictError::FieldTransformFailed {
-                                key: key.clone(),
-                                source,
-                            }
-                        })?;
+                        let result =
+                            panproto_expr::eval(expr, &env, &config).map_err(|source| {
+                                panproto_inst::RestrictError::FieldTransformFailed {
+                                    key: key.clone(),
+                                    source,
+                                }
+                            })?;
                         val = panproto_inst::expr_literal_to_value(&result);
                     }
                     _ => {}
