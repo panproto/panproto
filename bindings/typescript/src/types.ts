@@ -722,7 +722,7 @@ export type BuiltinOp =
   | 'Eq' | 'Neq' | 'Lt' | 'Lte' | 'Gt' | 'Gte'
   | 'And' | 'Or' | 'Not'
   | 'Concat' | 'Len' | 'Slice' | 'Upper' | 'Lower' | 'Trim' | 'Split' | 'Join' | 'Replace' | 'Contains'
-  | 'Map' | 'Filter' | 'Fold' | 'Append' | 'Head' | 'Tail' | 'Reverse' | 'FlatMap' | 'Length'
+  | 'Map' | 'Filter' | 'Fold' | 'Append' | 'Head' | 'Tail' | 'Reverse' | 'FlatMap' | 'Length' | 'Range'
   | 'MergeRecords' | 'Keys' | 'Values' | 'HasField'
   | 'IntToFloat' | 'FloatToInt' | 'IntToStr' | 'FloatToStr' | 'StrToInt' | 'StrToFloat'
   | 'TypeOf' | 'IsNull' | 'IsList';
