@@ -168,6 +168,61 @@ export class Panproto implements Disposable {
       );
     }
 
+    return this.#schemaFromHandle(rawHandle);
+  }
+
+  /**
+   * Parse a bundle of schema documents into one schema, resolving
+   * cross-document references across the whole bundle.
+   *
+   * A single-document parse such as {@link parseLexicon} sees one
+   * document at a time, so a reference into another document resolves to
+   * an opaque placeholder with no fields. Passing the referenced
+   * documents alongside the referring one resolves each such reference
+   * to the definition's real, typed vertex, so a lens can bind to the
+   * cross-document structure. A reference whose target is in no document
+   * of the bundle stays a placeholder, which is what marks it as
+   * genuinely external.
+   *
+   * Cross-document resolution is currently implemented for `'atproto'`.
+   * Other protocols whose documents can reference each other (OpenAPI's
+   * cross-file `$ref`, Avro's namespaced named types) will be added
+   * under this same entry point.
+   *
+   * @param protocol - The protocol the documents are written in
+   * @param docs - The schema documents (objects or strings)
+   * @returns A built schema covering every document in the bundle
+   * @throws {@link PanprotoError} if no bundle parser is registered for
+   *   `protocol`, or the documents are not a well-formed bundle for it
+   *
+   * @example
+   * ```typescript
+   * // annotationLayer refs pub.layers.defs#spatioTemporalAnchor,
+   * // which refs #boundingBox — all resolved in one call.
+   * const schema = panproto.parseSchemaBundle('atproto', [
+   *   annotationLayerLexicon,
+   *   layersDefsLexicon,
+   * ]);
+   * ```
+   */
+  parseSchemaBundle(protocol: string, docs: Array<object | string>): BuiltSchema {
+    const parsed = docs.map((doc) => (typeof doc === 'string' ? JSON.parse(doc) : doc));
+    const jsonBytes = new TextEncoder().encode(JSON.stringify(parsed));
+
+    let rawHandle: number;
+    try {
+      rawHandle = this.#wasm.exports.parse_schema_bundle(protocol, jsonBytes);
+    } catch (error) {
+      throw new PanprotoError(
+        `Failed to parse schema bundle: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    return this.#schemaFromHandle(rawHandle);
+  }
+
+  /** Read a parsed schema's metadata off its WASM handle. */
+  #schemaFromHandle(rawHandle: number): BuiltSchema {
     // Extract schema metadata from the WASM handle
     const metaBytes = this.#wasm.exports.schema_metadata(rawHandle) as Uint8Array;
     const meta = unpackFromWasm<{

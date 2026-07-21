@@ -176,6 +176,51 @@ pub fn parse_schema_document(protocol: &str, doc: &Bound<'_, PyAny>) -> PyResult
     }
 }
 
+/// Parse a bundle of schema documents into one schema, resolving
+/// cross-document references across the whole bundle.
+///
+/// :func:`parse_schema_document` sees one document at a time, so a
+/// reference into another document resolves to an opaque placeholder
+/// carrying no fields. Passing the referenced documents alongside the
+/// referring one resolves each such reference to the definition's real,
+/// typed vertex, so a lens can bind to the cross-document structure. A
+/// reference whose target is in no document of the bundle stays a
+/// placeholder, which is what marks it as genuinely external.
+///
+/// Parameters
+/// ----------
+/// protocol : str
+///     Protocol name selecting the bundle parser.
+/// docs : Sequence of Mapping or str
+///     The schema documents, each a parsed dict or a raw JSON string.
+///
+/// Returns
+/// -------
+/// Schema
+///     One schema covering every document in the bundle.
+///
+/// Raises
+/// ------
+/// `ValueError`
+///     If ``protocol`` has no registered bundle parser, or if a document
+///     is a string that is not valid JSON.
+/// `SchemaValidationError`
+///     If the documents are not a well-formed bundle for the protocol.
+#[pyfunction]
+pub fn parse_schema_bundle(protocol: &str, docs: &Bound<'_, PyAny>) -> PyResult<PySchema> {
+    let mut values = Vec::new();
+    for doc in docs.try_iter()? {
+        values.push(json_from_py(&doc?)?);
+    }
+
+    let schema = panproto_core::protocols::parse_schema_bundle(protocol, &values)
+        .map_err(|e| SchemaValidationError::new_err(format!("bundle parse failed: {e}")))?;
+
+    Ok(PySchema {
+        inner: Arc::new(schema),
+    })
+}
+
 /// Extract the GAT theory a schema instantiates.
 ///
 /// The induced theory has one sort per vertex and one unary operation per
@@ -209,6 +254,7 @@ pub fn theory_of(schema: &PySchema, name: Option<&str>) -> PyTheory {
 pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     parent.add_function(wrap_pyfunction!(parse_atproto_lexicon, parent)?)?;
     parent.add_function(wrap_pyfunction!(parse_schema_document, parent)?)?;
+    parent.add_function(wrap_pyfunction!(parse_schema_bundle, parent)?)?;
     parent.add_function(wrap_pyfunction!(theory_of, parent)?)?;
     Ok(())
 }

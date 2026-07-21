@@ -59,7 +59,50 @@ pub mod theories;
 /// Web and document format protocol definitions.
 pub mod web_document;
 
+use panproto_schema::Schema;
+
 pub use error::ProtocolError;
 
 // Re-export existing protocols at crate root for backward compatibility.
 pub use web_document::atproto;
+
+/// Parse a bundle of schema documents into one [`Schema`], resolving
+/// cross-document references across the whole bundle.
+///
+/// A single-document parser sees one document at a time, so a reference
+/// into another document resolves to an opaque placeholder vertex
+/// carrying no fields, and a lens has nothing typed to bind to. Passing
+/// the referenced documents alongside the referring one resolves each
+/// such reference to the definition's real, typed vertex. A reference
+/// whose target is in no document of the bundle stays a placeholder,
+/// which is what marks it as genuinely external.
+///
+/// This is the protocol-dispatching entry point the generic crates call,
+/// so that protocol names stay inside this crate. A protocol gains
+/// bundle support by adding an arm here; no binding surface changes.
+///
+/// # Errors
+///
+/// Returns [`ProtocolError::Parse`] if no bundle parser is registered
+/// for `protocol`, or the protocol's own error if the documents are not
+/// a well-formed bundle for it.
+pub fn parse_schema_bundle(
+    protocol: &str,
+    docs: &[serde_json::Value],
+) -> Result<Schema, ProtocolError> {
+    match protocol {
+        "atproto" => atproto::parse_lexicon_bundle(docs),
+        other => Err(ProtocolError::Parse(format!(
+            "no bundle parser registered for protocol {other:?}; supported: [\"atproto\"]"
+        ))),
+    }
+}
+
+/// The protocol names [`parse_schema_bundle`] accepts.
+///
+/// Lets a caller report or validate bundle support without hard-coding a
+/// protocol name outside this crate.
+#[must_use]
+pub const fn bundle_parser_protocols() -> &'static [&'static str] {
+    &["atproto"]
+}

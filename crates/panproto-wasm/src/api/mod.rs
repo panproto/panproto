@@ -220,6 +220,8 @@ mod export_guard {
         let _ = define_protocol as *const () as usize;
         let _ = build_schema as *const () as usize;
         let _ = parse_atproto_lexicon as *const () as usize;
+        let _ = parse_schema_bundle as *const () as usize;
+        let _ = list_bundle_parser_protocols as *const () as usize;
         let _ = schema_metadata as *const () as usize;
         let _ = check_existence as *const () as usize;
         let _ = compile_migration as *const () as usize;
@@ -299,6 +301,7 @@ mod export_guard {
         let _ = auto_generate_protolens as *const () as usize;
         let _ = compile_lens_document as *const () as usize;
         let _ = compile_lens_document_with_refs as *const () as usize;
+        let _ = protolens_field_transforms as *const () as usize;
         let _ = protolens_from_json as *const () as usize;
 
         // helpers (re-exported)

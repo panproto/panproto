@@ -52,6 +52,7 @@ export interface WasmGlueModule {
   define_protocol: WasmExports['define_protocol'];
   build_schema: WasmExports['build_schema'];
   parse_atproto_lexicon: WasmExports['parse_atproto_lexicon'];
+  parse_schema_bundle: WasmExports['parse_schema_bundle'];
   schema_metadata: WasmExports['schema_metadata'];
   check_existence: WasmExports['check_existence'];
   compile_migration: WasmExports['compile_migration'];
@@ -85,6 +86,7 @@ export interface WasmGlueModule {
   protolens_complement_spec: WasmExports['protolens_complement_spec'];
   protolens_from_diff: WasmExports['protolens_from_diff'];
   protolens_compose: WasmExports['protolens_compose'];
+  protolens_field_transforms: WasmExports['protolens_field_transforms'];
   protolens_chain_to_json: WasmExports['protolens_chain_to_json'];
   factorize_morphism: WasmExports['factorize_morphism'];
   symmetric_lens_from_schemas: WasmExports['symmetric_lens_from_schemas'];
@@ -189,6 +191,7 @@ export async function loadWasm(input?: string | URL | WasmGlueModule): Promise<W
       define_protocol: glue.define_protocol,
       build_schema: glue.build_schema,
       parse_atproto_lexicon: glue.parse_atproto_lexicon,
+      parse_schema_bundle: glue.parse_schema_bundle,
       schema_metadata: glue.schema_metadata,
       check_existence: glue.check_existence,
       compile_migration: glue.compile_migration,
@@ -222,6 +225,7 @@ export async function loadWasm(input?: string | URL | WasmGlueModule): Promise<W
       protolens_complement_spec: glue.protolens_complement_spec,
       protolens_from_diff: glue.protolens_from_diff,
       protolens_compose: glue.protolens_compose,
+      protolens_field_transforms: glue.protolens_field_transforms,
       protolens_chain_to_json: glue.protolens_chain_to_json,
       factorize_morphism: glue.factorize_morphism,
       symmetric_lens_from_schemas: glue.symmetric_lens_from_schemas,

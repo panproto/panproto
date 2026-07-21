@@ -457,3 +457,134 @@ describe('compileLensDocument', () => {
     ).toThrow(/compile_lens_document|yaml|parse/i);
   });
 });
+
+// ---------------------------------------------------------------------------
+// parseSchemaBundle — cross-document reference resolution.
+//
+// A single-document parse leaves a reference into a sibling document an
+// opaque `"ref"` placeholder carrying no fields, so a lens has nothing
+// typed to bind to. The bundle entry point resolves it.
+// ---------------------------------------------------------------------------
+
+describe('parseSchemaBundle', () => {
+  const annotationLayer = {
+    lexicon: 1,
+    id: 'local.bundle.annotationLayer',
+    defs: {
+      main: {
+        type: 'record',
+        key: 'tid',
+        record: {
+          type: 'object',
+          required: ['anchor'],
+          properties: { anchor: { type: 'ref', ref: 'local.bundle.defs#boundingBox' } },
+        },
+      },
+    },
+  };
+
+  const defs = {
+    lexicon: 1,
+    id: 'local.bundle.defs',
+    defs: {
+      boundingBox: {
+        type: 'object',
+        required: ['x'],
+        properties: { x: { type: 'integer' }, y: { type: 'integer' } },
+      },
+    },
+  };
+
+  it('leaves a cross-document ref opaque when only one document is parsed', () => {
+    const schema = pp.parseLexicon(annotationLayer);
+    expect(schema.vertices['local.bundle.defs#boundingBox']?.kind).toBe('ref');
+    // The placeholder carries none of the target's own fields.
+    expect(schema.vertices['local.bundle.defs#boundingBox.x']).toBeUndefined();
+    schema[Symbol.dispose]();
+  });
+
+  it('resolves the ref to its typed def when both documents are bundled', () => {
+    const schema = pp.parseSchemaBundle('atproto', [annotationLayer, defs]);
+    expect(schema.vertices['local.bundle.defs#boundingBox']?.kind).toBe('object');
+    // The nested geometry a lens needs to bind to is now present.
+    expect(schema.vertices['local.bundle.defs#boundingBox.x']).toBeDefined();
+    expect(schema.vertices['local.bundle.defs#boundingBox.y']).toBeDefined();
+    schema[Symbol.dispose]();
+  });
+
+  it('keeps a placeholder for a target outside the bundle', () => {
+    const schema = pp.parseSchemaBundle('atproto', [annotationLayer]);
+    expect(schema.vertices['local.bundle.defs#boundingBox']?.kind).toBe('ref');
+    schema[Symbol.dispose]();
+  });
+
+  it('accepts documents as JSON strings', () => {
+    const schema = pp.parseSchemaBundle('atproto', [
+      JSON.stringify(annotationLayer),
+      JSON.stringify(defs),
+    ]);
+    expect(schema.vertices['local.bundle.defs#boundingBox']?.kind).toBe('object');
+    schema[Symbol.dispose]();
+  });
+
+  it('rejects a protocol with no registered bundle parser', () => {
+    expect(() => pp.parseSchemaBundle('nonexistent', [annotationLayer])).toThrow(
+      /no bundle parser registered|nonexistent/i,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Field transforms survive the WASM boundary.
+//
+// A lens document's value-level steps (compute_field, apply_expr,
+// hoist_field, nest_field) compile to field transforms rather than to
+// structural chain steps. They used to be dropped at the boundary, which
+// left a value-transform lens unreachable from JS.
+// ---------------------------------------------------------------------------
+
+describe('ProtolensChainHandle.fieldTransforms', () => {
+  it('retains a compute_field step that contributes no structural step', () => {
+    const doc = {
+      id: 'local.bundle.computed',
+      source: 'v1',
+      target: 'v2',
+      steps: [
+        {
+          compute_field: {
+            target: 'temporalSpan',
+            expr: '\\r -> { start = 0, ending = 1000 }',
+            inverse: '\\r -> {}',
+          },
+        },
+      ],
+    };
+
+    const chain = pp.compileLensDocument(doc, 'rec:body');
+
+    // The structural chain is empty — this is why the transform used to
+    // vanish silently rather than erroring.
+    expect(JSON.parse(chain.toJson())).toEqual([]);
+
+    const transforms = chain.fieldTransforms();
+    const all = Object.values(transforms).flat();
+    expect(all.length).toBeGreaterThan(0);
+
+    chain[Symbol.dispose]();
+  });
+
+  it('reports no transforms for a purely structural document', () => {
+    const doc = {
+      id: 'local.bundle.structural',
+      source: 'v1',
+      target: 'v2',
+      steps: [{ rename_field: { old: 'before', new: 'after' } }],
+    };
+
+    const chain = pp.compileLensDocument(doc, 'rec:body');
+    expect(JSON.parse(chain.toJson())).toHaveLength(1);
+    expect(Object.values(chain.fieldTransforms()).flat()).toHaveLength(0);
+
+    chain[Symbol.dispose]();
+  });
+});

@@ -384,6 +384,13 @@ pub fn compose_lenses(l1: u32, l2: u32) -> Result<u32, JsError> {
 
 /// Instantiate a protolens chain at a specific schema.
 ///
+/// When `chain` is a handle from [`compile_lens_document`] (a
+/// `CompiledLensDoc`), the document's value-level field transforms are
+/// folded into the compiled migration alongside the structural steps, so
+/// a subsequent [`get_record`](crate::get_record) applies them and
+/// [`put_record`](crate::put_record) inverts them. A plain `ProtolensChain`
+/// handle carries none and instantiates unchanged.
+///
 /// Returns a handle to the resulting compiled lens (stored as
 /// `MigrationWithSchemas`).
 ///
@@ -392,17 +399,33 @@ pub fn compose_lenses(l1: u32, l2: u32) -> Result<u32, JsError> {
 /// Returns `JsError` if handles are invalid or instantiation fails.
 #[wasm_bindgen]
 pub fn instantiate_protolens(chain: u32, schema: u32) -> Result<u32, JsError> {
-    let chain_val = slab::with_resource(chain, |r| Ok(slab::as_protolens_chain(r)?.clone()))?;
+    let (chain_val, field_transforms) = slab::with_resource(chain, |r| {
+        Ok((
+            slab::as_protolens_chain(r)?.clone(),
+            slab::as_field_transforms(r)?,
+        ))
+    })?;
     let schema_val = slab::with_resource(schema, |r| Ok(slab::as_schema(r)?.clone()))?;
 
     let protocol = lookup_builtin_protocol(&schema_val.protocol)
         .unwrap_or_else(|| default_protocol(&schema_val.protocol));
 
-    let lens_obj = chain_val.instantiate(&schema_val, &protocol).map_err(|e| {
+    let mut lens_obj = chain_val.instantiate(&schema_val, &protocol).map_err(|e| {
         WasmError::LensConstructionFailed {
             reason: e.to_string(),
         }
     })?;
+
+    // Merge rather than overwrite: a chain step may already have
+    // contributed transforms at a vertex the document also targets.
+    for (anchor, transforms) in field_transforms {
+        lens_obj
+            .compiled
+            .field_transforms
+            .entry(anchor)
+            .or_default()
+            .extend(transforms);
+    }
 
     Ok(slab::alloc(Resource::MigrationWithSchemas {
         compiled: lens_obj.compiled,
@@ -472,25 +495,76 @@ pub fn protolens_from_diff(diff_bytes: &[u8], schema1: u32, schema2: u32) -> Res
 
 /// Compose two protolens chains.
 ///
-/// Returns a handle to the composed `ProtolensChain`.
+/// Any value-level field transforms carried by either operand are
+/// carried into the result, `chain1`'s ahead of `chain2`'s at a shared
+/// vertex, matching the order the steps run in.
+///
+/// Returns a handle to the composed lens.
 ///
 /// # Errors
 ///
 /// Returns `JsError` if either handle is invalid.
 #[wasm_bindgen]
 pub fn protolens_compose(chain1: u32, chain2: u32) -> Result<u32, JsError> {
-    let (c1, c2) = slab::with_two_resources(chain1, chain2, |r1, r2| {
-        let ch1 = slab::as_protolens_chain(r1)?;
-        let ch2 = slab::as_protolens_chain(r2)?;
-        Ok((ch1.clone(), ch2.clone()))
+    let (c1, c2, ft1, ft2) = slab::with_two_resources(chain1, chain2, |r1, r2| {
+        let ch1 = slab::as_protolens_chain(r1)?.clone();
+        let ch2 = slab::as_protolens_chain(r2)?.clone();
+        Ok((
+            ch1,
+            ch2,
+            slab::as_field_transforms(r1)?,
+            slab::as_field_transforms(r2)?,
+        ))
     })?;
 
     let mut combined_steps = c1.steps;
     combined_steps.extend(c2.steps);
 
-    Ok(slab::alloc(Resource::ProtolensChain(Box::new(
-        lens::ProtolensChain::new(combined_steps),
-    ))))
+    let mut field_transforms = ft1;
+    for (anchor, transforms) in ft2 {
+        field_transforms
+            .entry(anchor)
+            .or_default()
+            .extend(transforms);
+    }
+
+    Ok(slab::alloc(Resource::CompiledLensDoc {
+        chain: Box::new(lens::ProtolensChain::new(combined_steps)),
+        field_transforms,
+    }))
+}
+
+/// List the value-level field transforms a compiled lens document
+/// carries, keyed by the parent vertex they attach to.
+///
+/// A lens DSL document's `apply_expr`, `compute_field`, `hoist_field`,
+/// and `nest_field` steps compile to field transforms rather than to
+/// structural chain steps, so they do not appear in
+/// [`protolens_chain_to_json`]. This export is how a caller confirms
+/// such a step survived compilation.
+///
+/// Returns `MessagePack`-encoded `HashMap<String, Vec<FieldTransform>>`.
+/// A plain `ProtolensChain` handle yields an empty map.
+///
+/// # Errors
+///
+/// Returns `JsError` if the handle is invalid or does not hold a chain,
+/// or if serialization fails.
+#[wasm_bindgen]
+pub fn protolens_field_transforms(chain: u32) -> Result<Vec<u8>, JsError> {
+    let field_transforms = slab::with_resource(chain, slab::as_field_transforms)?;
+
+    let by_name: std::collections::HashMap<String, _> = field_transforms
+        .into_iter()
+        .map(|(anchor, transforms)| (anchor.to_string(), transforms))
+        .collect();
+
+    rmp_serde::to_vec_named(&by_name).map_err(|e| -> JsError {
+        WasmError::SerializationFailed {
+            reason: e.to_string(),
+        }
+        .into()
+    })
 }
 
 /// Serialize a protolens chain to JSON.
@@ -754,9 +828,10 @@ pub fn compile_lens_document(
         }
     })?;
 
-    Ok(slab::alloc(Resource::ProtolensChain(Box::new(
-        compiled.chain,
-    ))))
+    Ok(slab::alloc(Resource::CompiledLensDoc {
+        chain: Box::new(compiled.chain),
+        field_transforms: compiled.field_transforms,
+    }))
 }
 
 /// Compile a lens DSL document, resolving `compose` named references
@@ -819,9 +894,10 @@ pub fn compile_lens_document_with_refs(
             reason: e.to_string(),
         })?;
 
-    Ok(slab::alloc(Resource::ProtolensChain(Box::new(
-        compiled.chain,
-    ))))
+    Ok(slab::alloc(Resource::CompiledLensDoc {
+        chain: Box::new(compiled.chain),
+        field_transforms: compiled.field_transforms,
+    }))
 }
 
 /// Deserialize a protolens chain from JSON bytes.
@@ -1209,5 +1285,84 @@ mod tests {
         // union-of-string-literals on the TS side; the round trip must
         // preserve the exact tier.
         assert_eq!(decoded.stringency, Some(HintStringency::Lenient));
+    }
+
+    /// A lens document whose only substantive step is a `compute_field`
+    /// compiles to an empty *structural* chain; its content lives in the
+    /// value-level field transforms. The compiled handle must carry
+    /// those, or a value-transform lens is unreachable from JS.
+    #[test]
+    fn compile_lens_document_keeps_compute_field_transform() {
+        let doc = serde_json::json!({
+            "id": "demo",
+            "source": "v1",
+            "target": "v2",
+            "steps": [
+                {
+                    "compute_field": {
+                        "target": "temporalSpan",
+                        "expr": "\\r -> { start = 0, ending = 1000 }",
+                        "inverse": "\\r -> {}"
+                    }
+                }
+            ]
+        })
+        .to_string();
+
+        let handle = compile_lens_document(doc.as_bytes(), "json", "rec:body")
+            .expect("compile should succeed");
+
+        let (steps, transforms) = slab::with_resource(handle, |r| {
+            Ok((
+                slab::as_protolens_chain(r)?.steps.len(),
+                slab::as_field_transforms(r)?,
+            ))
+        })
+        .expect("handle should hold a compiled lens document");
+
+        assert_eq!(
+            steps, 0,
+            "a compute_field contributes no structural chain step"
+        );
+        assert!(
+            transforms.values().any(|t| !t.is_empty()),
+            "the compute_field must survive compilation as a field transform"
+        );
+
+        slab::free(handle);
+    }
+
+    /// A purely structural document still compiles, and reports no field
+    /// transforms: the two halves are independent.
+    #[test]
+    fn compile_lens_document_reports_no_transforms_for_structural_doc() {
+        let doc = serde_json::json!({
+            "id": "structural",
+            "source": "v1",
+            "target": "v2",
+            "steps": [
+                { "rename_field": { "old": "before", "new": "after" } }
+            ]
+        })
+        .to_string();
+
+        let handle = compile_lens_document(doc.as_bytes(), "json", "rec:body")
+            .expect("compile should succeed");
+
+        let (steps, transforms) = slab::with_resource(handle, |r| {
+            Ok((
+                slab::as_protolens_chain(r)?.steps.len(),
+                slab::as_field_transforms(r)?,
+            ))
+        })
+        .expect("handle should hold a compiled lens document");
+
+        assert_eq!(steps, 1, "a rename_field is a structural step");
+        assert!(
+            transforms.values().all(Vec::is_empty),
+            "a structural-only document carries no field transforms"
+        );
+
+        slab::free(handle);
     }
 }
