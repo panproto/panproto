@@ -1567,6 +1567,18 @@ pub fn build_env_with_children(
 /// Each field is bound as a top-level variable. If an `attrs` field
 /// contains a `Value::Unknown` map, its entries are also bound with
 /// qualified names (e.g., `attrs.level`).
+///
+/// Those qualified names are a compatibility surface, not the primary
+/// access path. They exist because `Value::Unknown` used to convert to
+/// `Literal::Null`, so a genuine field projection — `Expr::Field` over
+/// `attrs` — failed with "expected record, got null", and reaching a
+/// nested entry required a flattened variable whose name happened to
+/// contain a dot. [`value_to_expr_literal`] is now structure-preserving,
+/// so `attrs` binds to a `Literal::Record` and field projection resolves
+/// natively; the qualified bindings are redundant with it rather than
+/// load-bearing. They are kept so that an expression already written
+/// against the flattened names keeps working, and because the flat
+/// aliasing also serves records that are *not* nested under `attrs`.
 #[must_use]
 pub fn build_env_from_extra_fields(fields: &HashMap<String, Value>) -> panproto_expr::Env {
     let mut env = panproto_expr::Env::new();

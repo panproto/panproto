@@ -165,6 +165,29 @@ impl EditLens {
     ///
     /// Returns [`EditLensError::Restrict`] if a field transform carried by
     /// the migration fails to evaluate.
+    ///
+    /// That this is fallible at all is worth stating precisely, since an
+    /// isomorphism is total by definition. The partiality is not a claim
+    /// that the iso is not an iso. It has two sources, and neither is a
+    /// statement about the mathematics:
+    ///
+    /// 1. Evaluation runs under an [`panproto_expr::EvalConfig`] step and
+    ///    depth budget. A map that is total as a function is still partial
+    ///    as a computation, and exhausting the budget has to be reportable
+    ///    rather than silently yielding an untranslated edit.
+    /// 2. [`Self::optic_kind`] classifies `Iso` from *structure* alone —
+    ///    every source vertex and edge survives, no variant changes — and
+    ///    never inspects the migration's field transforms. A migration can
+    ///    therefore be classified `Iso` while carrying a transform whose
+    ///    [`panproto_gat::CoercionClass`] is `Projection` or `Opaque`,
+    ///    which is by definition not invertible.
+    ///
+    /// The second is a genuine gap between the classification and what it
+    /// asserts, and [`panproto_inst::CompiledMigration::coercion_class`]
+    /// already computes the composite class needed to close it. Until it
+    /// is closed, reporting the failure is the honest behavior: skipping
+    /// the transform would preserve this method's totality while making it
+    /// return something that is not the isomorphism's action on the edit.
     pub fn translate_iso(&self, edit: TreeEdit) -> Result<TreeEdit, EditLensError> {
         let translated = match edit {
             TreeEdit::Identity => TreeEdit::Identity,
