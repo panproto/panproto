@@ -550,18 +550,33 @@ pub fn apply_term_assignments_to_row(
 }
 
 impl CompiledMigration {
-    /// Compute the composite coercion class of all field transforms in this migration.
+    /// Compute the composite coercion class of every value transform in
+    /// this migration.
     ///
-    /// Folds over every transform across all vertices using `CoercionClass::compose`,
-    /// starting from `Iso` (the identity element).
+    /// Folds over all vertices using `CoercionClass::compose`, starting
+    /// from `Iso` (the identity element), so a migration carrying no value
+    /// transforms classifies as `Iso` and one carrying a single `Opaque`
+    /// transform classifies as `Opaque`.
+    ///
+    /// Both carriers are folded: the direct [`FieldTransform`]s and the
+    /// lowered [`TermAssignment`]s. `panproto-mig`'s compiler emits its
+    /// value transforms as term assignments rather than as field
+    /// transforms, so folding only the latter would report `Iso` — the
+    /// identity element of an empty fold — for exactly the migrations that
+    /// carry the most value-level coercion.
     #[must_use]
     pub fn coercion_class(&self) -> panproto_gat::CoercionClass {
-        self.field_transforms
+        let from_fields = self
+            .field_transforms
             .values()
             .flat_map(|ts| ts.iter())
             .fold(panproto_gat::CoercionClass::Iso, |acc, t| {
                 acc.compose(t.coercion_class())
-            })
+            });
+        self.op_term_assignments
+            .values()
+            .flat_map(|ts| ts.iter())
+            .fold(from_fields, |acc, t| acc.compose(t.coercion_class()))
     }
 
     /// All value transforms for `anchor`: the legacy [`FieldTransform`]s

@@ -83,7 +83,8 @@ pub fn apply_builtin(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprErr
         | BuiltinOp::Head
         | BuiltinOp::Tail
         | BuiltinOp::Reverse
-        | BuiltinOp::Length => apply_list(op, args),
+        | BuiltinOp::Length
+        | BuiltinOp::Range => apply_list(op, args),
 
         // --- Record ---
         BuiltinOp::MergeRecords | BuiltinOp::Keys | BuiltinOp::Values | BuiltinOp::HasField => {
@@ -294,13 +295,16 @@ fn apply_string(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError> {
 #[allow(clippy::cast_possible_wrap)]
 fn apply_list(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError> {
     match op {
-        // Map, Filter, Fold, FlatMap require lambda evaluation; handled in eval.rs.
-        BuiltinOp::Map | BuiltinOp::Filter | BuiltinOp::Fold | BuiltinOp::FlatMap => {
-            Err(ExprError::TypeError {
-                expected: "handled in evaluator".into(),
-                got: "direct builtin call".into(),
-            })
-        }
+        // Map, Filter, Fold, and FlatMap require lambda evaluation, and
+        // Range needs the list-length budget; all are handled in eval.rs.
+        BuiltinOp::Map
+        | BuiltinOp::Filter
+        | BuiltinOp::Fold
+        | BuiltinOp::FlatMap
+        | BuiltinOp::Range => Err(ExprError::TypeError {
+            expected: "handled in evaluator".into(),
+            got: "direct builtin call".into(),
+        }),
         BuiltinOp::Append => match (&args[0], &args[1]) {
             (Literal::List(items), val) => {
                 let mut new_items = items.clone();

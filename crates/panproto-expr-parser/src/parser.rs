@@ -195,6 +195,7 @@ fn resolve_builtin(name: &str) -> Option<BuiltinOp> {
         "reverse" => Some(BuiltinOp::Reverse),
         "flat_map" | "flatMap" => Some(BuiltinOp::FlatMap),
         "length" => Some(BuiltinOp::Length),
+        "range" => Some(BuiltinOp::Range),
         "merge" | "merge_records" => Some(BuiltinOp::MergeRecords),
         "keys" => Some(BuiltinOp::Keys),
         "values" => Some(BuiltinOp::Values),
@@ -277,35 +278,31 @@ where
                 )
                 .map(|(body, quals): (Expr, Vec<Qual>)| desugar_comprehension(body, &quals));
 
-            // Range: [1..10] or [1..]
+            // Range: [1..10]. Lowers to the `range` builtin, which
+            // constructs the list and charges its length against the
+            // evaluator's list budget. An open-ended `[1..]` is rejected:
+            // the language has no lazy lists, so there is nothing correct
+            // to lower it to, and the alternative of quietly yielding the
+            // one-element list `[1]` is a wrong answer rather than a
+            // missing feature.
             let range = expr
                 .clone()
                 .then_ignore(just(Token::DotDot))
                 .then(expr.clone().or_not())
-                .map(|(start, end): (Expr, Option<Expr>)| match end {
-                    Some(stop) => Expr::Builtin(
-                        BuiltinOp::Map,
-                        vec![
-                            Expr::Lam(
-                                Arc::from("_i"),
-                                Box::new(Expr::Builtin(
-                                    BuiltinOp::Add,
-                                    vec![start.clone(), Expr::Var(Arc::from("_i"))],
-                                )),
-                            ),
-                            Expr::Builtin(
-                                BuiltinOp::Sub,
-                                vec![
-                                    Expr::Builtin(
-                                        BuiltinOp::Add,
-                                        vec![stop, Expr::Lit(Literal::Int(1))],
-                                    ),
-                                    start,
-                                ],
-                            ),
-                        ],
-                    ),
-                    None => Expr::List(vec![start]),
+                .validate(|(start, end): (Expr, Option<Expr>), extra, emitter| {
+                    if let Some(stop) = end {
+                        return Expr::Builtin(BuiltinOp::Range, vec![start, stop]);
+                    }
+                    emitter.emit(Rich::custom(
+                        extra.span(),
+                        "open-ended range `[a..]` is not supported: the expression \
+                         language has no lazy lists. Give an upper bound, as in `[a..b]`.",
+                    ));
+                    // Emitting rather than failing keeps this branch the winning
+                    // alternative, so the message above survives instead of being
+                    // masked by a backtrack into the plain-list parser. The value
+                    // is never evaluated: parsing fails on the emitted error.
+                    Expr::List(vec![start])
                 });
 
             choice((comprehension, range, plain_list))
@@ -935,6 +932,100 @@ mod tests {
                 (Arc::from("name"), Expr::Var(Arc::from("name"))),
                 (Arc::from("age"), Expr::Var(Arc::from("age"))),
             ])
+        );
+    }
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn ranges_lower_to_the_range_builtin_and_evaluate() {
+        let config = panproto_expr::EvalConfig::default();
+        let eval =
+            |src: &str| panproto_expr::eval(&parse_ok(src), &panproto_expr::Env::new(), &config);
+
+        assert_eq!(
+            parse_ok("[1..3]"),
+            Expr::Builtin(
+                BuiltinOp::Range,
+                vec![Expr::Lit(Literal::Int(1)), Expr::Lit(Literal::Int(3)),]
+            )
+        );
+        assert_eq!(
+            eval("[1..3]").expect("range should evaluate"),
+            panproto_expr::Literal::List(vec![
+                panproto_expr::Literal::Int(1),
+                panproto_expr::Literal::Int(2),
+                panproto_expr::Literal::Int(3),
+            ]),
+            "both bounds are inclusive"
+        );
+        assert_eq!(
+            eval("[0..0]").expect("singleton range should evaluate"),
+            panproto_expr::Literal::List(vec![panproto_expr::Literal::Int(0)])
+        );
+        assert_eq!(
+            eval("[3..1]").expect("descending range should evaluate"),
+            panproto_expr::Literal::List(vec![]),
+            "a descending range is empty, not an error"
+        );
+        // `range a b` names the same builtin as the bracket syntax.
+        assert_eq!(parse_ok("range 1 3"), parse_ok("[1..3]"));
+    }
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn ranges_compose_with_the_list_builtins() {
+        let config = panproto_expr::EvalConfig::default();
+        let eval =
+            |src: &str| panproto_expr::eval(&parse_ok(src), &panproto_expr::Env::new(), &config);
+
+        assert_eq!(
+            eval("map (\\x -> x * x) [1..4]").expect("map over a range should evaluate"),
+            panproto_expr::Literal::List(vec![
+                panproto_expr::Literal::Int(1),
+                panproto_expr::Literal::Int(4),
+                panproto_expr::Literal::Int(9),
+                panproto_expr::Literal::Int(16),
+            ])
+        );
+        assert_eq!(
+            eval("fold (\\a -> \\b -> a + b) 0 [1..100]").expect("fold over a range"),
+            panproto_expr::Literal::Int(5050)
+        );
+    }
+
+    #[test]
+    fn an_oversized_range_is_rejected_before_it_allocates() {
+        // Range is the one builtin that turns a constant-size expression
+        // into an arbitrarily long list, so its length is checked against
+        // the list budget rather than discovered after allocating.
+        let config = panproto_expr::EvalConfig::default();
+        let result = panproto_expr::eval(
+            &parse_ok("[0..99999999]"),
+            &panproto_expr::Env::new(),
+            &config,
+        );
+        assert!(
+            matches!(result, Err(panproto_expr::ExprError::ListLengthExceeded(_))),
+            "expected ListLengthExceeded, got {result:?}"
+        );
+    }
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn an_open_ended_range_is_rejected() {
+        // There are no lazy lists to lower `[1..]` to. It previously
+        // parsed to the one-element list `[1]`, which is a wrong answer
+        // rather than a missing feature.
+        let tokens = tokenize("[1..]").unwrap_or_else(|e| panic!("lex failed: {e}"));
+        let errs = parse(&tokens).expect_err("an open-ended range must not parse");
+        let rendered = errs
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("; ");
+        assert!(
+            rendered.contains("open-ended range"),
+            "the error should name the construct, got: {rendered}"
         );
     }
 

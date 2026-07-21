@@ -481,6 +481,7 @@ const fn builtin_name(op: BuiltinOp) -> &'static str {
         BuiltinOp::Reverse => "reverse",
         BuiltinOp::FlatMap => "flat_map",
         BuiltinOp::Length => "length",
+        BuiltinOp::Range => "range",
         BuiltinOp::MergeRecords => "merge",
         BuiltinOp::Keys => "keys",
         BuiltinOp::Values => "values",

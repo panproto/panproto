@@ -164,7 +164,7 @@ pub enum BuiltinOp {
     /// `contains(s: string, substr: string) → bool`
     Contains,
 
-    // --- List (9) ---
+    // --- List (10) ---
     /// `map(list: [a], f: a → b) → [b]`
     Map,
     /// `filter(list: [a], pred: a → bool) → [a]`
@@ -183,6 +183,9 @@ pub enum BuiltinOp {
     FlatMap,
     /// `length(list: [a]) → int` (list length, distinct from string Len)
     Length,
+    /// `range(start: int, stop: int) → [int]` (inclusive of both bounds;
+    /// empty when `stop < start`)
+    Range,
 
     // --- Record (4) ---
     /// `merge(a: record, b: record) → record` (b fields override a)
@@ -307,6 +310,7 @@ impl BuiltinOp {
             | Self::Edge
             | Self::HasEdge
             | Self::DefaultVal
+            | Self::Range
             | Self::TruncateStr => 2,
             // Ternary
             Self::Slice | Self::Replace | Self::Fold | Self::Clamp => 3,
@@ -359,6 +363,7 @@ impl BuiltinOp {
 
             // List operations.
             Self::Length => Some((&[ExprType::List], ExprType::Int)),
+            Self::Range => Some((&[ExprType::Int, ExprType::Int], ExprType::List)),
             Self::Reverse => Some((&[ExprType::List], ExprType::List)),
 
             // Record operations.

@@ -153,12 +153,16 @@ fn eval_inner(
         }
 
         Expr::Builtin(op, args) => {
-            // Special handling for higher-order builtins (Map, Filter, Fold, FlatMap)
+            // Special handling for higher-order builtins (Map, Filter, Fold,
+            // FlatMap) and for Range, which needs the list-length budget:
+            // it is the one builtin that can allocate an arbitrarily long
+            // list from a constant-size expression.
             match op {
                 BuiltinOp::Map => eval_map(args, env, depth, state),
                 BuiltinOp::Filter => eval_filter(args, env, depth, state),
                 BuiltinOp::Fold => eval_fold(args, env, depth, state),
                 BuiltinOp::FlatMap => eval_flat_map(args, env, depth, state),
+                BuiltinOp::Range => eval_range(args, env, depth, state),
                 _ => {
                     let evaluated: Result<Vec<_>, _> = args
                         .iter()
@@ -169,6 +173,71 @@ fn eval_inner(
             }
         }
     }
+}
+
+/// Evaluate a range: `range(start, stop)` -> `[start, ..., stop]`.
+///
+/// Both bounds are inclusive, following the surface syntax `[a..b]` this
+/// lowers from. A `stop` below `start` yields the empty list rather than
+/// an error, matching the descending-range convention of the Haskell-style
+/// syntax the parser accepts.
+///
+/// The length is checked *before* allocating. Range is the only builtin
+/// that can turn a constant-size expression into an arbitrarily long list,
+/// so computing the length first and rejecting it against `max_list_len`
+/// keeps `[0..9999999999]` from exhausting memory before the budget is
+/// consulted.
+fn eval_range(
+    args: &[Expr],
+    env: &Env,
+    depth: u32,
+    state: &mut EvalState,
+) -> Result<Literal, ExprError> {
+    if args.len() != 2 {
+        return Err(ExprError::ArityMismatch {
+            op: "Range".into(),
+            expected: 2,
+            got: args.len(),
+        });
+    }
+    let start = match eval_inner(&args[0], env, depth + 1, state)? {
+        Literal::Int(n) => n,
+        other => {
+            return Err(ExprError::TypeError {
+                expected: "int".into(),
+                got: other.type_name().into(),
+            });
+        }
+    };
+    let stop = match eval_inner(&args[1], env, depth + 1, state)? {
+        Literal::Int(n) => n,
+        other => {
+            return Err(ExprError::TypeError {
+                expected: "int".into(),
+                got: other.type_name().into(),
+            });
+        }
+    };
+
+    if stop < start {
+        return Ok(Literal::List(Vec::new()));
+    }
+    // `stop >= start` here, so the difference is non-negative; widen to
+    // i128 so that a range spanning the full i64 domain cannot overflow
+    // while computing its own length.
+    let len = (i128::from(stop) - i128::from(start)) + 1;
+    let max = i128::try_from(state.max_list_len).unwrap_or(i128::MAX);
+    if len > max {
+        return Err(ExprError::ListLengthExceeded(
+            usize::try_from(len).unwrap_or(usize::MAX),
+        ));
+    }
+    let len_usize = usize::try_from(len).unwrap_or(usize::MAX);
+    let mut result = Vec::with_capacity(len_usize);
+    for n in start..=stop {
+        result.push(Literal::Int(n));
+    }
+    Ok(Literal::List(result))
 }
 
 /// Evaluate a function application.
