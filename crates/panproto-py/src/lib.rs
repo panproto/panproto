@@ -73,7 +73,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     gat::register(m)?;
 
     // Lexicon parsing + schema-to-theory: parse_atproto_lexicon,
-    // parse_schema_document, theory_of
+    // parse_schema_document, parse_schema_bundle, theory_of
     lexicon::register(m)?;
 
     // Expressions: Expr, parse_expr, eval_with_instance

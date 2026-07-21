@@ -214,6 +214,33 @@ export class ProtolensChainHandle implements Disposable {
   }
 
   /**
+   * List the value-level field transforms this chain carries, keyed by
+   * the parent vertex they attach to.
+   *
+   * A lens document's `apply_expr`, `compute_field`, `hoist_field`, and
+   * `nest_field` steps compile to field transforms rather than to
+   * structural chain steps, so they do not appear in {@link toJson}.
+   * This is how a caller confirms such a step survived compilation. The
+   * transforms apply when the chain is instantiated at a schema: `get`
+   * evaluates them and `put` inverts them.
+   *
+   * @returns Field transforms by parent vertex; empty for a purely
+   *   structural chain
+   * @throws {@link WasmError} if the WASM call fails
+   */
+  fieldTransforms(): Record<string, unknown[]> {
+    try {
+      const bytes = this.#wasm.exports.protolens_field_transforms(this.#handle.id);
+      return unpackFromWasm<Record<string, unknown[]>>(bytes);
+    } catch (error) {
+      throw new WasmError(
+        `protolens_field_transforms failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
    * Deserialize a protolens chain from JSON via WASM.
    *
    * @param json - JSON string representing a protolens chain

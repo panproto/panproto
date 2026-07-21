@@ -135,6 +135,65 @@ pub fn parse_atproto_lexicon(json_bytes: &[u8]) -> Result<u32, JsError> {
     Ok(slab::alloc(Resource::Schema(std::sync::Arc::new(schema))))
 }
 
+/// Parse a bundle of schema documents into one schema, resolving
+/// cross-document references across the whole bundle.
+///
+/// `docs_bytes` is the raw JSON bytes of an *array* of documents, in
+/// whatever document format `protocol` names. A reference from one
+/// document into another resolves to that definition's real, typed
+/// vertex rather than to an opaque placeholder, so a lens or migration
+/// can bind to the cross-document structure. A reference whose target is
+/// in no document of the bundle stays a placeholder, which is what marks
+/// it as genuinely external.
+///
+/// Dispatch lives in the protocol layer, so a protocol gains bundle
+/// support without changing this signature. Query the supported set with
+/// [`list_bundle_parser_protocols`].
+///
+/// # Errors
+///
+/// Returns `JsError` if the JSON cannot be parsed, is not an array, no
+/// bundle parser is registered for `protocol`, or the documents are not
+/// a well-formed bundle for that protocol.
+#[wasm_bindgen]
+pub fn parse_schema_bundle(protocol: &str, docs_bytes: &[u8]) -> Result<u32, JsError> {
+    let docs: Vec<serde_json::Value> =
+        serde_json::from_slice(docs_bytes).map_err(|e| WasmError::DeserializationFailed {
+            reason: format!("expected a JSON array of schema documents: {e}"),
+        })?;
+
+    let schema = protocols::parse_schema_bundle(protocol, &docs).map_err(|e| {
+        WasmError::SchemaBuildFailed {
+            reason: e.to_string(),
+        }
+    })?;
+
+    Ok(slab::alloc(Resource::Schema(std::sync::Arc::new(schema))))
+}
+
+/// List the protocols for which [`parse_schema_bundle`] can resolve
+/// cross-document references.
+///
+/// Returns `MessagePack`-encoded `Vec<String>`.
+///
+/// # Errors
+///
+/// Returns `JsError` if serialization fails.
+#[wasm_bindgen]
+pub fn list_bundle_parser_protocols() -> Result<Vec<u8>, JsError> {
+    let names: Vec<String> = protocols::bundle_parser_protocols()
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect();
+
+    rmp_serde::to_vec_named(&names).map_err(|e| -> JsError {
+        WasmError::SerializationFailed {
+            reason: e.to_string(),
+        }
+        .into()
+    })
+}
+
 #[derive(serde::Serialize)]
 struct SchemaMeta {
     protocol: String,
@@ -833,6 +892,65 @@ mod tests {
         assert_eq!(
             value.get("protocol").and_then(serde_json::Value::as_str),
             Some("test")
+        );
+    }
+
+    /// A bundle resolves a ref from one document into a sibling
+    /// document's def, so the target's own properties reach the schema.
+    /// Parsing only the referring document leaves that target opaque.
+    #[test]
+    fn parse_schema_bundle_resolves_cross_document_refs() {
+        let docs = serde_json::json!([
+            {
+                "lexicon": 1,
+                "id": "pub.layers.annotation.annotationLayer",
+                "defs": {
+                    "main": {
+                        "type": "record",
+                        "record": {
+                            "type": "object",
+                            "required": ["anchor"],
+                            "properties": {
+                                "anchor": {"type": "ref", "ref": "pub.layers.defs#boundingBox"}
+                            }
+                        }
+                    }
+                }
+            },
+            {
+                "lexicon": 1,
+                "id": "pub.layers.defs",
+                "defs": {
+                    "boundingBox": {
+                        "type": "object",
+                        "required": ["x"],
+                        "properties": {"x": {"type": "integer"}}
+                    }
+                }
+            }
+        ])
+        .to_string();
+
+        let handle = parse_schema_bundle("atproto", docs.as_bytes()).unwrap();
+        let meta = schema_metadata(handle).unwrap();
+        let value: serde_json::Value = rmp_serde::from_slice(&meta).unwrap();
+
+        let vertices = value["vertices"].as_array().unwrap();
+        let kind_of = |id: &str| {
+            vertices
+                .iter()
+                .find(|v| v["id"] == id)
+                .map(|v| v["kind"].as_str().unwrap().to_owned())
+        };
+
+        assert_eq!(
+            kind_of("pub.layers.defs#boundingBox").as_deref(),
+            Some("object"),
+            "the cross-document ref target must resolve to its typed def"
+        );
+        assert!(
+            kind_of("pub.layers.defs#boundingBox.x").is_some(),
+            "the resolved def's own properties must be present"
         );
     }
 

@@ -1020,6 +1020,64 @@ class TestLexiconParsing:
         with pytest.raises(ValueError, match="no document parser"):
             panproto.parse_schema_document("nonexistent", LEXICON)
 
+    def test_parse_schema_bundle_resolves_cross_document_ref(self) -> None:
+        """A ref into a sibling document reaches that def's own fields.
+
+        Parsed alone, ``referring`` cannot type its cross-document ref
+        target, so the target carries no fields; bundling the two
+        documents resolves it.
+        """
+        referring = {
+            "lexicon": 1,
+            "id": "local.bundle.referring",
+            "defs": {
+                "main": {
+                    "type": "record",
+                    "key": "tid",
+                    "record": {
+                        "type": "object",
+                        "required": ["anchor"],
+                        "properties": {
+                            "anchor": {
+                                "type": "ref",
+                                "ref": "local.bundle.defs#boundingBox",
+                            }
+                        },
+                    },
+                }
+            },
+        }
+        referenced = {
+            "lexicon": 1,
+            "id": "local.bundle.defs",
+            "defs": {
+                "boundingBox": {
+                    "type": "object",
+                    "required": ["x"],
+                    "properties": {"x": {"type": "integer"}},
+                }
+            },
+        }
+
+        alone = panproto.parse_schema_document("atproto", referring)
+        bundled = panproto.parse_schema_bundle("atproto", [referring, referenced])
+
+        # Resolution adds the referenced def's own structure, so the
+        # bundle carries strictly more vertices than the lone document.
+        assert bundled.vertex_count > alone.vertex_count
+
+    def test_parse_schema_bundle_single_document_matches_document_parse(self) -> None:
+        bundled = panproto.parse_schema_bundle("atproto", [LEXICON])
+        direct = panproto.parse_schema_document("atproto", LEXICON)
+        assert bundled.vertex_count == direct.vertex_count
+        assert bundled.edge_count == direct.edge_count
+
+    def test_parse_schema_bundle_unknown_protocol_raises(self) -> None:
+        with pytest.raises(
+            (ValueError, panproto.SchemaValidationError), match="no bundle parser"
+        ):
+            panproto.parse_schema_bundle("nonexistent", [LEXICON])
+
     def test_theory_shape_mirrors_schema(self, schema: panproto.Schema) -> None:
         theory = panproto.theory_of(schema)
         assert theory.sort_count == schema.vertex_count

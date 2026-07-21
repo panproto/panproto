@@ -5,10 +5,11 @@
 //! this vector. Freed slots are reused on subsequent allocations.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use panproto_core::gat::Theory;
-use panproto_core::inst::CompiledMigration;
+use panproto_core::gat::{Name, Theory};
+use panproto_core::inst::{CompiledMigration, FieldTransform};
 use panproto_core::io::ProtocolRegistry;
 use panproto_core::lens::{ProtolensChain, SymmetricLens};
 use panproto_core::schema::{Protocol, Schema};
@@ -47,6 +48,22 @@ pub enum Resource {
     VcsRepo(Box<MemStore>),
     /// A protolens chain (reusable, schema-independent).
     ProtolensChain(Box<ProtolensChain>),
+    /// A compiled lens document: a protolens chain paired with the
+    /// value-level field transforms compiled from the same document.
+    ///
+    /// A lens DSL document's `apply_expr`, `compute_field`,
+    /// `hoist_field`, and `nest_field` steps compile to field
+    /// transforms, not to structural chain steps. Keeping both halves on
+    /// one handle lets [`crate::api::lens::instantiate_protolens`] fold
+    /// the transforms into the `CompiledMigration` it produces, so
+    /// `get_record` / `put_record` apply them. Wherever a plain
+    /// `ProtolensChain` is expected, this variant supplies its `chain`.
+    CompiledLensDoc {
+        /// The structural half.
+        chain: Box<ProtolensChain>,
+        /// The value-level half, keyed by parent vertex.
+        field_transforms: HashMap<Name, Vec<FieldTransform>>,
+    },
     /// A symmetric lens.
     SymmetricLensHandle(Box<SymmetricLens>),
     /// A data set (instances bound to a schema).
@@ -296,9 +313,31 @@ pub fn as_vcs_repo(resource: &Resource) -> Result<&MemStore, WasmError> {
 
 /// Extract a `ProtolensChain` reference from a resource, or return a
 /// type mismatch error.
+/// A `CompiledLensDoc` also answers here, with its structural half, so
+/// every export that consumes a chain handle accepts either variant.
 pub fn as_protolens_chain(resource: &Resource) -> Result<&ProtolensChain, WasmError> {
     match resource {
-        Resource::ProtolensChain(c) => Ok(c),
+        Resource::ProtolensChain(c) | Resource::CompiledLensDoc { chain: c, .. } => Ok(c),
+        _ => Err(WasmError::TypeMismatch {
+            expected: "ProtolensChain",
+            actual: resource_type_name(resource),
+        }),
+    }
+}
+
+/// Extract the value-level field transforms carried by a chain-shaped
+/// resource, or return a type mismatch error.
+///
+/// A plain `ProtolensChain` carries none, which is distinct from a
+/// non-chain resource: it yields an empty map rather than an error.
+pub fn as_field_transforms(
+    resource: &Resource,
+) -> Result<HashMap<Name, Vec<FieldTransform>>, WasmError> {
+    match resource {
+        Resource::ProtolensChain(_) => Ok(HashMap::new()),
+        Resource::CompiledLensDoc {
+            field_transforms, ..
+        } => Ok(field_transforms.clone()),
         _ => Err(WasmError::TypeMismatch {
             expected: "ProtolensChain",
             actual: resource_type_name(resource),
@@ -341,6 +380,7 @@ const fn resource_type_name(resource: &Resource) -> &'static str {
         Resource::Theory(_) => "Theory",
         Resource::VcsRepo(_) => "VcsRepo",
         Resource::ProtolensChain(_) => "ProtolensChain",
+        Resource::CompiledLensDoc { .. } => "CompiledLensDoc",
         Resource::SymmetricLensHandle(_) => "SymmetricLens",
         Resource::DataSet(_) => "DataSet",
     }

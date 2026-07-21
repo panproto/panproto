@@ -81,6 +81,7 @@ from panproto._native import (
     migrate_model,
     # Lexicon / schema-document parsing
     parse_atproto_lexicon,
+    parse_schema_bundle,
     parse_schema_document,
     theory_of,
     # Expr
@@ -252,6 +253,7 @@ __all__ = [
     "migrate_model",
     # Lexicon / schema-document parsing
     "parse_atproto_lexicon",
+    "parse_schema_bundle",
     "parse_schema_document",
     "theory_of",
     # Expr

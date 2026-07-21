@@ -9,7 +9,7 @@
 //!
 //! Edge kinds: record-schema, prop, items, variant, ref, self-ref.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use panproto_gat::{Sort, Theory, pushout_by_name};
 use panproto_schema::{EdgeRule, Protocol, Schema, SchemaBuilder};
@@ -122,29 +122,90 @@ pub fn register_theories<S: ::std::hash::BuildHasher>(registry: &mut HashMap<Str
 /// and edges for structural relationships (properties, array items,
 /// union variants, references).
 ///
+/// A `$ref` to a def in another lexicon document resolves to an opaque
+/// `"ref"`-kind placeholder vertex, because this entry point sees only
+/// the one document. To resolve refs across a set of documents, use
+/// [`parse_lexicon_bundle`].
+///
 /// # Errors
 ///
 /// Returns [`ProtocolError`] if the JSON is not a valid lexicon or
 /// if schema construction fails.
 pub fn parse_lexicon(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
+    parse_lexicon_bundle(std::slice::from_ref(json))
+}
+
+/// Parse a bundle of `ATProto` lexicon documents into one [`Schema`],
+/// resolving `$ref`s across the whole bundle.
+///
+/// Every document's defs are registered as vertices before any
+/// document's structure is parsed, so a `nsid#frag` ref into a *sibling*
+/// document lands on that def's real, typed vertex instead of on an
+/// opaque `"ref"` placeholder. A ref whose target is in no document of
+/// the bundle still becomes a placeholder, which is what marks it as
+/// genuinely external.
+///
+/// Passing a single document is equivalent to [`parse_lexicon`].
+///
+/// # Errors
+///
+/// Returns [`ProtocolError::MissingField`] if any document lacks `id`
+/// or `defs`, [`ProtocolError::Parse`] if two documents declare the
+/// same `id`, or a construction error from the schema builder.
+pub fn parse_lexicon_bundle(docs: &[serde_json::Value]) -> Result<Schema, ProtocolError> {
     let proto = protocol();
-
-    let lexicon_id = json
-        .get("id")
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| ProtocolError::MissingField("id".into()))?;
-
-    let defs = json
-        .get("defs")
-        .and_then(serde_json::Value::as_object)
-        .ok_or_else(|| ProtocolError::MissingField("defs".into()))?;
-
     let mut builder = SchemaBuilder::new(&proto);
 
-    // First pass: create a vertex for every top-level def. This
-    // provides stable targets for forward `ref` edges so refs never
-    // need to create placeholder vertices that collide with the real
-    // def on a later iteration.
+    // Destructure each document once, up front, so a malformed
+    // document in the bundle fails before any vertex is registered.
+    let mut parsed: Vec<(&str, &serde_json::Map<String, serde_json::Value>)> =
+        Vec::with_capacity(docs.len());
+    let mut seen_ids: HashSet<&str> = HashSet::with_capacity(docs.len());
+
+    for json in docs {
+        let lexicon_id = json
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| ProtocolError::MissingField("id".into()))?;
+
+        let defs = json
+            .get("defs")
+            .and_then(serde_json::Value::as_object)
+            .ok_or_else(|| ProtocolError::MissingField("defs".into()))?;
+
+        if !seen_ids.insert(lexicon_id) {
+            return Err(ProtocolError::Parse(format!(
+                "duplicate lexicon id in bundle: {lexicon_id}"
+            )));
+        }
+
+        parsed.push((lexicon_id, defs));
+    }
+
+    // First pass, over the whole bundle: create a vertex for every
+    // top-level def of every document. This provides stable targets for
+    // forward and cross-document `ref` edges, so a ref never creates a
+    // placeholder that collides with the real def on a later iteration.
+    for (lexicon_id, defs) in &parsed {
+        builder = register_def_vertices(builder, lexicon_id, defs)?;
+    }
+
+    // Second pass: parse each document's type-specific structure. Every
+    // in-bundle ref target now exists as a typed vertex.
+    for (lexicon_id, defs) in &parsed {
+        builder = parse_def_bodies(builder, lexicon_id, defs)?;
+    }
+
+    let schema = builder.build()?;
+    Ok(schema)
+}
+
+/// Register a vertex for every top-level def in one document.
+fn register_def_vertices(
+    mut builder: SchemaBuilder,
+    lexicon_id: &str,
+    defs: &serde_json::Map<String, serde_json::Value>,
+) -> Result<SchemaBuilder, ProtocolError> {
     for (def_name, def_value) in defs {
         let def_type = def_value
             .get("type")
@@ -167,7 +228,16 @@ pub fn parse_lexicon(json: &serde_json::Value) -> Result<Schema, ProtocolError> 
         builder = builder.vertex(&vertex_id, &kind, nsid)?;
     }
 
-    // Second pass: parse type-specific structure and declare entries.
+    Ok(builder)
+}
+
+/// Parse the type-specific structure of every def in one document and
+/// declare its entry sorts.
+fn parse_def_bodies(
+    mut builder: SchemaBuilder,
+    lexicon_id: &str,
+    defs: &serde_json::Map<String, serde_json::Value>,
+) -> Result<SchemaBuilder, ProtocolError> {
     for (def_name, def_value) in defs {
         let def_type = def_value
             .get("type")
@@ -221,8 +291,7 @@ pub fn parse_lexicon(json: &serde_json::Value) -> Result<Schema, ProtocolError> 
         }
     }
 
-    let schema = builder.build()?;
-    Ok(schema)
+    Ok(builder)
 }
 
 /// Resolve a lexicon `ref` string (`"#frag"`, `"nsid"`, or `"nsid#frag"`)
@@ -1145,6 +1214,167 @@ mod tests {
         assert!(
             !schema.incoming_edges(reply_ref_def).is_empty(),
             "sub-def should have at least one incoming edge after ref-morphism fix"
+        );
+    }
+
+    /// The two documents of the cross-file ref case: an
+    /// `annotationLayer` record whose `anchor` property refs a
+    /// `spatioTemporalAnchor` living in a sibling `defs` document, which
+    /// in turn refs a `boundingBox` beside it.
+    fn cross_file_docs() -> Vec<serde_json::Value> {
+        vec![
+            serde_json::json!({
+                "lexicon": 1,
+                "id": "pub.layers.annotation.annotationLayer",
+                "defs": {
+                    "main": {
+                        "type": "record",
+                        "record": {
+                            "type": "object",
+                            "required": ["anchor"],
+                            "properties": {
+                                "anchor": {
+                                    "type": "ref",
+                                    "ref": "pub.layers.defs#spatioTemporalAnchor"
+                                }
+                            }
+                        }
+                    }
+                }
+            }),
+            serde_json::json!({
+                "lexicon": 1,
+                "id": "pub.layers.defs",
+                "defs": {
+                    "spatioTemporalAnchor": {
+                        "type": "object",
+                        "required": ["box"],
+                        "properties": {
+                            "box": {"type": "ref", "ref": "#boundingBox"}
+                        }
+                    },
+                    "boundingBox": {
+                        "type": "object",
+                        "required": ["x", "y"],
+                        "properties": {
+                            "x": {"type": "integer"},
+                            "y": {"type": "integer"}
+                        }
+                    }
+                }
+            }),
+        ]
+    }
+
+    /// Parsing one document alone leaves its cross-document ref target
+    /// an opaque `"ref"` placeholder: this is the behavior
+    /// `parse_lexicon_bundle` exists to improve on.
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn single_document_leaves_cross_file_ref_opaque() {
+        let docs = cross_file_docs();
+        let schema = parse_lexicon(&docs[0]).expect("parse should succeed");
+
+        let anchor_def = &schema.vertices["pub.layers.defs#spatioTemporalAnchor"];
+        assert_eq!(
+            &*anchor_def.kind, "ref",
+            "a lone document cannot type its cross-file ref target"
+        );
+    }
+
+    /// Parsing the same documents as a bundle resolves the ref chain to
+    /// the real, typed defs, so the nested geometry is reachable.
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn bundle_resolves_cross_file_refs_to_typed_defs() {
+        let docs = cross_file_docs();
+        let schema = parse_lexicon_bundle(&docs).expect("bundle parse should succeed");
+
+        // Both hops of the chain are typed objects, not placeholders.
+        assert_eq!(
+            &*schema.vertices["pub.layers.defs#spatioTemporalAnchor"].kind,
+            "object"
+        );
+        assert_eq!(
+            &*schema.vertices["pub.layers.defs#boundingBox"].kind,
+            "object"
+        );
+
+        // The nested geometry the lens needs to bind to is present as
+        // property vertices, which the placeholder never carried.
+        for prop in [
+            "pub.layers.defs#spatioTemporalAnchor.box",
+            "pub.layers.defs#boundingBox.x",
+            "pub.layers.defs#boundingBox.y",
+        ] {
+            assert!(
+                schema.vertices.contains_key(prop),
+                "expected resolved property vertex {prop}, vertices: {:?}",
+                schema.vertices.keys().collect::<Vec<_>>()
+            );
+        }
+
+        // The record remains the sole entry: pulling a sibling
+        // document's defs in must not promote them to basepoints.
+        let entries: Vec<&str> = schema.entry_vertices().iter().map(AsRef::as_ref).collect();
+        assert_eq!(entries, vec!["pub.layers.annotation.annotationLayer"]);
+    }
+
+    /// A ref to a document outside the bundle still yields a
+    /// placeholder: that is what marks it as genuinely external.
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn bundle_keeps_placeholder_for_out_of_bundle_ref() {
+        let docs = cross_file_docs();
+        let schema = parse_lexicon_bundle(&docs[..1]).expect("bundle parse should succeed");
+
+        assert_eq!(
+            &*schema.vertices["pub.layers.defs#spatioTemporalAnchor"].kind,
+            "ref"
+        );
+    }
+
+    /// A single-document bundle agrees with `parse_lexicon`, which is
+    /// implemented in terms of it.
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn single_document_bundle_matches_parse_lexicon() {
+        let docs = cross_file_docs();
+        let direct = parse_lexicon(&docs[1]).expect("parse should succeed");
+        let bundled = parse_lexicon_bundle(&docs[1..]).expect("bundle parse should succeed");
+
+        assert_eq!(
+            direct
+                .vertices
+                .keys()
+                .collect::<std::collections::BTreeSet<_>>(),
+            bundled
+                .vertices
+                .keys()
+                .collect::<std::collections::BTreeSet<_>>()
+        );
+        assert_eq!(
+            direct
+                .edges
+                .keys()
+                .collect::<std::collections::BTreeSet<_>>(),
+            bundled
+                .edges
+                .keys()
+                .collect::<std::collections::BTreeSet<_>>()
+        );
+    }
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn bundle_rejects_duplicate_lexicon_ids() {
+        let docs = cross_file_docs();
+        let dupes = vec![docs[0].clone(), docs[0].clone()];
+
+        let err = parse_lexicon_bundle(&dupes).expect_err("duplicate ids must be rejected");
+        assert!(
+            err.to_string().contains("duplicate lexicon id"),
+            "unexpected error: {err}"
         );
     }
 }

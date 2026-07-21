@@ -511,6 +511,7 @@ export interface WasmExports {
   define_protocol(spec: Uint8Array): number;
   build_schema(proto: number, ops: Uint8Array): number;
   parse_atproto_lexicon(json_bytes: Uint8Array): number;
+  parse_schema_bundle(protocol: string, docs_bytes: Uint8Array): number;
   schema_metadata(schema: number): Uint8Array;
   check_existence(proto: number, src: number, tgt: number, mapping: Uint8Array): Uint8Array;
   compile_migration(src: number, tgt: number, mapping: Uint8Array): number;
@@ -589,6 +590,7 @@ export interface WasmExports {
   protolens_complement_spec(chain: number, schema: number): Uint8Array;
   protolens_from_diff(diff_bytes: Uint8Array, schema1: number, schema2: number): number;
   protolens_compose(chain1: number, chain2: number): number;
+  protolens_field_transforms(chain: number): Uint8Array;
   protolens_chain_to_json(chain: number): Uint8Array;
   symmetric_lens_from_schemas(schema1: number, schema2: number): number;
   symmetric_lens_sync(lens: number, view: Uint8Array, complement: Uint8Array, direction: number): Uint8Array;
