@@ -221,6 +221,89 @@ export class Panproto implements Disposable {
     return this.#schemaFromHandle(rawHandle);
   }
 
+  /**
+   * Parse a single JSON schema *document* into a schema, dispatching on
+   * protocol name.
+   *
+   * The generic single-document loader: it reaches every JSON-document
+   * protocol parser through one call, so any built-in protocol whose
+   * source is a JSON document (JSON Schema, ATProto lexicons, OpenAPI,
+   * Avro `.avsc`, and the rest) can be turned into a {@link BuiltSchema}
+   * usable as a lens or migration endpoint. Protocols whose source is a
+   * language rather than a JSON document (SQL, GraphQL, Protobuf, CDDL,
+   * …) are parsed with {@link parseSchemaSource}.
+   *
+   * Both the hyphenated protocol name and its underscore registry-key
+   * spelling resolve.
+   *
+   * @param protocol - The protocol the document is written in (e.g.
+   *   `'json-schema'`, `'openapi'`)
+   * @param doc - The schema document (object or JSON string)
+   * @returns A built schema
+   * @throws {@link PanprotoError} if no document parser is registered for
+   *   `protocol`, or the document is not well-formed for it
+   *
+   * @example
+   * ```typescript
+   * const schema = panproto.parseSchemaDocument('json-schema', {
+   *   type: 'object',
+   *   properties: { id: { type: 'string' }, count: { type: 'integer' } },
+   * });
+   * ```
+   */
+  parseSchemaDocument(protocol: string, doc: object | string): BuiltSchema {
+    const jsonStr = typeof doc === 'string' ? doc : JSON.stringify(doc);
+    const jsonBytes = new TextEncoder().encode(jsonStr);
+
+    let rawHandle: number;
+    try {
+      rawHandle = this.#wasm.exports.parse_schema_document(protocol, jsonBytes);
+    } catch (error) {
+      throw new PanprotoError(
+        `Failed to parse schema document: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    return this.#schemaFromHandle(rawHandle);
+  }
+
+  /**
+   * Parse a *text/source* schema (an IDL or DDL string) into a schema,
+   * dispatching on protocol name.
+   *
+   * The text counterpart to {@link parseSchemaDocument}, for protocols
+   * whose source is a language rather than a JSON document: SQL DDL,
+   * GraphQL SDL, Protocol Buffers `.proto`, CDDL, Cassandra CQL, Cypher,
+   * ASN.1, Bond, FlatBuffers, and CoNLL-U.
+   *
+   * @param protocol - The protocol the source is written in (e.g.
+   *   `'sql'`, `'graphql'`, `'protobuf'`)
+   * @param source - The schema source text
+   * @returns A built schema
+   * @throws {@link PanprotoError} if no source parser is registered for
+   *   `protocol`, or the source is not well-formed for it
+   *
+   * @example
+   * ```typescript
+   * const schema = panproto.parseSchemaSource(
+   *   'graphql',
+   *   'type User { id: ID!, name: String }',
+   * );
+   * ```
+   */
+  parseSchemaSource(protocol: string, source: string): BuiltSchema {
+    let rawHandle: number;
+    try {
+      rawHandle = this.#wasm.exports.parse_schema_source(protocol, source);
+    } catch (error) {
+      throw new PanprotoError(
+        `Failed to parse schema source: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    return this.#schemaFromHandle(rawHandle);
+  }
+
   /** Read a parsed schema's metadata off its WASM handle. */
   #schemaFromHandle(rawHandle: number): BuiltSchema {
     // Extract schema metadata from the WASM handle

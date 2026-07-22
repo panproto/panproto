@@ -222,6 +222,10 @@ mod export_guard {
         let _ = parse_atproto_lexicon as *const () as usize;
         let _ = parse_schema_bundle as *const () as usize;
         let _ = list_bundle_parser_protocols as *const () as usize;
+        let _ = parse_schema_document as *const () as usize;
+        let _ = parse_schema_source as *const () as usize;
+        let _ = list_document_parser_protocols as *const () as usize;
+        let _ = list_source_parser_protocols as *const () as usize;
         let _ = schema_metadata as *const () as usize;
         let _ = check_existence as *const () as usize;
         let _ = compile_migration as *const () as usize;

@@ -442,9 +442,13 @@ pub(super) fn build_theory_registry(
     let mut registry = HashMap::new();
     match protocol_name {
         "atproto" => protocols::atproto::register_theories(&mut registry),
+        "json-schema" => protocols::data_schema::json_schema::register_theories(&mut registry),
+        "graphql" => protocols::api::graphql::register_theories(&mut registry),
+        "sql" => protocols::database::sql::register_theories(&mut registry),
+        "protobuf" => protocols::serialization::protobuf::register_theories(&mut registry),
         _ => {
             return Err(format!(
-                "unknown protocol: {protocol_name:?}. Supported: atproto"
+                "unknown protocol: {protocol_name:?}. Supported: atproto, json-schema, graphql, sql, protobuf"
             ));
         }
     }
@@ -478,28 +482,31 @@ pub(super) fn builtin_protocol_names() -> Vec<String> {
         "amr",
         "concrete",
         "nif",
-        // api (4)
+        // api (5)
         "openapi",
         "asyncapi",
         "jsonapi",
         "raml",
+        "graphql",
         // config (3)
         "cloudformation",
         "ansible",
         "k8s_crd",
-        // data_schema (2)
+        // data_schema (3)
         "cddl",
         "bson",
+        "json-schema",
         // data_science (3)
         "dataframe",
         "parquet",
         "arrow",
-        // database (5)
+        // database (6)
         "mongodb",
         "dynamodb",
         "cassandra",
         "neo4j",
         "redis",
+        "sql",
         // domain (6)
         "geojson",
         "fhir",
@@ -507,12 +514,13 @@ pub(super) fn builtin_protocol_names() -> Vec<String> {
         "vcard_ical",
         "swift_mt",
         "edi_x12",
-        // serialization (5)
+        // serialization (6)
         "avro",
         "flatbuffers",
         "asn1",
         "bond",
         "msgpack_schema",
+        "protobuf",
         // web_document (3)
         "atproto",
         "docx",
@@ -551,6 +559,7 @@ pub(super) fn lookup_builtin_protocol(name: &str) -> Option<panproto_core::schem
         "asyncapi" => protocols::api::asyncapi::protocol(),
         "jsonapi" => protocols::api::jsonapi::protocol(),
         "raml" => protocols::api::raml::protocol(),
+        "graphql" => protocols::api::graphql::protocol(),
         // config
         "cloudformation" => protocols::config::cloudformation::protocol(),
         "ansible" => protocols::config::ansible::protocol(),
@@ -558,6 +567,7 @@ pub(super) fn lookup_builtin_protocol(name: &str) -> Option<panproto_core::schem
         // data_schema
         "cddl" => protocols::data_schema::cddl::protocol(),
         "bson" => protocols::data_schema::bson::protocol(),
+        "json-schema" => protocols::data_schema::json_schema::protocol(),
         // data_science
         "dataframe" => protocols::data_science::dataframe::protocol(),
         "parquet" => protocols::data_science::parquet::protocol(),
@@ -568,6 +578,7 @@ pub(super) fn lookup_builtin_protocol(name: &str) -> Option<panproto_core::schem
         "cassandra" => protocols::database::cassandra::protocol(),
         "neo4j" => protocols::database::neo4j::protocol(),
         "redis" => protocols::database::redis::protocol(),
+        "sql" => protocols::database::sql::protocol(),
         // domain
         "geojson" => protocols::domain::geojson::protocol(),
         "fhir" => protocols::domain::fhir::protocol(),
@@ -581,6 +592,7 @@ pub(super) fn lookup_builtin_protocol(name: &str) -> Option<panproto_core::schem
         "asn1" => protocols::serialization::asn1::protocol(),
         "bond" => protocols::serialization::bond::protocol(),
         "msgpack_schema" => protocols::serialization::msgpack_schema::protocol(),
+        "protobuf" => protocols::serialization::protobuf::protocol(),
         // web_document
         "atproto" => protocols::web_document::atproto::protocol(),
         "docx" => protocols::web_document::docx::protocol(),

@@ -48,8 +48,12 @@ crates/panproto-py/src/lexicon.rs	atproto
 crates/panproto-py/src/lexicon.rs	lexicon
 crates/panproto-py/src/lib.rs	lexicon
 crates/panproto-py/src/protocols.rs	atproto
+crates/panproto-py/src/protocols.rs	graphql
+crates/panproto-py/src/protocols.rs	json-schema
+crates/panproto-py/src/protocols.rs	json_schema
 crates/panproto-py/src/protocols.rs	mongodb
 crates/panproto-py/src/protocols.rs	openapi
+crates/panproto-py/src/protocols.rs	protobuf
 crates/panproto-py/src/schema.rs	at-uri
 crates/panproto-py/src/schema.rs	atproto
 crates/panproto-py/src/schema.rs	bsky
@@ -68,9 +72,13 @@ crates/panproto-schema/src/serde_helpers.rs	nsid
 crates/panproto-schema/src/validate.rs	atproto
 crates/panproto-schema/src/validate.rs	bsky
 crates/panproto-wasm/src/api/helpers.rs	atproto
+crates/panproto-wasm/src/api/helpers.rs	graphql
+crates/panproto-wasm/src/api/helpers.rs	json-schema
+crates/panproto-wasm/src/api/helpers.rs	json_schema
 crates/panproto-wasm/src/api/helpers.rs	mongodb
 crates/panproto-wasm/src/api/helpers.rs	nsid
 crates/panproto-wasm/src/api/helpers.rs	openapi
+crates/panproto-wasm/src/api/helpers.rs	protobuf
 crates/panproto-wasm/src/api/instance.rs	atproto
 crates/panproto-wasm/src/api/lens.rs	nsid
 crates/panproto-wasm/src/api/mod.rs	nsid

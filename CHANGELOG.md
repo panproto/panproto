@@ -2,6 +2,13 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [0.61.0] - 2026-07-22
+
+### Added
+
+- **JSON Schema, GraphQL, SQL, and Protobuf are first-class semantic protocols again** (`panproto-protocols`, `panproto-wasm`, `panproto-c`, `panproto-py`, `@panproto/core`): the four hand-written protocol parsers deleted in the v0.17.0 tree-sitter migration are restored and modernized. Tree-sitter parses document *syntax*, not schema-language *semantics* (a JSON Schema `{type, properties, $ref}` into vertices, edges, and constraints), so the semantic loaders had been lost while the SDK still advertised the protocols as stubs. `p.protocol('json-schema')` now returns the real 11 object kinds instead of `['object']`, so building a schema with a `string`/`integer`/`array` vertex works rather than throwing `unknown vertex kind`. Restores the built-in semantic protocol count to 54. Closes #234.
+- **Every protocol's single-document parser is reachable from the SDK** (`panproto-protocols`, `panproto-wasm`, `panproto-py`, `@panproto/core`): two generic, name-dispatched entry points expose all 54 built-in parsers, where previously only `atproto` was reachable (through `parse_schema_bundle`). `parse_schema_document(protocol, doc)` routes the 43 JSON-document parsers; `parse_schema_source(protocol, source)` routes the 11 text/IDL parsers (SQL DDL, GraphQL SDL, Protobuf `.proto`, CDDL, Cassandra CQL, Cypher, ASN.1, Bond, FlatBuffers, CoNLL-U). Dispatch lives in `panproto-protocols` and normalizes an underscore key to its canonical hyphenated protocol name (with `uima` aliasing `uima-cas`), so both spellings resolve. The TypeScript SDK gains `parseSchemaDocument` / `parseSchemaSource`; the Python `parse_schema_document` is consolidated onto the shared dispatch (dropping its hard-coded `atproto` arm) and gains `parse_schema_source`. A JSON Schema (or OpenAPI, Avro, …) document can now be loaded into a `Schema` in-process and used as a lens or migration endpoint.
+
 ## [0.60.0] - 2026-07-21
 
 ### Fixed

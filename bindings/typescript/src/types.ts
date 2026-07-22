@@ -512,6 +512,10 @@ export interface WasmExports {
   build_schema(proto: number, ops: Uint8Array): number;
   parse_atproto_lexicon(json_bytes: Uint8Array): number;
   parse_schema_bundle(protocol: string, docs_bytes: Uint8Array): number;
+  parse_schema_document(protocol: string, doc_bytes: Uint8Array): number;
+  parse_schema_source(protocol: string, source: string): number;
+  list_document_parser_protocols(): Uint8Array;
+  list_source_parser_protocols(): Uint8Array;
   schema_metadata(schema: number): Uint8Array;
   check_existence(proto: number, src: number, tgt: number, mapping: Uint8Array): Uint8Array;
   compile_migration(src: number, tgt: number, mapping: Uint8Array): number;

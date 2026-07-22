@@ -53,6 +53,10 @@ export interface WasmGlueModule {
   build_schema: WasmExports['build_schema'];
   parse_atproto_lexicon: WasmExports['parse_atproto_lexicon'];
   parse_schema_bundle: WasmExports['parse_schema_bundle'];
+  parse_schema_document: WasmExports['parse_schema_document'];
+  parse_schema_source: WasmExports['parse_schema_source'];
+  list_document_parser_protocols: WasmExports['list_document_parser_protocols'];
+  list_source_parser_protocols: WasmExports['list_source_parser_protocols'];
   schema_metadata: WasmExports['schema_metadata'];
   check_existence: WasmExports['check_existence'];
   compile_migration: WasmExports['compile_migration'];
@@ -192,6 +196,10 @@ export async function loadWasm(input?: string | URL | WasmGlueModule): Promise<W
       build_schema: glue.build_schema,
       parse_atproto_lexicon: glue.parse_atproto_lexicon,
       parse_schema_bundle: glue.parse_schema_bundle,
+      parse_schema_document: glue.parse_schema_document,
+      parse_schema_source: glue.parse_schema_source,
+      list_document_parser_protocols: glue.list_document_parser_protocols,
+      list_source_parser_protocols: glue.list_source_parser_protocols,
       schema_metadata: glue.schema_metadata,
       check_existence: glue.check_existence,
       compile_migration: glue.compile_migration,

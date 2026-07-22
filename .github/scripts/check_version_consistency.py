@@ -137,6 +137,34 @@ def check_member_cargo_files(expected: str) -> list[Mismatch]:
     return out
 
 
+def check_grammar_exact_pins(expected: str) -> list[Mismatch]:
+    """Each `crates/panproto-grammars-*/Cargo.toml` pins the sibling
+    `panproto-grammars` crate at an exact `=X.Y.Z`, in lockstep with the
+    workspace version. These are path-based `[dependencies]` pins (not
+    `package.version`), so the other checks miss them; left unbumped they
+    would make the published grammar-pack crates unresolvable against the
+    new `panproto-grammars` on crates.io."""
+    out: list[Mismatch] = []
+    for cargo in sorted(ROOT.glob("crates/panproto-grammars-*/Cargo.toml")):
+        data = tomllib.loads(cargo.read_text(encoding="utf-8"))
+        spec = data.get("dependencies", {}).get("panproto-grammars")
+        if spec is None:
+            continue
+        version = spec if isinstance(spec, str) else spec.get("version")
+        if version is None:
+            continue
+        if version != f"={expected}":
+            out.append(
+                Mismatch(
+                    path=cargo,
+                    field="dependencies.panproto-grammars.version",
+                    found=version,
+                    expected=f"={expected}",
+                )
+            )
+    return out
+
+
 def check_pyproject(path: Path, expected: str, *, allow_dynamic: bool) -> list[Mismatch]:
     if not path.exists():
         return []
@@ -293,6 +321,7 @@ def main() -> int:
     mismatches: list[Mismatch] = []
     mismatches.extend(check_root_cargo(expected))
     mismatches.extend(check_member_cargo_files(expected))
+    mismatches.extend(check_grammar_exact_pins(expected))
     mismatches.extend(check_companion_pyprojects(expected))
     # `bindings/python/pyproject.toml` is the maturin project root.
     # It MUST declare `dynamic = ["version"]` so maturin reads the

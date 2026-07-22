@@ -14,3 +14,6 @@ pub mod flatbuffers;
 
 /// MessagePack Schema protocol definition and JSON parser/emitter.
 pub mod msgpack_schema;
+
+/// Protocol Buffers `.proto` protocol definition and parser/emitter.
+pub mod protobuf;
