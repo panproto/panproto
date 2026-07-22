@@ -187,9 +187,9 @@ pub fn parse_schema_document(
         "docx" => web_document::docx::parse_docx_schema(doc),
         "odf" => web_document::odf::parse_odf_schema(doc),
         other => Err(ProtocolError::Parse(format!(
-            "no JSON-document schema parser for protocol {other:?}; \
-             a text-source protocol (e.g. sql, graphql, protobuf, cddl) is \
-             parsed with parse_schema_source instead"
+            "no document parser registered for protocol {other:?}; \
+             a text-source schema (SQL DDL, GraphQL SDL, .proto, CDDL, and \
+             the like) is loaded with parse_schema_source instead"
         ))),
     }
 }
@@ -222,8 +222,8 @@ pub fn parse_schema_source(protocol: &str, source: &str) -> Result<Schema, Proto
         "sql" => database::sql::parse_ddl(source),
         "protobuf" => serialization::protobuf::parse_proto(source),
         other => Err(ProtocolError::Parse(format!(
-            "no text-source schema parser for protocol {other:?}; \
-             a JSON-document protocol is parsed with parse_schema_document instead"
+            "no source parser registered for protocol {other:?}; \
+             a JSON-document schema is loaded with parse_schema_document instead"
         ))),
     }
 }
@@ -349,7 +349,7 @@ mod dispatch_tests {
         for name in ["uima", "uima-cas"] {
             if let Err(ProtocolError::Parse(msg)) = parse_schema_document(name, &doc) {
                 assert!(
-                    !msg.contains("no JSON-document schema parser"),
+                    !msg.contains("no document parser"),
                     "{name} must route to the uima parser, got: {msg}"
                 );
             }

@@ -163,15 +163,14 @@ pub fn parse_atproto_lexicon(doc: &Bound<'_, PyAny>) -> PyResult<PySchema> {
 /// Raises
 /// ------
 /// `ValueError`
-///     If ``doc`` is a string that is not valid JSON.
-/// `SchemaValidationError`
-///     If no document parser is registered for ``protocol``, or the
-///     document is not well-formed for it.
+///     If ``doc`` is a string that is not valid JSON, if no document
+///     parser is registered for ``protocol``, or the document is not
+///     well-formed for it.
 #[pyfunction]
 pub fn parse_schema_document(protocol: &str, doc: &Bound<'_, PyAny>) -> PyResult<PySchema> {
     let value = json_from_py(doc)?;
     let schema = panproto_core::protocols::parse_schema_document(protocol, &value)
-        .map_err(|e| SchemaValidationError::new_err(format!("document parse failed: {e}")))?;
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
     Ok(PySchema {
         inner: Arc::new(schema),
     })
@@ -198,13 +197,13 @@ pub fn parse_schema_document(protocol: &str, doc: &Bound<'_, PyAny>) -> PyResult
 ///
 /// Raises
 /// ------
-/// `SchemaValidationError`
+/// `ValueError`
 ///     If no source parser is registered for ``protocol``, or the source
 ///     is not well-formed for it.
 #[pyfunction]
 pub fn parse_schema_source(protocol: &str, source: &str) -> PyResult<PySchema> {
     let schema = panproto_core::protocols::parse_schema_source(protocol, source)
-        .map_err(|e| SchemaValidationError::new_err(format!("source parse failed: {e}")))?;
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
     Ok(PySchema {
         inner: Arc::new(schema),
     })

@@ -83,6 +83,7 @@ from panproto._native import (
     parse_atproto_lexicon,
     parse_schema_bundle,
     parse_schema_document,
+    parse_schema_source,
     theory_of,
     # Expr
     Expr,
@@ -255,6 +256,7 @@ __all__ = [
     "parse_atproto_lexicon",
     "parse_schema_bundle",
     "parse_schema_document",
+    "parse_schema_source",
     "theory_of",
     # Expr
     "Expr",

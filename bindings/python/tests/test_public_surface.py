@@ -102,6 +102,7 @@ def test_core_public_symbols_are_reexported() -> None:
         "parse_atproto_lexicon",
         "parse_schema_bundle",
         "parse_schema_document",
+        "parse_schema_source",
         "theory_of",
         # Expr
         "Expr",
