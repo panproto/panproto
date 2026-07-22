@@ -55,6 +55,7 @@ fn lookup(name: &str) -> Option<Protocol> {
         "asyncapi" => protocols::api::asyncapi::protocol(),
         "jsonapi" => protocols::api::jsonapi::protocol(),
         "raml" => protocols::api::raml::protocol(),
+        "graphql" => protocols::api::graphql::protocol(),
         // config (3)
         "cloudformation" => protocols::config::cloudformation::protocol(),
         "ansible" => protocols::config::ansible::protocol(),
@@ -62,6 +63,7 @@ fn lookup(name: &str) -> Option<Protocol> {
         // data_schema (2)
         "cddl" => protocols::data_schema::cddl::protocol(),
         "bson" => protocols::data_schema::bson::protocol(),
+        "json-schema" => protocols::data_schema::json_schema::protocol(),
         // data_science (3)
         "dataframe" => protocols::data_science::dataframe::protocol(),
         "parquet" => protocols::data_science::parquet::protocol(),
@@ -72,6 +74,7 @@ fn lookup(name: &str) -> Option<Protocol> {
         "cassandra" => protocols::database::cassandra::protocol(),
         "neo4j" => protocols::database::neo4j::protocol(),
         "redis" => protocols::database::redis::protocol(),
+        "sql" => protocols::database::sql::protocol(),
         // domain (6)
         "geojson" => protocols::domain::geojson::protocol(),
         "fhir" => protocols::domain::fhir::protocol(),
@@ -85,6 +88,7 @@ fn lookup(name: &str) -> Option<Protocol> {
         "asn1" => protocols::serialization::asn1::protocol(),
         "bond" => protocols::serialization::bond::protocol(),
         "msgpack_schema" => protocols::serialization::msgpack_schema::protocol(),
+        "protobuf" => protocols::serialization::protobuf::protocol(),
         // web_document (3)
         "atproto" => protocols::web_document::atproto::protocol(),
         "docx" => protocols::web_document::docx::protocol(),
@@ -120,6 +124,7 @@ const BUILTIN_NAMES: &[&str] = &[
     "asyncapi",
     "jsonapi",
     "raml",
+    "graphql",
     // config
     "cloudformation",
     "ansible",
@@ -127,6 +132,7 @@ const BUILTIN_NAMES: &[&str] = &[
     // data_schema
     "cddl",
     "bson",
+    "json-schema",
     // data_science
     "dataframe",
     "parquet",
@@ -137,6 +143,7 @@ const BUILTIN_NAMES: &[&str] = &[
     "cassandra",
     "neo4j",
     "redis",
+    "sql",
     // domain
     "geojson",
     "fhir",
@@ -150,6 +157,7 @@ const BUILTIN_NAMES: &[&str] = &[
     "asn1",
     "bond",
     "msgpack_schema",
+    "protobuf",
     // web_document
     "atproto",
     "docx",

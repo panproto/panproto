@@ -4,3 +4,5 @@
 pub mod bson;
 /// CDDL (RFC 8610) protocol definition and parser/emitter.
 pub mod cddl;
+/// JSON Schema protocol definition and parser/emitter.
+pub mod json_schema;
