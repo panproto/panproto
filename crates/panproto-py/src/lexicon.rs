@@ -139,17 +139,19 @@ pub fn parse_atproto_lexicon(doc: &Bound<'_, PyAny>) -> PyResult<PySchema> {
     parse_atproto_value(&value)
 }
 
-/// Parse a schema-defining document under the named protocol.
+/// Parse a schema-defining JSON *document* under the named protocol.
 ///
-/// A protocol-dispatching entry point over the document parsers. Today
-/// the only registered parser is ``"atproto"`` (which delegates to
-/// :func:`parse_atproto_lexicon`); other document-schema protocols can be
-/// added here as their Rust parsers are exposed.
+/// A protocol-dispatching entry point over every JSON-document schema
+/// parser, forwarding the protocol string to the parser layer so no
+/// protocol name is hard-coded here. Protocols whose source is text
+/// rather than a JSON document are parsed with
+/// :func:`parse_schema_source`.
 ///
 /// Parameters
 /// ----------
 /// protocol : str
-///     Protocol name selecting the document parser (e.g. ``"atproto"``).
+///     Protocol name selecting the document parser. Both the hyphenated
+///     name and the underscore registry key resolve.
 /// doc : Mapping or str
 ///     The schema document, as a parsed dict or a raw JSON string.
 ///
@@ -161,19 +163,51 @@ pub fn parse_atproto_lexicon(doc: &Bound<'_, PyAny>) -> PyResult<PySchema> {
 /// Raises
 /// ------
 /// `ValueError`
-///     If ``protocol`` has no registered document parser, or if ``doc``
-///     is a string that is not valid JSON.
+///     If ``doc`` is a string that is not valid JSON.
 /// `SchemaValidationError`
-///     If the document is not well-formed for the protocol.
+///     If no document parser is registered for ``protocol``, or the
+///     document is not well-formed for it.
 #[pyfunction]
 pub fn parse_schema_document(protocol: &str, doc: &Bound<'_, PyAny>) -> PyResult<PySchema> {
     let value = json_from_py(doc)?;
-    match protocol {
-        "atproto" => parse_atproto_value(&value),
-        other => Err(pyo3::exceptions::PyValueError::new_err(format!(
-            "no document parser registered for protocol {other:?}; supported: [\"atproto\"]"
-        ))),
-    }
+    let schema = panproto_core::protocols::parse_schema_document(protocol, &value)
+        .map_err(|e| SchemaValidationError::new_err(format!("document parse failed: {e}")))?;
+    Ok(PySchema {
+        inner: Arc::new(schema),
+    })
+}
+
+/// Parse a schema-defining *text/source* (an IDL or DDL string) under
+/// the named protocol.
+///
+/// The text counterpart to :func:`parse_schema_document`, for protocols
+/// whose source is a language rather than a JSON document. Dispatch
+/// lives in the parser layer, so no protocol name is hard-coded here.
+///
+/// Parameters
+/// ----------
+/// protocol : str
+///     Protocol name selecting the source parser.
+/// source : str
+///     The schema source text.
+///
+/// Returns
+/// -------
+/// Schema
+///     The parsed schema.
+///
+/// Raises
+/// ------
+/// `SchemaValidationError`
+///     If no source parser is registered for ``protocol``, or the source
+///     is not well-formed for it.
+#[pyfunction]
+pub fn parse_schema_source(protocol: &str, source: &str) -> PyResult<PySchema> {
+    let schema = panproto_core::protocols::parse_schema_source(protocol, source)
+        .map_err(|e| SchemaValidationError::new_err(format!("source parse failed: {e}")))?;
+    Ok(PySchema {
+        inner: Arc::new(schema),
+    })
 }
 
 /// Parse a bundle of schema documents into one schema, resolving
@@ -254,6 +288,7 @@ pub fn theory_of(schema: &PySchema, name: Option<&str>) -> PyTheory {
 pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     parent.add_function(wrap_pyfunction!(parse_atproto_lexicon, parent)?)?;
     parent.add_function(wrap_pyfunction!(parse_schema_document, parent)?)?;
+    parent.add_function(wrap_pyfunction!(parse_schema_source, parent)?)?;
     parent.add_function(wrap_pyfunction!(parse_schema_bundle, parent)?)?;
     parent.add_function(wrap_pyfunction!(theory_of, parent)?)?;
     Ok(())

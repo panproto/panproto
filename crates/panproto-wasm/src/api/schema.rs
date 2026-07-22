@@ -194,6 +194,102 @@ pub fn list_bundle_parser_protocols() -> Result<Vec<u8>, JsError> {
     })
 }
 
+/// Parse a single JSON schema *document* into a schema, dispatching on
+/// protocol name.
+///
+/// `doc_bytes` is the raw JSON bytes of one schema document in whatever
+/// document format `protocol` names. This is the generic single-document
+/// loader: it reaches every JSON-document protocol parser through one
+/// call, with dispatch living in the protocol layer so this signature
+/// names no protocol. Protocols whose source is text rather than a JSON
+/// document are parsed with [`parse_schema_source`]. Query the supported
+/// set with [`list_document_parser_protocols`].
+///
+/// # Errors
+///
+/// Returns `JsError` if the JSON cannot be parsed, no document parser is
+/// registered for `protocol`, or the document is not well-formed for it.
+#[wasm_bindgen]
+pub fn parse_schema_document(protocol: &str, doc_bytes: &[u8]) -> Result<u32, JsError> {
+    let doc: serde_json::Value =
+        serde_json::from_slice(doc_bytes).map_err(|e| WasmError::DeserializationFailed {
+            reason: format!("expected a JSON schema document: {e}"),
+        })?;
+
+    let schema = protocols::parse_schema_document(protocol, &doc).map_err(|e| {
+        WasmError::SchemaBuildFailed {
+            reason: e.to_string(),
+        }
+    })?;
+
+    Ok(slab::alloc(Resource::Schema(std::sync::Arc::new(schema))))
+}
+
+/// Parse a *text/source* schema (an IDL or DDL string) into a schema,
+/// dispatching on protocol name.
+///
+/// The text counterpart to [`parse_schema_document`], for protocols
+/// whose source is a language rather than a JSON document. Dispatch
+/// lives in the protocol layer, so this signature names no protocol.
+/// Query the supported set with [`list_source_parser_protocols`].
+///
+/// # Errors
+///
+/// Returns `JsError` if no text-source parser is registered for
+/// `protocol`, or the source is not well-formed for it.
+#[wasm_bindgen]
+pub fn parse_schema_source(protocol: &str, source: &str) -> Result<u32, JsError> {
+    let schema = protocols::parse_schema_source(protocol, source).map_err(|e| {
+        WasmError::SchemaBuildFailed {
+            reason: e.to_string(),
+        }
+    })?;
+
+    Ok(slab::alloc(Resource::Schema(std::sync::Arc::new(schema))))
+}
+
+/// List the protocols [`parse_schema_document`] accepts.
+///
+/// Returns `MessagePack`-encoded `Vec<String>`.
+///
+/// # Errors
+///
+/// Returns `JsError` if serialization fails.
+#[wasm_bindgen]
+pub fn list_document_parser_protocols() -> Result<Vec<u8>, JsError> {
+    let names: Vec<String> = protocols::document_parser_protocols()
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect();
+    rmp_serde::to_vec_named(&names).map_err(|e| -> JsError {
+        WasmError::SerializationFailed {
+            reason: e.to_string(),
+        }
+        .into()
+    })
+}
+
+/// List the protocols [`parse_schema_source`] accepts.
+///
+/// Returns `MessagePack`-encoded `Vec<String>`.
+///
+/// # Errors
+///
+/// Returns `JsError` if serialization fails.
+#[wasm_bindgen]
+pub fn list_source_parser_protocols() -> Result<Vec<u8>, JsError> {
+    let names: Vec<String> = protocols::source_parser_protocols()
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect();
+    rmp_serde::to_vec_named(&names).map_err(|e| -> JsError {
+        WasmError::SerializationFailed {
+            reason: e.to_string(),
+        }
+        .into()
+    })
+}
+
 #[derive(serde::Serialize)]
 struct SchemaMeta {
     protocol: String,
