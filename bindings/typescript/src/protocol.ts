@@ -152,15 +152,14 @@ export const ATPROTO_SPEC: ProtocolSpec = {
  */
 export const SQL_SPEC: ProtocolSpec = {
   name: 'sql',
-  schemaTheory: 'ThConstrainedHypergraph',
-  instanceTheory: 'ThFunctor',
+  schemaTheory: 'ThSQLSchema',
+  instanceTheory: 'ThSQLInstance',
   edgeRules: [
-    { edgeKind: 'column', srcKinds: ['table'], tgtKinds: ['type'] },
-    { edgeKind: 'fk', srcKinds: ['table'], tgtKinds: ['table'] },
-    { edgeKind: 'pk', srcKinds: ['table'], tgtKinds: ['column'] },
+    { edgeKind: 'prop', srcKinds: ['table'], tgtKinds: [] },
+    { edgeKind: 'foreign-key', srcKinds: [], tgtKinds: [] },
   ] satisfies EdgeRule[],
-  objKinds: ['table'],
-  constraintSorts: ['nullable', 'unique', 'check', 'default'],
+  objKinds: ['table', 'integer', 'string', 'boolean', 'number', 'bytes', 'timestamp', 'date', 'uuid', 'json'],
+  constraintSorts: ['NOT NULL', 'UNIQUE', 'CHECK', 'PRIMARY KEY', 'DEFAULT', 'FOREIGN KEY'],
 };
 
 /**
@@ -168,15 +167,23 @@ export const SQL_SPEC: ProtocolSpec = {
  */
 export const PROTOBUF_SPEC: ProtocolSpec = {
   name: 'protobuf',
-  schemaTheory: 'ThConstrainedGraph',
-  instanceTheory: 'ThWType',
+  schemaTheory: 'ThProtobufSchema',
+  instanceTheory: 'ThProtobufInstance',
   edgeRules: [
-    { edgeKind: 'field', srcKinds: ['message'], tgtKinds: [] },
-    { edgeKind: 'nested', srcKinds: ['message'], tgtKinds: ['message', 'enum'] },
-    { edgeKind: 'value', srcKinds: ['enum'], tgtKinds: ['enum-value'] },
+    {
+      edgeKind: 'field-of',
+      srcKinds: ['message', 'oneof', 'service'],
+      tgtKinds: ['field', 'oneof', 'rpc', 'map', 'string', 'integer', 'float', 'boolean'],
+    },
+    {
+      edgeKind: 'type-of',
+      srcKinds: ['field', 'rpc', 'map'],
+      tgtKinds: ['message', 'enum', 'field', 'map', 'string', 'integer', 'float', 'boolean'],
+    },
+    { edgeKind: 'variant-of', srcKinds: ['enum'], tgtKinds: ['enum-value'] },
   ] satisfies EdgeRule[],
-  objKinds: ['message'],
-  constraintSorts: ['field-number', 'repeated', 'optional', 'map-key', 'map-value'],
+  objKinds: ['message', 'field', 'enum', 'enum-value', 'oneof', 'service', 'rpc', 'map', 'string', 'integer', 'float', 'boolean'],
+  constraintSorts: ['field_number', 'label', 'packed'],
 };
 
 /**
@@ -184,16 +191,16 @@ export const PROTOBUF_SPEC: ProtocolSpec = {
  */
 export const GRAPHQL_SPEC: ProtocolSpec = {
   name: 'graphql',
-  schemaTheory: 'ThConstrainedGraph',
-  instanceTheory: 'ThWType',
+  schemaTheory: 'ThGraphQLSchema',
+  instanceTheory: 'ThGraphQLInstance',
   edgeRules: [
-    { edgeKind: 'field', srcKinds: ['type', 'input'], tgtKinds: [] },
-    { edgeKind: 'implements', srcKinds: ['type'], tgtKinds: ['interface'] },
-    { edgeKind: 'member', srcKinds: ['union'], tgtKinds: ['type'] },
-    { edgeKind: 'value', srcKinds: ['enum'], tgtKinds: ['enum-value'] },
+    { edgeKind: 'field-of', srcKinds: ['type', 'interface', 'input', 'subscription'], tgtKinds: ['field'] },
+    { edgeKind: 'implements', srcKinds: ['type', 'subscription'], tgtKinds: ['interface'] },
+    { edgeKind: 'member-of', srcKinds: ['union', 'enum'], tgtKinds: [] },
+    { edgeKind: 'type-of', srcKinds: ['field'], tgtKinds: [] },
   ] satisfies EdgeRule[],
-  objKinds: ['type', 'input'],
-  constraintSorts: ['non-null', 'list', 'deprecated'],
+  objKinds: ['type', 'interface', 'input', 'field', 'union', 'enum', 'scalar', 'enum-value', 'subscription'],
+  constraintSorts: ['non_null', 'list', 'deprecated'],
 };
 
 /**
@@ -201,15 +208,17 @@ export const GRAPHQL_SPEC: ProtocolSpec = {
  */
 export const JSON_SCHEMA_SPEC: ProtocolSpec = {
   name: 'json-schema',
-  schemaTheory: 'ThConstrainedGraph',
-  instanceTheory: 'ThWType',
+  schemaTheory: 'ThJsonSchemaSchema',
+  instanceTheory: 'ThJsonSchemaInstance',
   edgeRules: [
-    { edgeKind: 'property', srcKinds: ['object'], tgtKinds: [] },
-    { edgeKind: 'item', srcKinds: ['array'], tgtKinds: [] },
-    { edgeKind: 'variant', srcKinds: ['oneOf', 'anyOf'], tgtKinds: [] },
+    { edgeKind: 'prop', srcKinds: ['object'], tgtKinds: [] },
+    { edgeKind: 'items', srcKinds: ['array'], tgtKinds: [] },
+    { edgeKind: 'variant', srcKinds: [], tgtKinds: [] },
+    { edgeKind: 'ref', srcKinds: [], tgtKinds: [] },
+    { edgeKind: 'pattern-prop', srcKinds: ['object'], tgtKinds: [] },
   ] satisfies EdgeRule[],
-  objKinds: ['object'],
-  constraintSorts: ['minLength', 'maxLength', 'minimum', 'maximum', 'pattern', 'format', 'required'],
+  objKinds: ['object', 'array', 'string', 'integer', 'boolean', 'unknown', 'not', 'if', 'then', 'else', 'union'],
+  constraintSorts: ['type', 'minLength', 'maxLength', 'pattern', 'minimum', 'maximum', 'required', 'format', 'enum', 'const', 'additionalProperties'],
 };
 
 /** Registry of built-in protocol specs, keyed by name. */
