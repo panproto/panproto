@@ -102,6 +102,48 @@ fn walk_json(
     Ok(())
 }
 
+/// A nameless `ref` or `record-schema` edge is a *transparent type
+/// indirection*: it names the type of a vertex (a record's body, or a
+/// field whose type is a named definition) rather than a child field or
+/// an ordered-list slot. The instance graph must see through it, so the
+/// referenced definition's fields materialize on the referring node
+/// exactly as an inlined definition would. Otherwise the same record
+/// parses to a *shallow* instance under a protocol that models nesting
+/// with these indirections and a *deep* instance under one that inlines
+/// it with `prop` edges: the same data, two different graphs, which
+/// breaks the "every protocol is a view over one graph" premise and
+/// makes lenses and field transforms protocol-dependent.
+///
+/// `ref` and `record-schema` are structural edge-kind vocabulary shared
+/// across protocols, not protocol names. Only a *nameless* such edge is
+/// an indirection: a *named* `ref` (the labelled reference some
+/// protocols emit for a pointer to a named definition) is an ordinary
+/// field, matched by its label like any other.
+fn is_transparent_indirection(kind: &str) -> bool {
+    matches!(kind, "ref" | "record-schema")
+}
+
+/// Follow transparent type-indirection edges from `vertex_id` to the
+/// object/record vertex they ultimately denote, so that parsing and
+/// serialization anchor the node at the resolved definition (whose
+/// outgoing edges are the real fields) rather than at the indirection
+/// vertex (whose sole anonymous edge would otherwise be mistaken for a
+/// list slot). Only a vertex whose *sole* outgoing edge is a nameless
+/// indirection is followed; a `seen` set bounds the walk against cycles.
+fn resolve_transparent_indirection<'a>(schema: &'a Schema, vertex_id: &'a str) -> &'a str {
+    let mut current = vertex_id;
+    let mut seen = std::collections::HashSet::new();
+    while seen.insert(current) {
+        match schema.outgoing_edges(current) {
+            [edge] if edge.name.is_none() && is_transparent_indirection(&edge.kind) => {
+                current = &edge.tgt;
+            }
+            _ => break,
+        }
+    }
+    current
+}
+
 /// Parse a JSON object into a node with children.
 fn parse_object(
     schema: &Schema,
@@ -111,15 +153,20 @@ fn parse_object(
     state: &mut ParseState,
     path: &str,
 ) -> Result<(), ParseError> {
-    let mut node = Node::new(node_id, vertex_id);
+    // Resolve transparent type indirections (`ref` / `record-schema`)
+    // so the node anchors at the object definition they denote and its
+    // fields materialize here rather than falling through to
+    // `extra_fields`.
+    let anchor = resolve_transparent_indirection(schema, vertex_id);
+    let mut node = Node::new(node_id, anchor);
 
     // Check for discriminator ($type field)
     if let Some(serde_json::Value::String(disc)) = map.get("$type") {
         node.discriminator = Some(panproto_gat::Name::from(disc.as_str()));
     }
 
-    // Get outgoing edges from schema for this vertex
-    let outgoing: Vec<Edge> = schema.outgoing_edges(vertex_id).to_vec();
+    // Get outgoing edges from schema for the resolved (anchor) vertex
+    let outgoing: Vec<Edge> = schema.outgoing_edges(anchor).to_vec();
 
     // Track which fields we've handled
     let mut handled_fields = std::collections::HashSet::new();

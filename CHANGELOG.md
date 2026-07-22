@@ -2,6 +2,17 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [0.62.0] - 2026-07-22
+
+### Added
+
+- **`Panproto.symmetricLens(left, right)`** (`@panproto/core`): a public, high-level constructor for a `SymmetricLensHandle`, matching the existing `lens` and `protolensChain` accessors. A symmetric lens previously had to be built through the lower-level `SymmetricLensHandle.fromSchemas` static, which required passing the internal WASM module handle. Now `p.symmetricLens(a, b)` returns a handle whose `syncLeftToRight` and `syncRightToLeft` methods propagate a change on either side to the other, preserving each side's private information in the shared complement.
+
+### Fixed
+
+- **`ref` and `record-schema` edges are transparent to the instance parser** (`panproto-inst`): a field whose type is a named definition (a nameless `ref` edge) or a record body (a nameless `record-schema` edge) was skipped by `parse_object`, so the referenced object's fields fell through into `extra_fields` as an opaque `Unknown` and the record parsed to a shallow one-node instance. A structurally-equivalent schema that inlines the same nesting with named `prop` edges parsed deep, so the same data produced two different instance graphs depending on the protocol, which breaks the "every protocol is a view over one graph" premise and makes lenses, field transforms, and queries protocol-dependent. `parse_object` now resolves through a nameless `ref` or `record-schema` indirection to the object definition it denotes, anchoring the node there so its fields materialize on the instance graph exactly as an inlined definition would; a *named* `ref` (the labelled reference some protocols emit for a pointer to a named definition) stays an ordinary field. The change is parse-only: serialization already reconstructed the nested JSON, so the round-trip is unchanged. Closes #237.
+- Corrected stale built-in-protocol counts in the TypeScript SDK doc comments (`@panproto/core`): the protocol-name accessors (`protocol`, `listProtocols`, `getProtocolNames`) now read 54, not a stale 76; the I/O codec-registry comments drop the stale 77 rather than assert a build-feature-dependent count.
+
 ## [0.61.0] - 2026-07-22
 
 ### Added

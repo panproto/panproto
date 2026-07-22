@@ -230,7 +230,7 @@ export const BUILTIN_PROTOCOLS: ReadonlyMap<string, ProtocolSpec> = new Map([
   ['json-schema', JSON_SCHEMA_SPEC],
 ]);
 
-/** Lazily cached list of all 76 built-in protocol names from WASM. */
+/** Lazily cached list of all 54 built-in protocol names from WASM. */
 let _protocolNamesCache: readonly string[] | null = null;
 
 /**
@@ -239,7 +239,7 @@ let _protocolNamesCache: readonly string[] | null = null;
  * Lazily fetches the full list from WASM on first call and caches it.
  *
  * @param wasm - The WASM module
- * @returns Array of all 76 built-in protocol names
+ * @returns Array of all 54 built-in protocol names
  */
 export function getProtocolNames(wasm: WasmModule): readonly string[] {
   if (_protocolNamesCache !== null) return _protocolNamesCache;
@@ -252,7 +252,7 @@ export function getProtocolNames(wasm: WasmModule): readonly string[] {
  * Get a built-in protocol spec by name from WASM.
  *
  * This fetches the full protocol definition from the WASM layer,
- * which includes all 76 protocols (not just the 5 hardcoded ones).
+ * which includes all 54 protocols (not just the 5 hardcoded ones).
  *
  * @param name - The protocol name
  * @param wasm - The WASM module

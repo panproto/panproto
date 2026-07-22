@@ -10,7 +10,7 @@
 import type { WasmModule, ProtocolSpec, DiffReport, FullSchemaDiff, SchemaValidationIssue } from './types.js';
 import { PanprotoError, WasmError } from './types.js';
 import { loadWasm, type WasmGlueModule, createHandle } from './wasm.js';
-import { LensHandle, ProtolensChainHandle } from './lens.js';
+import { LensHandle, ProtolensChainHandle, SymmetricLensHandle } from './lens.js';
 import { packToWasm, unpackFromWasm } from './msgpack.js';
 import {
   Protocol,
@@ -110,7 +110,7 @@ export class Panproto implements Disposable {
       return proto;
     }
 
-    // Try fetching from WASM (supports all 76 protocols)
+    // Try fetching from WASM (supports all 54 protocols)
     const wasmSpec = getBuiltinProtocol(name, this.#wasm);
     if (wasmSpec) {
       const proto = defineProtocol(wasmSpec, this.#wasm);
@@ -518,7 +518,7 @@ export class Panproto implements Disposable {
   /**
    * Create an I/O protocol registry for parsing and emitting instances.
    *
-   * The returned registry wraps all 77 built-in protocol codecs and
+   * The returned registry wraps all built-in protocol codecs and
    * implements `Disposable` for automatic cleanup.
    *
    * @returns A new IoRegistry
@@ -564,7 +564,7 @@ export class Panproto implements Disposable {
   /**
    * List all built-in protocol names.
    *
-   * Returns the names of all 76 built-in protocols supported by the
+   * Returns the names of all 54 built-in protocols supported by the
    * WASM layer.
    *
    * @returns Array of protocol name strings
@@ -634,6 +634,25 @@ export class Panproto implements Disposable {
    */
   protolensChain(from: BuiltSchema, to: BuiltSchema): ProtolensChainHandle {
     return ProtolensChainHandle.autoGenerate(from, to, this.#wasm);
+  }
+
+  /**
+   * Create a symmetric lens between two schemas for bidirectional sync.
+   *
+   * Unlike an asymmetric lens (which has a distinguished source and
+   * view), a symmetric lens treats both schemas as peers: a change on
+   * either side propagates to the other through
+   * {@link SymmetricLensHandle.syncLeftToRight} /
+   * {@link SymmetricLensHandle.syncRightToLeft}, with each side's
+   * private information preserved in the shared complement.
+   *
+   * @param left - The left schema
+   * @param right - The right schema
+   * @returns A disposable SymmetricLensHandle for bidirectional sync
+   * @throws {@link WasmError} if symmetric-lens construction fails
+   */
+  symmetricLens(left: BuiltSchema, right: BuiltSchema): SymmetricLensHandle {
+    return SymmetricLensHandle.fromSchemas(left, right, this.#wasm);
   }
 
   /**

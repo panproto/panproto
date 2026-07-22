@@ -2,7 +2,7 @@
  * I/O protocol registry for parsing and emitting instances.
  *
  * Wraps the WASM-side IoRegistry and provides parse/emit operations
- * across 77 protocol codecs organized by category.
+ * across the built-in protocol codecs organized by category.
  *
  * @module
  */
