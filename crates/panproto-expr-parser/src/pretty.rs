@@ -371,12 +371,33 @@ fn write_builtin(buf: &mut String, op: BuiltinOp, args: &[Expr], ctx: Prec) {
         buf.push('(');
     }
     buf.push_str(builtin_name(op));
-    for arg in args {
+    // Higher-order list builtins are stored list-first but written
+    // function-first, inverting the parser's lowering so that printing a
+    // parsed expression reproduces the source form.
+    let surface: Vec<&Expr> = surface_arg_order(op, args);
+    for arg in surface {
         buf.push(' ');
         write_expr(buf, arg, Prec::Atom);
     }
     if needs_parens {
         buf.push(')');
+    }
+}
+
+/// Reorder a builtin's stored arguments into the order the surface
+/// syntax writes them.
+///
+/// The inverse of the parser's `lower_list_builtin_args`: `map`,
+/// `filter`, and `flat_map` are stored `[xs, f]` and written `f xs`;
+/// `fold` is stored `[xs, z, f]` and written `f z xs`. Every other
+/// builtin uses one order at both layers.
+fn surface_arg_order(op: BuiltinOp, args: &[Expr]) -> Vec<&Expr> {
+    match (op, args.len()) {
+        (BuiltinOp::Map | BuiltinOp::Filter | BuiltinOp::FlatMap, 2) => {
+            vec![&args[1], &args[0]]
+        }
+        (BuiltinOp::Fold, 3) => vec![&args[2], &args[1], &args[0]],
+        _ => args.iter().collect(),
     }
 }
 
@@ -460,6 +481,7 @@ const fn builtin_name(op: BuiltinOp) -> &'static str {
         BuiltinOp::Reverse => "reverse",
         BuiltinOp::FlatMap => "flat_map",
         BuiltinOp::Length => "length",
+        BuiltinOp::Range => "range",
         BuiltinOp::MergeRecords => "merge",
         BuiltinOp::Keys => "keys",
         BuiltinOp::Values => "values",
@@ -1094,12 +1116,28 @@ mod tests {
 
     #[test]
     fn builtin_function_call() {
+        // Stored list-first, written function-first.
         prints_as(
             &Expr::Builtin(
                 BuiltinOp::Map,
-                vec![Expr::Var(Arc::from("f")), Expr::Var(Arc::from("xs"))],
+                vec![Expr::Var(Arc::from("xs")), Expr::Var(Arc::from("f"))],
             ),
             "map f xs",
+        );
+    }
+
+    #[test]
+    fn fold_prints_function_first() {
+        prints_as(
+            &Expr::Builtin(
+                BuiltinOp::Fold,
+                vec![
+                    Expr::Var(Arc::from("xs")),
+                    Expr::Var(Arc::from("z")),
+                    Expr::Var(Arc::from("f")),
+                ],
+            ),
+            "fold f z xs",
         );
     }
 
@@ -1116,6 +1154,8 @@ mod tests {
         round_trip("map f xs");
         round_trip("head xs");
         round_trip("filter f xs");
+        round_trip("fold f z xs");
+        round_trip("flat_map f xs");
     }
 
     // ── Let ───────────────────────────────────────────────────────

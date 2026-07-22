@@ -193,7 +193,7 @@ schema expr repl
 | Crate | What it does |
 |-------|--------------|
 | [`panproto-gat`](crates/panproto-gat) | The math engine that everything else is built on. Defines sorts (types), operations, equations, and structure-preserving maps between theories. |
-| [`panproto-expr`](crates/panproto-expr) | A small functional language used for data transforms during migration: lambdas, pattern matching, 59 built-in functions. |
+| [`panproto-expr`](crates/panproto-expr) | A small functional language used for data transforms during migration: lambdas, pattern matching, 60 built-in functions. |
 | [`panproto-expr-parser`](crates/panproto-expr-parser) | Parser for the expression language (Haskell-style syntax with operator precedence). |
 | [`panproto-schema`](crates/panproto-schema) | Represents schemas as graphs: vertices are types, edges are fields/relationships, constraints are validation rules. |
 | [`panproto-inst`](crates/panproto-inst) | Represents actual data (instances). Handles converting data between schema versions by walking the instance tree and remapping fields. |

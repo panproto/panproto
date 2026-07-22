@@ -11,9 +11,9 @@
 -- only @lens-adaptors@ is. The two are selected by Cabal's
 -- per-dependency @MIN_VERSION_optics_core@ \/ @MIN_VERSION_lens@ macros.
 --
--- == Why a delta lens is not a lawful @Lens'@
+-- == Why a complement-carrying lens is not a lawful @Lens'@
 --
--- A "Panproto.Lens" lens is an asymmetric /delta lens/ with an explicit
+-- A "Panproto.Lens" lens is an asymmetric lens with an explicit
 -- complement:
 --
 -- > get : s -> (a, c)
@@ -34,7 +34,7 @@
 -- @a -> s -> s@ recovering it, because two different sources @s1@,
 -- @s2@ with the same view @a@ can carry /different/ complements
 -- (@c1 \/= c2@), and @put@ distinguishes them while @set@ (given only
--- @a@ and one of the @s@) cannot. So a complement-carrying delta lens
+-- @a@ and one of the @s@) cannot. So a complement-carrying lens
 -- is /not/ presentable as a lawful @Lens' s a@: forcing it into that
 -- shape would silently drop the complement and break @GetPut@
 -- (@put (get s) = s@) for every @s@ whose complement is non-empty.
@@ -44,7 +44,7 @@
 -- complement is empty (@'Panproto.Lens.OpticKind'@ 'Panproto.Lens.Iso'),
 -- and a chain is lossless when every step is. For the lossless subset
 -- the complement carries no information, so @put@ degenerates to a
--- function of the view alone and the delta lens /does/ coincide with a
+-- function of the view alone and the lens /does/ coincide with a
 -- lawful van Laarhoven lens. This module therefore exposes:
 --
 -- * __read-only 'Getter's__ over the pure structural values
@@ -124,8 +124,8 @@ composedOpticKindGetter = to composedOpticKind
 
 -- | A lawful field 'Lens'' onto a chain's steps. @put@ is record
 -- update, so all three van Laarhoven laws hold by construction. This is
--- a lens over the /structural representation/, not the delta lens it
--- describes.
+-- a lens over the /structural representation/, not the complement-carrying
+-- lens it describes.
 stepsLens :: Lens' ProtolensChain [ProtolensStep]
 stepsLens = lens (.steps) (\c ss -> c {steps = ss})
 
@@ -171,8 +171,8 @@ composedOpticKindGetter = to composedOpticKind
 
 -- | A lawful field 'Lens'' onto a chain's steps. @put@ is record
 -- update, so all three van Laarhoven laws hold by construction. This is
--- a lens over the /structural representation/, not the delta lens it
--- describes.
+-- a lens over the /structural representation/, not the complement-carrying
+-- lens it describes.
 stepsLens :: Lens' ProtolensChain [ProtolensStep]
 stepsLens = lens (.steps) (\c ss -> c {steps = ss})
 

@@ -23,7 +23,7 @@ The Haskell-style surface syntax supports literals, variables, lambdas, applicat
 
 ## Builtins
 
-The 59 built-in operations are in `panproto_expr::BuiltinOp`, grouped by family in `crates/panproto-expr/src/builtin.rs`.
+The 60 built-in operations are in `panproto_expr::BuiltinOp`, grouped by family in `crates/panproto-expr/src/builtin.rs`.
 
 ### Arithmetic
 `Add`, `Sub`, `Mul`, `Div`, `Mod`, `Neg`, `Abs`, `Floor`, `Ceil`, `Round`. `Div` and `Mod` raise `DivisionByZero` on a zero divisor. Integer arithmetic uses checked operations; overflow raises `Overflow`.
@@ -35,10 +35,14 @@ The 59 built-in operations are in `panproto_expr::BuiltinOp`, grouped by family 
 `And`, `Or`, `Not`. Short-circuit evaluation.
 
 ### String
-`Concat`, `Len`, `Slice`, `Upper`, `Lower`, `Trim`, `Split`, `Join`, `Replace`, `Contains`.
+`Concat`, `Len`, `Slice`, `Upper`, `Lower`, `Trim`, `Split`, `Join`, `Replace`, `Contains`. `Contains` is overloaded on its first argument: substring containment on a string, element membership on a list.
 
 ### List
-`Map`, `Filter`, `Fold`, `FlatMap`, `Append`, `Head`, `Tail`, `Reverse`, `Length`. `Head` and `Tail` raise on the empty list.
+`Map`, `Filter`, `Fold`, `FlatMap`, `Append`, `Head`, `Tail`, `Reverse`, `Length`, `Range`. `Head` and `Tail` raise on the empty list.
+
+`Map`, `Filter`, `Fold`, and `FlatMap` take the list first and the function last in the abstract syntax, while the surface syntax names the function first (`map f xs`, `fold f z xs`); the parser permutes between the two. `Expr` is serialized into stored lens documents, so the abstract order is the compatibility-bearing one.
+
+`Range` constructs `[start, ..., stop]` with both bounds inclusive, yielding the empty list when `stop < start`. The surface syntax `[a..b]` lowers to it. Its length is checked against `max_list_len` before allocating, since it is the only builtin that turns a constant-size expression into an arbitrarily long list. Open-ended `[a..]` is rejected: there are no lazy lists to lower it to.
 
 ### Record
 `MergeRecords`, `Keys`, `Values`, `HasField`.

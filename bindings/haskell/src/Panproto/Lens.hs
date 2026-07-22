@@ -4,16 +4,17 @@
 
 -- | Bidirectional lenses and protolens chains.
 --
--- panproto lenses are asymmetric /delta lenses/ carrying an explicit
--- complement. A lens between a source @s@ and a view @a@ is a pair
+-- panproto lenses are asymmetric lenses carrying an explicit
+-- complement (Diskin et al., 2011). A lens between a source @s@ and a
+-- view @a@ is a pair
 --
 -- > get : s -> (a, c)
 -- > put : (a, c) -> s
 --
 -- where @c@ is the /complement/ (see 'Panproto.Instance.Complement'):
 -- the data @get@ discards that @put@ needs to reconstruct the source.
--- This is the structure of a (very well-behaved) lens in the sense of
--- delta lenses, /not/ a van Laarhoven optic: the round-trip laws
+-- This is the structure of a (very well-behaved) asymmetric lens with
+-- complement, /not/ a van Laarhoven optic: the round-trip laws
 -- (@GetPut@: @put (get s) = s@; @PutGet@: @fst (get (put (a, c))) = a@)
 -- are checked at runtime by the engine against a concrete test
 -- instance, because the lens is computed from a schema migration rather

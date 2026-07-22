@@ -120,7 +120,7 @@ pub fn functor_restrict(
                 for row in rows {
                     let mut new_row = row.clone();
                     if let Some(assignments) = assignments {
-                        crate::wtype::apply_term_assignments_to_row(&mut new_row, assignments);
+                        crate::wtype::apply_term_assignments_to_row(&mut new_row, assignments)?;
                     }
                     combined_rows.push(new_row);
                 }
@@ -194,7 +194,7 @@ pub fn functor_extend(
         for row in rows {
             let mut new_row = row.clone();
             if let Some(assignments) = assignments {
-                crate::wtype::apply_term_assignments_to_row(&mut new_row, assignments);
+                crate::wtype::apply_term_assignments_to_row(&mut new_row, assignments)?;
             }
             entry.push(new_row);
         }

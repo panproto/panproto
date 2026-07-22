@@ -254,7 +254,7 @@ data BuiltinOp
     | OpJoin
     | OpReplace
     | OpContains
-    | -- List (9)
+    | -- List (10)
       OpMap
     | OpFilter
     | OpFold
@@ -264,6 +264,7 @@ data BuiltinOp
     | OpReverse
     | OpFlatMap
     | OpLength
+    | OpRange
     | -- Record (4)
       OpMergeRecords
     | OpKeys
@@ -336,6 +337,7 @@ builtinTag = \case
     OpReverse -> "Reverse"
     OpFlatMap -> "FlatMap"
     OpLength -> "Length"
+    OpRange -> "Range"
     OpMergeRecords -> "MergeRecords"
     OpKeys -> "Keys"
     OpValues -> "Values"
@@ -408,6 +410,7 @@ builtinName = \case
     OpReverse -> "reverse"
     OpFlatMap -> "flat_map"
     OpLength -> "length"
+    OpRange -> "range"
     OpMergeRecords -> "merge"
     OpKeys -> "keys"
     OpValues -> "values"
@@ -464,6 +467,7 @@ builtinArity = \case
     OpEdgeCount -> 1
     OpAnchor -> 1
     -- Binary.
+    OpRange -> 2
     OpAdd -> 2
     OpSub -> 2
     OpMul -> 2

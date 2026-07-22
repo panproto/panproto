@@ -67,8 +67,7 @@ engine (validation, compilation, get/put, theory checking, ...) goes through
 `Rust`.
 
 panproto is pre-1.0. The `0.x` series carries arbitrary breaking changes
-between minor versions; the `panproto` package tracks the workspace version
-(currently `0.52.1`).
+between minor versions; the `panproto` package tracks the workspace version.
 
 ## Two dispatch axes
 
@@ -203,8 +202,8 @@ carrier monad can be an instance of both.
 
 ## Lenses
 
-panproto lenses are asymmetric *delta lenses* carrying an explicit complement.
-A lens between a source `s` and a view `a` is a pair
+panproto lenses are asymmetric lenses carrying an explicit complement
+(Diskin et al., 2011). A lens between a source `s` and a view `a` is a pair
 
 ```
 get : s -> (a, c)
@@ -219,18 +218,18 @@ instantiating a chain at a schema, checking the round-trip laws, or
 auto-generating a lens between two schemas goes through the `LensBackend` class
 in `IO`.
 
-A complement-carrying delta lens is *not* a lawful van Laarhoven `Lens'`. A
+A complement-carrying lens is *not* a lawful van Laarhoven `Lens'`. A
 `Lens' s a` has `set :: a -> s -> s`, so the discarded information is recovered
 *from the original `s`*. A panproto `put` takes `(a, c)`: the discarded
 information lives in a separate complement that the original `s` is not
 available to supply. Two sources `s1`, `s2` with the same view `a` can carry
 different complements, and `put` distinguishes them while `set` (given only `a`
-and one `s`) cannot. Forcing a delta lens into a `Lens'` would silently drop the
+and one `s`) cannot. Forcing a complement-carrying lens into a `Lens'` would silently drop the
 complement and break the `GetPut` law for every source with a non-empty
 complement.
 
 For the lossless subset the complement carries no information, so `put` degenerates
-to a function of the view alone and the delta lens does coincide with a lawful
+to a function of the view alone and the lens does coincide with a lawful
 van Laarhoven lens. `Panproto.Lens.Optics` (built under the `optics-adaptors`
 or `lens-adaptors` flag) therefore exposes only the structurally-lawful subset:
 read-only `Getter`s over the pure structural values, and lawful `Lens'`es onto

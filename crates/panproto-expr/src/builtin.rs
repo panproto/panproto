@@ -83,7 +83,8 @@ pub fn apply_builtin(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprErr
         | BuiltinOp::Head
         | BuiltinOp::Tail
         | BuiltinOp::Reverse
-        | BuiltinOp::Length => apply_list(op, args),
+        | BuiltinOp::Length
+        | BuiltinOp::Range => apply_list(op, args),
 
         // --- Record ---
         BuiltinOp::MergeRecords | BuiltinOp::Keys | BuiltinOp::Values | BuiltinOp::HasField => {
@@ -274,9 +275,15 @@ fn apply_string(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError> {
             }
             _ => Err(type_err("(string, string, string)", &args[0])),
         },
+        // `Contains` is overloaded on its first argument: substring
+        // containment on a string, element membership on a list. The list
+        // case is what predicates over a list-valued field use — the field
+        // arrives as a `Literal::List`, so membership is tested directly
+        // rather than against a flattened string.
         BuiltinOp::Contains => match (&args[0], &args[1]) {
             (Literal::Str(s), Literal::Str(substr)) => Ok(Literal::Bool(s.contains(&**substr))),
-            _ => Err(type_err("(string, string)", &args[0])),
+            (Literal::List(items), needle) => Ok(Literal::Bool(items.iter().any(|i| i == needle))),
+            _ => Err(type_err("(string, string) or (list, any)", &args[0])),
         },
         _ => Err(ExprError::InternalDispatch {
             op: format!("{op:?}"),
@@ -288,13 +295,16 @@ fn apply_string(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError> {
 #[allow(clippy::cast_possible_wrap)]
 fn apply_list(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError> {
     match op {
-        // Map, Filter, Fold, FlatMap require lambda evaluation; handled in eval.rs.
-        BuiltinOp::Map | BuiltinOp::Filter | BuiltinOp::Fold | BuiltinOp::FlatMap => {
-            Err(ExprError::TypeError {
-                expected: "handled in evaluator".into(),
-                got: "direct builtin call".into(),
-            })
-        }
+        // Map, Filter, Fold, and FlatMap require lambda evaluation, and
+        // Range needs the list-length budget; all are handled in eval.rs.
+        BuiltinOp::Map
+        | BuiltinOp::Filter
+        | BuiltinOp::Fold
+        | BuiltinOp::FlatMap
+        | BuiltinOp::Range => Err(ExprError::TypeError {
+            expected: "handled in evaluator".into(),
+            got: "direct builtin call".into(),
+        }),
         BuiltinOp::Append => match (&args[0], &args[1]) {
             (Literal::List(items), val) => {
                 let mut new_items = items.clone();

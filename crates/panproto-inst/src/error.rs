@@ -135,6 +135,24 @@ pub enum RestrictError {
         /// The source vertices in the fiber (sorted for determinism).
         sources: Vec<Name>,
     },
+
+    /// A field transform's expression failed to evaluate.
+    ///
+    /// The transform is reported rather than skipped. A user-authored
+    /// `apply_expr` or `compute_field` whose expression does not evaluate
+    /// is a defect in the lens, and leaving the field untouched makes it
+    /// indistinguishable from a transform that ran and changed nothing.
+    #[error("field transform on `{key}` failed to evaluate: {source}")]
+    FieldTransformFailed {
+        /// The field the transform targets: the edited key for
+        /// `ApplyExpr`, the target key for `ComputeField`, or a
+        /// `<case branch N>` marker for a `Case` predicate, which has no
+        /// single field of its own.
+        key: String,
+        /// The underlying evaluation failure.
+        #[source]
+        source: panproto_expr::ExprError,
+    },
 }
 
 /// Errors from JSON parsing.

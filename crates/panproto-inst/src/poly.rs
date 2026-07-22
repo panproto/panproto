@@ -232,7 +232,7 @@ pub fn restrict_with_complement(
             .original_extra_fields
             .insert(instance.root, root_node.extra_fields.clone());
         let scalars = collect_scalar_child_values(instance, instance.root);
-        apply_field_transforms(&mut root_node_cloned, &root_transforms, &scalars);
+        apply_field_transforms(&mut root_node_cloned, &root_transforms, &scalars)?;
     }
     new_nodes.insert(instance.root, root_node_cloned);
     surviving_set.insert(instance.root);
@@ -341,7 +341,7 @@ fn restrict_bfs_step(
                     .original_extra_fields
                     .insert(child_id, child_node.extra_fields.clone());
                 let scalars = collect_scalar_child_values(instance, child_id);
-                apply_field_transforms(&mut new_node, &child_transforms, &scalars);
+                apply_field_transforms(&mut new_node, &child_transforms, &scalars)?;
             }
             new_nodes.insert(child_id, new_node.clone());
 
