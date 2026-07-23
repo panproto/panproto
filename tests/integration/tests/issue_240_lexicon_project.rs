@@ -1,6 +1,6 @@
 //! Regression test for issue #240.
 //!
-//! An ATProto lexicon set must be reachable as the per-file project tree
+//! An `ATProto` lexicon set must be reachable as the per-file project tree
 //! `panproto-vcs` is built around: `parse_schema_bundle_project` parses
 //! each lexicon into its own schema (with in-set refs resolved to typed
 //! defs) plus path-prefixed cross-file edges, and `build_project_tree`
@@ -62,12 +62,16 @@ fn cross_file_docs() -> Vec<serde_json::Value> {
 #[test]
 fn lexicon_project_round_trips_through_the_vcs_tree() -> Result<(), Box<dyn std::error::Error>> {
     let docs = cross_file_docs();
-    let p1 = PathBuf::from("annotation/annotationLayer.json");
-    let p2 = PathBuf::from("defs.json");
 
     let project = parse_schema_bundle_project(
         "atproto",
-        &[(p1.clone(), docs[0].clone()), (p2.clone(), docs[1].clone())],
+        &[
+            (
+                PathBuf::from("annotation/annotationLayer.json"),
+                docs[0].clone(),
+            ),
+            (PathBuf::from("defs.json"), docs[1].clone()),
+        ],
     )?;
 
     let files: HashMap<PathBuf, Schema> = project.files.iter().cloned().collect();
