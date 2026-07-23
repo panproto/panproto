@@ -254,6 +254,118 @@ pub fn parse_schema_bundle(protocol: &str, docs: &Bound<'_, PyAny>) -> PyResult<
     })
 }
 
+/// Per-file lexicon schemas plus cross-file ref edges: the per-file
+/// provenance form of a lexicon set, retained for the version-control
+/// layer (where :func:`parse_schema_bundle` fuses the same documents
+/// into one flat schema with no per-file identity).
+#[pyclass(name = "LexiconProject", module = "panproto._native")]
+pub struct PyLexiconProject {
+    files: Vec<(String, Arc<panproto_core::schema::Schema>)>,
+    cross: Vec<(String, Vec<panproto_core::schema::Edge>)>,
+}
+
+#[pymethods]
+impl PyLexiconProject {
+    /// The per-file schemas as ``(path, Schema)`` pairs, in input order.
+    fn files(&self) -> Vec<(String, PySchema)> {
+        self.files
+            .iter()
+            .map(|(p, s)| (p.clone(), PySchema { inner: s.clone() }))
+            .collect()
+    }
+
+    /// The document paths, in input order.
+    fn file_paths(&self) -> Vec<String> {
+        self.files.iter().map(|(p, _)| p.clone()).collect()
+    }
+
+    /// Cross-file ref edges as ``{path: [{"src", "tgt", "kind", "name"}]}``.
+    /// Both endpoints are already prefixed with their owning file's path.
+    fn cross_file_edges(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let map: serde_json::Map<String, serde_json::Value> = self
+            .cross
+            .iter()
+            .map(|(path, edges)| {
+                let list: Vec<serde_json::Value> = edges
+                    .iter()
+                    .map(|e| {
+                        serde_json::json!({
+                            "src": e.src.as_ref(),
+                            "tgt": e.tgt.as_ref(),
+                            "kind": e.kind.as_ref(),
+                            "name": e.name.as_deref(),
+                        })
+                    })
+                    .collect();
+                (path.clone(), serde_json::Value::Array(list))
+            })
+            .collect();
+        crate::convert::to_python(py, &serde_json::Value::Object(map))
+    }
+
+    fn __repr__(&self) -> String {
+        format!("LexiconProject({} files)", self.files.len())
+    }
+}
+
+/// Parse a set of lexicon documents into per-file schemas with per-file
+/// provenance, resolving cross-document refs.
+///
+/// Where :func:`parse_schema_bundle` fuses a lexicon set into one flat
+/// schema, this keeps each document a separate schema plus the ref edges
+/// that cross document boundaries (endpoints already prefixed with their
+/// owning file's path), so a lexicon set can be stored and diffed as the
+/// per-file tree the version-control layer is built around.
+///
+/// Parameters
+/// ----------
+/// protocol : str
+///     The protocol the documents are written in (currently ``atproto``).
+/// docs : list of (str, dict | str)
+///     ``(path, document)`` pairs. ``path`` is the project-relative file
+///     path; ``document`` is a parsed dict or a raw JSON string.
+///
+/// Returns
+/// -------
+/// LexiconProject
+///     Per-file schemas (:meth:`LexiconProject.files`) and cross-file
+///     edges (:meth:`LexiconProject.cross_file_edges`).
+///
+/// Raises
+/// ------
+/// `ValueError`
+///     If ``protocol`` has no per-file bundle parser, or a document is a
+///     string that is not valid JSON.
+#[pyfunction]
+pub fn parse_schema_bundle_project(
+    protocol: &str,
+    docs: &Bound<'_, PyAny>,
+) -> PyResult<PyLexiconProject> {
+    let mut pairs: Vec<(std::path::PathBuf, serde_json::Value)> = Vec::new();
+    for item in docs.try_iter()? {
+        let item = item?;
+        let path: String = item.get_item(0)?.extract()?;
+        let value = json_from_py(&item.get_item(1)?)?;
+        pairs.push((std::path::PathBuf::from(path), value));
+    }
+
+    let project = panproto_core::protocols::parse_schema_bundle_project(protocol, &pairs)
+        .map_err(|e| SchemaValidationError::new_err(format!("bundle project parse failed: {e}")))?;
+
+    let files = project
+        .files
+        .into_iter()
+        .map(|(p, s)| (p.display().to_string(), Arc::new(s)))
+        .collect();
+    let cross = project
+        .cross_file_edges
+        .into_iter()
+        .map(|(p, edges)| (p.display().to_string(), edges))
+        .collect();
+
+    Ok(PyLexiconProject { files, cross })
+}
+
 /// Extract the GAT theory a schema instantiates.
 ///
 /// The induced theory has one sort per vertex and one unary operation per
@@ -289,6 +401,8 @@ pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     parent.add_function(wrap_pyfunction!(parse_schema_document, parent)?)?;
     parent.add_function(wrap_pyfunction!(parse_schema_source, parent)?)?;
     parent.add_function(wrap_pyfunction!(parse_schema_bundle, parent)?)?;
+    parent.add_function(wrap_pyfunction!(parse_schema_bundle_project, parent)?)?;
     parent.add_function(wrap_pyfunction!(theory_of, parent)?)?;
+    parent.add_class::<PyLexiconProject>()?;
     Ok(())
 }

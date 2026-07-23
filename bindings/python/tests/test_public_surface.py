@@ -101,6 +101,7 @@ def test_core_public_symbols_are_reexported() -> None:
         # Python call turned a lexicon document into a Schema/Theory).
         "parse_atproto_lexicon",
         "parse_schema_bundle",
+        "parse_schema_bundle_project",
         "parse_schema_document",
         "parse_schema_source",
         "theory_of",

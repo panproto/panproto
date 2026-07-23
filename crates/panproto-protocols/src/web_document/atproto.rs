@@ -10,9 +10,11 @@
 //! Edge kinds: record-schema, prop, items, variant, ref, self-ref.
 
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 
-use panproto_gat::{Sort, Theory, pushout_by_name};
-use panproto_schema::{EdgeRule, Protocol, Schema, SchemaBuilder};
+use panproto_gat::{Name, Sort, Theory, pushout_by_name};
+use panproto_schema::{Edge, EdgeRule, Protocol, Schema, SchemaBuilder};
+use smallvec::SmallVec;
 
 use crate::error::ProtocolError;
 use crate::theories;
@@ -198,6 +200,230 @@ pub fn parse_lexicon_bundle(docs: &[serde_json::Value]) -> Result<Schema, Protoc
 
     let schema = builder.build()?;
     Ok(schema)
+}
+
+/// One `ATProto` lexicon document tagged with the project-relative path
+/// it lives at.
+pub struct LexiconDoc {
+    /// Project-relative path of the lexicon file (e.g.
+    /// `annotation/annotationLayer.json`).
+    pub path: PathBuf,
+    /// The lexicon document.
+    pub value: serde_json::Value,
+}
+
+/// A lexicon set parsed with per-file provenance: each document's own
+/// schema plus the ref edges that cross document boundaries.
+///
+/// Where [`parse_lexicon_bundle`] fuses every document into one flat
+/// schema (correct, but with no per-file identity, so the version-control
+/// layer cannot store or diff it as the per-file tree it is built
+/// around), this keeps each document a separate schema and records
+/// cross-document refs as `<path>::<name>`-prefixed edges that project
+/// assembly adds verbatim. Feed `files` and `cross_file_edges` to
+/// `panproto_project::build_project_tree` to store a lexicon set as a
+/// per-file tree the VCS can diff incrementally.
+pub struct LexiconProject {
+    /// Each document's own schema (its owned defs as typed vertices),
+    /// keyed by the document's path.
+    pub files: Vec<(PathBuf, Schema)>,
+    /// Cross-file ref edges, keyed by the owning (source) file. Both
+    /// endpoints are already prefixed with their owning file's path, so
+    /// project assembly adds them without re-prefixing.
+    pub cross_file_edges: HashMap<PathBuf, Vec<Edge>>,
+}
+
+/// A vertex `vertex_id` is owned by the lexicon whose id is `doc_id`
+/// when it is that lexicon's `main` record (`vertex_id == doc_id`) or a
+/// sub-vertex under it (`doc_id` followed by a `#`, `:`, or `.`
+/// separator). Callers try the longest matching `doc_id` first so a
+/// document whose id is a prefix of another's does not steal its
+/// vertices.
+fn is_owned_by(vertex_id: &str, doc_id: &str) -> bool {
+    vertex_id == doc_id
+        || vertex_id
+            .strip_prefix(doc_id)
+            .is_some_and(|rest| rest.starts_with(['#', ':', '.']))
+}
+
+fn prefix_name(path: &std::path::Path, name: &str) -> Name {
+    Name::from(format!("{}::{}", path.display(), name).as_str())
+}
+
+/// Build a per-file schema holding only the vertices in `owned` and the
+/// edges in `internal`, recomputing the adjacency indices from the
+/// retained edges.
+fn retain_file_schema(m: &Schema, owned: &HashSet<Name>, internal: &HashSet<Edge>) -> Schema {
+    fn by_vertex<V: Clone>(map: &HashMap<Name, V>, owned: &HashSet<Name>) -> HashMap<Name, V> {
+        map.iter()
+            .filter(|(k, _)| owned.contains(*k))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
+    }
+
+    let edges: HashMap<Edge, Name> = m
+        .edges
+        .iter()
+        .filter(|(e, _)| internal.contains(*e))
+        .map(|(e, k)| (e.clone(), k.clone()))
+        .collect();
+
+    // Recompute adjacency indices from the retained edges.
+    let mut outgoing: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+    let mut incoming: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+    let mut between: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();
+    for edge in edges.keys() {
+        outgoing
+            .entry(edge.src.clone())
+            .or_default()
+            .push(edge.clone());
+        incoming
+            .entry(edge.tgt.clone())
+            .or_default()
+            .push(edge.clone());
+        between
+            .entry((edge.src.clone(), edge.tgt.clone()))
+            .or_default()
+            .push(edge.clone());
+    }
+
+    Schema {
+        protocol: m.protocol.clone(),
+        vertices: by_vertex(&m.vertices, owned),
+        edges,
+        hyper_edges: m.hyper_edges.clone(),
+        constraints: by_vertex(&m.constraints, owned),
+        required: by_vertex(&m.required, owned),
+        nsids: by_vertex(&m.nsids, owned),
+        entries: m
+            .entries
+            .iter()
+            .filter(|e| owned.contains(*e))
+            .cloned()
+            .collect(),
+        variants: by_vertex(&m.variants, owned),
+        orderings: m
+            .orderings
+            .iter()
+            .filter(|(e, _)| internal.contains(*e))
+            .map(|(e, p)| (e.clone(), *p))
+            .collect(),
+        recursion_points: by_vertex(&m.recursion_points, owned),
+        spans: m.spans.clone(),
+        usage_modes: m
+            .usage_modes
+            .iter()
+            .filter(|(e, _)| internal.contains(*e))
+            .map(|(e, u)| (e.clone(), u.clone()))
+            .collect(),
+        nominal: by_vertex(&m.nominal, owned),
+        coercions: m.coercions.clone(),
+        mergers: by_vertex(&m.mergers, owned),
+        defaults: by_vertex(&m.defaults, owned),
+        policies: m.policies.clone(),
+        outgoing,
+        incoming,
+        between,
+    }
+}
+
+/// Parse a set of `ATProto` lexicon documents into per-file schemas with
+/// cross-document refs resolved, retaining the per-file provenance the
+/// version-control layer needs.
+///
+/// The whole set is first parsed as a bundle (so every in-set `$ref`
+/// resolves to the referenced def's real, typed vertex), then the
+/// resulting flat schema is partitioned back by NSID ownership: each
+/// vertex and each same-file edge returns to the document that declared
+/// it, while an edge whose endpoints live in different documents becomes
+/// a cross-file edge with both endpoints prefixed by their owning file.
+/// A ref whose target is in no document of the set stays an opaque
+/// placeholder in the referencing file, exactly as [`parse_lexicon`]
+/// leaves it.
+///
+/// # Errors
+///
+/// Returns the same errors as [`parse_lexicon_bundle`]: a document
+/// missing `id` or `defs`, duplicate ids, or a schema-builder error.
+pub fn parse_lexicon_project(docs: &[LexiconDoc]) -> Result<LexiconProject, ProtocolError> {
+    let values: Vec<serde_json::Value> = docs.iter().map(|d| d.value.clone()).collect();
+    let monolith = parse_lexicon_bundle(&values)?;
+
+    // Document id -> path, longest id first so the longest-prefix match
+    // wins when one lexicon id is a prefix of another.
+    let mut doc_paths: Vec<(String, PathBuf)> = Vec::with_capacity(docs.len());
+    for d in docs {
+        let id = d
+            .value
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| ProtocolError::MissingField("id".into()))?;
+        doc_paths.push((id.to_string(), d.path.clone()));
+    }
+    doc_paths.sort_by_key(|(id, _)| std::cmp::Reverse(id.len()));
+
+    // Assign every vertex to the document that owns it.
+    let mut owner: HashMap<Name, PathBuf> = HashMap::new();
+    for vid in monolith.vertices.keys() {
+        if let Some((_, path)) = doc_paths.iter().find(|(id, _)| is_owned_by(vid, id)) {
+            owner.insert(vid.clone(), path.clone());
+        }
+    }
+    // An out-of-set ref target is an opaque placeholder owned by no
+    // document; keep it in the file that references it so it stays a
+    // (genuinely external) placeholder there rather than vanishing.
+    for edge in monolith.edges.keys() {
+        if !owner.contains_key(&edge.tgt) {
+            if let Some(src_path) = owner.get(&edge.src).cloned() {
+                owner.insert(edge.tgt.clone(), src_path);
+            }
+        }
+    }
+
+    // Partition edges into per-file internal sets and cross-file edges.
+    let mut internal: HashMap<PathBuf, HashSet<Edge>> = HashMap::new();
+    let mut cross_file_edges: HashMap<PathBuf, Vec<Edge>> = HashMap::new();
+    for edge in monolith.edges.keys() {
+        let (Some(src_path), Some(tgt_path)) = (owner.get(&edge.src), owner.get(&edge.tgt)) else {
+            continue;
+        };
+        if src_path == tgt_path {
+            internal
+                .entry(src_path.clone())
+                .or_default()
+                .insert(edge.clone());
+        } else {
+            let prefixed = Edge {
+                src: prefix_name(src_path, &edge.src),
+                tgt: prefix_name(tgt_path, &edge.tgt),
+                kind: edge.kind.clone(),
+                name: edge.name.as_ref().map(|n| prefix_name(src_path, n)),
+            };
+            cross_file_edges
+                .entry(src_path.clone())
+                .or_default()
+                .push(prefixed);
+        }
+    }
+
+    // Build each document's per-file schema from the vertices it owns and
+    // its internal edges, in input order for determinism.
+    let mut files: Vec<(PathBuf, Schema)> = Vec::with_capacity(docs.len());
+    for d in docs {
+        let owned: HashSet<Name> = owner
+            .iter()
+            .filter(|(_, p)| **p == d.path)
+            .map(|(v, _)| v.clone())
+            .collect();
+        let file_internal = internal.remove(&d.path).unwrap_or_default();
+        let schema = retain_file_schema(&monolith, &owned, &file_internal);
+        files.push((d.path.clone(), schema));
+    }
+
+    Ok(LexiconProject {
+        files,
+        cross_file_edges,
+    })
 }
 
 /// Register a vertex for every top-level def in one document.
@@ -1264,6 +1490,83 @@ mod tests {
                 }
             }),
         ]
+    }
+
+    /// `parse_lexicon_project` keeps per-file provenance: each document
+    /// becomes its own schema (with in-set refs resolved to typed defs),
+    /// and a cross-document ref is lifted out of the referencing file
+    /// into a path-prefixed cross-file edge.
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn lexicon_project_partitions_by_file_and_lifts_cross_refs() {
+        let docs = cross_file_docs();
+        let p1 = PathBuf::from("annotation/annotationLayer.json");
+        let p2 = PathBuf::from("defs.json");
+        let project = parse_lexicon_project(&[
+            LexiconDoc {
+                path: p1.clone(),
+                value: docs[0].clone(),
+            },
+            LexiconDoc {
+                path: p2.clone(),
+                value: docs[1].clone(),
+            },
+        ])
+        .expect("parse project should succeed");
+
+        assert_eq!(project.files.len(), 2, "one schema per document");
+
+        let file1 = &project
+            .files
+            .iter()
+            .find(|(p, _)| *p == p1)
+            .expect("annotationLayer file")
+            .1;
+        let file2 = &project
+            .files
+            .iter()
+            .find(|(p, _)| *p == p2)
+            .expect("defs file")
+            .1;
+
+        // The defs file owns the referenced def, typed as an object
+        // (resolved by the bundle pass, not left an opaque placeholder),
+        // and its own internal box -> boundingBox ref stays inside it.
+        assert_eq!(
+            &*file2.vertices["pub.layers.defs#spatioTemporalAnchor"].kind,
+            "object"
+        );
+        assert!(file2.vertices.contains_key("pub.layers.defs#boundingBox"));
+        assert!(
+            file2
+                .edges
+                .keys()
+                .any(|e| &*e.kind == "ref" && &*e.tgt == "pub.layers.defs#boundingBox"),
+            "the same-file box -> boundingBox ref must stay internal"
+        );
+
+        // The referencing file does not carry the sibling document's def:
+        // the cross-document ref was lifted out.
+        assert!(
+            !file1
+                .vertices
+                .contains_key("pub.layers.defs#spatioTemporalAnchor"),
+            "a cross-document def must not appear in the referencing file"
+        );
+
+        // The lifted ref is recorded as a cross-file edge with both
+        // endpoints prefixed by their owning file.
+        let cross = project
+            .cross_file_edges
+            .get(&p1)
+            .expect("cross-file edges for the referencing file");
+        assert!(
+            cross.iter().any(|e| &*e.kind == "ref"
+                && e.tgt
+                    .contains("defs.json::pub.layers.defs#spatioTemporalAnchor")
+                && e.src.starts_with("annotation/annotationLayer.json::")),
+            "expected a path-prefixed cross-file ref, got: {cross:?}"
+        );
     }
 
     /// Parsing one document alone leaves its cross-document ref target

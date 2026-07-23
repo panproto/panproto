@@ -1072,6 +1072,57 @@ class TestLexiconParsing:
         assert bundled.vertex_count == direct.vertex_count
         assert bundled.edge_count == direct.edge_count
 
+    def test_parse_schema_bundle_project_partitions_and_lifts_cross_refs(self) -> None:
+        referring = {
+            "lexicon": 1,
+            "id": "local.bundle.referring",
+            "defs": {
+                "main": {
+                    "type": "record",
+                    "key": "tid",
+                    "record": {
+                        "type": "object",
+                        "required": ["anchor"],
+                        "properties": {
+                            "anchor": {
+                                "type": "ref",
+                                "ref": "local.bundle.defs#boundingBox",
+                            }
+                        },
+                    },
+                }
+            },
+        }
+        referenced = {
+            "lexicon": 1,
+            "id": "local.bundle.defs",
+            "defs": {
+                "boundingBox": {
+                    "type": "object",
+                    "required": ["x"],
+                    "properties": {"x": {"type": "integer"}},
+                }
+            },
+        }
+        project = panproto.parse_schema_bundle_project(
+            "atproto",
+            [("referring.json", referring), ("defs.json", referenced)],
+        )
+
+        # One schema per document, keyed by path.
+        assert set(project.file_paths()) == {"referring.json", "defs.json"}
+        files = dict(project.files())
+        assert files["defs.json"].vertex_count >= 1
+
+        # The cross-document ref is lifted into a path-prefixed cross-file
+        # edge on the referencing file, not left inside its schema.
+        cross = project.cross_file_edges()
+        assert "referring.json" in cross
+        edge = cross["referring.json"][0]
+        assert edge["kind"] == "ref"
+        assert edge["src"].startswith("referring.json::")
+        assert edge["tgt"].startswith("defs.json::")
+
     def test_parse_schema_bundle_unknown_protocol_raises(self) -> None:
         with pytest.raises(
             (ValueError, panproto.SchemaValidationError), match="no bundle parser"

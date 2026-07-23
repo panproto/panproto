@@ -80,8 +80,10 @@ from panproto._native import (
     free_model,
     migrate_model,
     # Lexicon / schema-document parsing
+    LexiconProject,
     parse_atproto_lexicon,
     parse_schema_bundle,
+    parse_schema_bundle_project,
     parse_schema_document,
     parse_schema_source,
     theory_of,
@@ -253,8 +255,10 @@ __all__ = [
     "free_model",
     "migrate_model",
     # Lexicon / schema-document parsing
+    "LexiconProject",
     "parse_atproto_lexicon",
     "parse_schema_bundle",
+    "parse_schema_bundle_project",
     "parse_schema_document",
     "parse_schema_source",
     "theory_of",
