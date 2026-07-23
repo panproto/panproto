@@ -7,6 +7,7 @@
 
 use assert_cmd::Command;
 use predicates::prelude::*;
+use std::collections::HashMap;
 use std::path::Path;
 
 // ---------------------------------------------------------------------------
@@ -55,6 +56,87 @@ fn write_schema(dir: &Path, name: &str, vertices: &[(&str, &str)]) {
     });
     let path = dir.join(name);
     std::fs::write(&path, serde_json::to_string_pretty(&schema).unwrap()).unwrap();
+}
+
+fn write_atproto_project(dir: &Path, target_required: bool) {
+    std::fs::create_dir_all(dir).unwrap();
+    std::fs::write(
+        dir.join("panproto.toml"),
+        r#"[workspace]
+name = "lexicons"
+
+[[package]]
+name = "lexicons"
+path = "."
+protocol = "atproto"
+"#,
+    )
+    .unwrap();
+    let mut annotation = serde_json::json!({
+        "lexicon": 1,
+        "id": "pub.example.annotation",
+        "defs": {
+            "main": {
+                "type": "record",
+                "record": {
+                    "type": "object",
+                    "properties": {
+                        "target": {
+                            "type": "ref",
+                            "ref": "pub.example.defs#target"
+                        }
+                    }
+                }
+            }
+        }
+    });
+    if target_required {
+        annotation["defs"]["main"]["record"]["required"] = serde_json::json!(["target"]);
+    }
+    std::fs::write(
+        dir.join("annotation.json"),
+        serde_json::to_vec_pretty(&annotation).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("defs.json"),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "lexicon": 1,
+            "id": "pub.example.defs",
+            "defs": {
+                "target": {
+                    "type": "object",
+                    "properties": {
+                        "value": {"type": "string"}
+                    }
+                }
+            }
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+}
+
+fn staged_leaf_ids(
+    dir: &Path,
+) -> (
+    panproto_core::vcs::ObjectId,
+    HashMap<String, panproto_core::vcs::ObjectId>,
+) {
+    use panproto_core::vcs::{Repository, hash::hash_file_schema, walk_tree};
+
+    let repo = Repository::open(dir).unwrap();
+    let root = repo.read_index().unwrap().staged.unwrap().schema_id;
+    let mut leaves = HashMap::new();
+    walk_tree(repo.store(), &root, |path, file| {
+        leaves.insert(
+            path.to_string_lossy().into_owned(),
+            hash_file_schema(file).unwrap(),
+        );
+        Ok(())
+    })
+    .unwrap();
+    (root, leaves)
 }
 
 fn add_and_commit(dir: &Path, schema_file: &str, message: &str) {
@@ -197,6 +279,54 @@ fn cli_add_dry_run() {
         .current_dir(tmp.path())
         .assert()
         .failure();
+}
+
+#[test]
+fn cli_add_atproto_directory_stages_per_file_tree_and_reuses_unchanged_leaf() {
+    let tmp = tempfile::tempdir().unwrap();
+    init_repo(tmp.path());
+    let project = tmp.path().join("lexicons");
+    write_atproto_project(&project, false);
+
+    schema_cmd()
+        .args(["add", "--skip-verify", "lexicons"])
+        .current_dir(tmp.path())
+        .assert()
+        .success();
+    let (first_root, first_leaves) = staged_leaf_ids(tmp.path());
+    assert_eq!(
+        first_leaves.len(),
+        2,
+        "the manifest and directory must not be flattened into the schema"
+    );
+
+    schema_cmd()
+        .args(["commit", "-m", "first"])
+        .current_dir(tmp.path())
+        .assert()
+        .success();
+    write_atproto_project(&project, true);
+
+    schema_cmd()
+        .args(["add", "--skip-verify", "lexicons"])
+        .current_dir(tmp.path())
+        .assert()
+        .success();
+    let (second_root, second_leaves) = staged_leaf_ids(tmp.path());
+    assert_ne!(
+        first_root, second_root,
+        "changing one file must change the project root"
+    );
+    assert_eq!(
+        first_leaves.get("defs.json"),
+        second_leaves.get("defs.json"),
+        "the unchanged file must retain its object id"
+    );
+    assert_ne!(
+        first_leaves.get("annotation.json"),
+        second_leaves.get("annotation.json"),
+        "the changed file must receive a new object id"
+    );
 }
 
 #[test]
@@ -1809,7 +1939,6 @@ use panproto_core::inst;
 use panproto_core::mig;
 use panproto_core::schema::{Edge, Schema, Vertex};
 use smallvec::SmallVec;
-use std::collections::HashMap;
 
 /// Build a schema with named prop edges and all required adjacency indices.
 fn make_lift_schema(

@@ -1123,6 +1123,59 @@ class TestLexiconParsing:
         assert edge["src"].startswith("referring.json::")
         assert edge["tgt"].startswith("defs.json::")
 
+    def test_repository_add_project_stages_per_file_tree(self, tmp_path) -> None:
+        referenced = {
+            "lexicon": 1,
+            "id": "local.bundle.defs",
+            "defs": {
+                "target": {
+                    "type": "object",
+                    "properties": {"value": {"type": "string"}},
+                }
+            },
+        }
+
+        def referring(*, required: bool) -> dict:
+            record = {
+                "type": "object",
+                "properties": {
+                    "target": {
+                        "type": "ref",
+                        "ref": "local.bundle.defs#target",
+                    }
+                },
+            }
+            if required:
+                record["required"] = ["target"]
+            return {
+                "lexicon": 1,
+                "id": "local.bundle.referring",
+                "defs": {
+                    "main": {
+                        "type": "record",
+                        "key": "tid",
+                        "record": record,
+                    }
+                },
+            }
+
+        repo = panproto.Repository.init(str(tmp_path / "repo"))
+        first = panproto.parse_schema_bundle_project(
+            "atproto",
+            [("referring.json", referring(required=False)), ("defs.json", referenced)],
+        )
+        first_index = repo.add_project(first, skip_verify=True)
+        first_root = first_index["staged"]["schema_id"]
+        repo.commit("first", "alice <a@example.com>")
+
+        second = panproto.parse_schema_bundle_project(
+            "atproto",
+            [("referring.json", referring(required=True)), ("defs.json", referenced)],
+        )
+        second_index = repo.add_project(second, skip_verify=True)
+        assert second_index["staged"]["schema_id"] != first_root
+        assert second_index["staged"]["migration_id"] is not None
+
     def test_parse_schema_bundle_unknown_protocol_raises(self) -> None:
         with pytest.raises(
             (ValueError, panproto.SchemaValidationError), match="no bundle parser"

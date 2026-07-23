@@ -171,7 +171,49 @@ impl Repository {
         options: &AddOptions,
     ) -> Result<Index, VcsError> {
         let schema_id = crate::tree::store_schema_as_tree(&mut self.store, schema.clone())?;
+        self.stage_schema(schema_id, schema, options)
+    }
 
+    /// Stage an already-stored schema tree for the next commit.
+    ///
+    /// This is the project-aware counterpart to [`add`](Self::add): callers
+    /// first store a per-file tree (for instance with
+    /// `panproto_project::ProjectBuilder::build_tree`), then pass its root
+    /// object ID here. The tree is assembled for diffing and migration
+    /// validation, while the index retains the original per-file root.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `schema_id` does not name a valid schema tree, or
+    /// if the assembled schema cannot be staged.
+    pub fn add_tree(&mut self, schema_id: ObjectId) -> Result<Index, VcsError> {
+        self.add_tree_with_options(schema_id, &AddOptions::default())
+    }
+
+    /// Stage an already-stored schema tree for the next commit, with options.
+    ///
+    /// See [`add_tree`](Self::add_tree) and
+    /// [`add_with_options`](Self::add_with_options).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `schema_id` does not name a valid schema tree, or
+    /// if the assembled schema cannot be staged.
+    pub fn add_tree_with_options(
+        &mut self,
+        schema_id: ObjectId,
+        options: &AddOptions,
+    ) -> Result<Index, VcsError> {
+        let schema = self.load_schema(schema_id)?;
+        self.stage_schema(schema_id, &schema, options)
+    }
+
+    fn stage_schema(
+        &mut self,
+        schema_id: ObjectId,
+        schema: &Schema,
+        options: &AddOptions,
+    ) -> Result<Index, VcsError> {
         let (migration_id, auto_derived, validation, gat_diagnostics) = match store::resolve_head(
             &self.store,
         )? {
@@ -1106,6 +1148,57 @@ mod tests {
         // Verify HEAD points to the commit.
         let head = store::resolve_head(repo.store())?;
         assert_eq!(head, Some(commit_id));
+        Ok(())
+    }
+
+    #[test]
+    fn add_tree_retains_per_file_root_in_index_and_commit() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let dir = tempfile::tempdir()?;
+        let mut repo = Repository::init(dir.path())?;
+        let root_id = crate::tree::build_schema_tree(
+            repo.store_mut(),
+            vec![
+                (
+                    PathBuf::from("a.schema"),
+                    crate::object::FileSchemaObject {
+                        path: "a.schema".to_owned(),
+                        protocol: "test".to_owned(),
+                        schema: make_schema(&[("a", "object")]),
+                        cross_file_edges: Vec::new(),
+                    },
+                ),
+                (
+                    PathBuf::from("b.schema"),
+                    crate::object::FileSchemaObject {
+                        path: "b.schema".to_owned(),
+                        protocol: "test".to_owned(),
+                        schema: make_schema(&[("b", "string")]),
+                        cross_file_edges: Vec::new(),
+                    },
+                ),
+            ],
+        )?;
+
+        let index = repo.add_tree(root_id)?;
+        assert_eq!(
+            index.staged.as_ref().map(|staged| staged.schema_id),
+            Some(root_id),
+            "the index must retain the caller's per-file tree root"
+        );
+
+        let commit_id = repo.commit("per-file project", "test")?;
+        let Object::Commit(commit) = repo.store().get(&commit_id)? else {
+            panic!("commit id must resolve to a commit object");
+        };
+        assert_eq!(
+            commit.schema_id, root_id,
+            "the commit must point at the per-file tree root"
+        );
+        assert!(
+            matches!(repo.store().get(&commit.schema_id)?, Object::SchemaTree(_)),
+            "the committed schema must remain a tree"
+        );
         Ok(())
     }
 

@@ -260,8 +260,9 @@ pub fn parse_schema_bundle(protocol: &str, docs: &Bound<'_, PyAny>) -> PyResult<
 /// into one flat schema with no per-file identity).
 #[pyclass(name = "LexiconProject", module = "panproto._native")]
 pub struct PyLexiconProject {
-    files: Vec<(String, Arc<panproto_core::schema::Schema>)>,
-    cross: Vec<(String, Vec<panproto_core::schema::Edge>)>,
+    pub(crate) protocol: String,
+    pub(crate) files: Vec<(String, Arc<panproto_core::schema::Schema>)>,
+    pub(crate) cross: Vec<(String, Vec<panproto_core::schema::Edge>)>,
 }
 
 #[pymethods]
@@ -363,7 +364,11 @@ pub fn parse_schema_bundle_project(
         .map(|(p, edges)| (p.display().to_string(), edges))
         .collect();
 
-    Ok(PyLexiconProject { files, cross })
+    Ok(PyLexiconProject {
+        protocol: protocol.replace('_', "-"),
+        files,
+        cross,
+    })
 }
 
 /// Extract the GAT theory a schema instantiates.
