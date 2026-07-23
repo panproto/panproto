@@ -217,6 +217,11 @@ enum Command {
         /// Stage data files alongside the schema.
         #[arg(long)]
         data: Option<PathBuf>,
+
+        /// Skip GAT migration validation while staging (leaves the stage
+        /// pending; the migration is still recorded).
+        #[arg(long)]
+        skip_verify: bool,
     },
 
     /// Create a new commit from staged changes.
@@ -1230,7 +1235,17 @@ fn dispatch(command: Command, verbose: bool) -> Result<()> {
             dry_run,
             force,
             data,
-        } => cmd::vcs::cmd_add(&schema, dry_run, force, data.as_deref(), verbose),
+            skip_verify,
+        } => cmd::vcs::cmd_add(
+            &schema,
+            cmd::vcs::AddFlags {
+                dry_run,
+                force,
+                skip_verify,
+            },
+            data.as_deref(),
+            verbose,
+        ),
         Command::Commit {
             message,
             author,

@@ -50,6 +50,19 @@ pub struct CommitOptions {
     pub skip_verify: bool,
 }
 
+/// Options for staging a schema.
+#[derive(Clone, Debug, Default)]
+pub struct AddOptions {
+    /// Skip GAT migration validation and schema-equation checks while
+    /// staging. The migration is still derived and recorded; only the
+    /// (bounded model-checking) validation is skipped, and the stage is
+    /// left [`ValidationStatus::Pending`]. This is the escape hatch for
+    /// bulk historical VCS builds, where every version was already
+    /// validated at its own release and re-checking each `add` against
+    /// HEAD is the dominant cost.
+    pub skip_verify: bool,
+}
+
 /// A panproto repository backed by a filesystem store.
 #[allow(dead_code)]
 pub struct Repository {
@@ -126,28 +139,56 @@ impl Repository {
 
     /// Stage a schema for the next commit.
     ///
-    /// Computes the diff from HEAD's schema (if any), auto-derives a
-    /// migration, validates it, and writes the index.
+    /// Equivalent to calling [`add_with_options`](Self::add_with_options)
+    /// with default options (GAT migration validation enabled).
     ///
     /// # Errors
     ///
     /// Returns an error if the schema cannot be hashed or stored.
     pub fn add(&mut self, schema: &Schema) -> Result<Index, VcsError> {
+        self.add_with_options(schema, &AddOptions::default())
+    }
+
+    /// Stage a schema for the next commit, with options.
+    ///
+    /// Computes the diff from HEAD's schema (if any), auto-derives a
+    /// migration, and writes the index. When `options.skip_verify` is
+    /// `false` (the default), the derived migration and the staged
+    /// schema's equations are GAT-validated (a bounded model check).
+    /// When `true`, the migration is still derived and recorded but that
+    /// validation is skipped and the stage is left
+    /// [`ValidationStatus::Pending`]; a default [`commit`](Self::commit)
+    /// treats `Pending` as non-blocking. This lets a caller replaying
+    /// already-validated versions build a historical VCS without paying
+    /// the per-`add` model check.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the schema cannot be hashed or stored.
+    pub fn add_with_options(
+        &mut self,
+        schema: &Schema,
+        options: &AddOptions,
+    ) -> Result<Index, VcsError> {
         let schema_id = crate::tree::store_schema_as_tree(&mut self.store, schema.clone())?;
 
         let (migration_id, auto_derived, validation, gat_diagnostics) = match store::resolve_head(
             &self.store,
         )? {
             None => {
-                // First commit: no migration, but the schema is still
-                // checked against its protocol theory's equations.
-                let gat_diag = self.schema_equation_diagnostics(schema);
-                let validation = if gat_diag.has_errors() {
-                    ValidationStatus::Invalid(gat_diag.all_errors())
+                // First commit: no migration, but (unless skipping) the
+                // schema is checked against its protocol theory's equations.
+                if options.skip_verify {
+                    (None, false, ValidationStatus::Pending, None)
                 } else {
-                    ValidationStatus::Valid
-                };
-                (None, false, validation, Some(gat_diag))
+                    let gat_diag = self.schema_equation_diagnostics(schema);
+                    let validation = if gat_diag.has_errors() {
+                        ValidationStatus::Invalid(gat_diag.all_errors())
+                    } else {
+                        ValidationStatus::Valid
+                    };
+                    (None, false, validation, Some(gat_diag))
+                }
             }
             Some(head_id) => {
                 let head_commit = self.load_commit(head_id)?;
@@ -196,9 +237,9 @@ impl Repository {
                     }
                 }
 
-                // Run GAT-level validation on the derived migration and
-                // the staged schema's equations, stamping the migration
-                // with the source and target schema identities.
+                // Stamp the migration with the source and target schema
+                // identities, and (unless skipping) GAT-validate the
+                // derived migration and the staged schema's equations.
                 let mig_src_id = self
                     .store
                     .put(&Object::FlatSchema(Box::new(head_schema.clone())))?;
@@ -206,12 +247,23 @@ impl Repository {
                     .store
                     .put(&Object::FlatSchema(Box::new(schema.clone())))?;
 
-                let mut gat_diag =
-                    gat_validate::validate_migration(&head_schema, schema, &migration);
-                if let Some(note) = hom_rejection {
-                    gat_diag.migration_warnings.push(note);
-                }
-                gat_diag.extend(self.schema_equation_diagnostics(schema));
+                let (validation, gat_diagnostics) = if options.skip_verify {
+                    (ValidationStatus::Pending, None)
+                } else {
+                    let mut gat_diag =
+                        gat_validate::validate_migration(&head_schema, schema, &migration);
+                    if let Some(note) = hom_rejection {
+                        gat_diag.migration_warnings.push(note);
+                    }
+                    gat_diag.extend(self.schema_equation_diagnostics(schema));
+                    // If GAT validation found errors, mark as invalid.
+                    let validation = if gat_diag.has_errors() {
+                        ValidationStatus::Invalid(gat_diag.all_errors())
+                    } else {
+                        ValidationStatus::Valid
+                    };
+                    (validation, Some(gat_diag))
+                };
 
                 let migration = migration.with_endpoints(
                     Some(panproto_gat::Name::from(mig_src_id.to_string())),
@@ -223,14 +275,7 @@ impl Repository {
                     mapping: migration,
                 })?;
 
-                // If GAT validation found errors, mark as invalid.
-                let validation = if gat_diag.has_errors() {
-                    ValidationStatus::Invalid(gat_diag.all_errors())
-                } else {
-                    ValidationStatus::Valid
-                };
-
-                (Some(migration_id), true, validation, Some(gat_diag))
+                (Some(migration_id), true, validation, gat_diagnostics)
             }
         };
 
@@ -1081,6 +1126,54 @@ mod tests {
         assert_eq!(log.len(), 2);
         assert_eq!(log[0].message, "second");
         assert_eq!(log[1].message, "first");
+        Ok(())
+    }
+
+    #[test]
+    fn add_skip_verify_leaves_stage_pending_but_records_migration()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use crate::index::ValidationStatus;
+
+        let dir = tempfile::tempdir()?;
+        let mut repo = Repository::init(dir.path())?;
+
+        let s1 = make_schema(&[("a", "object")]);
+        repo.add(&s1)?;
+        repo.commit("first", "alice")?;
+
+        // Staged with skip_verify: the migration is still derived and
+        // recorded, but the (bounded model-checking) validation is skipped
+        // and the stage is left Pending.
+        let s2 = make_schema(&[("a", "object"), ("b", "string")]);
+        let index = repo.add_with_options(&s2, &AddOptions { skip_verify: true })?;
+        let staged = index.staged.as_ref().ok_or("nothing staged")?;
+        assert!(
+            matches!(staged.validation, ValidationStatus::Pending),
+            "skip_verify should leave the stage pending, got {:?}",
+            staged.validation
+        );
+        assert!(
+            staged.gat_diagnostics.is_none(),
+            "no diagnostics are computed when skipping"
+        );
+        assert!(
+            staged.migration_id.is_some(),
+            "the derived migration is still recorded"
+        );
+
+        // A default commit accepts a Pending stage (it is non-blocking).
+        repo.commit("second", "alice")?;
+        assert_eq!(repo.log(None)?.len(), 2);
+
+        // The default add path still runs validation (not Pending).
+        let s3 = make_schema(&[("a", "object"), ("b", "string"), ("c", "string")]);
+        let index = repo.add(&s3)?;
+        let staged = index.staged.as_ref().ok_or("nothing staged")?;
+        assert!(
+            !matches!(staged.validation, ValidationStatus::Pending),
+            "the default add must run validation, but the stage is Pending"
+        );
+        assert!(staged.gat_diagnostics.is_some());
         Ok(())
     }
 

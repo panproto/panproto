@@ -281,8 +281,28 @@ impl PyRepository {
     // -- Staging + commit --
 
     /// Stage a schema for the next commit.
-    fn add(&mut self, py: Python<'_>, schema: &PySchema) -> PyResult<Py<PyAny>> {
-        let index = self.inner.add(schema.inner.as_ref()).map_err(vcs_err)?;
+    ///
+    /// With ``skip_verify=True`` the derived migration is still recorded
+    /// but GAT migration validation is skipped and the stage is left
+    /// ``pending`` (an escape hatch for bulk historical VCS builds where
+    /// each version was already validated at its own release).
+    #[pyo3(signature = (schema, *, skip_verify=false))]
+    fn add(
+        &mut self,
+        py: Python<'_>,
+        schema: &PySchema,
+        skip_verify: bool,
+    ) -> PyResult<Py<PyAny>> {
+        let index = if skip_verify {
+            self.inner
+                .add_with_options(
+                    schema.inner.as_ref(),
+                    &panproto_core::vcs::AddOptions { skip_verify: true },
+                )
+                .map_err(vcs_err)?
+        } else {
+            self.inner.add(schema.inner.as_ref()).map_err(vcs_err)?
+        };
         convert::to_python(py, &index_to_value(&index))
     }
 

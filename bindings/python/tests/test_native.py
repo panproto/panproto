@@ -1151,6 +1151,28 @@ class TestRepositoryDataAccess:
         # not an error.
         assert repo.data_at("HEAD") == []
 
+    def test_add_skip_verify_leaves_stage_pending(self, tmp_path) -> None:
+        repo = panproto.Repository.init(str(tmp_path / "repo"))
+        repo.add(self._schema(("a", "integer")))
+        repo.commit("v1", "alice <a@example.com>")
+
+        # skip_verify stages without running GAT migration validation:
+        # the derived migration is still recorded, but the stage is left
+        # pending.
+        idx = repo.add(
+            self._schema(("a", "integer"), ("b", "string")), skip_verify=True
+        )
+        assert idx["staged"]["validation"] == "pending"
+        assert idx["staged"]["migration_id"] is not None
+        # A default commit accepts the pending stage (non-blocking).
+        repo.commit("v2", "alice <a@example.com>")
+
+        # The default add still runs validation (not pending).
+        idx = repo.add(
+            self._schema(("a", "integer"), ("b", "string"), ("c", "string"))
+        )
+        assert idx["staged"]["validation"] == "valid"
+
     def test_data_at_reads_committed_data_without_moving_head(
         self, tmp_path
     ) -> None:

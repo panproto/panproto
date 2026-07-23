@@ -2,6 +2,12 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [0.63.0] - 2026-07-23
+
+### Added
+
+- **`Repository::add_with_options` and a `skip_verify` escape hatch for staging** (`panproto-vcs`, `panproto`, `schema` CLI): `add` previously always ran GAT migration validation (a bounded model check) against HEAD on every staged schema, with no opt-out, so building a VCS of many historical versions in sequence was impractical (each ~800-vertex `add` past the first cost minutes of validation). `add` now delegates to `add_with_options(schema, &AddOptions { skip_verify })`, mirroring `commit`'s existing `skip_verify`: with the flag set, the migration is still derived and recorded but validation is skipped and the stage is left `Pending`, which a default `commit` treats as non-blocking. It is surfaced as `repo.add(schema, skip_verify=True)` in Python and `schema add --skip-verify` in the CLI, so a caller replaying already-validated released versions can build a historical VCS without paying the per-`add` model check. Closes #239.
+
 ## [0.62.0] - 2026-07-22
 
 ### Added

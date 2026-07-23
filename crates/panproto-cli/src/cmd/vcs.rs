@@ -58,10 +58,21 @@ pub fn cmd_init(path: &Path, initial_branch: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+/// Staging flags for [`cmd_add`], grouped so the entry point does not
+/// take an unwieldy run of boolean parameters.
+#[derive(Clone, Copy, Default)]
+pub struct AddFlags {
+    /// Show what would be staged without staging.
+    pub dry_run: bool,
+    /// Stage even if validation fails.
+    pub force: bool,
+    /// Skip GAT migration validation while staging (leaves the stage pending).
+    pub skip_verify: bool,
+}
+
 pub fn cmd_add(
     schema_path: &Path,
-    dry_run: bool,
-    force: bool,
+    flags: AddFlags,
     data_path: Option<&Path>,
     verbose: bool,
 ) -> Result<()> {
@@ -81,7 +92,7 @@ pub fn cmd_add(
         );
     };
 
-    if dry_run {
+    if flags.dry_run {
         println!(
             "Would stage schema from {} ({} vertices, {} edges)",
             schema_path.display(),
@@ -96,8 +107,11 @@ pub fn cmd_add(
     }
 
     let mut repo = open_repo()?;
-    if force {
-        match repo.add(&schema) {
+    let opts = vcs::AddOptions {
+        skip_verify: flags.skip_verify,
+    };
+    if flags.force {
+        match repo.add_with_options(&schema, &opts) {
             Ok(_) => {}
             Err(vcs::VcsError::ValidationFailed { .. }) => {
                 eprintln!("warning: schema has validation errors (--force overrides)");
@@ -105,7 +119,7 @@ pub fn cmd_add(
             Err(e) => return Err(e).into_diagnostic().wrap_err("failed to stage schema"),
         }
     } else {
-        repo.add(&schema)
+        repo.add_with_options(&schema, &opts)
             .into_diagnostic()
             .wrap_err("failed to stage schema")?;
     }
