@@ -67,7 +67,7 @@ pub use object::{
     CommitObject, CommitObjectBuilder, ComplementObject, DataSetObject, EditLogObject,
     FileSchemaObject, Object, SchemaTreeEntry, SchemaTreeObject, TagObject,
 };
-pub use repo::{CommitOptions, Repository};
+pub use repo::{AddOptions, CommitOptions, Repository};
 pub use store::{HeadState, ReflogEntry, Store};
 pub use tree::{
     assemble_from_files, assemble_schema, build_schema_tree, build_tree_from_leaves,
