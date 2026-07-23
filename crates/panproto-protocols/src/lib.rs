@@ -107,6 +107,53 @@ pub const fn bundle_parser_protocols() -> &'static [&'static str] {
     &["atproto"]
 }
 
+/// Parse a set of schema documents into per-file schemas, keyed by path.
+///
+/// The result also carries the edges that cross document boundaries: the
+/// shape [`build_project_tree`](https://docs.rs/panproto-project)
+/// consumes to store a document set as the per-file tree the VCS diffs
+/// incrementally.
+///
+/// Where [`parse_schema_bundle`] fuses a document set into one flat
+/// [`Schema`], this keeps each document a separate schema, so a
+/// version-controlled lexicon set can reuse unchanged per-file object
+/// ids across commits. Dispatch normalizes an underscore key to its
+/// canonical hyphenated protocol name, matching [`parse_schema_bundle`].
+/// Only the protocols in [`bundle_project_protocols`] retain per-file
+/// provenance today; any other returns an error.
+///
+/// # Errors
+///
+/// Returns [`ProtocolError::Parse`] for a protocol with no per-file
+/// bundle parser, or the underlying parser's error.
+pub fn parse_schema_bundle_project(
+    protocol: &str,
+    docs: &[(std::path::PathBuf, serde_json::Value)],
+) -> Result<atproto::LexiconProject, ProtocolError> {
+    match protocol.replace('_', "-").as_str() {
+        "atproto" => {
+            let lexicon_docs: Vec<atproto::LexiconDoc> = docs
+                .iter()
+                .map(|(path, value)| atproto::LexiconDoc {
+                    path: path.clone(),
+                    value: value.clone(),
+                })
+                .collect();
+            atproto::parse_lexicon_project(&lexicon_docs)
+        }
+        other => Err(ProtocolError::Parse(format!(
+            "no per-file bundle parser registered for protocol {other:?}; supported: [\"atproto\"]"
+        ))),
+    }
+}
+
+/// Protocols whose bundle parse retains per-file provenance for the VCS
+/// (via [`parse_schema_bundle_project`]).
+#[must_use]
+pub const fn bundle_project_protocols() -> &'static [&'static str] {
+    &["atproto"]
+}
+
 /// Parse a single JSON schema *document* into a [`Schema`], dispatching
 /// on protocol name.
 ///

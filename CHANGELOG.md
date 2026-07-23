@@ -2,6 +2,12 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [0.64.0] - 2026-07-23
+
+### Added
+
+- **`parse_schema_bundle_project`: per-file provenance for lexicon sets in the VCS** (`panproto-protocols`, `panproto`): parsing an ATProto lexicon *tree* had no path into the per-file project schema the version-control layer stores and diffs. `parse_schema_bundle("atproto", docs)` resolved cross-lexicon refs correctly but fused every document into one flat, path-less schema; `ProjectBuilder` / `parse_project` produced a per-file `ProjectSchema` but parsed `.json` as generic JSON, losing lexicon structure. So the atproto-correct parse and the per-file store did not compose. `parse_schema_bundle_project(protocol, docs)` (dispatching to `atproto::parse_lexicon_project`) parses the set as a bundle so in-set refs resolve to typed defs, then partitions the flat schema back by NSID ownership: each vertex and same-file edge returns to the document that declared it, while a ref that crosses documents becomes a `<path>::<name>`-prefixed cross-file edge. The result feeds `panproto_project::build_project_tree` to store a lexicon set as the per-file Merkle tree the VCS diffs incrementally; a round-trip test confirms two lexicons store as two per-file leaves and assemble back with the cross-file ref resolved to the typed def (not an opaque placeholder). Exposed in Python as `panproto.parse_schema_bundle_project(protocol, docs)` returning a `LexiconProject` (`.files()`, `.cross_file_edges()`); `bundle_project_protocols()` lists the protocols that retain per-file provenance (currently `atproto`). Closes #240.
+
 ## [0.63.0] - 2026-07-23
 
 ### Added
