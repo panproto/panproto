@@ -287,12 +287,7 @@ impl PyRepository {
     /// ``pending`` (an escape hatch for bulk historical VCS builds where
     /// each version was already validated at its own release).
     #[pyo3(signature = (schema, *, skip_verify=false))]
-    fn add(
-        &mut self,
-        py: Python<'_>,
-        schema: &PySchema,
-        skip_verify: bool,
-    ) -> PyResult<Py<PyAny>> {
+    fn add(&mut self, py: Python<'_>, schema: &PySchema, skip_verify: bool) -> PyResult<Py<PyAny>> {
         let index = if skip_verify {
             self.inner
                 .add_with_options(
