@@ -21,7 +21,7 @@ classifiers = [
     "Programming Language :: Rust",
 ]
 dependencies = [
-    "panproto>=0.62,<0.63",
+    "panproto>=0.63,<0.64",
 ]
 
 [project.entry-points."panproto.grammars"]
