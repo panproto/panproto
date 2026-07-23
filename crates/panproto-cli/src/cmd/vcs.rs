@@ -1,9 +1,9 @@
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use miette::{Context, IntoDiagnostic, Result};
 use panproto_core::{
-    schema::Schema,
+    schema::{Edge, Schema},
     vcs::{self, Store as _},
 };
 
@@ -70,21 +70,75 @@ pub struct AddFlags {
     pub skip_verify: bool,
 }
 
+enum AddSource {
+    Schema(Box<Schema>),
+    Project(Box<DirectoryProject>),
+}
+
+enum DirectoryProject {
+    Parsed(panproto_project::ProjectBuilder),
+    Bundle {
+        files: HashMap<PathBuf, Schema>,
+        protocols: HashMap<PathBuf, String>,
+        cross_file_edges: HashMap<PathBuf, Vec<Edge>>,
+    },
+}
+
+impl DirectoryProject {
+    fn build_tree<S: vcs::Store>(
+        self,
+        store: &mut S,
+    ) -> Result<panproto_project::ProjectSchemaTree> {
+        match self {
+            Self::Parsed(builder) => builder.build_tree(store).into_diagnostic(),
+            Self::Bundle {
+                files,
+                protocols,
+                cross_file_edges,
+            } => {
+                let root_id = panproto_project::build_project_tree(
+                    store,
+                    &files,
+                    &protocols,
+                    &cross_file_edges,
+                )
+                .into_diagnostic()?;
+                Ok(panproto_project::ProjectSchemaTree {
+                    root_id,
+                    protocol_map: protocols,
+                })
+            }
+        }
+    }
+
+    fn build_schema(self) -> Result<Schema> {
+        match self {
+            Self::Parsed(builder) => Ok(builder.build().into_diagnostic()?.schema),
+            bundle @ Self::Bundle { .. } => {
+                let mut store = vcs::MemStore::new();
+                let tree = bundle.build_tree(&mut store)?;
+                vcs::assemble_schema(&store, &tree.root_id, &vcs::project_coproduct_protocol())
+                    .into_diagnostic()
+            }
+        }
+    }
+}
+
 pub fn cmd_add(
     schema_path: &Path,
     flags: AddFlags,
     data_path: Option<&Path>,
     verbose: bool,
 ) -> Result<()> {
-    let schema: Schema = if schema_path.extension().is_some_and(|e| e == "json") {
+    let source = if schema_path.extension().is_some_and(|e| e == "json") && schema_path.is_file() {
         // JSON schema file: existing behavior.
-        load_json(schema_path)?
+        AddSource::Schema(Box::new(load_json(schema_path)?))
     } else if schema_path.is_dir() {
-        // Directory: parse as project, produce unified schema.
-        parse_directory_to_schema(schema_path, verbose)?
+        // Directory: retain one schema-tree leaf per source file.
+        AddSource::Project(Box::new(parse_directory_project(schema_path, verbose)?))
     } else if schema_path.is_file() {
         // Single source file: parse via tree-sitter.
-        parse_file_to_schema(schema_path, verbose)?
+        AddSource::Schema(Box::new(parse_file_to_schema(schema_path, verbose)?))
     } else {
         miette::bail!(
             "path {} does not exist or is not a file/directory",
@@ -93,6 +147,10 @@ pub fn cmd_add(
     };
 
     if flags.dry_run {
+        let schema = match source {
+            AddSource::Schema(schema) => *schema,
+            AddSource::Project(project) => (*project).build_schema()?,
+        };
         println!(
             "Would stage schema from {} ({} vertices, {} edges)",
             schema_path.display(),
@@ -110,8 +168,15 @@ pub fn cmd_add(
     let opts = vcs::AddOptions {
         skip_verify: flags.skip_verify,
     };
+    let stage_result = match source {
+        AddSource::Schema(schema) => repo.add_with_options(&schema, &opts),
+        AddSource::Project(project) => {
+            let tree = (*project).build_tree(repo.store_mut())?;
+            repo.add_tree_with_options(tree.root_id, &opts)
+        }
+    };
     if flags.force {
-        match repo.add_with_options(&schema, &opts) {
+        match stage_result {
             Ok(_) => {}
             Err(vcs::VcsError::ValidationFailed { .. }) => {
                 eprintln!("warning: schema has validation errors (--force overrides)");
@@ -119,7 +184,7 @@ pub fn cmd_add(
             Err(e) => return Err(e).into_diagnostic().wrap_err("failed to stage schema"),
         }
     } else {
-        repo.add_with_options(&schema, &opts)
+        stage_result
             .into_diagnostic()
             .wrap_err("failed to stage schema")?;
     }
@@ -158,9 +223,15 @@ fn parse_file_to_schema(path: &Path, verbose: bool) -> Result<Schema> {
     Ok(schema)
 }
 
-/// Parse a directory into a unified project schema.
-fn parse_directory_to_schema(dir: &Path, verbose: bool) -> Result<Schema> {
+/// Parse a directory while retaining per-file schema provenance.
+fn parse_directory_project(dir: &Path, verbose: bool) -> Result<DirectoryProject> {
     let config = panproto_project::config::load_config(dir).into_diagnostic()?;
+    if let Some(ref cfg) = config
+        && let Some(protocol) = bundle_protocol(cfg)
+    {
+        return parse_bundle_project(dir, cfg, protocol, verbose);
+    }
+
     let mut builder = match config {
         Some(ref cfg) => {
             panproto_project::ProjectBuilder::with_config(cfg, dir).into_diagnostic()?
@@ -171,8 +242,87 @@ fn parse_directory_to_schema(dir: &Path, verbose: bool) -> Result<Schema> {
     if verbose {
         eprintln!("Scanned {} files", builder.file_count());
     }
-    let project = builder.build().into_diagnostic()?;
-    Ok(project.schema)
+    Ok(DirectoryProject::Parsed(builder))
+}
+
+fn bundle_protocol(config: &panproto_project::ProjectConfig) -> Option<&str> {
+    let protocol = config.package.first()?.protocol.as_deref()?;
+    let normalized = protocol.replace('_', "-");
+    (config.package.iter().all(|package| {
+        package
+            .protocol
+            .as_deref()
+            .is_some_and(|other| other.replace('_', "-") == normalized)
+    }) && panproto_core::protocols::bundle_project_protocols().contains(&normalized.as_str()))
+    .then_some(protocol)
+}
+
+fn parse_bundle_project(
+    dir: &Path,
+    config: &panproto_project::ProjectConfig,
+    protocol: &str,
+    verbose: bool,
+) -> Result<DirectoryProject> {
+    let excludes = panproto_project::config::compile_excludes(dir, &config.workspace.exclude)
+        .into_diagnostic()?;
+    let mut paths = Vec::new();
+    for package in &config.package {
+        collect_bundle_files(dir, &dir.join(&package.path), &excludes, &mut paths)?;
+    }
+    paths.sort();
+    paths.dedup();
+
+    let mut docs = Vec::with_capacity(paths.len());
+    for path in paths {
+        let value = load_json(&path)?;
+        let relative = path.strip_prefix(dir).unwrap_or(&path).to_path_buf();
+        docs.push((relative, value));
+    }
+    if verbose {
+        eprintln!("Scanned {} files as {protocol}", docs.len());
+    }
+
+    let project = panproto_core::protocols::parse_schema_bundle_project(protocol, &docs)
+        .into_diagnostic()
+        .wrap_err_with(|| format!("failed to parse {protocol} project"))?;
+    let files: HashMap<PathBuf, Schema> = project.files.into_iter().collect();
+    let normalized = protocol.replace('_', "-");
+    let protocols = files
+        .keys()
+        .map(|path| (path.clone(), normalized.clone()))
+        .collect();
+    Ok(DirectoryProject::Bundle {
+        files,
+        protocols,
+        cross_file_edges: project.cross_file_edges,
+    })
+}
+
+fn collect_bundle_files(
+    base: &Path,
+    dir: &Path,
+    excludes: &globset::GlobSet,
+    paths: &mut Vec<PathBuf>,
+) -> Result<()> {
+    for entry in std::fs::read_dir(dir).into_diagnostic()? {
+        let entry = entry.into_diagnostic()?;
+        let path = entry.path();
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with('.') || excludes.is_match(&path) {
+            continue;
+        }
+        if path.is_dir() {
+            collect_bundle_files(base, &path, excludes, paths)?;
+        } else if path
+            .extension()
+            .is_some_and(|extension| extension == "json")
+            && path.starts_with(base)
+        {
+            paths.push(path);
+        }
+    }
+    Ok(())
 }
 
 /// Write a file hash manifest to `.panproto/file_hashes.json`.

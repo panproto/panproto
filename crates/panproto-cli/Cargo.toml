@@ -33,6 +33,7 @@ serde_json = { workspace = true }
 smallvec = { workspace = true }
 rustc-hash = { workspace = true }
 blake3 = { workspace = true }
+globset = { workspace = true }
 
 [dev-dependencies]
 assert_cmd = "2"

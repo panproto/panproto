@@ -7,10 +7,12 @@
 //!   compatibility with earlier panproto-py releases.
 //! * [`PyRepository`] — the filesystem-backed `Repository` from
 //!   `panproto-vcs`. Wraps the full porcelain (`init`, `open`, `add`,
-//!   `commit`, `log`, `merge`, `cherry_pick`, `rebase`, `reset`, `amend`,
-//!   `gc`) plus the plumbing needed by external tooling (branches, tags,
-//!   blame, bisect, stash, status, data migration). Closes issue #56.
+//!   `add_project`, `commit`, `log`, `merge`, `cherry_pick`, `rebase`,
+//!   `reset`, `amend`, `gc`) plus the plumbing needed by external tooling
+//!   (branches, tags, blame, bisect, stash, status, data migration).
+//!   Closes issue #56.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -41,6 +43,7 @@ use panproto_core::vcs::{
 
 use crate::convert;
 use crate::error::VcsError;
+use crate::lexicon::PyLexiconProject;
 use crate::schema::PySchema;
 
 // ---------------------------------------------------------------------------
@@ -298,6 +301,48 @@ impl PyRepository {
         } else {
             self.inner.add(schema.inner.as_ref()).map_err(vcs_err)?
         };
+        convert::to_python(py, &index_to_value(&index))
+    }
+
+    /// Stage a per-file schema project for the next commit.
+    ///
+    /// ``project`` is produced by :func:`parse_schema_bundle_project`.
+    /// Each input document is stored as its own content-addressed leaf, so
+    /// unchanged files retain their object IDs across commits. Cross-file
+    /// references are assembled for migration derivation and validation,
+    /// while the index retains the per-file tree root.
+    #[pyo3(signature = (project, *, skip_verify=false))]
+    fn add_project(
+        &mut self,
+        py: Python<'_>,
+        project: &PyLexiconProject,
+        skip_verify: bool,
+    ) -> PyResult<Py<PyAny>> {
+        let files: HashMap<PathBuf, panproto_core::schema::Schema> = project
+            .files
+            .iter()
+            .map(|(path, schema)| (PathBuf::from(path), schema.as_ref().clone()))
+            .collect();
+        let protocols: HashMap<PathBuf, String> = files
+            .keys()
+            .map(|path| (path.clone(), project.protocol.clone()))
+            .collect();
+        let cross_file_edges: HashMap<PathBuf, Vec<Edge>> = project
+            .cross
+            .iter()
+            .map(|(path, edges)| (PathBuf::from(path), edges.clone()))
+            .collect();
+        let root_id = panproto_project::build_project_tree(
+            self.inner.store_mut(),
+            &files,
+            &protocols,
+            &cross_file_edges,
+        )
+        .map_err(vcs_err)?;
+        let index = self
+            .inner
+            .add_tree_with_options(root_id, &panproto_core::vcs::AddOptions { skip_verify })
+            .map_err(vcs_err)?;
         convert::to_python(py, &index_to_value(&index))
     }
 

@@ -2,6 +2,12 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [0.65.0] - 2026-07-23
+
+### Added
+
+- **Per-file project trees reach the VCS commit porcelain** (`panproto-vcs`, `schema`, `panproto`): directory staging and the Python repository binding previously flattened a multi-file project into one schema before writing the index. This staging-flattening gap discarded the tree root produced by `ProjectBuilder::build_tree` or `build_project_tree`, so a one-file edit forced the next commit to realign the whole schema instead of reusing every unchanged file object. `Repository::add_tree` and `add_tree_with_options` now assemble an existing tree for migration derivation and validation while retaining its root in the index and commit. `schema add <dir>` uses this path for parsed source projects and manifest-declared bundle protocols, including ATProto lexicon sets with cross-file references; Python exposes the same path as `Repository.add_project(project, skip_verify=False)`. Regression tests confirm that a changed file receives a new object ID while its unchanged sibling retains the old one. Closes #243.
+
 ## [0.64.0] - 2026-07-23
 
 ### Added
