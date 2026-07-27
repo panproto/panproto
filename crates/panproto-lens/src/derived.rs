@@ -86,8 +86,11 @@ pub type DerivedMap = HashMap<Name, DerivedFiber>;
 /// A transform contributes a derived coordinate when it materializes a
 /// value that `put` cannot send back to an independent source coordinate:
 ///
-/// * `ComputeField`: derived unless it *replaces* its source, in the sense
-///   of [`replaces_its_source`].
+/// * `ComputeField`: derived unless it *replaces* the field its forward
+///   expression reads, meaning it is invertible, reads exactly one field,
+///   and a later transform on the same anchor removes that field. Adding a
+///   value beside its source leaves the two redundant, which an inverse
+///   does not change.
 /// * `ApplyExpr`: derived unless it is invertible *and* its key is an
 ///   `extra_fields` entry rather than a child edge, in which case it reads
 ///   and writes the same slot and so swaps the coordinate rather than
@@ -404,11 +407,55 @@ mod tests {
     }
 
     #[test]
-    fn invertible_compute_field_is_not_derived() {
+    fn an_invertible_compute_field_beside_its_source_is_derived() {
         let m = migration("root", vec![compute("grp", CoercionClass::Iso, true)]);
         assert!(
+            !collect_derived_fields(&m).is_empty(),
+            "`grp` sits beside the `a` it reads, so the view holds that information \
+             twice and `get` recomputes `grp` from `a`; an inverse does not change that"
+        );
+    }
+
+    #[test]
+    fn an_invertible_compute_field_replacing_its_source_is_independent() {
+        let m = migration(
+            "root",
+            vec![
+                compute("grp", CoercionClass::Iso, true),
+                FieldTransform::DropField { key: "a".into() },
+            ],
+        );
+        assert!(
             collect_derived_fields(&m).is_empty(),
-            "an Iso ComputeField with an inverse stays an independent coordinate"
+            "dropping `a` leaves `grp` the only carrier of that information, so it is \
+             an independent coordinate that put inverts"
+        );
+    }
+
+    #[test]
+    fn a_multi_source_compute_field_is_derived() {
+        let m = migration(
+            "root",
+            vec![
+                FieldTransform::ComputeField {
+                    target_key: "grp".into(),
+                    expr: panproto_expr::Expr::Builtin(
+                        panproto_expr::BuiltinOp::Concat,
+                        vec![
+                            panproto_expr::Expr::Var(Arc::from("a")),
+                            panproto_expr::Expr::Var(Arc::from("b")),
+                        ],
+                    ),
+                    inverse: Some(panproto_expr::Expr::Var(Arc::from("grp"))),
+                    coercion_class: CoercionClass::Iso,
+                },
+                FieldTransform::DropField { key: "a".into() },
+            ],
+        );
+        assert!(
+            !collect_derived_fields(&m).is_empty(),
+            "one inverse expression yields one value, so it cannot restore two source \
+             coordinates however the transform is classified"
         );
     }
 
