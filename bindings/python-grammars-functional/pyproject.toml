@@ -25,7 +25,7 @@ dependencies = [
     # companion via the entry point declared below; without panproto
     # installed there is no consumer for the grammars this package
     # ships.
-    "panproto>=0.65,<0.66",
+    "panproto>=0.66,<0.67",
 ]
 
 [project.entry-points."panproto.grammars"]

@@ -456,6 +456,65 @@ describe('compileLensDocument', () => {
       pp.compileLensDocument('not: valid: yaml: [[', 'rec:body', 'yaml'),
     ).toThrow(/compile_lens_document|yaml|parse/i);
   });
+
+  // A chain-instantiated lens used to have no JSON emit path: `get` left
+  // its output materialized inside the instance graph, and reading it back
+  // meant walking nodes and arcs by hand. `getJson` hands it back as a
+  // record, so the lens can be the mapper and not only a verified spec.
+  it('getJson returns the transformed view as a record', () => {
+    const proto = buildCustomProto();
+    const schema = buildCustomSchema(proto);
+
+    const chain = pp.compileLensDocument(
+      {
+        id: 'demo.compute',
+        source: 'v1',
+        target: 'v2',
+        steps: [{ compute_field: { target: 'g', expr: '{ a = text }' } }],
+      },
+      'rec:body',
+    );
+    const lens = chain.instantiate(schema);
+
+    const result = lens.getJson({ text: 'hello' }, 'rec:body');
+    const view = result.view as Record<string, unknown>;
+
+    expect(view).toBeDefined();
+    expect(view.text).toBe('hello');
+    expect(view.g).toEqual({ a: 'hello' });
+    expect(result.complement).toBeInstanceOf(Uint8Array);
+
+    lens[Symbol.dispose]();
+    chain[Symbol.dispose]();
+    schema[Symbol.dispose]();
+    proto[Symbol.dispose]();
+  });
+
+  it('putJson restores the source record from a view and complement', () => {
+    const proto = buildCustomProto();
+    const schema = buildCustomSchema(proto);
+
+    const chain = pp.compileLensDocument(
+      {
+        id: 'demo.compute-roundtrip',
+        source: 'v1',
+        target: 'v2',
+        steps: [{ compute_field: { target: 'g', expr: '{ a = text }' } }],
+      },
+      'rec:body',
+    );
+    const lens = chain.instantiate(schema);
+
+    const { view, complement } = lens.getJson({ text: 'hello' }, 'rec:body');
+    const restored = lens.putJson(view, complement, 'rec:body') as Record<string, unknown>;
+
+    expect(restored.text).toBe('hello');
+
+    lens[Symbol.dispose]();
+    chain[Symbol.dispose]();
+    schema[Symbol.dispose]();
+    proto[Symbol.dispose]();
+  });
 });
 
 // ---------------------------------------------------------------------------
