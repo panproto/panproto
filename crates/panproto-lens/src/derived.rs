@@ -23,9 +23,16 @@
 //! sources, and its view argument is `get(s)`, which is consistent by
 //! construction.
 //!
-//! A transform classified `Iso` *with* an inverse is not derived: `put`
-//! inverts it, so the coordinate is independent and stays under the strict
-//! comparison.
+//! An inverse alone does not make a coordinate independent. What matters is
+//! whether the transform *replaces* the coordinate it read or *adds* one
+//! beside it. `up = upper(a)` with `a` still in the view holds the same
+//! information twice, so `get` recomputes `up` from `a` and the inverse
+//! never gets a say; drop `a` in the same batch and `up` becomes the only
+//! carrier, `put` inverts it back, and the round trip is exact. The same
+//! distinction decides an `ApplyExpr`: over an `extra_fields` entry it reads
+//! and writes one slot and so swaps the coordinate, while over a child
+//! scalar it reads the child and writes a shadowing entry, leaving both in
+//! the view.
 
 use std::collections::{HashMap, HashSet};
 
@@ -79,8 +86,12 @@ pub type DerivedMap = HashMap<Name, DerivedFiber>;
 /// A transform contributes a derived coordinate when it materializes a
 /// value that `put` cannot send back to an independent source coordinate:
 ///
-/// * `ComputeField` / `ApplyExpr`: derived unless classified [`CoercionClass::Iso`]
-///   *and* carrying an inverse, which is the case `put` genuinely inverts.
+/// * `ComputeField`: derived unless it *replaces* its source, in the sense
+///   of [`replaces_its_source`].
+/// * `ApplyExpr`: derived unless it is invertible *and* its key is an
+///   `extra_fields` entry rather than a child edge, in which case it reads
+///   and writes the same slot and so swaps the coordinate rather than
+///   adding one.
 /// * `AddField`: always derived, since the source has no such coordinate, so
 ///   `put` drops the key and the next `get` re-adds the constant.
 /// * `PathTransform`: recursed into under its path prefix.
@@ -93,8 +104,9 @@ pub type DerivedMap = HashMap<Name, DerivedFiber>;
 pub fn collect_derived_fields(compiled: &CompiledMigration) -> DerivedMap {
     let mut map = DerivedMap::new();
     for (anchor, transforms) in &compiled.field_transforms {
+        let children = child_field_names(compiled, anchor);
         let mut fiber = DerivedFiber::default();
-        collect_into(&mut fiber, transforms, &[]);
+        collect_into(&mut fiber, transforms, &[], &children);
         if !fiber.is_empty() {
             map.insert(anchor.clone(), fiber);
         }
@@ -102,21 +114,134 @@ pub fn collect_derived_fields(compiled: &CompiledMigration) -> DerivedMap {
     map
 }
 
+/// The environment keys the surviving child edges of `anchor` contribute,
+/// matching `collect_scalar_child_values`.
+///
+/// A transform writing one of these names does not overwrite the child; it
+/// shadows it with an `extra_fields` entry that serialization prefers. The
+/// child still carries the original value, so the view holds the same
+/// information twice.
+fn child_field_names(compiled: &CompiledMigration, anchor: &Name) -> HashSet<String> {
+    compiled
+        .surviving_edges
+        .iter()
+        .filter(|edge| &edge.src == anchor)
+        .map(|edge| edge.name.as_deref().unwrap_or(&edge.tgt).to_string())
+        .collect()
+}
+
 /// Whether a transform's declared inversion genuinely round-trips.
 const fn is_invertible(coercion_class: CoercionClass, has_inverse: bool) -> bool {
     matches!(coercion_class, CoercionClass::Iso) && has_inverse
 }
 
-fn collect_into(fiber: &mut DerivedFiber, transforms: &[FieldTransform], path: &[String]) {
+/// The single field a `ComputeField`'s forward expression reads, when there
+/// is exactly one.
+///
+/// An inverse expression yields one value, so it can only restore one source
+/// coordinate. A forward expression over several fields has no single
+/// coordinate to invert to, and one over none is a constant; neither is a
+/// bijection, whatever `coercion_class` claims.
+#[must_use]
+pub(crate) fn sole_source_var(expr: &panproto_expr::Expr) -> Option<String> {
+    let free = panproto_expr::free_vars(expr);
+    if free.len() == 1 {
+        free.into_iter().next().map(|v| v.to_string())
+    } else {
+        None
+    }
+}
+
+/// Whether a `ComputeField` replaces the coordinate it reads rather than
+/// adding one beside it.
+///
+/// Adding `up = upper(a)` while `a` stays in the view leaves the two
+/// redundant: `up` is a function of `a`, so editing `a` alone yields a view
+/// no source maps to, and `get` recomputes `up` from `a` regardless of what
+/// the inverse would have said. An inverse does not change that; the
+/// coordinate is still derived.
+///
+/// Dropping `a` in the same batch is what makes the transform a genuine
+/// change of coordinates: `up` becomes the only carrier of that information,
+/// `put` inverts it back to `a`, and the round trip is exact.
+///
+/// So this requires the transform to be invertible, to read exactly one
+/// field, and for a later transform on the same anchor to remove that field.
+/// A source that is a *child scalar* rather than an `extra_fields` entry is
+/// reported as not replaced: `DropField` and `KeepFields` filter
+/// `extra_fields` only, so nothing in the transform list can remove it, and
+/// treating the target as derived is the conservative reading (it weakens
+/// the comparison rather than reporting a violation that is not there).
+fn replaces_its_source(
+    expr: &panproto_expr::Expr,
+    inverse: Option<&panproto_expr::Expr>,
+    coercion_class: CoercionClass,
+    removed: &HashSet<String>,
+) -> bool {
+    is_invertible(coercion_class, inverse.is_some())
+        && sole_source_var(expr).is_some_and(|v| removed.contains(&v))
+}
+
+/// The top-level `extra_fields` keys whose information this transform list
+/// takes out of the view entirely.
+///
+/// `DropField` and `KeepFields` are the two that do so. A `RenameField` is
+/// deliberately excluded: it moves the value to another key, where it is
+/// still in the view, so a computation over the old name remains redundant
+/// with it rather than replacing it.
+fn removed_keys(transforms: &[FieldTransform]) -> HashSet<String> {
+    let mut removed = HashSet::new();
+    let mut keep: Option<HashSet<String>> = None;
+    for transform in transforms {
+        match transform {
+            FieldTransform::DropField { key } => {
+                removed.insert(key.clone());
+            }
+            FieldTransform::KeepFields { keys } => {
+                let next: HashSet<String> = keys.iter().cloned().collect();
+                keep = Some(match keep {
+                    None => next,
+                    Some(prev) => prev.intersection(&next).cloned().collect(),
+                });
+            }
+            _ => {}
+        }
+    }
+    // A `KeepFields` removes every top-level key outside its retain set.
+    // The only names that matter here are the ones a `ComputeField` reads,
+    // so test those against the set rather than enumerating a complement
+    // that has no bound.
+    if let Some(keep) = keep {
+        for transform in transforms {
+            if let FieldTransform::ComputeField { expr, .. } = transform
+                && let Some(v) = sole_source_var(expr)
+                && !keep.contains(&v)
+            {
+                removed.insert(v);
+            }
+        }
+    }
+    removed
+}
+
+fn collect_into(
+    fiber: &mut DerivedFiber,
+    transforms: &[FieldTransform],
+    path: &[String],
+    children: &HashSet<String>,
+) {
+    let removed = removed_keys(transforms);
     for transform in transforms {
         match transform {
             FieldTransform::ComputeField {
                 target_key,
+                expr,
                 inverse,
                 coercion_class,
-                ..
             } => {
-                if !is_invertible(*coercion_class, inverse.is_some()) {
+                if !replaces_its_source(expr, inverse.as_ref(), *coercion_class, &removed)
+                    || children.contains(target_key)
+                {
                     fiber.locations.insert((path.to_vec(), target_key.clone()));
                 }
             }
@@ -126,7 +251,16 @@ fn collect_into(fiber: &mut DerivedFiber, transforms: &[FieldTransform], path: &
                 coercion_class,
                 ..
             } => {
-                if is_invertible(*coercion_class, inverse.is_some()) {
+                // An invertible `ApplyExpr` over an `extra_fields` entry
+                // reads and writes the same slot, so it swaps the
+                // coordinate for another and stays independent. Over a
+                // *child scalar* it reads the child but writes an
+                // `extra_fields` entry, leaving the child's value still in
+                // the view beside a function of it; that is a derived
+                // coordinate however the transform is classified.
+                let swaps_in_place =
+                    is_invertible(*coercion_class, inverse.is_some()) && !children.contains(key);
+                if swaps_in_place {
                     continue;
                 }
                 if key == "__value__" {
@@ -144,11 +278,11 @@ fn collect_into(fiber: &mut DerivedFiber, transforms: &[FieldTransform], path: &
             } => {
                 let mut nested = path.to_vec();
                 nested.extend(inner_path.iter().cloned());
-                collect_into(fiber, std::slice::from_ref(inner), &nested);
+                collect_into(fiber, std::slice::from_ref(inner), &nested, children);
             }
             FieldTransform::Case { branches } => {
                 for branch in branches {
-                    collect_into(fiber, &branch.transforms, path);
+                    collect_into(fiber, &branch.transforms, path, children);
                 }
             }
             FieldTransform::RenameField { .. }

@@ -650,7 +650,14 @@ fn propagate_view_edits_through_inverse(
                     // Handled via complement.original_values elsewhere.
                     continue;
                 }
-                if working.contains_key(key) {
+                // The forward transform writes its result to `extra_fields`
+                // whether it read the value from there or from a child
+                // scalar. Only the first case has a source-side entry to
+                // restore: when the snapshot has no such key the value
+                // belongs to a child node, which the snapshot restores on
+                // its own, and writing it here would invent a field the
+                // source never carried.
+                if working.contains_key(key) && node.extra_fields.contains_key(key) {
                     let env = panproto_inst::build_env_from_extra_fields(&working);
                     let config = panproto_expr::EvalConfig::default();
                     if let Ok(result) = panproto_expr::eval(inv_expr, &env, &config) {
@@ -662,14 +669,36 @@ fn propagate_view_edits_through_inverse(
             }
             FieldTransform::ComputeField {
                 target_key,
-                inverse: Some(inv_expr),
+                expr,
+                inverse,
                 ..
-            } if working.contains_key(target_key) => {
-                let env = panproto_inst::build_env_from_extra_fields(&working);
-                let config = panproto_expr::EvalConfig::default();
-                if let Ok(result) = panproto_expr::eval(inv_expr, &env, &config) {
-                    let inverted = panproto_inst::expr_literal_to_value(&result);
-                    node.extra_fields.insert(target_key.clone(), inverted);
+            } => {
+                // The source never carried the computed key, so it must not
+                // appear in the restored node whatever else happens here.
+                node.extra_fields.remove(target_key);
+
+                // The inverse recovers the *source* coordinate the forward
+                // expression read, not the computed key it wrote; writing it
+                // back to `target_key` would both reinstate a field the
+                // source never had and drop the edit on the floor.
+                if let Some(inv_expr) = inverse
+                    && working.contains_key(target_key)
+                    && let Some(source_key) = crate::derived::sole_source_var(expr)
+                    // Only an `extra_fields` source can be written here. A
+                    // child scalar lives on another node, and inserting it
+                    // on this one would invent a field the source lacked;
+                    // `collect_derived_fields` classifies that case derived
+                    // so the snapshot stays authoritative for it.
+                    && node.extra_fields.contains_key(&source_key)
+                {
+                    let env = panproto_inst::build_env_from_extra_fields(&working);
+                    let config = panproto_expr::EvalConfig::default();
+                    if let Ok(result) = panproto_expr::eval(inv_expr, &env, &config) {
+                        let inverted = panproto_inst::expr_literal_to_value(&result);
+                        node.extra_fields
+                            .insert(source_key.clone(), inverted.clone());
+                        working.insert(source_key, inverted);
+                    }
                 }
             }
             FieldTransform::AddField { key, .. } => {
@@ -739,17 +768,27 @@ fn apply_inverse_transforms(node: &mut Node, transforms: &[panproto_inst::FieldT
             }
             FieldTransform::ComputeField {
                 target_key,
-                inverse: Some(inv_expr),
+                expr,
+                inverse,
                 ..
             } if node.extra_fields.contains_key(target_key) => {
-                let env = panproto_inst::build_env_from_extra_fields(&node.extra_fields);
-                let config = panproto_expr::EvalConfig::default();
-                if let Ok(result) = panproto_expr::eval(inv_expr, &env, &config) {
-                    node.extra_fields.insert(
-                        target_key.clone(),
-                        panproto_inst::expr_literal_to_value(&result),
-                    );
+                // As in `propagate_view_edits_through_inverse`: the inverse
+                // restores the source coordinate the forward expression
+                // read, and the computed key itself is not part of the
+                // source. Unlike that path there is no snapshot to fall
+                // back on here, so the source key is written whether or not
+                // it is already present.
+                if let Some(inv_expr) = inverse
+                    && let Some(source_key) = crate::derived::sole_source_var(expr)
+                {
+                    let env = panproto_inst::build_env_from_extra_fields(&node.extra_fields);
+                    let config = panproto_expr::EvalConfig::default();
+                    if let Ok(result) = panproto_expr::eval(inv_expr, &env, &config) {
+                        node.extra_fields
+                            .insert(source_key, panproto_inst::expr_literal_to_value(&result));
+                    }
                 }
+                node.extra_fields.remove(target_key);
             }
             FieldTransform::RenameField { old_key, new_key } => {
                 // Reverse: rename new_key back to old_key.
