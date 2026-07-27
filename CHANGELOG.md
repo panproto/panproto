@@ -2,6 +2,20 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [0.67.0] - 2026-07-27
+
+### Added
+
+- **Round-trip laws are checkable on a compiled migration** (`panproto`): verifying `GetPut` / `PutGet` was unreachable for a schema of realistic size. The law checks live on `Lens`, and the only Python routes to a `Lens` were `auto_generate_lens` and `ProtolensChain.auto_generate`, both of which search for a schema morphism. The artifact that does scale, a `CompiledMigration` built by `compile_migration` or derived by the version-control layer from a name-keyed diff, exposed only the forward direction, so a project could not check the very property the lens machinery exists to guarantee. No search was ever needed: a lens *is* a compiled migration together with the two schemas it runs between, which is exactly what `CompiledMigration` already holds. It gains `put(view, complement)`, `check_laws`, `check_get_put`, `check_put_get`, and `to_lens()`, the last of which cannot fail. The TypeScript SDK already had this, since the WASM boundary builds a lens from its migration handle; this closes the Python gap. Closes #250.
+
+### Fixed
+
+- **`CompiledMigration.get` returns the complement, and the complement `put` consumes** (`panproto`): it previously returned a summary dict of two counts, so the complement never crossed the binding boundary and no backward direction was expressible from Python whatever else was exposed. It now returns the `Complement` object, whose `dropped_node_count` and `dropped_arc_count` attributes carry the same two numbers. The projection also now runs the lens rather than the lower-level restrict pipeline: the complement that pipeline produces does not record the arc provenance the backward pass needs, so pairing it with `put` restored the right nodes with no edges between them, which serializes to an empty record while the node count still matches. Taking both halves from the same lens is what makes the round trip exact.
+
+### Changed
+
+- **`CompiledMigration.get`'s second return value is a `Complement`, not a `dict`** (`panproto`): code reading `complement["dropped_node_count"]` should read `complement.dropped_node_count`. The counts are unchanged; only the access changes, and the object now carries everything `put` needs rather than a summary of it.
+
 ## [0.66.0] - 2026-07-27
 
 ### Added
