@@ -34,6 +34,7 @@ pub mod coercion_laws;
 pub mod complement_type;
 pub mod compose;
 pub mod cost;
+pub mod derived;
 pub mod diff_to_protolens;
 pub mod edit_error;
 pub mod edit_laws;
@@ -66,6 +67,7 @@ pub use complement_type::{
 };
 pub use compose::compose;
 pub use cost::{chain_cost, complement_cost, verify_identity_cost, verify_subadditivity};
+pub use derived::{DerivedFiber, DerivedMap, collect_derived_fields};
 pub use diff_to_protolens::{DiffSpec, KindChange, diff_to_lens, diff_to_protolens};
 pub use edit_error::EditLensError;
 pub use edit_lens::EditLens;

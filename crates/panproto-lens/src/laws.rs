@@ -4,9 +4,15 @@
 //! - **`GetPut`**: `put(s, get(s)) = s`: round-tripping with an unmodified
 //!   view recovers the original source.
 //! - **`PutGet`**: `get(put(s, v)) = v`: what you put is what you get back.
+//!
+//! `PutGet` is checked modulo the view's derived components, the
+//! coordinates a field transform materializes and `get` recomputes on every
+//! pass. See [`crate::derived`] for why the law cannot be checked strictly
+//! against them and what remains under test once they are excluded.
 
 use crate::Lens;
 use crate::asymmetric::{Complement, get, put};
+use crate::derived::{DerivedMap, collect_derived_fields, extra_fields_equiv_modulo};
 use crate::error::LawViolation;
 
 use panproto_inst::WInstance;
@@ -276,13 +282,17 @@ pub fn check_get_put(lens: &Lens, instance: &WInstance) -> Result<(), LawViolati
 /// Verify the `PutGet` law: `get(put(s, v, c)) = v`.
 ///
 /// This is a deterministic **smoke check**, not a sampler: it exercises
-/// the law on exactly two views — the original (unmodified) view and one
-/// canned mutation that appends `_modified` to every string leaf. Passing
-/// this function does *not* establish `PutGet` for arbitrary `v`; it only
-/// catches gross regressions on a fixed pair. Broad, generated-view
-/// coverage lives in the `property` proptests below, which drive
-/// `check_put_get_with_view` with mutations produced by a proptest
-/// strategy (`property::arb_view_mutation`).
+/// the law on exactly two views, the original (unmodified) view and one
+/// canned mutation that perturbs every scalar leaf. Passing this function
+/// does *not* establish `PutGet` for arbitrary `v`; it only catches gross
+/// regressions on a fixed pair. Broad, generated-view coverage lives in
+/// the `property` proptests below, which drive `check_put_get_with_view`
+/// with mutations produced by a proptest strategy
+/// (`property::arb_view_mutation`).
+///
+/// The comparison excludes derived view components; see
+/// [`crate::derived`] for which components those are and why the law
+/// cannot be checked strictly against them.
 ///
 /// # Errors
 ///
@@ -293,7 +303,7 @@ pub fn check_put_get(lens: &Lens, instance: &WInstance) -> Result<(), LawViolati
     // Test with original view (identity case).
     check_put_get_with_view(lens, &view, &complement)?;
 
-    // Test with a modified view: change leaf string values to exercise
+    // Test with a modified view: perturb the scalar leaves to exercise
     // the law with a genuinely different view.
     let modified_view = modify_leaf_values(&view);
     if !instances_equivalent(&view, &modified_view) {
@@ -304,6 +314,10 @@ pub fn check_put_get(lens: &Lens, instance: &WInstance) -> Result<(), LawViolati
 }
 
 /// Check the `PutGet` law for a specific view: `get(put(s, v, c)) = v`.
+///
+/// The comparison excludes the view's derived components, which `get`
+/// recomputes from the independent ones on every pass; see
+/// [`crate::derived`]. Every independent coordinate must agree exactly.
 ///
 /// Exposed to the crate so the `property` proptests can drive it with
 /// generated view mutations (see [`property::arb_view_mutation`]).
@@ -319,16 +333,108 @@ pub(crate) fn check_put_get_with_view(
     let restored = put(lens, view, complement).map_err(LawViolation::Error)?;
     let (view2, _) = get(lens, &restored).map_err(LawViolation::Error)?;
 
-    if !instances_equivalent(view, &view2) {
-        return Err(LawViolation::PutGet {
-            detail: format!(
-                "view has {} nodes, re-get has {} nodes",
-                view.node_count(),
-                view2.node_count(),
-            ),
-        });
+    let derived = collect_derived_fields(&lens.compiled);
+    if let Some(detail) = instance_divergence_modulo_derived(view, &view2, &derived) {
+        return Err(LawViolation::PutGet { detail });
     }
     Ok(())
+}
+
+/// Describe the first way `view` and `re_get` disagree on an independent
+/// coordinate, or `None` when they agree.
+///
+/// Structure (roots, node and arc counts, anchors, arcs, fans) is compared
+/// exactly. Node values and `extra_fields` are compared modulo the derived
+/// coordinates recorded for that node's anchor.
+fn instance_divergence_modulo_derived(
+    view: &WInstance,
+    re_get: &WInstance,
+    derived: &DerivedMap,
+) -> Option<String> {
+    use crate::derived::DerivedFiber;
+
+    if view.root != re_get.root {
+        return Some(format!(
+            "root node differs: view has {}, re-get has {}",
+            view.root, re_get.root
+        ));
+    }
+    if view.schema_root != re_get.schema_root {
+        return Some(format!(
+            "schema root differs: view has `{}`, re-get has `{}`",
+            view.schema_root, re_get.schema_root
+        ));
+    }
+    if view.node_count() != re_get.node_count() {
+        return Some(format!(
+            "node count differs: view has {}, re-get has {}",
+            view.node_count(),
+            re_get.node_count()
+        ));
+    }
+    if view.arc_count() != re_get.arc_count() {
+        return Some(format!(
+            "arc count differs: view has {}, re-get has {}",
+            view.arc_count(),
+            re_get.arc_count()
+        ));
+    }
+
+    let empty = DerivedFiber::default();
+    for (&id, node_a) in &view.nodes {
+        let Some(node_b) = re_get.nodes.get(&id) else {
+            return Some(format!("node {id} present in view, absent after re-get"));
+        };
+        if node_a.anchor != node_b.anchor {
+            return Some(format!(
+                "node {id} anchor differs: view has `{}`, re-get has `{}`",
+                node_a.anchor, node_b.anchor
+            ));
+        }
+        let fiber = derived.get(&node_a.anchor).unwrap_or(&empty);
+        if !fiber.value_is_derived()
+            && !crate::asymmetric::presence_equiv(node_a.value.as_ref(), node_b.value.as_ref())
+        {
+            return Some(format!(
+                "node {id} (`{}`) value differs: view has {:?}, re-get has {:?}",
+                node_a.anchor, node_a.value, node_b.value
+            ));
+        }
+        if let Some(detail) =
+            extra_fields_equiv_modulo(&node_a.extra_fields, &node_b.extra_fields, fiber, &[])
+        {
+            return Some(format!("node {id} (`{}`): {detail}", node_a.anchor));
+        }
+    }
+
+    if view.parent_map != re_get.parent_map {
+        return Some("parent maps differ".to_string());
+    }
+
+    let mut arcs_a: Vec<_> = view.arcs.clone();
+    let mut arcs_b: Vec<_> = re_get.arcs.clone();
+    arcs_a.sort();
+    arcs_b.sort();
+    if arcs_a != arcs_b {
+        return Some("arc sets differ".to_string());
+    }
+
+    if view.fans.len() != re_get.fans.len() {
+        return Some(format!(
+            "fan count differs: view has {}, re-get has {}",
+            view.fans.len(),
+            re_get.fans.len()
+        ));
+    }
+    let mut fans_a: Vec<_> = view.fans.clone();
+    let mut fans_b: Vec<_> = re_get.fans.clone();
+    fans_a.sort_by(|x, y| (&x.hyper_edge_id, x.parent).cmp(&(&y.hyper_edge_id, y.parent)));
+    fans_b.sort_by(|x, y| (&x.hyper_edge_id, x.parent).cmp(&(&y.hyper_edge_id, y.parent)));
+    if fans_a != fans_b {
+        return Some("fan sets differ".to_string());
+    }
+
+    None
 }
 
 /// Verify the `PutPut` law for two views over a shared complement:
@@ -363,14 +469,31 @@ pub fn check_put_put(
     Ok(())
 }
 
-/// Create a copy of the instance with leaf string values modified.
+/// Create a copy of the instance with every scalar leaf value perturbed.
+///
+/// Each scalar kind is moved off its current value so that the canned
+/// `PutGet` mutation is non-vacuous whatever the leaf type is. Mutating only
+/// strings would leave an integer-, float-, or boolean-leaved instance
+/// equal to its own mutation, and `check_put_get` skips the mutated view
+/// when it matches the original, so those leaf types would never exercise
+/// the mutated branch at all, and the law would appear to hold for them
+/// without having been tested.
 fn modify_leaf_values(instance: &WInstance) -> WInstance {
     use panproto_inst::value::{FieldPresence, Value};
 
     let mut modified = instance.clone();
     for node in modified.nodes.values_mut() {
-        if let Some(FieldPresence::Present(Value::Str(ref mut s))) = node.value {
-            s.push_str("_modified");
+        if let Some(FieldPresence::Present(ref mut value)) = node.value {
+            match value {
+                Value::Str(s) => s.push_str("_modified"),
+                Value::Int(i) => *i = i.wrapping_add(1),
+                // NaN is its own perturbation: any finite value differs from
+                // it, and `value_equiv` treats NaN as self-equal, so the
+                // mutated view compares unequal to the original either way.
+                Value::Float(f) => *f = if f.is_nan() { 0.0 } else { *f + 1.0 },
+                Value::Bool(b) => *b = !*b,
+                _ => {}
+            }
         }
     }
     modified
@@ -1301,7 +1424,7 @@ mod tests {
         pub(super) struct ViewMutation {
             /// Bitmask selecting which view nodes (in sorted-id order) to
             /// mutate. Mutating a subset rather than every node is the point:
-            /// the old canned mutators touched every string leaf uniformly.
+            /// the canned mutator touches every scalar leaf uniformly.
             node_mask: u64,
             /// Suffix appended to selected string carriers (guaranteed
             /// non-empty, so the mutant genuinely differs).
