@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 
+use panproto_expr::Expr;
 use panproto_gat::Name;
 use panproto_inst::CompiledMigration;
 use panproto_mig::{OnMissing, compose_relabeling};
@@ -74,7 +75,7 @@ pub fn compose(l1: &Lens, l2: &Lens) -> Result<Lens, LensError> {
         return Err(LensError::CompositionMismatch);
     }
 
-    let compiled = compose_compiled_migrations(&l1.compiled, &l2.compiled);
+    let compiled = compose_compiled_migrations(&l1.compiled, &l2.compiled, Some(&l1.src_schema))?;
 
     Ok(Lens {
         compiled,
@@ -87,10 +88,21 @@ pub fn compose(l1: &Lens, l2: &Lens) -> Result<Lens, LensError> {
 ///
 /// The surviving sets are intersected (a vertex/edge must survive both),
 /// and remaps are composed (l1's output feeds into l2's input).
+///
+/// `src_schema` is `m1`'s source schema when the caller has it. It is used
+/// only to tell a dropped `extra_fields` key apart from a surviving child
+/// edge of the same name; pass `None` to skip that diagnostic entirely.
+///
+/// # Errors
+///
+/// Returns [`LensError::ComposeUnboundField`] when a value-level transform
+/// of `m2` reads a field that `m1` drops, which would otherwise surface as
+/// an `UnboundVariable` at evaluation time.
 pub(crate) fn compose_compiled_migrations(
     m1: &CompiledMigration,
     m2: &CompiledMigration,
-) -> CompiledMigration {
+    src_schema: Option<&panproto_schema::Schema>,
+) -> Result<CompiledMigration, LensError> {
     // Surviving verts: a vertex from the source must survive both migrations.
     // After m1, the vertex might be remapped; the remapped version must survive m2.
     let mut surviving_verts = std::collections::HashSet::new();
@@ -146,7 +158,7 @@ pub(crate) fn compose_compiled_migrations(
         hyper_resolver.entry(k.clone()).or_insert_with(|| v.clone());
     }
 
-    let field_transforms = compose_field_transforms(m1, m2);
+    let field_transforms = compose_field_transforms(m1, m2, src_schema)?;
     let op_term_assignments = compose_op_term_assignments(m1, m2);
     let conditional_survival = compose_conditional_survival(m1, m2);
 
@@ -175,7 +187,7 @@ pub(crate) fn compose_compiled_migrations(
         expansion_path.entry(k.clone()).or_insert_with(|| v.clone());
     }
 
-    CompiledMigration {
+    Ok(CompiledMigration {
         surviving_verts,
         surviving_edges,
         vertex_remap,
@@ -186,7 +198,7 @@ pub(crate) fn compose_compiled_migrations(
         conditional_survival,
         op_term_assignments,
         expansion_path,
-    }
+    })
 }
 
 /// Returns `true` iff `name` is a fixed point under `m1`: it lives in
@@ -208,11 +220,405 @@ fn unchanged_by_m1(m1: &CompiledMigration, name: &panproto_gat::Name) -> bool {
 /// `m1` lives only in `m1`'s target space; its transforms cannot be
 /// expressed against `m1`'s source and are dropped from the composed
 /// map (they would otherwise corrupt the keyspace invariant).
+///
+/// Both coordinates are conjugated, not just the anchor. `m2`'s entries
+/// are written against `m1`'s **output** field names, but the composed
+/// list is evaluated in one batch against `m1`'s **source** node, so the
+/// expressions' free variables are rewritten along the inverse of `m1`'s
+/// renames on that anchor. Without this the composite interprets `m2`'s
+/// variables in the wrong frame: `get(m2 ∘ m1)` rejects the expression
+/// that `get(m2) ∘ get(m1)` accepts, and accepts one naming a field that
+/// does not exist in `m2`'s input schema, so composition is not
+/// functorial on value-level transforms.
+///
+/// The anchor coordinate was already conjugated through
+/// `m1.vertex_remap`; this is the field coordinate's counterpart.
+///
+/// # Errors
+///
+/// Returns [`LensError::ComposeUnboundField`] when an `m2` expression
+/// reads a field `m1` drops outright.
 fn compose_field_transforms(
     m1: &CompiledMigration,
     m2: &CompiledMigration,
-) -> HashMap<panproto_gat::Name, Vec<panproto_inst::wtype::FieldTransform>> {
-    compose_anchor_keyed_lists(m1, &m1.field_transforms, &m2.field_transforms)
+    src_schema: Option<&panproto_schema::Schema>,
+) -> Result<HashMap<panproto_gat::Name, Vec<panproto_inst::wtype::FieldTransform>>, LensError> {
+    use panproto_gat::Name;
+    use panproto_inst::wtype::FieldTransform;
+
+    let mut result = m1.field_transforms.clone();
+
+    // Inject each m2 anchor's entries, conjugated into m1's source frame.
+    let mut inject = |m1_anchor: &Name, entries: &[FieldTransform]| -> Result<(), LensError> {
+        let renames = field_rename_inverse(m1, m1_anchor);
+        let unavailable = unavailable_fields(m1, m1_anchor, src_schema);
+        let conjugated = conjugate_transforms(entries, &renames, &unavailable, m1_anchor)?;
+        result
+            .entry(m1_anchor.clone())
+            .or_default()
+            .extend(conjugated);
+        Ok(())
+    };
+
+    for (m2_anchor, m2_entries) in &m2.field_transforms {
+        let mut found = false;
+        for (m1_src, m1_tgt) in &m1.vertex_remap {
+            if m1_tgt == m2_anchor {
+                inject(m1_src, m2_entries)?;
+                found = true;
+            }
+        }
+        if !found && unchanged_by_m1(m1, m2_anchor) {
+            inject(m2_anchor, m2_entries)?;
+        }
+    }
+
+    Ok(result)
+}
+
+/// The child-scalar renames `m1` performs on `anchor`, inverted: a map
+/// from the field name visible in `m1`'s **output** back to the name it
+/// has in `m1`'s **source**.
+///
+/// Only schema edge renames contribute. An edge rename
+/// is applied via `edge_remap` when output arcs are materialized, and
+/// never reaches the `child_scalars` map that
+/// `collect_scalar_child_values` projects into the expression
+/// environment, so an `m2` expression naming the new edge name finds
+/// nothing under it in the merged batch. That is the frame mismatch this
+/// map repairs.
+///
+/// `FieldTransform::RenameField` deliberately does *not* contribute.
+/// It rewrites the `extra_fields` key in place, and `m1`'s entries run
+/// ahead of `m2`'s in the merged batch, so by the time `m2`'s expression
+/// evaluates the field really is under its new name. Conjugating those
+/// as well would rewrite a correct reference back to a name that no
+/// longer exists. This asymmetry between the two rename routes is the
+/// whole of the defect: one is reflected in the value layer's
+/// environment and the other is not.
+///
+/// Renames nested under a `PathTransform` and renames inside a `Case`
+/// branch are not included: the first affects nested keys rather than
+/// the top-level bindings `free_vars` reports, and the second is
+/// value-dependent, so no static rewrite is sound for it.
+///
+/// `edge_remap`'s entries are simultaneous, one per source edge, so the
+/// map is read off directly rather than folded. A chain of renames across
+/// several migrations has already been collapsed into a single entry by
+/// `compose_relabeling` before it reaches here, which is what makes
+/// `a → b` then `b → c` resolve `c` to `a` in one step.
+fn field_rename_inverse(
+    m1: &CompiledMigration,
+    anchor: &panproto_gat::Name,
+) -> HashMap<String, String> {
+    let mut origin: HashMap<String, String> = HashMap::new();
+
+    for (src_edge, tgt_edge) in &m1.edge_remap {
+        if &src_edge.src != anchor {
+            continue;
+        }
+        let old_field = edge_field_name(src_edge);
+        let new_field = edge_field_name(tgt_edge);
+        if old_field == new_field {
+            continue;
+        }
+        origin.insert(new_field, old_field);
+    }
+
+    origin
+}
+
+/// The environment key a child edge contributes, matching
+/// `collect_scalar_child_values`: the edge's name when it has one, else
+/// its target vertex.
+fn edge_field_name(edge: &Edge) -> String {
+    edge.name.as_deref().unwrap_or(&edge.tgt).to_string()
+}
+
+/// Names that do not exist in `m1`'s output frame at `anchor`, so an `m2`
+/// expression reading one is written against the wrong frame.
+///
+/// Two ways a name goes missing:
+///
+/// * `DropField` removes an `extra_fields` key outright.
+/// * A schema edge rename takes a child-scalar name away, leaving nothing
+///   bound under the old name in `m1`'s output.
+///
+/// Both are then forgiven when the name is put back: by another surviving
+/// child edge carrying it in the output frame, or by an `m1` transform
+/// writing it (`AddField`, `ComputeField`, `ApplyExpr`, or a `RenameField`
+/// target).
+///
+/// `RenameField`'s *old* key is not reported. It ceases to exist in
+/// `m1`'s output, but `m1` and `m2` share one evaluation batch, so a
+/// stale reference resolves against whatever `m1` left in `extra_fields`
+/// rather than failing; reporting it would reject compositions that run
+/// correctly today. `KeepFields` is likewise excluded: it filters
+/// `extra_fields` only, so a name it omits may still be bound as a child
+/// scalar.
+///
+/// Returns empty without `src_schema`, since a dropped key cannot then be
+/// told apart from a child edge of the same name and a false report would
+/// reject a sound composition.
+fn unavailable_fields(
+    m1: &CompiledMigration,
+    anchor: &panproto_gat::Name,
+    src_schema: Option<&panproto_schema::Schema>,
+) -> std::collections::HashSet<String> {
+    use panproto_inst::wtype::FieldTransform;
+
+    let mut unavailable = std::collections::HashSet::new();
+    let Some(schema) = src_schema else {
+        return unavailable;
+    };
+
+    // Child-scalar names an edge rename takes away.
+    let outgoing = schema.outgoing.get(anchor);
+    let mut output_child_names = std::collections::HashSet::new();
+    if let Some(edges) = outgoing {
+        for edge in edges {
+            if !m1.surviving_edges.contains(edge) {
+                continue;
+            }
+            let out_edge = m1.edge_remap.get(edge).unwrap_or(edge);
+            output_child_names.insert(edge_field_name(out_edge));
+        }
+        for edge in edges {
+            if !m1.surviving_edges.contains(edge) {
+                continue;
+            }
+            let source_name = edge_field_name(edge);
+            if !output_child_names.contains(&source_name) {
+                unavailable.insert(source_name);
+            }
+        }
+    }
+
+    if let Some(transforms) = m1.field_transforms.get(anchor) {
+        for transform in transforms {
+            match transform {
+                FieldTransform::DropField { key } => {
+                    if !output_child_names.contains(key) {
+                        unavailable.insert(key.clone());
+                    }
+                }
+                FieldTransform::AddField { key, .. }
+                | FieldTransform::ComputeField {
+                    target_key: key, ..
+                }
+                | FieldTransform::ApplyExpr { key, .. } => {
+                    unavailable.remove(key);
+                }
+                FieldTransform::RenameField { new_key, .. } => {
+                    unavailable.remove(new_key);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    unavailable
+}
+
+/// Rewrite each transform's expressions from `m1`'s output frame into
+/// `m1`'s source frame.
+fn conjugate_transforms(
+    entries: &[panproto_inst::wtype::FieldTransform],
+    renames: &HashMap<String, String>,
+    unavailable: &std::collections::HashSet<String>,
+    anchor: &panproto_gat::Name,
+) -> Result<Vec<panproto_inst::wtype::FieldTransform>, LensError> {
+    use panproto_inst::wtype::FieldTransform;
+
+    // Keys this m2 list writes itself. A read of one of these resolves at
+    // evaluation time even if m1 dropped the same name earlier, because
+    // m2's own transform runs first in the merged batch.
+    let mut produced: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    let mut out = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let mut next = entry.clone();
+        conjugate_transform_exprs(&mut next, renames, unavailable, &produced, anchor)?;
+        match entry {
+            FieldTransform::ComputeField { target_key, .. } => {
+                produced.insert(target_key.clone());
+            }
+            FieldTransform::AddField { key, .. } | FieldTransform::ApplyExpr { key, .. } => {
+                produced.insert(key.clone());
+            }
+            FieldTransform::RenameField { new_key, .. } => {
+                produced.insert(new_key.clone());
+            }
+            _ => {}
+        }
+        out.push(next);
+    }
+    Ok(out)
+}
+
+/// Rewrite the expressions carried by one transform, recursing through
+/// `PathTransform` and `Case`.
+fn conjugate_transform_exprs(
+    transform: &mut panproto_inst::wtype::FieldTransform,
+    renames: &HashMap<String, String>,
+    unavailable: &std::collections::HashSet<String>,
+    produced: &std::collections::HashSet<String>,
+    anchor: &panproto_gat::Name,
+) -> Result<(), LensError> {
+    use panproto_inst::wtype::FieldTransform;
+
+    let check = |expr: &panproto_expr::Expr| -> Result<(), LensError> {
+        for var in panproto_expr::free_vars(expr) {
+            if unavailable.contains(var.as_ref()) && !produced.contains(var.as_ref()) {
+                return Err(LensError::ComposeUnboundField {
+                    anchor: anchor.to_string(),
+                    field: var.to_string(),
+                });
+            }
+        }
+        Ok(())
+    };
+    let rewrite = |expr: &mut panproto_expr::Expr| -> Result<(), LensError> {
+        check(expr)?;
+        *expr = rename_free_vars(expr, renames);
+        Ok(())
+    };
+
+    // `ApplyExpr` reads and writes one and the same key. When `m1` renamed
+    // that key the two coordinates part company: the read has to happen
+    // under `m1`'s source name, because that is what the child-scalar map
+    // is keyed by, while the write has to land on the output name, because
+    // that is what the remapped arc will be emitted under. Conjugating the
+    // key would move both and leave the composite emitting the original
+    // value under the new edge name beside the transformed value under the
+    // old one; leaving it alone finds nothing to read and silently does
+    // nothing. Neither is `ApplyExpr`-shaped, so it becomes the transform
+    // that can hold the two coordinates apart: a `ComputeField` writing
+    // the output name from an expression reading the source name. The
+    // expression's free variables lie within the read key, which the
+    // fiber environment binds, and `inverse` and `coercion_class` carry
+    // over unchanged. `ApplyExpr` skips a key it cannot find whereas
+    // `ComputeField` reports it, which is the direction this codebase
+    // already takes for a transform that cannot evaluate.
+    if let FieldTransform::ApplyExpr {
+        key,
+        expr,
+        inverse,
+        coercion_class,
+    } = &*transform
+        && renames.contains_key(key.as_str())
+    {
+        check(expr)?;
+        let replacement = FieldTransform::ComputeField {
+            target_key: key.clone(),
+            expr: rename_free_vars(expr, renames),
+            inverse: inverse.as_ref().map(|i| rename_free_vars(i, renames)),
+            coercion_class: *coercion_class,
+        };
+        *transform = replacement;
+        return Ok(());
+    }
+
+    match transform {
+        FieldTransform::ComputeField { expr, inverse, .. } => {
+            rewrite(expr)?;
+            if let Some(inv) = inverse {
+                *inv = rename_free_vars(inv, renames);
+            }
+        }
+        FieldTransform::ApplyExpr { expr, inverse, .. } => {
+            // The renamed-key case is rewritten to a `ComputeField` above;
+            // reaching here means the key is a fixed point, so only the
+            // body needs conjugating.
+            rewrite(expr)?;
+            if let Some(inv) = inverse {
+                *inv = rename_free_vars(inv, renames);
+            }
+        }
+        FieldTransform::Case { branches } => {
+            for branch in branches {
+                rewrite(&mut branch.predicate)?;
+                for inner in &mut branch.transforms {
+                    conjugate_transform_exprs(inner, renames, unavailable, produced, anchor)?;
+                }
+            }
+        }
+        FieldTransform::PathTransform { inner, .. } => {
+            // A nested transform reads the nested map, not the top-level
+            // bindings the renames describe, so only its own recursion
+            // applies.
+            conjugate_transform_exprs(inner, renames, unavailable, produced, anchor)?;
+        }
+        FieldTransform::RenameField { old_key, .. } => {
+            // The key this renames away is named in m1's output frame.
+            if let Some(source) = renames.get(old_key.as_str()) {
+                old_key.clone_from(source);
+            }
+        }
+        FieldTransform::DropField { key } => {
+            if let Some(source) = renames.get(key.as_str()) {
+                key.clone_from(source);
+            }
+        }
+        FieldTransform::KeepFields { keys } => {
+            for key in keys {
+                if let Some(source) = renames.get(key.as_str()) {
+                    key.clone_from(source);
+                }
+            }
+        }
+        FieldTransform::AddField { .. } | FieldTransform::MapReferences { .. } => {}
+    }
+    Ok(())
+}
+
+/// Simultaneously rename an expression's free variables.
+///
+/// `panproto_expr::substitute` replaces one name at a time, so applying a
+/// map sequentially would compose the replacements: a swap `{a → b,
+/// b → a}` would send every `a` to `b` and then straight back to `a`.
+/// Routing through fresh placeholders makes the renaming simultaneous,
+/// which is what conjugation into another frame requires.
+///
+/// Both the bare key and its `attrs.`-qualified alias are rewritten,
+/// since `build_env_from_extra_fields` binds a field under both.
+fn rename_free_vars(expr: &panproto_expr::Expr, renames: &HashMap<String, String>) -> Expr {
+    use std::sync::Arc;
+
+    if renames.is_empty() {
+        return expr.clone();
+    }
+
+    let free = panproto_expr::free_vars(expr);
+    // Pair every applicable rename with a placeholder that appears
+    // nowhere in the expression or in the rename map.
+    let mut pairs: Vec<(String, String, String)> = Vec::new();
+    for (index, (visible, source)) in renames.iter().enumerate() {
+        for (from, to) in [
+            (visible.clone(), source.clone()),
+            (format!("attrs.{visible}"), format!("attrs.{source}")),
+        ] {
+            if !free.iter().any(|v| v.as_ref() == from) {
+                continue;
+            }
+            let mut placeholder = format!("\u{0}compose{index}\u{0}{from}");
+            while free.iter().any(|v| v.as_ref() == placeholder.as_str())
+                || renames.contains_key(&placeholder)
+            {
+                placeholder.push('\u{0}');
+            }
+            pairs.push((from, placeholder, to));
+        }
+    }
+
+    let mut out = expr.clone();
+    for (from, placeholder, _) in &pairs {
+        out = panproto_expr::substitute(&out, from, &Expr::Var(Arc::from(placeholder.as_str())));
+    }
+    for (_, placeholder, to) in &pairs {
+        out = panproto_expr::substitute(&out, placeholder, &Expr::Var(Arc::from(to.as_str())));
+    }
+    out
 }
 
 /// Compose `op_term_assignments` from two migrations, re-keying through

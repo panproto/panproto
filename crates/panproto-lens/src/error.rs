@@ -54,6 +54,22 @@ pub enum LensError {
     )]
     CompositionMismatch,
 
+    /// A value-level transform of the second lens reads a field the first
+    /// lens drops, so the composed expression has no binding for it.
+    ///
+    /// Caught when the lenses are composed rather than when the composite
+    /// runs, where it would surface as an `UnboundVariable` far from its
+    /// cause.
+    #[error(
+        "composition failed: transform on `{anchor}` reads field `{field}`, dropped by the first lens"
+    )]
+    ComposeUnboundField {
+        /// The anchor vertex carrying the transform.
+        anchor: String,
+        /// The field the transform's expression reads.
+        field: String,
+    },
+
     /// Delegation to the restrict pipeline failed.
     #[error("restrict error: {0}")]
     Restrict(#[from] panproto_inst::RestrictError),
