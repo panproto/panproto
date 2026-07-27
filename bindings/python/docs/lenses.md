@@ -95,3 +95,31 @@ d = complement.to_dict()
 print(complement.dropped_node_count)
 print(complement.dropped_arc_count)
 ```
+
+## Lenses from a compiled migration
+
+`auto_generate_lens` finds a morphism between two schemas, which is a search
+and does not scale to schemas of many hundreds of vertices. A migration you
+already have (from `compile_migration`, or one the version-control layer
+derived from a name-keyed diff) needs no search at all: a lens is a compiled
+migration together with the two schemas it runs between, which is exactly
+what a `CompiledMigration` holds.
+
+So the round-trip laws are reachable directly from it:
+
+```python
+compiled = panproto.compile_migration(migration, src, tgt)
+
+view, complement = compiled.get(instance)
+source = compiled.put(view, complement)
+
+compiled.check_laws(instance)      # raises MigrationError on violation
+compiled.check_get_put(instance)
+compiled.check_put_get(instance)
+
+lens = compiled.to_lens()          # or take the Lens and use it directly
+```
+
+`get` and `put` are the two halves of the same lens, so the complement one
+produces is the one the other consumes. `to_lens()` cannot fail and involves
+no alignment search.

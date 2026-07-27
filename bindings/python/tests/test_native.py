@@ -376,6 +376,100 @@ class TestMigration:
 
 
 # ---------------------------------------------------------------------------
+# CompiledMigration as a lens
+# ---------------------------------------------------------------------------
+
+
+class TestCompiledMigrationLens:
+    """A compiled migration is a lens: it carries a compiled morphism and
+    the two schemas it runs between, which is all a lens is. Reaching the
+    round-trip laws from it must not require a morphism search, since that
+    is the step that does not scale on large schemas."""
+
+    @staticmethod
+    def _pair() -> tuple[object, object, object]:
+        proto = panproto.get_builtin_protocol("atproto")
+
+        def build(nsid: str) -> object:
+            b = proto.schema()
+            b.vertex("r", "record", nsid)
+            b.vertex("r:body", "object")
+            b.vertex("r:body.text", "string")
+            b.edge("r", "r:body", "record-schema")
+            b.edge("r:body", "r:body.text", "prop", "text")
+            return b.build()
+
+        src = build("local.lenstest.src")
+        tgt = build("local.lenstest.tgt")
+        mb = panproto.MigrationBuilder()
+        for v in ("r", "r:body", "r:body.text"):
+            mb.map_vertex(v, v)
+        compiled = panproto.compile_migration(mb.build(), src, tgt)
+        return src, tgt, compiled
+
+    @staticmethod
+    def _instance(src: object) -> object:
+        return panproto.Instance.from_json(src, "r:body", '{"text": "hello"}')
+
+    def test_get_returns_a_real_complement(self) -> None:
+        src, _tgt, compiled = self._pair()
+        _view, complement = compiled.get(self._instance(src))
+        # Not a summary dict: the complement itself, which `put` consumes.
+        assert isinstance(complement, panproto.Complement)
+        assert complement.dropped_node_count == 0
+        assert complement.dropped_arc_count == 0
+
+    def test_put_reconstructs_the_source(self) -> None:
+        src, _tgt, compiled = self._pair()
+        instance = self._instance(src)
+        view, complement = compiled.get(instance)
+        restored = compiled.put(view, complement)
+        # Arcs as well as nodes: a complement that does not carry arc
+        # provenance restores the right node set with no edges between
+        # them, which serializes to `{}` while the node count still
+        # matches. Checking the reconstructed record is what catches that.
+        assert restored.node_count == instance.node_count
+        assert restored.arc_count == instance.arc_count
+        assert json.loads(restored.to_json())["text"] == "hello"
+
+    def test_get_and_put_are_halves_of_the_same_lens(self) -> None:
+        """`get`'s complement must be the one `put` consumes. Pairing a
+        complement from the lower-level restrict pipeline with the lens
+        `put` loses the source's arcs."""
+        src, _tgt, compiled = self._pair()
+        instance = self._instance(src)
+        lens = compiled.to_lens()
+
+        via_migration = compiled.put(*compiled.get(instance))
+        via_lens = lens.put(*lens.get(instance))
+
+        assert via_migration.arc_count == via_lens.arc_count == instance.arc_count
+        assert via_migration.to_json() == via_lens.to_json() == instance.to_json()
+
+    def test_to_lens_needs_no_morphism_search(self) -> None:
+        src, _tgt, compiled = self._pair()
+        lens = compiled.to_lens()
+        assert isinstance(lens, panproto.Lens)
+        # The lens reached this way behaves like any other.
+        _view, complement = lens.get(self._instance(src))
+        assert isinstance(complement, panproto.Complement)
+
+    @pytest.mark.parametrize(
+        "check", ["check_laws", "check_get_put", "check_put_get"]
+    )
+    def test_round_trip_laws_are_checkable(self, check: str) -> None:
+        src, _tgt, compiled = self._pair()
+        # Raises on violation; returning None is the pass condition.
+        assert getattr(compiled, check)(self._instance(src)) is None
+
+    def test_law_check_matches_the_lens_it_denotes(self) -> None:
+        src, _tgt, compiled = self._pair()
+        instance = self._instance(src)
+        assert compiled.check_laws(instance) is None
+        assert compiled.to_lens().check_laws(instance) is None
+
+
+# ---------------------------------------------------------------------------
 # auto_generate_lens stringency parity
 # ---------------------------------------------------------------------------
 

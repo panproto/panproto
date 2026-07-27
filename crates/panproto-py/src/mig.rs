@@ -11,11 +11,13 @@ use pyo3::prelude::*;
 
 use panproto_core::gat::Name;
 use panproto_core::inst::CompiledMigration;
+use panproto_core::lens::Lens;
 use panproto_core::mig::{self, Migration};
 use panproto_core::schema::{Edge, Schema};
 
 use crate::convert;
 use crate::inst::PyInstance;
+use crate::lens::{PyComplement, PyLens};
 use crate::schema::{PyProtocol, PySchema};
 
 /// A migration specification mapping source to target schema elements.
@@ -146,6 +148,21 @@ pub struct PyCompiledMigration {
     pub(crate) tgt_schema: Arc<Schema>,
 }
 
+impl PyCompiledMigration {
+    /// Build the [`Lens`] this migration denotes.
+    ///
+    /// A lens is a compiled migration plus its source and target schemas,
+    /// so this is three clones and no search. `Lens` is not `Clone`, which
+    /// is why it is rebuilt per call rather than cached.
+    fn as_lens(&self) -> Lens {
+        Lens {
+            compiled: self.compiled.clone(),
+            src_schema: (*self.src_schema).clone(),
+            tgt_schema: (*self.tgt_schema).clone(),
+        }
+    }
+}
+
 #[pymethods]
 impl PyCompiledMigration {
     /// Lift a W-type instance through this migration (left Kan extension).
@@ -165,31 +182,97 @@ impl PyCompiledMigration {
 
     /// Get: project through the migration, producing a view and complement.
     ///
+    /// Runs the lens this migration denotes, so the complement returned is
+    /// the one [`put`](Self::put) consumes. The lower-level
+    /// `restrict_with_complement` produces a complement that does not
+    /// record the arc provenance `put` needs to rebuild the source's edges,
+    /// which is why the two halves have to come from the same lens.
+    ///
     /// Returns
     /// -------
-    /// tuple[Instance, dict]
-    ///     The view instance and complement. The complement is returned as
-    ///     a dict with keys ``dropped_nodes`` and ``dropped_arcs`` because
-    ///     the Rust ``Complement`` type does not implement ``Serialize``.
-    fn get(&self, instance: &PyInstance, py: Python<'_>) -> PyResult<(PyInstance, Py<PyAny>)> {
-        let (view, complement) = panproto_core::inst::restrict_with_complement(
-            &instance.inner,
-            &self.src_schema,
-            &self.tgt_schema,
-            &self.compiled,
-        )
-        .map_err(|e| crate::error::MigrationError::new_err(format!("get failed: {e}")))?;
-
-        // Complement doesn't derive Serialize, so build a dict manually.
-        let dict = pyo3::types::PyDict::new(py);
-        dict.set_item("dropped_node_count", complement.dropped_nodes.len())?;
-        dict.set_item("dropped_arc_count", complement.dropped_arcs.len())?;
+    /// tuple[Instance, Complement]
+    ///     The view instance and the complement, which records everything
+    ///     the projection discarded. Pass it back to ``put`` to reconstruct
+    ///     the source.
+    fn get(&self, instance: &PyInstance) -> PyResult<(PyInstance, PyComplement)> {
+        let (view, complement) = panproto_core::lens::get(&self.as_lens(), &instance.inner)
+            .map_err(|e| crate::error::MigrationError::new_err(format!("get failed: {e}")))?;
 
         let view_inst = PyInstance {
             inner: view,
             schema: Arc::clone(&self.tgt_schema),
         };
-        Ok((view_inst, dict.into_any().unbind()))
+        Ok((view_inst, PyComplement { inner: complement }))
+    }
+
+    /// Put: reconstruct the source from a view and the complement a prior
+    /// ``get`` produced.
+    ///
+    /// Parameters
+    /// ----------
+    /// view : Instance
+    ///     The (possibly modified) view.
+    /// complement : Complement
+    ///     The complement from a prior ``get`` call.
+    fn put(&self, view: &PyInstance, complement: &PyComplement) -> PyResult<PyInstance> {
+        let lens_obj = self.as_lens();
+        let restored = panproto_core::lens::put(&lens_obj, &view.inner, &complement.inner)
+            .map_err(|e| crate::error::MigrationError::new_err(format!("put failed: {e}")))?;
+        Ok(PyInstance {
+            inner: restored,
+            schema: Arc::clone(&self.src_schema),
+        })
+    }
+
+    /// View this migration as a ``Lens``.
+    ///
+    /// A lens is a compiled migration together with the two schemas it runs
+    /// between, which is exactly what this object already holds, so the
+    /// conversion cannot fail and no morphism search is involved. It is the
+    /// way to reach the round-trip law checks (``check_laws``,
+    /// ``check_get_put``, ``check_put_get``) on a migration built by the
+    /// version-control layer or by ``compile_migration``, neither of which
+    /// goes through ``auto_generate``.
+    fn to_lens(&self) -> PyLens {
+        PyLens {
+            inner: Arc::new(self.as_lens()),
+        }
+    }
+
+    /// Check both `GetPut` and `PutGet` round-trip laws on a test instance.
+    ///
+    /// Equivalent to ``self.to_lens().check_laws(instance)``.
+    ///
+    /// Raises
+    /// ------
+    /// `MigrationError`
+    ///     If either law is violated, with details in the message.
+    fn check_laws(&self, instance: &PyInstance) -> PyResult<()> {
+        panproto_core::lens::check_laws(&self.as_lens(), &instance.inner)
+            .map_err(|e| crate::error::MigrationError::new_err(format!("law violation: {e}")))
+    }
+
+    /// Check the `GetPut` law: ``put(view, complement)`` recovers the source.
+    ///
+    /// Raises
+    /// ------
+    /// `MigrationError`
+    ///     If the law is violated.
+    fn check_get_put(&self, instance: &PyInstance) -> PyResult<()> {
+        panproto_core::lens::check_get_put(&self.as_lens(), &instance.inner)
+            .map_err(|e| crate::error::MigrationError::new_err(format!("law violation: {e}")))
+    }
+
+    /// Check the `PutGet` law: re-projecting a restored source recovers the
+    /// view, on every coordinate the forward pass does not itself recompute.
+    ///
+    /// Raises
+    /// ------
+    /// `MigrationError`
+    ///     If the law is violated.
+    fn check_put_get(&self, instance: &PyInstance) -> PyResult<()> {
+        panproto_core::lens::check_put_get(&self.as_lens(), &instance.inner)
+            .map_err(|e| crate::error::MigrationError::new_err(format!("law violation: {e}")))
     }
 
     fn to_dict(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
