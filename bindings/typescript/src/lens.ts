@@ -690,6 +690,82 @@ export class LensHandle implements Disposable {
   }
 
   /**
+   * Forward projection over JSON: project a JSON record to a view and a
+   * complement, with the view handed back as a JS object.
+   *
+   * {@link get} materializes the transformed view inside the instance graph,
+   * which leaves a consumer walking nodes and arcs to read its own output
+   * back. This returns the view as data, so the lens can be the mapper and
+   * not only a verified specification of one.
+   *
+   * The complement bytes stay opaque (they encode whatever the forward
+   * projection discarded); pass them back to {@link putJson} to restore.
+   *
+   * @param record - The input record as a JS object or JSON string
+   * @param rootVertex - The source-schema vertex the record is rooted at
+   * @returns `{ view, complement }`: view is a JS object, complement is
+   *          opaque msgpack bytes
+   * @throws {@link WasmError} if parsing, get, or serialization fails
+   */
+  getJson(record: unknown, rootVertex: string): { view: unknown; complement: Uint8Array } {
+    const jsonBytes = typeof record === 'string'
+      ? new TextEncoder().encode(record)
+      : new TextEncoder().encode(JSON.stringify(record));
+
+    try {
+      const outputBytes = this.#wasm.exports.get_json(
+        this.#handle.id,
+        jsonBytes,
+        rootVertex,
+      );
+      const result = unpackFromWasm<{ view: unknown; complement: Uint8Array }>(outputBytes);
+      return {
+        view: result.view,
+        complement: result.complement instanceof Uint8Array
+          ? result.complement
+          : new Uint8Array(result.complement as ArrayBuffer),
+      };
+    } catch (error) {
+      throw new WasmError(
+        `get_json failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
+   * Backward put over JSON: restore the full record from a modified view and
+   * the complement returned by a prior {@link getJson} call.
+   *
+   * @param view - The (possibly modified) view as a JS object or JSON string
+   * @param complement - The complement bytes from a prior `getJson` call
+   * @param rootVertex - The source-schema vertex the original record was
+   *                     rooted at
+   * @returns The restored full record as a JS object
+   * @throws {@link WasmError} if parsing, put, or serialization fails
+   */
+  putJson(view: unknown, complement: Uint8Array, rootVertex: string): unknown {
+    const viewBytes = typeof view === 'string'
+      ? new TextEncoder().encode(view)
+      : new TextEncoder().encode(JSON.stringify(view));
+
+    try {
+      const outputBytes = this.#wasm.exports.put_json(
+        this.#handle.id,
+        viewBytes,
+        complement,
+        rootVertex,
+      );
+      return JSON.parse(new TextDecoder().decode(outputBytes));
+    } catch (error) {
+      throw new WasmError(
+        `put_json failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
    * Check both GetPut and PutGet lens laws for an instance.
    *
    * @param instance - MessagePack-encoded instance data
