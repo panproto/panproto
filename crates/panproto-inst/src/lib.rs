@@ -109,8 +109,9 @@ pub use validate::{validate_attributes, validate_wtype};
 pub use value::{FieldPresence, Value};
 pub use wtype::{
     CaseBranch, CompiledMigration, FieldTransform, TermAssignment, TermBranch, TermScope,
-    WInstance, ancestor_contraction, anchor_surviving, apply_term_assignments_to_row,
-    build_env_from_extra_fields, build_env_with_children, collect_scalar_child_values,
-    expr_literal_to_value, reconstruct_fans, resolve_edge, value_to_expr_literal, wtype_extend,
-    wtype_extend_partial, wtype_restrict,
+    TransformContext, WInstance, ancestor_contraction, anchor_surviving,
+    apply_term_assignments_to_row, build_env_from_extra_fields, build_env_with_children,
+    collect_child_values, collect_scalar_child_values, expr_literal_to_value,
+    extend_env_from_extra_fields, node_to_value, reconstruct_fans, referenced_names, resolve_edge,
+    value_to_expr_literal, wtype_extend, wtype_extend_partial, wtype_restrict,
 };

@@ -19,8 +19,8 @@ use crate::complement::Complement;
 use crate::metadata::Node;
 use crate::value::{FieldPresence, Value};
 use crate::wtype::{
-    CompiledMigration, WInstance, apply_field_transforms, build_env_from_extra_fields,
-    collect_scalar_child_values, reconstruct_fans, resolve_edge, value_to_expr_literal,
+    CompiledMigration, TransformContext, WInstance, apply_field_transforms,
+    build_env_from_extra_fields, reconstruct_fans, resolve_edge, value_to_expr_literal,
 };
 
 /// An enrichment to add when constructing a section.
@@ -231,8 +231,8 @@ pub fn restrict_with_complement(
         complement
             .original_extra_fields
             .insert(instance.root, root_node.extra_fields.clone());
-        let scalars = collect_scalar_child_values(instance, instance.root);
-        apply_field_transforms(&mut root_node_cloned, &root_transforms, &scalars)?;
+        let ctx = TransformContext::new(None, instance, instance.root, &root_transforms);
+        apply_field_transforms(&mut root_node_cloned, &root_transforms, &ctx)?;
     }
     new_nodes.insert(instance.root, root_node_cloned);
     surviving_set.insert(instance.root);
@@ -340,8 +340,8 @@ fn restrict_bfs_step(
                 complement
                     .original_extra_fields
                     .insert(child_id, child_node.extra_fields.clone());
-                let scalars = collect_scalar_child_values(instance, child_id);
-                apply_field_transforms(&mut new_node, &child_transforms, &scalars)?;
+                let ctx = TransformContext::new(None, instance, child_id, &child_transforms);
+                apply_field_transforms(&mut new_node, &child_transforms, &ctx)?;
             }
             new_nodes.insert(child_id, new_node.clone());
 

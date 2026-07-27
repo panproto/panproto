@@ -926,7 +926,7 @@ impl EditLens {
             panproto_inst::wtype::apply_field_transforms(
                 &mut remapped,
                 transforms,
-                &std::collections::HashMap::new(),
+                &panproto_inst::TransformContext::detached(),
             )?;
         }
         remapped.anchor = self.remap_anchor_forward(&node.anchor);
