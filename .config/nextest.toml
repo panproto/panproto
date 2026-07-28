@@ -12,3 +12,15 @@
 # so the emit-verification guarantee stays enforced without blocking PR CI.
 [profile.ci]
 default-filter = 'not test(/corpus_verified_protocols_round_trip_full_corpus|strip_complement_canonical_section_is_structurally_faithful|long_tail_emit_is_verified/)'
+
+# Kill a test that runs away instead of letting it hold the suite open.
+#
+# Nothing here previously bounded a test's runtime, so a change that made
+# an operation quadratic showed up as repeated SLOW lines and a run that
+# never finished, rather than as a failure. An unbounded test reads as slow
+# rather than broken, which is the wrong signal.
+#
+# The bound applies to the `ci` profile, whose slowest observed test is
+# around four minutes; the multi-minute full-corpus emit gates are excluded
+# from this profile by `default-filter` above and so are unaffected.
+slow-timeout = { period = "60s", terminate-after = 10, grace-period = "5s" }

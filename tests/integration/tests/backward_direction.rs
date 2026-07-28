@@ -345,3 +345,52 @@ fn an_inverse_runs_when_the_value_crossed_the_json_boundary() {
         "the inverse still has to run when the value arrives on the child"
     );
 }
+
+/// Merging arc order stays linear in the arc count.
+///
+/// `Complement::compose` is called repeatedly (the edit-lens associativity
+/// proptests compose in a loop), so a membership test that scans the
+/// accumulated sequence makes the merge quadratic. That is not a
+/// theoretical concern: a `Vec::contains` here took
+/// `edit_laws::action_laws::compose_associativity` from 0.05s to over 55
+/// minutes, and nothing failed, because an unbounded test reads as slow
+/// rather than broken.
+///
+/// The gap between the two implementations is several orders of magnitude,
+/// so the wall-clock bound below is loose enough not to be flaky while
+/// still being unreachable if the scan comes back.
+#[test]
+fn composing_arc_order_is_not_quadratic() {
+    use panproto_lens::ComplementCompose;
+    use std::time::Instant;
+
+    const ARCS: u32 = 120_000;
+
+    let build = |offset: u32| {
+        let mut c = panproto_inst::Complement::empty();
+        c.arc_order = (0..ARCS).map(|i| (i + offset, i + offset + 1)).collect();
+        c.original_parent = (0..ARCS).map(|i| (i + offset + 1, i + offset)).collect();
+        c
+    };
+    // Half the pairs overlap, so the merge does real work on both branches
+    // rather than short-circuiting on one.
+    let left = build(0);
+    let right = build(ARCS / 2);
+
+    let start = Instant::now();
+    let merged = left.compose(&right).expect("compatible complements");
+    let elapsed = start.elapsed();
+
+    assert_eq!(
+        merged.arc_order.len(),
+        (ARCS + ARCS / 2) as usize,
+        "the union of the two sequences, deduplicated"
+    );
+    // Order is preserved: the left operand's sequence comes first.
+    assert_eq!(merged.arc_order[0], (0, 1));
+    assert!(
+        elapsed.as_secs() < 15,
+        "merging {ARCS} arcs took {elapsed:?}; a linear merge is milliseconds, so this is \
+         the quadratic scan returning"
+    );
+}
