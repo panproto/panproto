@@ -123,17 +123,25 @@ fn complement_msgpack_roundtrip() -> Result<(), Box<dyn std::error::Error>> {
         source_fingerprint: 0,
         original_extra_fields: HashMap::new(),
         arc_edges: HashMap::new(),
+        arc_order: vec![(0, 99)],
         original_values: HashMap::new(),
         synthesized_nodes: std::collections::HashSet::new(),
     };
 
-    let bytes = rmp_serde::to_vec(&complement)?;
+    // Named encoding, matching every `Complement` site on the WASM
+    // boundary. `Complement` skips its empty optional fields, and a
+    // positionally-encoded struct cannot be read back once a field is
+    // omitted: the reader has no way to know which position was dropped.
+    let bytes = rmp_serde::to_vec_named(&complement)?;
     let decoded: Complement = rmp_serde::from_slice(&bytes)?;
 
     assert_eq!(decoded.dropped_nodes.len(), 1);
     assert!(decoded.dropped_nodes.contains_key(&99));
     assert_eq!(decoded.dropped_arcs.len(), 1);
     assert_eq!(decoded.original_parent.len(), 1);
+    // Arc order crosses the wire: it is what array element order is read
+    // off when the backward direction rebuilds the source.
+    assert_eq!(decoded.arc_order, vec![(0, 99)]);
 
     Ok(())
 }

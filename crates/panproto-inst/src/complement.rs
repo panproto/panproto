@@ -57,6 +57,20 @@ pub struct Complement {
     /// same vertex pair, ensuring the cartesian lift is unique.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub arc_edges: HashMap<(u32, u32), Edge>,
+    /// The source instance's arcs in order, as `(parent_id, child_id)`.
+    ///
+    /// Arc order is not incidental: the children of a collection node are
+    /// its elements *in sequence*, so serialization reads array order
+    /// straight off it. The backward direction rebuilds arcs by walking
+    /// `original_parent`, a `HashMap`, whose iteration order varies between
+    /// runs, which reorders every array it reconstructs. Recording the
+    /// sequence here is what lets `put` put them back as they were.
+    ///
+    /// Empty on a complement produced before this was recorded, in which
+    /// case the backward direction falls back to a deterministic order
+    /// rather than a random one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub arc_order: Vec<(u32, u32)>,
     /// Pre-coercion `node.value` for nodes that had `__value__` field
     /// transforms applied. Used by the backward direction to restore the
     /// original leaf value.
