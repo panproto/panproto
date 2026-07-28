@@ -2007,7 +2007,7 @@ fn compute_migration_between(src: &Schema, tgt: &Schema) -> CompiledMigration {
         .cloned()
         .collect();
 
-    let surviving_edges: HashSet<Edge> = src
+    let mut surviving_edges: HashSet<Edge> = src
         .edges
         .keys()
         .filter(|e| tgt.edges.contains_key(*e))
@@ -2064,6 +2064,31 @@ fn compute_migration_between(src: &Schema, tgt: &Schema) -> CompiledMigration {
         }
     }
 
+    // Build edge remap: edges that survive under a different name.
+    //
+    // An `Edge` is keyed by all four of `(src, tgt, kind, name)`, so
+    // renaming one produces a different key: it is absent from
+    // `surviving_edges` and the relabeling is otherwise visible only in
+    // the rewritten target schema. Recording it here makes the migration
+    // self-describing, which is what lets `compose` conjugate the field
+    // coordinate of a later lens's expressions through the rename. Without
+    // it the rename is real in the output arcs but invisible to anything
+    // reasoning about the migration itself.
+    //
+    // Endpoints are matched through `vertex_remap` so an edge whose
+    // vertices were also renamed still pairs up.
+    let edge_remap = compute_edge_remap(src, tgt, &vertex_remap);
+
+    // A renamed edge survives; it just answers to a different name. Record
+    // both spellings, mirroring how a renamed *vertex* is entered into
+    // `surviving_verts` under its source and target ids. Leaving the source
+    // edge out would say the field was dropped, which is what previously
+    // hid a rename from every consumer that reasons about survival.
+    for (src_edge, tgt_edge) in &edge_remap {
+        surviving_edges.insert(src_edge.clone());
+        surviving_edges.insert(tgt_edge.clone());
+    }
+
     // Detect expansion paths: direct arcs `(A, B)` that existed in the
     // source schema but are no longer present in the target, yet reachable
     // via a multi-hop path through vertices newly introduced in the
@@ -2074,7 +2099,7 @@ fn compute_migration_between(src: &Schema, tgt: &Schema) -> CompiledMigration {
         surviving_verts: final_surviving,
         surviving_edges,
         vertex_remap,
-        edge_remap: HashMap::new(),
+        edge_remap,
         resolver,
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
@@ -2082,6 +2107,60 @@ fn compute_migration_between(src: &Schema, tgt: &Schema) -> CompiledMigration {
         op_term_assignments: HashMap::new(),
         expansion_path,
     }
+}
+
+/// Pair each source edge that vanished from the target with the target
+/// edge that carries it under a new name.
+///
+/// Two edges correspond when they run between the same vertices, after
+/// mapping the source endpoints through `vertex_remap`, and share a kind.
+/// Only the name may differ; an edge that survives unchanged is not
+/// recorded, and neither is one whose counterpart is genuinely absent
+/// (a dropped field rather than a renamed one).
+///
+/// Parallel edges between one vertex pair are matched by name-agnostic
+/// order of appearance, and a target edge is claimed at most once, so a
+/// schema with several same-kind edges between the same two vertices
+/// yields one pairing per edge rather than collapsing them.
+fn compute_edge_remap(
+    src: &Schema,
+    tgt: &Schema,
+    vertex_remap: &HashMap<Name, Name>,
+) -> HashMap<Edge, Edge> {
+    let mut remap = HashMap::new();
+    let mut claimed: HashSet<Edge> = HashSet::new();
+
+    for src_edge in src.edges.keys() {
+        // An edge present verbatim in the target was not renamed.
+        if tgt.edges.contains_key(src_edge) {
+            continue;
+        }
+        let want_src = vertex_remap.get(&src_edge.src).unwrap_or(&src_edge.src);
+        let want_tgt = vertex_remap.get(&src_edge.tgt).unwrap_or(&src_edge.tgt);
+
+        let mut candidates: Vec<&Edge> = tgt
+            .edges
+            .keys()
+            .filter(|e| {
+                &e.src == want_src
+                    && &e.tgt == want_tgt
+                    && e.kind == src_edge.kind
+                    && e.name != src_edge.name
+                    && !src.edges.contains_key(*e)
+                    && !claimed.contains(*e)
+            })
+            .collect();
+        // `Schema::edges` is a HashMap, so iteration order varies between
+        // runs; sort so the pairing is a function of the two schemas.
+        candidates.sort();
+
+        if let Some(tgt_edge) = candidates.first() {
+            claimed.insert((*tgt_edge).clone());
+            remap.insert(src_edge.clone(), (*tgt_edge).clone());
+        }
+    }
+
+    remap
 }
 
 /// Detect `(src_parent, src_child)` pairs that had a direct arc in the

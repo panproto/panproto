@@ -70,6 +70,15 @@ pub enum LensError {
         field: String,
     },
 
+    /// A source was asked to be reconstructed from a view alone, but the
+    /// lens is not an isomorphism, so its complement is not terminal and
+    /// distinct sources share the given view.
+    #[error("cannot reconstruct without a complement: {detail}")]
+    NotAnIsomorphism {
+        /// Which condition of invertibility fails.
+        detail: String,
+    },
+
     /// Delegation to the restrict pipeline failed.
     #[error("restrict error: {0}")]
     Restrict(#[from] panproto_inst::RestrictError),

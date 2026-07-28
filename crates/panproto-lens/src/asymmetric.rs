@@ -124,6 +124,20 @@ impl ComplementCompose for Complement {
             PartialEq::eq,
         )?;
 
+        // Arc order: keep this operand's sequence and append any pair the
+        // other records that this one does not, so a merged complement
+        // still describes a single consistent ordering. Membership goes
+        // through a set: `compose` is called repeatedly (the associativity
+        // proptests compose in a loop), and a linear scan per pair makes
+        // that quadratic in the arc count.
+        let mut arc_order = self.arc_order.clone();
+        let mut present: HashSet<(u32, u32)> = arc_order.iter().copied().collect();
+        for pair in &other.arc_order {
+            if present.insert(*pair) {
+                arc_order.push(*pair);
+            }
+        }
+
         Ok(Self {
             dropped_nodes,
             dropped_arcs,
@@ -133,6 +147,7 @@ impl ComplementCompose for Complement {
             source_fingerprint,
             original_extra_fields,
             arc_edges,
+            arc_order,
             original_values,
             synthesized_nodes,
             contracted_into,
@@ -367,38 +382,8 @@ pub fn get(lens: &Lens, instance: &WInstance) -> Result<(WInstance, Complement),
         }
     }
 
-    // Capture pre-transform extra_fields for nodes that had field_transforms
-    let mut original_extra_fields = HashMap::new();
-    for &id in view.nodes.keys() {
-        if let Some(source_node) = instance.nodes.get(&id) {
-            if lens
-                .compiled
-                .field_transforms
-                .contains_key(&source_node.anchor)
-            {
-                original_extra_fields.insert(id, source_node.extra_fields.clone());
-            }
-        }
-    }
-
-    // Capture pre-coercion node.value for nodes that had __value__ field transforms
-    let mut original_values = HashMap::new();
-    for &id in view.nodes.keys() {
-        if let Some(source_node) = instance.nodes.get(&id) {
-            if lens
-                .compiled
-                .field_transforms
-                .get(&source_node.anchor)
-                .is_some_and(|ts| {
-                    ts.iter().any(|t| {
-                        matches!(t, panproto_inst::FieldTransform::ApplyExpr { key, .. } if key == "__value__")
-                    })
-                })
-            {
-                original_values.insert(id, source_node.value.clone());
-            }
-        }
-    }
+    let (original_extra_fields, original_values) =
+        capture_pre_transform_state(lens, instance, &view);
 
     // Record the exact edge for every arc in the source instance whose
     // parent and child both survive. This makes `put` deterministic when
@@ -424,6 +409,15 @@ pub fn get(lens: &Lens, instance: &WInstance) -> Result<(WInstance, Complement),
         .filter(|id| !instance.nodes.contains_key(id))
         .collect();
 
+    // The source's arcs in order. Array order is read straight off this
+    // sequence when the instance is serialized, so it has to survive the
+    // round trip.
+    let arc_order: Vec<(u32, u32)> = instance
+        .arcs
+        .iter()
+        .map(|(parent, child, _)| (*parent, *child))
+        .collect();
+
     let complement = Complement {
         dropped_nodes,
         dropped_arcs,
@@ -433,6 +427,7 @@ pub fn get(lens: &Lens, instance: &WInstance) -> Result<(WInstance, Complement),
         source_fingerprint,
         original_extra_fields,
         arc_edges,
+        arc_order,
         original_values,
         synthesized_nodes,
         // The lens `get` path records no ancestor-contraction fibre; that
@@ -467,6 +462,31 @@ pub fn put(lens: &Lens, view: &WInstance, complement: &Complement) -> Result<WIn
                 ),
             });
         }
+    }
+
+    // `put` inverts `get` on the image of `get`, and only there. A
+    // complement that records no parent for any of the view's non-root
+    // nodes cannot have come from a `get` of a source with this shape: it
+    // is outside that image, and the reassembly below would rebuild the
+    // node set with no arcs between the nodes, which serializes to an empty
+    // record. Returning that silently is worse than refusing, because the
+    // caller cannot tell a successful reconstruction of an empty record
+    // from the total loss of a populated one.
+    let view_has_arcs = view.arcs.iter().any(|(_, child, _)| *child != view.root);
+    if view_has_arcs
+        && !view
+            .arcs
+            .iter()
+            .any(|(_, child, _)| complement.original_parent.contains_key(child))
+    {
+        return Err(LensError::ComplementMismatch {
+            detail: format!(
+                "complement records no parent for any of the view's {} arcs, so it did not come \
+                 from a projection of a source with this shape; reconstructing from it would \
+                 return an empty record",
+                view.arcs.len()
+            ),
+        });
     }
 
     // Start with all nodes from the view (un-remap anchors back to source).
@@ -515,6 +535,8 @@ pub fn put(lens: &Lens, view: &WInstance, complement: &Complement) -> Result<WIn
         nodes.insert(id, restored_node);
     }
 
+    invert_computations_on_child_scalars(lens, view, &mut nodes, &reverse_remap);
+
     // Re-insert dropped nodes from complement
     for (&id, node) in &complement.dropped_nodes {
         nodes.insert(id, node.clone());
@@ -536,39 +558,7 @@ pub fn put(lens: &Lens, view: &WInstance, complement: &Complement) -> Result<WIn
     // `(parent, child)`: a W-type instance has at most one arc per
     // parent/child pair, and genuine list nodes are distinguished by having
     // multiple arcs to *distinct* children, which this key preserves.
-    let mut arcs = Vec::new();
-    let mut seen_pairs: HashSet<(u32, u32)> = HashSet::new();
-
-    // For view nodes, use the original parent mapping to restore arcs
-    for (&child_id, &original_parent) in &complement.original_parent {
-        if !nodes.contains_key(&child_id) || child_id == view.root {
-            continue;
-        }
-        // Find the original arc for this parent-child pair, consulting
-        // contraction_choices for disambiguation when multiple edges exist.
-        if let Some(arc) = find_original_arc(
-            &lens.src_schema,
-            &nodes,
-            original_parent,
-            child_id,
-            &complement.contraction_choices,
-            &complement.arc_edges,
-        ) && seen_pairs.insert((arc.0, arc.1))
-        {
-            arcs.push(arc);
-        }
-    }
-
-    // Add dropped arcs back (they connect dropped nodes)
-    for arc in &complement.dropped_arcs {
-        let (parent, child, _) = arc;
-        if nodes.contains_key(parent)
-            && nodes.contains_key(child)
-            && seen_pairs.insert((*parent, *child))
-        {
-            arcs.push(arc.clone());
-        }
-    }
+    let arcs = rebuild_source_arcs(lens, view, complement, &nodes);
 
     // Reconstruct fans: start with the view's fans (un-remapping vertex
     // references), then re-insert dropped fans from the complement whose
@@ -605,6 +595,245 @@ pub fn put(lens: &Lens, view: &WInstance, complement: &Complement) -> Result<WIn
     // schema_root is Name, which WInstance::new accepts via Into<Name>
 
     Ok(WInstance::new(nodes, arcs, fans, view.root, schema_root))
+}
+
+/// A node's pre-transform `extra_fields`, keyed by node id.
+type ExtraFieldSnapshots = HashMap<u32, HashMap<String, panproto_inst::value::Value>>;
+
+/// A node's pre-coercion leaf value, keyed by node id.
+type ValueSnapshots = HashMap<u32, Option<panproto_inst::value::FieldPresence>>;
+
+/// Snapshot the pre-transform state of every node a field transform
+/// touches: its `extra_fields`, and its leaf value when a `__value__`
+/// coercion applies.
+///
+/// This is what lets the backward direction restore information the
+/// forward pass overwrote or discarded, rather than inferring it.
+fn capture_pre_transform_state(
+    lens: &Lens,
+    instance: &WInstance,
+    view: &WInstance,
+) -> (ExtraFieldSnapshots, ValueSnapshots) {
+    // Capture pre-transform extra_fields for nodes that had field_transforms
+    let mut original_extra_fields = HashMap::new();
+    for &id in view.nodes.keys() {
+        if let Some(source_node) = instance.nodes.get(&id) {
+            if lens
+                .compiled
+                .field_transforms
+                .contains_key(&source_node.anchor)
+            {
+                original_extra_fields.insert(id, source_node.extra_fields.clone());
+            }
+        }
+    }
+
+    // Capture pre-coercion node.value for nodes that had __value__ field transforms
+    let mut original_values = HashMap::new();
+    for &id in view.nodes.keys() {
+        if let Some(source_node) = instance.nodes.get(&id) {
+            if lens
+                .compiled
+                .field_transforms
+                .get(&source_node.anchor)
+                .is_some_and(|ts| {
+                    ts.iter().any(|t| {
+                        matches!(t, panproto_inst::FieldTransform::ApplyExpr { key, .. } if key == "__value__")
+                    })
+                })
+            {
+                original_values.insert(id, source_node.value.clone());
+            }
+        }
+    }
+
+    (original_extra_fields, original_values)
+}
+
+/// Rebuild the source's arcs from the view and complement.
+///
+/// Order is the point. The children of a collection node are its elements
+/// in sequence, so serialization reads array order straight off this list.
+/// Both restoration paths (a surviving child recorded in `original_parent`,
+/// and a dropped arc) therefore have to be replayed in the source's order
+/// rather than one after the other: running them in sequence lands every
+/// dropped arc after the surviving ones instead of back where it was, and
+/// iterating `original_parent` (a `HashMap`) permutes them besides.
+///
+/// `complement.arc_order` is that sequence. Anything it does not mention (a
+/// complement recorded before it existed) falls back to the previous
+/// arrangement, surviving children in ascending id order and then dropped
+/// arcs, which is at least a function of the input rather than of hash
+/// seeding.
+///
+/// A child reachable by both paths is emitted once. When a combinator both
+/// drops a sort and keeps that sort's child in the view (`hoist_field`
+/// drops the intermediate sort while hoisting its child), the same
+/// `(parent, child)` arc comes from each; emitting it twice gives the
+/// parent two identical outgoing arcs, which the JSON encoder reads as a
+/// repeated-edge list signal and serializes as a duplicated `Value::List`
+/// instead of the original record. A W-type instance has at most one arc
+/// per parent/child pair, and a genuine list node is distinguished by
+/// arcs to *distinct* children, which deduping on that key preserves.
+fn rebuild_source_arcs(
+    lens: &Lens,
+    view: &WInstance,
+    complement: &Complement,
+    nodes: &HashMap<u32, Node>,
+) -> Vec<(u32, u32, Edge)> {
+    let mut arcs = Vec::new();
+    let mut seen_pairs: HashSet<(u32, u32)> = HashSet::new();
+
+    let restore_surviving =
+        |child_id: u32, arcs: &mut Vec<(u32, u32, Edge)>, seen: &mut HashSet<(u32, u32)>| {
+            let Some(&original_parent) = complement.original_parent.get(&child_id) else {
+                return;
+            };
+            if !nodes.contains_key(&child_id) || child_id == view.root {
+                return;
+            }
+            if let Some(arc) = find_original_arc(
+                &lens.src_schema,
+                nodes,
+                original_parent,
+                child_id,
+                &complement.contraction_choices,
+                &complement.arc_edges,
+            ) && seen.insert((arc.0, arc.1))
+            {
+                arcs.push(arc);
+            }
+        };
+    let restore_dropped =
+        |pair: (u32, u32), arcs: &mut Vec<(u32, u32, Edge)>, seen: &mut HashSet<(u32, u32)>| {
+            if let Some(arc) = complement
+                .dropped_arcs
+                .iter()
+                .find(|arc| (arc.0, arc.1) == pair)
+                && nodes.contains_key(&arc.0)
+                && nodes.contains_key(&arc.1)
+                && seen.insert(pair)
+            {
+                arcs.push(arc.clone());
+            }
+        };
+
+    for &(parent, child) in &complement.arc_order {
+        restore_surviving(child, &mut arcs, &mut seen_pairs);
+        restore_dropped((parent, child), &mut arcs, &mut seen_pairs);
+    }
+
+    // Whatever the recorded sequence did not cover.
+    let mut remaining: Vec<u32> = complement.original_parent.keys().copied().collect();
+    remaining.sort_unstable();
+    for child_id in remaining {
+        restore_surviving(child_id, &mut arcs, &mut seen_pairs);
+    }
+    for arc in &complement.dropped_arcs {
+        if nodes.contains_key(&arc.0)
+            && nodes.contains_key(&arc.1)
+            && seen_pairs.insert((arc.0, arc.1))
+        {
+            arcs.push(arc.clone());
+        }
+    }
+
+    arcs
+}
+
+/// Undo an invertible computation whose result sits on a child node
+/// rather than in the parent's `extra_fields`.
+///
+/// The forward pass writes a computed value into `extra_fields`, where
+/// serialization lets it shadow the child that supplied it. That is fine
+/// while the view stays in memory, but crossing the JSON boundary
+/// (serialize the view, parse it back, then `put`, which is exactly what
+/// the WASM `put_json` does) moves the value onto the child node: the
+/// parent's `extra_fields` comes back empty and the child holds the
+/// *computed* number. `propagate_view_edits_through_inverse` looks only at
+/// `extra_fields`, so it finds nothing to invert and the computed value
+/// survives into the reconstruction.
+///
+/// This pass covers that shape. For each `ComputeField` carrying an
+/// inverse whose target names a child scalar, it evaluates the inverse
+/// against the view's own child values and writes the result to the child
+/// the forward expression read.
+fn invert_computations_on_child_scalars(
+    lens: &Lens,
+    view: &WInstance,
+    nodes: &mut HashMap<u32, Node>,
+    reverse_remap: &HashMap<Name, Name>,
+) {
+    use panproto_inst::FieldTransform;
+    use panproto_inst::value::{FieldPresence, Value};
+
+    for (&parent_id, parent) in &view.nodes {
+        let src_anchor = reverse_remap.get(&parent.anchor).unwrap_or(&parent.anchor);
+        let Some(transforms) = lens.compiled.field_transforms.get(src_anchor) else {
+            continue;
+        };
+
+        // The view's child scalars for this parent, keyed by edge name.
+        let mut child_of: HashMap<String, (u32, Value)> = HashMap::new();
+        for (p, child, edge) in &view.arcs {
+            if *p != parent_id {
+                continue;
+            }
+            if let Some(child_node) = view.nodes.get(child)
+                && let Some(FieldPresence::Present(value)) = &child_node.value
+            {
+                let field = edge.name.as_deref().unwrap_or(&edge.tgt).to_string();
+                child_of.insert(field, (*child, value.clone()));
+            }
+        }
+        if child_of.is_empty() {
+            continue;
+        }
+
+        let env_fields: HashMap<String, Value> = child_of
+            .iter()
+            .map(|(k, (_, v))| (k.clone(), v.clone()))
+            .collect();
+
+        for transform in transforms {
+            let FieldTransform::ComputeField {
+                target_key,
+                expr,
+                inverse: Some(inv_expr),
+                ..
+            } = transform
+            else {
+                continue;
+            };
+            // Only when the computed value actually landed on the child.
+            //
+            // While the view is in memory the computed value sits in the
+            // parent's `extra_fields`, shadowing a child that still holds
+            // the *source* value; the snapshot path restores that correctly
+            // and inverting here as well would apply the inverse twice.
+            // Its absence from `extra_fields` is what says the value moved
+            // onto the child, which is the case this pass exists for.
+            if parent.extra_fields.contains_key(target_key) || !child_of.contains_key(target_key) {
+                continue;
+            }
+            let Some(source_key) = crate::derived::sole_source_var(expr) else {
+                continue;
+            };
+            let Some(&(target_child, _)) = child_of.get(&source_key) else {
+                continue;
+            };
+
+            let env = panproto_inst::build_env_from_extra_fields(&env_fields);
+            let config = panproto_expr::EvalConfig::default();
+            if let Ok(result) = panproto_expr::eval(inv_expr, &env, &config)
+                && let Some(node) = nodes.get_mut(&target_child)
+            {
+                node.value = Some(FieldPresence::Present(
+                    panproto_inst::expr_literal_to_value(&result),
+                ));
+            }
+        }
+    }
 }
 
 /// Propagate user edits from a view's `extra_fields` back into a node
@@ -809,6 +1038,134 @@ fn apply_inverse_transforms(node: &mut Node, transforms: &[panproto_inst::FieldT
             // DropField, KeepFields, Case, MapReferences: data is lost, cannot invert.
             _ => {}
         }
+    }
+}
+
+/// Reconstruct a source from a view alone, with no complement.
+///
+/// A lens with complement decomposes its source as `S ≅ V × C`. When the
+/// complement is terminal the decomposition collapses to `S ≅ V × 1 ≅ V`,
+/// the projection `get` becomes an isomorphism, and its inverse is a
+/// function of the view alone. That is exactly the condition
+/// [`Lens::is_isomorphism`] tests, so this succeeds precisely for lenses
+/// satisfying it and refuses everything else.
+///
+/// The refusal is not a limitation of this implementation. For a lens with
+/// non-trivial complement, `get` is not injective: distinct sources share a
+/// view, the fibre over that view has more than one point, and no section
+/// of `get` exists to be written. Anything returned in that case would be a
+/// guess.
+///
+/// What remains once the residue is empty is the reassembly bookkeeping,
+/// which [`Complement::residue_is_trivial`] explains is a function of the
+/// view's own structure rather than of the record. This derives it from the
+/// view and hands the result to [`put`].
+///
+/// # Errors
+///
+/// Returns [`LensError::NotAnIsomorphism`] naming the obstruction when the
+/// lens is not invertible, or whatever [`put`] reports.
+pub fn put_without_complement(lens: &Lens, view: &WInstance) -> Result<WInstance, LensError> {
+    if let Some(obstruction) = lens.obstruction_to_isomorphism() {
+        return Err(LensError::NotAnIsomorphism {
+            detail: obstruction,
+        });
+    }
+
+    // The bookkeeping half of the complement, read off the view. Sound
+    // only because the residue is known empty: every node and arc of the
+    // source is present in the view, so the view's own shape is the
+    // source's shape.
+    let mut original_parent = HashMap::new();
+    let mut arc_edges = HashMap::new();
+    let mut arc_order = Vec::with_capacity(view.arcs.len());
+    let reverse_remap = build_reverse_remap(&lens.compiled.vertex_remap);
+    let reverse_edges: HashMap<&Edge, &Edge> = lens
+        .compiled
+        .edge_remap
+        .iter()
+        .map(|(src, tgt)| (tgt, src))
+        .collect();
+
+    for (parent, child, edge) in &view.arcs {
+        original_parent.insert(*child, *parent);
+        arc_order.push((*parent, *child));
+        // Un-rename the edge: the view carries the target spelling, and the
+        // source arc has to be rebuilt under the source one.
+        let source_edge = reverse_edges
+            .get(edge)
+            .copied()
+            .cloned()
+            .unwrap_or_else(|| {
+                let mut e = edge.clone();
+                if let Some(src) = reverse_remap.get(&e.src) {
+                    e.src = src.clone();
+                }
+                if let Some(tgt) = reverse_remap.get(&e.tgt) {
+                    e.tgt = tgt.clone();
+                }
+                e
+            });
+        arc_edges.insert((*parent, *child), source_edge);
+    }
+
+    // The source's `extra_fields` at each node, likewise derived. The
+    // forward pass writes each transform's target there; when that target
+    // also names a child edge the write was a *shadow* over a child the
+    // source carried, and the source itself had no such entry. Dropping
+    // those keys is what distinguishes the reconstruction from the
+    // no-snapshot fallback, which leaves the inverted value sitting in
+    // `extra_fields` and hands back a node the source never had. Every
+    // other key is one the source did carry, and `put` applies the
+    // inverse to it.
+    let mut original_extra_fields = HashMap::new();
+    let reverse_remap_for_fields = build_reverse_remap(&lens.compiled.vertex_remap);
+    for (&id, node) in &view.nodes {
+        let src_anchor = reverse_remap_for_fields
+            .get(&node.anchor)
+            .unwrap_or(&node.anchor);
+        let Some(transforms) = lens.compiled.field_transforms.get(src_anchor) else {
+            original_extra_fields.insert(id, node.extra_fields.clone());
+            continue;
+        };
+        let child_names: HashSet<String> = view
+            .arcs
+            .iter()
+            .filter(|(parent, _, _)| *parent == id)
+            .map(|(_, _, edge)| edge.name.as_deref().unwrap_or(&edge.tgt).to_string())
+            .collect();
+        let shadowed: HashSet<&str> = transforms
+            .iter()
+            .filter_map(transform_target_key)
+            .filter(|key| child_names.contains(*key))
+            .collect();
+        let mut fields = node.extra_fields.clone();
+        fields.retain(|key, _| !shadowed.contains(key.as_str()));
+        original_extra_fields.insert(id, fields);
+    }
+
+    let complement = Complement {
+        original_parent,
+        arc_edges,
+        arc_order,
+        original_extra_fields,
+        source_fingerprint: schema_fingerprint(&lens.src_schema),
+        ..Complement::empty()
+    };
+
+    put(lens, view, &complement)
+}
+
+/// The `extra_fields` key a transform writes, when it writes one.
+fn transform_target_key(transform: &panproto_inst::FieldTransform) -> Option<&str> {
+    use panproto_inst::FieldTransform;
+    match transform {
+        FieldTransform::ApplyExpr { key, .. } | FieldTransform::AddField { key, .. } => {
+            Some(key.as_str())
+        }
+        FieldTransform::ComputeField { target_key, .. } => Some(target_key.as_str()),
+        FieldTransform::RenameField { new_key, .. } => Some(new_key.as_str()),
+        _ => None,
     }
 }
 

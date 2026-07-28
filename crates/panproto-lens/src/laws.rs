@@ -101,12 +101,22 @@ pub fn instances_equivalent(a: &WInstance, b: &WInstance) -> bool {
         return false;
     }
 
-    // Compare arcs (order-independent): sort by (parent, child, edge) then compare.
+    // Compare the arc *set*: sort by (parent, child, edge) then compare.
     let mut arcs_a: Vec<_> = a.arcs.clone();
     let mut arcs_b: Vec<_> = b.arcs.clone();
     arcs_a.sort();
     arcs_b.sort();
     if arcs_a != arcs_b {
+        return false;
+    }
+
+    // And compare the order children appear in under each parent. The
+    // children of a collection node are its elements in sequence, so two
+    // instances with the same arc set but a different order serialize to
+    // different arrays. Comparing only the sorted set reports such a pair
+    // as equivalent, which is how a backward pass that permuted every
+    // array could satisfy `GetPut` while handing back reordered records.
+    if child_sequences(a) != child_sequences(b) {
         return false;
     }
 
@@ -123,6 +133,18 @@ pub fn instances_equivalent(a: &WInstance, b: &WInstance) -> bool {
     }
 
     true
+}
+
+/// The ordered child list of every parent, keyed by parent id.
+///
+/// This is the coordinate that array serialization reads: a collection
+/// node's children *are* its elements, in arc order.
+fn child_sequences(instance: &WInstance) -> std::collections::HashMap<u32, Vec<u32>> {
+    let mut seqs: std::collections::HashMap<u32, Vec<u32>> = std::collections::HashMap::new();
+    for (parent, child, _) in &instance.arcs {
+        seqs.entry(*parent).or_default().push(*child);
+    }
+    seqs
 }
 
 /// Structural equivalence of two [`Complement`]s.
