@@ -17,8 +17,9 @@ use panproto_gat::{CoercionClass, Name};
 use panproto_inst::value::Value;
 use panproto_inst::{CompiledMigration, FieldTransform, WInstance, parse_json};
 use panproto_lens::asymmetric::get;
+use panproto_lens::protolens::{ProtolensChain, combinators};
 use panproto_lens::{Lens, compose};
-use panproto_schema::{Edge, Schema, Vertex};
+use panproto_schema::{Edge, Protocol, Schema, Vertex};
 use smallvec::SmallVec;
 
 fn make_schema(verts: &[(&str, &str)], edge_list: &[Edge]) -> Schema {
@@ -98,17 +99,61 @@ fn identity_migration(schema: &Schema) -> CompiledMigration {
     }
 }
 
-/// `m1`: rename the schema edge `name → displayName`.
-fn rename_edge_lens(src: &Schema, tgt: &Schema) -> Lens {
-    let src_edge = src.edges.keys().next().expect("one edge").clone();
-    let tgt_edge = tgt.edges.keys().next().expect("one edge").clone();
-    let mut compiled = identity_migration(src);
-    compiled.edge_remap.insert(src_edge, tgt_edge);
-    Lens {
-        compiled,
-        src_schema: src.clone(),
-        tgt_schema: tgt.clone(),
+fn test_protocol() -> Protocol {
+    Protocol {
+        name: "test".into(),
+        schema_theory: "ThGraph".into(),
+        instance_theory: "ThWType".into(),
+        edge_rules: vec![],
+        obj_kinds: vec!["object".into(), "string".into()],
+        constraint_sorts: vec![],
+        ..Protocol::default()
     }
+}
+
+/// `m1`: rename the schema edge carried by `parent -> field`, built the way
+/// a caller builds one.
+///
+/// This goes through `combinators::rename_field(..).instantiate(..)` rather
+/// than assembling a `CompiledMigration` by hand. The distinction is the
+/// whole of #251: hand-assembling one lets a test set `edge_remap` directly,
+/// while instantiation has to derive it, and for a long time did not. A
+/// hand-built fixture exercises the conjugation but not the path any caller
+/// reaches it by, so it passed while the combinator path stayed broken.
+fn rename_edge_lens(src: &Schema, parent: &str, field: &str, old: &str, new: &str) -> Lens {
+    combinators::rename_field(
+        Name::from(parent),
+        Name::from(field),
+        Name::from(old),
+        Name::from(new),
+    )
+    .instantiate(src, &test_protocol())
+    .expect("rename_field instantiates")
+}
+
+/// The relabeling a rename performs is recorded on the migration, not left
+/// implicit in the rewritten target schema.
+#[test]
+fn instantiate_records_the_edge_relabeling() {
+    let src = user_schema("name");
+    let lens = rename_edge_lens(&src, "user", "user.name", "name", "displayName");
+
+    assert_eq!(
+        lens.compiled.edge_remap.len(),
+        1,
+        "the rename must appear on the compiled migration, or nothing \
+         reasoning about the migration can see it: {:?}",
+        lens.compiled.edge_remap
+    );
+    let (from, to) = lens.compiled.edge_remap.iter().next().expect("one entry");
+    assert_eq!(from.name.as_deref(), Some(&*Name::from("name")));
+    assert_eq!(to.name.as_deref(), Some(&*Name::from("displayName")));
+
+    // A renamed edge survives under its new name; it is not a drop.
+    assert!(
+        lens.compiled.surviving_edges.contains(from) && lens.compiled.surviving_edges.contains(to),
+        "both spellings of a surviving edge belong in the surviving set"
+    );
 }
 
 /// `m2`: identity chain carrying `ComputeField { slug, lower(<field>) }`.
@@ -148,7 +193,7 @@ fn composite_agrees_with_sequential_across_an_edge_rename() {
     let instance: WInstance =
         parse_json(&src, "user", &serde_json::json!({"name": "Alice"})).expect("parse");
 
-    let l1 = rename_edge_lens(&src, &mid);
+    let l1 = rename_edge_lens(&src, "user", "user.name", "name", "displayName");
     let l2 = compute_slug_lens(&mid, "displayName");
 
     // Sequential: get(m2)(get(m1)(x)).
@@ -187,7 +232,7 @@ fn composite_rejects_an_expression_written_against_the_wrong_frame() {
     let instance: WInstance =
         parse_json(&src, "user", &serde_json::json!({"name": "Alice"})).expect("parse");
 
-    let l1 = rename_edge_lens(&src, &mid);
+    let l1 = rename_edge_lens(&src, "user", "user.name", "name", "displayName");
     // `name` is not a field of m2's input schema, which presents `displayName`.
     let l2 = compute_slug_lens(&mid, "name");
 
@@ -269,8 +314,8 @@ fn rename_chain_resolves_transitively() {
     let instance: WInstance =
         parse_json(&s_a, "user", &serde_json::json!({"a": "Alice"})).expect("parse");
 
-    let l_ab = rename_edge_lens(&s_a, &s_b);
-    let l_bc = rename_edge_lens(&s_b, &s_c);
+    let l_ab = rename_edge_lens(&s_a, "user", "user.name", "a", "b");
+    let l_bc = rename_edge_lens(&s_b, "user", "user.name", "b", "c");
     let l2 = compute_slug_lens(&s_c, "c");
 
     let chained = compose(&l_ab, &l_bc).expect("compose the two renames");
@@ -320,20 +365,35 @@ fn rename_swap_conjugates_simultaneously() {
     let instance: WInstance =
         parse_json(&src, "user", &serde_json::json!({"a": "AAA", "b": "BBB"})).expect("parse");
 
-    let mut m1 = identity_migration(&src);
-    for src_edge in src.edges.keys() {
-        let mate = mid
-            .edges
-            .keys()
-            .find(|e| e.tgt == src_edge.tgt)
-            .expect("same target vertex on both sides");
-        m1.edge_remap.insert(src_edge.clone(), mate.clone());
-    }
-    let l1 = Lens {
-        compiled: m1,
-        src_schema: src,
-        tgt_schema: mid.clone(),
-    };
+    // Built through the combinators: a swap is three renames via a
+    // temporary, and instantiation collapses them into the simultaneous
+    // relabeling `{a → b, b → a}` on the compiled migration.
+    let steps: Vec<_> = [
+        ("user.x", "a", "tmp"),
+        ("user.y", "b", "a"),
+        ("user.x", "tmp", "b"),
+    ]
+    .iter()
+    .flat_map(|(field, old, new)| {
+        combinators::rename_field(
+            Name::from("user"),
+            Name::from(*field),
+            Name::from(*old),
+            Name::from(*new),
+        )
+        .steps
+    })
+    .collect();
+    let l1 = ProtolensChain::new(steps)
+        .instantiate(&src, &test_protocol())
+        .expect("the swap chain instantiates");
+
+    assert_eq!(
+        l1.compiled.edge_remap.len(),
+        2,
+        "the chain collapses to a two-entry swap: {:?}",
+        l1.compiled.edge_remap
+    );
 
     // m2 reads both swapped names, so a sequential rewrite would collapse them.
     let mut m2 = identity_migration(&mid);
@@ -392,7 +452,7 @@ fn apply_expr_on_a_renamed_edge_writes_to_the_output_name() {
     let instance: WInstance =
         parse_json(&src, "user", &serde_json::json!({"name": "Alice"})).expect("parse");
 
-    let l1 = rename_edge_lens(&src, &mid);
+    let l1 = rename_edge_lens(&src, "user", "user.name", "name", "displayName");
 
     let mut m2 = identity_migration(&mid);
     m2.field_transforms.insert(
