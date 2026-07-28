@@ -99,12 +99,17 @@ impl Complement {
         Self::default()
     }
 
-    /// Returns `true` if the complement discards no data (lossless
-    /// transformation).
+    /// Returns `true` if every field of the complement is unset.
     ///
     /// The [`source_fingerprint`](Self::source_fingerprint) is provenance
-    /// metadata rather than discarded data, so a lossless projection that
-    /// still records a fingerprint counts as empty.
+    /// metadata rather than discarded data, so a projection that records
+    /// only a fingerprint counts as empty.
+    ///
+    /// This is a statement about the *representation*, not about
+    /// information loss: a lens that discards nothing still populates
+    /// `original_parent`, `arc_order`, and `arc_edges`, so it is not empty
+    /// by this measure. For the question "did this projection lose
+    /// anything", see [`residue_is_trivial`](Self::residue_is_trivial).
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.dropped_nodes.is_empty()
@@ -114,8 +119,42 @@ impl Complement {
             && self.original_parent.is_empty()
             && self.original_extra_fields.is_empty()
             && self.arc_edges.is_empty()
+            && self.arc_order.is_empty()
             && self.original_values.is_empty()
             && self.synthesized_nodes.is_empty()
+            && self.contracted_into.is_empty()
+    }
+
+    /// Returns `true` when this complement carries no information that the
+    /// view lacks, i.e. when the complement is terminal.
+    ///
+    /// A lens with complement is a decomposition `S ≅ V × C`: `get` splits
+    /// a source into a view and a complement, and `put` reassembles it. The
+    /// complement's fields divide into two kinds under that reading, and
+    /// only one of them is `C`:
+    ///
+    /// * **Residue.** Dropped nodes, arcs, and fans; snapshots of values
+    ///   the forward pass overwrote; contraction choices. This is the
+    ///   information present in `S` and absent from `V`, so it *is* the
+    ///   complement, and no amount of looking at `V` recovers it.
+    /// * **Bookkeeping.** `original_parent`, `arc_order`, `arc_edges`.
+    ///   These record the shape of the reassembly, which is a function of
+    ///   the view's own structure together with the source schema rather
+    ///   than of the particular record. They make `put` cheap and
+    ///   deterministic; they carry no information the view lacks.
+    ///
+    /// So `C ≅ 1` exactly when the residue is empty, whatever bookkeeping
+    /// is present. That is the condition under which `S ≅ V × 1 ≅ V`, and
+    /// therefore the condition under which a source can be reconstructed
+    /// from a view alone. See `panproto_lens::put_without_complement`.
+    #[must_use]
+    pub fn residue_is_trivial(&self) -> bool {
+        self.dropped_nodes.is_empty()
+            && self.dropped_arcs.is_empty()
+            && self.dropped_fans.is_empty()
+            && self.contraction_choices.is_empty()
+            && self.original_extra_fields.is_empty()
+            && self.original_values.is_empty()
             && self.contracted_into.is_empty()
     }
 }
