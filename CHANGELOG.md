@@ -2,6 +2,12 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [0.69.0] - 2026-07-30
+
+### Added
+
+- **View-only reconstruction is reachable from JavaScript** (`panproto-wasm`, `@panproto/core`): 0.68.0 added `put_without_complement` in the Rust core, which reconstructs a source from a stored view when the lens is an isomorphism, but the binding exposed only `putJson`, which needs the complement a prior in-process `getJson` produced. A record read back from storage has no such complement, so the capability added for exactly that case was unreachable from the SDK. `LensHandle.putJsonWithoutComplement(view, rootVertex)` closes that, backed by a new `put_json_without_complement` at the WASM boundary. Since availability is a property of the lens rather than of any record, `isIsomorphism()` and `isomorphismObstruction()` answer it once for every view a lens will produce: the latter returns the first failing condition (a dropped vertex, a dropped edge, or a non-injective value transform) or `null`, so a caller can branch statically instead of catching a throw. Closes #255.
+
 ## [0.68.0] - 2026-07-28
 
 ### Added
