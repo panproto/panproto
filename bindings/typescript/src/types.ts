@@ -542,6 +542,8 @@ export interface WasmExports {
   lift_json(migration: number, json: Uint8Array, root_vertex: string): Uint8Array;
   get_json(migration: number, json: Uint8Array, root_vertex: string): Uint8Array;
   put_json(migration: number, view_json: Uint8Array, complement: Uint8Array, root_vertex: string): Uint8Array;
+  put_json_without_complement(migration: number, view_json: Uint8Array, root_vertex: string): Uint8Array;
+  lens_isomorphism_obstruction(migration: number): string;
   instance_element_count(instance: Uint8Array): number;
   check_lens_laws(migration: number, instance: Uint8Array): Uint8Array;
   check_get_put(migration: number, instance: Uint8Array): Uint8Array;

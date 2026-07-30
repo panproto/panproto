@@ -490,6 +490,91 @@ describe('compileLensDocument', () => {
     proto[Symbol.dispose]();
   });
 
+  // A stored view has no in-process `getJson` behind it and so no
+  // complement. Reconstructing from it is possible exactly when the lens
+  // is an isomorphism, since a lens with complement decomposes its source
+  // as `S ≅ V × C` and a view determines its source only when `C ≅ 1`.
+  it('putJsonWithoutComplement reconstructs from a stored view', () => {
+    const proto = buildCustomProto();
+    const schema = buildCustomSchema(proto);
+
+    // The identity chain: nothing dropped, nothing transformed, so the
+    // complement is terminal.
+    const chain = pp.compileLensDocument(
+      { id: 'demo.identity', source: 'v1', target: 'v2', steps: [] },
+      'rec:body',
+    );
+    const lens = chain.instantiate(schema);
+
+    expect(lens.isIsomorphism()).toBe(true);
+    expect(lens.isomorphismObstruction()).toBeNull();
+
+    // No `getJson` first: this is a record as it would come back from
+    // storage.
+    const restored = lens.putJsonWithoutComplement(
+      { text: 'hello' },
+      'rec:body',
+    ) as Record<string, unknown>;
+    expect(restored.text).toBe('hello');
+
+    lens[Symbol.dispose]();
+    chain[Symbol.dispose]();
+    schema[Symbol.dispose]();
+    proto[Symbol.dispose]();
+  });
+
+  it('putJsonWithoutComplement refuses a lens that is not an isomorphism', () => {
+    const proto = buildCustomProto();
+    const schema = buildCustomSchema(proto);
+
+    // A computed field with no inverse is not injective, so distinct
+    // sources share a view and no reconstruction exists.
+    const chain = pp.compileLensDocument(
+      {
+        id: 'demo.lossy',
+        source: 'v1',
+        target: 'v2',
+        steps: [{ compute_field: { target: 'g', expr: '{ a = text }' } }],
+      },
+      'rec:body',
+    );
+    const lens = chain.instantiate(schema);
+
+    const obstruction = lens.isomorphismObstruction();
+    expect(obstruction).not.toBeNull();
+    expect(lens.isIsomorphism()).toBe(false);
+
+    // And the refusal carries the same reason rather than being opaque.
+    expect(() => lens.putJsonWithoutComplement({ text: 'hello' }, 'rec:body')).toThrow();
+
+    lens[Symbol.dispose]();
+    chain[Symbol.dispose]();
+    schema[Symbol.dispose]();
+    proto[Symbol.dispose]();
+  });
+
+  it('putJsonWithoutComplement agrees with putJson on an isomorphism', () => {
+    const proto = buildCustomProto();
+    const schema = buildCustomSchema(proto);
+    const chain = pp.compileLensDocument(
+      { id: 'demo.agree', source: 'v1', target: 'v2', steps: [] },
+      'rec:body',
+    );
+    const lens = chain.instantiate(schema);
+
+    const record = { text: 'hello' };
+    const { view, complement } = lens.getJson(record, 'rec:body');
+    const withComplement = lens.putJson(view, complement, 'rec:body');
+    const withoutComplement = lens.putJsonWithoutComplement(view, 'rec:body');
+
+    expect(withoutComplement).toEqual(withComplement);
+
+    lens[Symbol.dispose]();
+    chain[Symbol.dispose]();
+    schema[Symbol.dispose]();
+    proto[Symbol.dispose]();
+  });
+
   it('putJson restores the source record from a view and complement', () => {
     const proto = buildCustomProto();
     const schema = buildCustomSchema(proto);
