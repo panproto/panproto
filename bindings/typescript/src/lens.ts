@@ -766,6 +766,81 @@ export class LensHandle implements Disposable {
   }
 
   /**
+   * Reconstruct a source record from a view alone, with no complement.
+   *
+   * {@link putJson} needs the complement a prior {@link getJson} produced,
+   * which a record read back from storage does not have. This is the path
+   * for that case, and it is available exactly when the lens is an
+   * isomorphism: a lens with complement decomposes its source as
+   * `S ≅ V × C`, so a view determines its source precisely when `C ≅ 1`.
+   * For any other lens distinct sources share the view and there is
+   * nothing to return, which is why this throws rather than guessing.
+   *
+   * Use {@link isomorphismObstruction} to decide in advance whether a
+   * given lens supports it; the condition is a property of the lens, not
+   * of a record, so one check answers for every view it produces.
+   *
+   * @param view - The stored view as a JS object or JSON string
+   * @param rootVertex - The target-schema vertex the view is rooted at
+   * @returns The reconstructed source record as a JS object
+   * @throws {@link WasmError} if the lens is not an isomorphism, naming
+   *         the condition that fails, or if parsing fails
+   */
+  putJsonWithoutComplement(view: unknown, rootVertex: string): unknown {
+    const viewBytes = typeof view === 'string'
+      ? new TextEncoder().encode(view)
+      : new TextEncoder().encode(JSON.stringify(view));
+
+    try {
+      const outputBytes = this.#wasm.exports.put_json_without_complement(
+        this.#handle.id,
+        viewBytes,
+        rootVertex,
+      );
+      return JSON.parse(new TextDecoder().decode(outputBytes));
+    } catch (error) {
+      throw new WasmError(
+        `put_json_without_complement failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
+   * Why this lens is not an isomorphism, or `null` when it is one.
+   *
+   * An isomorphism is a lens whose complement is terminal: every vertex
+   * survives, every edge survives up to renaming, and every value
+   * transform is invertible. Those are exactly the conditions under which
+   * {@link putJsonWithoutComplement} can reconstruct a source from a view,
+   * so this is the static test for whether that path is open.
+   *
+   * @returns The first failing condition, or `null` if the lens is an
+   *          isomorphism
+   * @throws {@link WasmError} if the WASM call fails
+   */
+  isomorphismObstruction(): string | null {
+    try {
+      const detail = this.#wasm.exports.lens_isomorphism_obstruction(this.#handle.id);
+      return detail === '' ? null : detail;
+    } catch (error) {
+      throw new WasmError(
+        `lens_isomorphism_obstruction failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
+   * Whether this lens is an isomorphism, so that a source is determined by
+   * its view alone. See {@link isomorphismObstruction} for the reason when
+   * it is not.
+   */
+  isIsomorphism(): boolean {
+    return this.isomorphismObstruction() === null;
+  }
+
+  /**
    * Check both GetPut and PutGet lens laws for an instance.
    *
    * @param instance - MessagePack-encoded instance data

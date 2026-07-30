@@ -83,6 +83,8 @@ export interface WasmGlueModule {
   lift_json: WasmExports['lift_json'];
   get_json: WasmExports['get_json'];
   put_json: WasmExports['put_json'];
+  put_json_without_complement: WasmExports['put_json_without_complement'];
+  lens_isomorphism_obstruction: WasmExports['lens_isomorphism_obstruction'];
   instance_element_count: WasmExports['instance_element_count'];
   auto_generate_protolens: WasmExports['auto_generate_protolens'];
   auto_generate_candidates: WasmExports['auto_generate_candidates'];
@@ -226,6 +228,8 @@ export async function loadWasm(input?: string | URL | WasmGlueModule): Promise<W
       lift_json: glue.lift_json,
       get_json: glue.get_json,
       put_json: glue.put_json,
+      put_json_without_complement: glue.put_json_without_complement,
+      lens_isomorphism_obstruction: glue.lens_isomorphism_obstruction,
       instance_element_count: glue.instance_element_count,
       auto_generate_protolens: glue.auto_generate_protolens,
       auto_generate_candidates: glue.auto_generate_candidates,

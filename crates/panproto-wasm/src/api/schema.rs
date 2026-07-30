@@ -739,6 +739,93 @@ pub fn put_json(
     })
 }
 
+/// Reconstruct a source record from a view alone, with no complement.
+///
+/// A lens with complement decomposes its source as `S ≅ V × C`, so a view
+/// determines its source exactly when `C ≅ 1`, which is to say exactly when
+/// the lens is an isomorphism. That is the case this covers, and it is the
+/// only case in which a section of the forward direction exists: otherwise
+/// distinct sources share the view and there is nothing to return.
+///
+/// This is the path for a *stored* view, which by definition has no
+/// in-process `get_json` behind it and so no complement to pass to
+/// [`put_json`]. Use [`lens_isomorphism_obstruction`] to decide in advance
+/// whether a given lens supports it.
+///
+/// # Errors
+///
+/// Returns `JsError` when the lens is not an isomorphism, naming which
+/// condition fails, or when parsing or serialization fails.
+#[wasm_bindgen]
+pub fn put_json_without_complement(
+    migration: u32,
+    view_json_bytes: &[u8],
+    root_vertex: &str,
+) -> Result<Vec<u8>, JsError> {
+    let view_json: serde_json::Value =
+        serde_json::from_slice(view_json_bytes).map_err(|e| WasmError::DeserializationFailed {
+            reason: e.to_string(),
+        })?;
+
+    let result = slab::with_resource(migration, |r| {
+        let (compiled, src_schema, tgt_schema) = extract_migration_owned(r)?;
+
+        let tgt_root = find_root(root_vertex, &tgt_schema)?;
+        let view_instance = inst::parse_json(&tgt_schema, &tgt_root, &view_json).map_err(|e| {
+            WasmError::ParseFailed {
+                reason: e.to_string(),
+            }
+        })?;
+
+        let lens_obj = lens::Lens {
+            compiled,
+            src_schema: src_schema.clone(),
+            tgt_schema,
+        };
+
+        let restored = lens::put_without_complement(&lens_obj, &view_instance).map_err(|e| {
+            WasmError::PutFailed {
+                reason: e.to_string(),
+            }
+        })?;
+
+        let out_json = inst::to_json(&src_schema, &restored);
+        Ok(out_json)
+    })?;
+
+    serde_json::to_vec(&result).map_err(|e| -> JsError {
+        WasmError::SerializationFailed {
+            reason: e.to_string(),
+        }
+        .into()
+    })
+}
+
+/// Why this lens is not an isomorphism, or an empty string when it is one.
+///
+/// A caller can use this to decide statically whether
+/// [`put_json_without_complement`] is available for a lens, rather than
+/// discovering it from a thrown error. The condition is a property of the
+/// lens rather than of any record, so one check answers for every view it
+/// will ever produce.
+///
+/// # Errors
+///
+/// Returns `JsError` if the handle is not a migration.
+#[wasm_bindgen]
+pub fn lens_isomorphism_obstruction(migration: u32) -> Result<String, JsError> {
+    let obstruction = slab::with_resource(migration, |r| {
+        let (compiled, src_schema, tgt_schema) = extract_migration_owned(r)?;
+        let lens_obj = lens::Lens {
+            compiled,
+            src_schema,
+            tgt_schema,
+        };
+        Ok(lens_obj.obstruction_to_isomorphism().unwrap_or_default())
+    })?;
+    Ok(obstruction)
+}
+
 /// Find a root vertex in the schema, preferring object-kind vertices.
 fn find_root(
     root_vertex: &str,
