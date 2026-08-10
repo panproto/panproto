@@ -8,7 +8,7 @@ import Testing
 struct InstanceFixtureTests {
     @Test("the post record replays as an instance")
     func postInstanceReplays() throws {
-        let instance = try replayed(WInstance.self, from: "instance-post-0")
+        let instance = try replayed(Instance.self, from: "instance-post-0")
 
         #expect(instance.root == 0)
         #expect(instance.schemaRoot == "app.bsky.feed.post")
@@ -19,7 +19,7 @@ struct InstanceFixtureTests {
 
     @Test("the root node carries a discriminator and no value")
     func rootNodeShape() throws {
-        let instance = try replayed(WInstance.self, from: "instance-post-0")
+        let instance = try replayed(Instance.self, from: "instance-post-0")
         let root = try #require(instance.rootNode)
 
         #expect(root.id == 0)
@@ -34,7 +34,7 @@ struct InstanceFixtureTests {
 
     @Test("a leaf carries its value as a present string")
     func leafValues() throws {
-        let instance = try replayed(WInstance.self, from: "instance-post-0")
+        let instance = try replayed(Instance.self, from: "instance-post-0")
         let createdAt = try #require(instance.nodes[1])
 
         #expect(createdAt.anchor == "app.bsky.feed.post:body.createdAt")
@@ -47,7 +47,7 @@ struct InstanceFixtureTests {
 
     @Test("the traversal maps arrive as the engine computed them")
     func traversalMaps() throws {
-        let instance = try replayed(WInstance.self, from: "instance-post-0")
+        let instance = try replayed(Instance.self, from: "instance-post-0")
 
         #expect(instance.children(of: 0) == [1, 2, 4])
         #expect(instance.children(of: 2) == [3])
@@ -58,7 +58,7 @@ struct InstanceFixtureTests {
 
     @Test("arc order is the order the payload carries")
     func arcOrder() throws {
-        let instance = try replayed(WInstance.self, from: "instance-post-0")
+        let instance = try replayed(Instance.self, from: "instance-post-0")
         let pairs = instance.arcs.map { [$0.parent, $0.child] }
 
         #expect(pairs == [[0, 1], [2, 3], [0, 2], [0, 4]])
@@ -92,7 +92,7 @@ struct GetRecordFixtureTests {
         #expect(view.nodeCount == 5)
         #expect(view.arcs.count == 4)
         #expect(
-            try CBORDecoder().decode(WInstance.self, from: try CBOREncoder().encode(view))
+            try CBORDecoder().decode(Instance.self, from: try CBOREncoder().encode(view))
                 == view)
     }
 

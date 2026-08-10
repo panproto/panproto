@@ -66,7 +66,7 @@ public enum PanprotoError: Error, Hashable, Sendable {
         /// The status code the entry point returned.
         public let status: RawStatus
         /// The binding-side operation that failed, named the way the
-        /// public API names it (`Schema.validate`, `Lens.put`).
+        /// public API names it (`SchemaHandle.violations(against:)`, `CompiledMigrationHandle.put`).
         public let operation: String
         /// The drained envelope, absent when the engine had no error
         /// pending. A missing envelope alongside a non-ok status means
@@ -115,7 +115,7 @@ public enum PanprotoError: Error, Hashable, Sendable {
         /// `kind` names the keyed map that disagreed.
         case complementConflict(kind: String, key: String)
         /// A handle was out of bounds or had already been freed.
-        case invalidHandle(UInt32)
+        case invalidHandle(handle: UInt32)
         /// A handle pointed at a different slab variant than the entry
         /// point expected.
         case typeMismatch(expected: String, actual: String)
@@ -153,21 +153,22 @@ public enum PanprotoError: Error, Hashable, Sendable {
     }
 
     /// Build the case for a domain around a detail.
-    public static func make(domain: Domain, detail: Detail) -> PanprotoError {
-        switch domain {
-        case .parse: .parse(detail)
-        case .migration: .migration(detail)
-        case .lens: .lens(detail)
-        case .schemaValidation: .schemaValidation(detail)
-        case .check: .check(detail)
-        case .existenceCheck: .existenceCheck(detail)
-        case .expr: .expr(detail)
-        case .gat: .gat(detail)
-        case .io: .io(detail)
-        case .vcs: .vcs(detail)
-        case .gitBridge: .gitBridge(detail)
-        case .project: .project(detail)
-        }
+    public init(domain: Domain, detail: Detail) {
+        self =
+            switch domain {
+            case .parse: .parse(detail)
+            case .migration: .migration(detail)
+            case .lens: .lens(detail)
+            case .schemaValidation: .schemaValidation(detail)
+            case .check: .check(detail)
+            case .existenceCheck: .existenceCheck(detail)
+            case .expr: .expr(detail)
+            case .gat: .gat(detail)
+            case .io: .io(detail)
+            case .vcs: .vcs(detail)
+            case .gitBridge: .gitBridge(detail)
+            case .project: .project(detail)
+            }
     }
 }
 
@@ -200,7 +201,7 @@ extension PanprotoError {
             drained.status.isOK && !drained.bytes.isEmpty
             ? try? CBORDecoder().decode(ErrorEnvelope.self, from: drained.bytes)
             : nil
-        return make(
+        return PanprotoError(
             domain: domain,
             detail: Detail(
                 status: status,
@@ -229,7 +230,7 @@ extension PanprotoError.Fault {
             guard let value = Self.trailingUInt32(of: message, after: "invalid handle: ") else {
                 return nil
             }
-            self = .invalidHandle(value)
+            self = .invalidHandle(handle: value)
             return
         case "type_mismatch":
             // `type mismatch: expected {expected}, got {actual}`

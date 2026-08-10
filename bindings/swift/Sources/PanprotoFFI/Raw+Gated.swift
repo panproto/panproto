@@ -1,5 +1,6 @@
 import CPanproto
 import Foundation
+import PanprotoStructural
 
 // The feature-gated third of the C ABI: full-AST parsing (`pp_parse_*`),
 // multi-file project assembly (`pp_project_*`), and the git bridge

@@ -367,7 +367,7 @@ struct NodeWireTests {
 struct FanWireTests {
     @Test("A fan round trips and writes its three keys in order")
     func fanRoundTrips() throws {
-        let fan = Fan(hyperEdgeID: "h", parent: 1, children: ["l": 2])
+        let fan = Fan(hyperEdgeId: "h", parent: 1, children: ["l": 2])
         #expect(try roundTripped(fan) == fan)
         #expect(
             try encodedHex(fan)
@@ -393,13 +393,13 @@ struct InstanceArcWireTests {
     }
 }
 
-// MARK: - WInstance
+// MARK: - Instance
 
-@Suite("WInstance")
-struct WInstanceWireTests {
+@Suite("Instance")
+struct InstanceWireTests {
     /// An instance of two nodes and the one arc between them.
-    static func sample() -> WInstance {
-        WInstance(
+    static func sample() -> Instance {
+        Instance(
             nodes: [
                 0: Node(id: 0, anchor: "v"),
                 1: Node(id: 1, anchor: "w", value: .present(.string("x"))),
@@ -413,7 +413,7 @@ struct WInstanceWireTests {
 
     @Test("A one-node instance writes seven keys and integer node keys")
     func oneNodeInstance() throws {
-        let instance = WInstance(
+        let instance = Instance(
             nodes: [0: Node(id: 0, anchor: "v")],
             arcs: [],
             fans: [],
@@ -437,7 +437,7 @@ struct WInstanceWireTests {
 
     @Test("The traversal maps are derived from arc order")
     func traversalMapsAreDerived() {
-        let instance = WInstance(
+        let instance = Instance(
             nodes: [:],
             arcs: [
                 InstanceArc(parent: 0, child: 3, edge: sampleEdge),
@@ -461,7 +461,7 @@ struct WInstanceWireTests {
             "a6656e6f646573a06461726373806466616e738064726f6f74006b736368"
             + "656d615f726f6f7461766a706172656e745f6d6170a0"
         #expect(throws: (any Error).self) {
-            try CBORDecoder().decode(WInstance.self, from: bytes(payload))
+            try CBORDecoder().decode(Instance.self, from: bytes(payload))
         }
     }
 
@@ -530,7 +530,7 @@ struct ComplementWireTests {
         let complement = Complement(
             droppedNodes: [4: Node(id: 4, anchor: "v", value: .absent)],
             droppedArcs: [InstanceArc(parent: 4, child: 5, edge: sampleEdge)],
-            droppedFans: [Fan(hyperEdgeID: "h", parent: 4, children: ["l": 5])],
+            droppedFans: [Fan(hyperEdgeId: "h", parent: 4, children: ["l": 5])],
             contractionChoices: [NodePair(parent: 1, child: 2): sampleEdge],
             originalParent: [2: 1],
             sourceFingerprint: .max,
@@ -603,7 +603,7 @@ struct GetRecordEnvelopeWireTests {
 
     @Test("The second pass decodes the view and the complement")
     func secondPassDecodes() throws {
-        let instance = WInstanceWireTests.sample()
+        let instance = InstanceWireTests.sample()
         let complement = Complement(arcOrder: [NodePair(parent: 0, child: 1)])
         let encoder = CBOREncoder()
         let envelope = GetRecordEnvelope(
@@ -743,5 +743,47 @@ struct EnrichmentPayloadWireTests {
         let spec = PolicySpec(policy: "p")
         #expect(try encodedHex(spec) == "a166706f6c6963796170")
         #expect(try roundTripped(spec) == spec)
+    }
+}
+
+// MARK: - Derived counts and lookups
+
+@Suite("what an instance and a complement count")
+struct InstanceAccessorTests {
+    @Test("an instance counts its nodes, arcs, and fans")
+    func instanceCounts() {
+        let instance = InstanceWireTests.sample()
+        #expect(instance.nodeCount == 2)
+        #expect(instance.arcCount == 1)
+        #expect(instance.fanCount == 0)
+    }
+
+    @Test("a node is reachable and writable by subscript")
+    func instanceSubscripts() {
+        var instance = InstanceWireTests.sample()
+        #expect(instance[node: 1]?.anchor == "w")
+        #expect(instance[node: 99] == nil)
+
+        instance[node: 1]?.anchor = "renamed"
+        #expect(instance.nodes[1]?.anchor == "renamed")
+    }
+
+    @Test("a complement counts what it discarded")
+    func complementCounts() {
+        let empty = Complement()
+        #expect(empty.isEmpty)
+        #expect(empty.droppedNodeCount == 0)
+        #expect(empty.droppedArcCount == 0)
+        #expect(empty.droppedFanCount == 0)
+
+        let populated = Complement(
+            droppedNodes: [3: Node(id: 3, anchor: "gone")],
+            droppedArcs: [InstanceArc(parent: 0, child: 3, edge: sampleEdge)],
+            droppedFans: [Fan(hyperEdgeId: "h", parent: 0, children: ["l": 3])]
+        )
+        #expect(!populated.isEmpty)
+        #expect(populated.droppedNodeCount == 1)
+        #expect(populated.droppedArcCount == 1)
+        #expect(populated.droppedFanCount == 1)
     }
 }

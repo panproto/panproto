@@ -19,7 +19,7 @@ import PanprotoFFI
 /// Subclasses are the fourteen slab variants. They add no stored
 /// state; they exist to make the variant a compile-time fact.
 @PanprotoEngine
-public class PanprotoHandle {
+open class PanprotoHandle {
     /// The slab index this handle owns.
     ///
     /// Reading it is safe from anywhere, because an index is just a
@@ -33,7 +33,11 @@ public class PanprotoHandle {
     /// The slab variant name the engine reports in a type-mismatch
     /// error, so a caught ``PanprotoError/Fault/typeMismatch(expected:actual:)``
     /// can be compared against a Swift type.
-    package class var slabVariant: String { "Unknown" }
+    ///
+    /// Overridable from outside this module, which is what lets the
+    /// vcs, parse, project, and git tiers declare the slab variants
+    /// they own alongside the operations that produce them.
+    open class var slabVariant: String { "Unknown" }
 
     /// Adopt a slab index returned by the raw layer.
     ///
@@ -68,6 +72,12 @@ public class PanprotoHandle {
 extension PanprotoHandle: Equatable, Hashable {
     /// Two handles are equal when they name the same slab entry of the
     /// same variant.
+    ///
+    /// The comparison is over live handles. The slab reuses an index
+    /// once an entry is freed, so a handle that has been released and
+    /// one allocated afterwards can name the same index while standing
+    /// for different resources; equality cannot see the difference and
+    /// does not claim to. Compare handles you still hold.
     public nonisolated static func == (lhs: PanprotoHandle, rhs: PanprotoHandle) -> Bool {
         type(of: lhs) == type(of: rhs) && lhs.rawValue == rhs.rawValue
     }
@@ -91,20 +101,20 @@ extension PanprotoHandle: CustomStringConvertible {
 /// A protocol: the schema theory a schema is a model of.
 @PanprotoEngine
 public final class ProtocolHandle: PanprotoHandle {
-    package override class var slabVariant: String { "Protocol" }
+    public override class var slabVariant: String { "Protocol" }
 }
 
 /// A schema: a model of some protocol's schema theory.
 @PanprotoEngine
 public final class SchemaHandle: PanprotoHandle {
-    package override class var slabVariant: String { "Schema" }
+    public override class var slabVariant: String { "Schema" }
 }
 
 /// An uncompiled migration: a mapping between two schemas that has not
 /// yet been checked for existence.
 @PanprotoEngine
 public final class MigrationHandle: PanprotoHandle {
-    package override class var slabVariant: String { "Migration" }
+    public override class var slabVariant: String { "Migration" }
 }
 
 /// A compiled migration, carrying the source and target schemas it was
@@ -114,20 +124,20 @@ public final class MigrationHandle: PanprotoHandle {
 /// is: `get`, `put`, and the law checkers all take one of these.
 @PanprotoEngine
 public final class CompiledMigrationHandle: PanprotoHandle {
-    package override class var slabVariant: String { "MigrationWithSchemas" }
+    public override class var slabVariant: String { "MigrationWithSchemas" }
 }
 
 /// A registry of instance codecs, one per protocol native
 /// representation.
 @PanprotoEngine
 public final class IoRegistryHandle: PanprotoHandle {
-    package override class var slabVariant: String { "IoRegistry" }
+    public override class var slabVariant: String { "IoRegistry" }
 }
 
 /// A generalized algebraic theory.
 @PanprotoEngine
 public final class TheoryHandle: PanprotoHandle {
-    package override class var slabVariant: String { "Theory" }
+    public override class var slabVariant: String { "Theory" }
 }
 
 /// A model of a theory: an interpretation of each sort as a carrier and
@@ -139,24 +149,24 @@ public final class TheoryHandle: PanprotoHandle {
 /// evaluating in it, or its carrier read out sort by sort.
 @PanprotoEngine
 public final class ModelHandle: PanprotoHandle {
-    package override class var slabVariant: String { "Model" }
+    public override class var slabVariant: String { "Model" }
 }
 
 /// A protolens chain: a schema-parameterized lens family, not yet
 /// instantiated at a schema.
 @PanprotoEngine
 public final class ProtolensChainHandle: PanprotoHandle {
-    package override class var slabVariant: String { "ProtolensChain" }
+    public override class var slabVariant: String { "ProtolensChain" }
 }
 
 /// A symmetric lens between two schemas.
 @PanprotoEngine
 public final class SymmetricLensHandle: PanprotoHandle {
-    package override class var slabVariant: String { "SymmetricLens" }
+    public override class var slabVariant: String { "SymmetricLens" }
 }
 
 /// A set of instances stored against a schema.
 @PanprotoEngine
 public final class DataSetHandle: PanprotoHandle {
-    package override class var slabVariant: String { "DataSet" }
+    public override class var slabVariant: String { "DataSet" }
 }

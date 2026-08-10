@@ -11,6 +11,37 @@
 // rendering, 64 characters, never as the raw 32-byte digest. That holds
 // for the detached HEAD commit as well.
 
+// MARK: - Object ids
+
+/// The two facts about a version-control object id that a host reading
+/// one needs, kept together rather than spread over call sites.
+///
+/// An id is a `String` everywhere on this boundary, which is the honest
+/// wire type. This is the namespace for what the engine's own id type
+/// adds on top of the string.
+public enum VcsObjectID {
+    /// How many hexadecimal characters an id is written with.
+    public static let length = 64
+
+    /// The id that stands for no object: sixty-four zeros.
+    ///
+    /// The engine writes this where a field has to name an object and
+    /// there is none, such as the parent of a first commit.
+    public static let zero = String(repeating: "0", count: length)
+
+    /// The abbreviated rendering of `id`: its first seven characters,
+    /// or the whole string when it is shorter.
+    ///
+    /// Seven is what the engine's own short rendering takes, and it is
+    /// enough to tell commits apart by eye in a log.
+    ///
+    /// - Parameter id: the full hexadecimal id.
+    /// - Returns: the abbreviation.
+    public static func short(_ id: String) -> String {
+        String(id.prefix(7))
+    }
+}
+
 // MARK: - HEAD state
 
 /// What HEAD points at.
@@ -68,14 +99,14 @@ public enum HeadState: Codable, Hashable, Sendable {
 public struct VcsAddResult: Codable, Hashable, Sendable {
     /// The staged schema tree's root object id, 64 lowercase hex
     /// characters.
-    public let schemaId: String
+    public var schemaId: String
     /// Whether a migration from HEAD was derived for this schema. False
     /// on a first commit, which has no HEAD to derive from.
-    public let autoDerived: Bool
+    public var autoDerived: Bool
     /// The validation verdict. A pending validation reads as valid.
-    public let valid: Bool
+    public var valid: Bool
     /// Why validation failed, empty when ``valid`` is true.
-    public let validationMessages: [String]
+    public var validationMessages: [String]
 
     /// The wire spelling of each field, in the order the engine writes
     /// them.
@@ -106,14 +137,14 @@ public struct VcsAddResult: Codable, Hashable, Sendable {
 /// What `pp_vcs_commit` reports about the commit it recorded.
 public struct VcsCommitResult: Codable, Hashable, Sendable {
     /// The new commit's object id, 64 lowercase hex characters.
-    public let commitId: String
+    public var commitId: String
     /// The commit message, echoed back verbatim.
-    public let message: String
+    public var message: String
     /// The author, echoed back verbatim.
-    public let author: String
+    public var author: String
     /// The commit time in Unix seconds, read back off the stored commit
     /// object; zero when that object cannot be re-read as a commit.
-    public let timestamp: UInt64
+    public var timestamp: UInt64
 
     /// The wire spelling of each field, in the order the engine writes
     /// them.
@@ -140,21 +171,21 @@ public struct VcsCommitResult: Codable, Hashable, Sendable {
 public struct LogEntry: Codable, Hashable, Sendable {
     /// This commit's object id, 64 lowercase hex characters. The stored
     /// commit object carries no id of its own; the engine recomputes it.
-    public let commitId: String
+    public var commitId: String
     /// The parent commit ids: none for a root commit, one for an
     /// ordinary commit, two for a merge.
-    public let parents: [String]
+    public var parents: [String]
     /// The author recorded on the commit.
-    public let author: String
+    public var author: String
     /// The commit time in Unix seconds.
-    public let timestamp: UInt64
+    public var timestamp: UInt64
     /// The commit message.
-    public let message: String
+    public var message: String
     /// The protocol this lineage tracks, for instance `atproto`.
-    public let protocolName: String
+    public var protocolName: String
     /// The schema tree's root object id at this commit, 64 lowercase hex
     /// characters.
-    public let schemaId: String
+    public var schemaId: String
 
     /// The wire spelling of each field, in the order the engine writes
     /// them. The protocol field is keyed `protocol`, which Swift
@@ -195,7 +226,7 @@ public struct LogEntry: Codable, Hashable, Sendable {
 public struct VcsLogResult: Codable, Hashable, Sendable {
     /// The commits reachable from HEAD, newest first, capped by the
     /// count the caller asked for. Empty when HEAD is unborn.
-    public let entries: [LogEntry]
+    public var entries: [LogEntry]
 
     /// The wire spelling of the field.
     private enum CodingKeys: String, CodingKey {
@@ -214,14 +245,14 @@ public struct VcsLogResult: Codable, Hashable, Sendable {
 /// What `pp_vcs_status` reports about the repository.
 public struct VcsStatus: Codable, Hashable, Sendable {
     /// What HEAD points at, read from the store.
-    public let headRef: HeadState
+    public var headRef: HeadState
     /// The commit HEAD resolves to, 64 lowercase hex characters, or nil
     /// for an unborn HEAD.
-    public let headCommit: String?
+    public var headCommit: String?
     /// Whether the index holds a staged schema.
-    public let hasStaged: Bool
+    public var hasStaged: Bool
     /// Whether the working state differs from HEAD.
-    public let workingDirty: Bool
+    public var workingDirty: Bool
 
     /// The wire spelling of each field, in the order the engine writes
     /// them.
@@ -262,12 +293,12 @@ public struct VcsStatus: Codable, Hashable, Sendable {
 /// write.
 public struct BranchInfo: Codable, Hashable, Sendable {
     /// The short branch name, with `refs/heads/` already stripped.
-    public let name: String
+    public var name: String
     /// The commit the branch points at, 64 lowercase hex characters.
-    public let target: String
+    public var target: String
     /// Whether HEAD tracks this branch. Every entry reads false when
     /// HEAD is detached.
-    public let isCurrent: Bool
+    public var isCurrent: Bool
 
     /// The wire spelling of each field, in the order the engine writes
     /// them.
@@ -290,7 +321,7 @@ public struct BranchInfo: Codable, Hashable, Sendable {
 public struct VcsBranchResult: Codable, Hashable, Sendable {
     /// Every branch in the repository, sorted by full ref name. Empty in
     /// a repository with no commits.
-    public let branches: [BranchInfo]
+    public var branches: [BranchInfo]
 
     /// The wire spelling of the field.
     private enum CodingKeys: String, CodingKey {
@@ -309,15 +340,15 @@ public struct VcsBranchResult: Codable, Hashable, Sendable {
 /// What `pp_vcs_diff` reports about two refs.
 public struct VcsDiffResult: Codable, Hashable, Sendable {
     /// Vertices plus edges present only in the second ref.
-    public let added: UInt64
+    public var added: UInt64
     /// Vertices plus edges present only in the first ref.
-    public let removed: UInt64
+    public var removed: UInt64
     /// Vertex kind changes plus constraint changes.
-    public let modified: UInt64
+    public var modified: UInt64
     /// One line per change, for display. The engine appends them in a
     /// fixed order: added vertices, removed vertices, kind changes,
     /// added edges, removed edges, then constraint changes.
-    public let changes: [String]
+    public var changes: [String]
 
     /// The wire spelling of each field, in the order the engine writes
     /// them.
@@ -344,12 +375,12 @@ public struct VcsDiffResult: Codable, Hashable, Sendable {
 /// with no payload, so a decoded value always describes a success.
 public struct VcsOpResult: Codable, Hashable, Sendable {
     /// Whether the operation succeeded.
-    public let ok: Bool
+    public var ok: Bool
     /// What HEAD points at afterwards. The key is `head`, not
     /// `head_ref`.
-    public let head: HeadState
+    public var head: HeadState
     /// Informational lines, for display. Checkout writes exactly one.
-    public let messages: [String]
+    public var messages: [String]
 
     /// The wire spelling of each field, in the order the engine writes
     /// them.
@@ -375,14 +406,14 @@ public struct VcsMergeResult: Codable, Hashable, Sendable {
     /// Whether the merge was a fast forward, computed before the merge
     /// ran as "HEAD is an ancestor of the branch tip". False when HEAD
     /// is unborn.
-    public let fastForward: Bool
+    public var fastForward: Bool
     /// The commit HEAD points at after a clean merge, 64 lowercase hex
     /// characters, or nil when ``conflicts`` is non-empty.
-    public let mergeCommit: String?
+    public var mergeCommit: String?
     /// One line per conflict, for display. These are Rust debug
     /// renderings of a non-exhaustive conflict enum, so treat them as
     /// opaque text rather than parsing them.
-    public let conflicts: [String]
+    public var conflicts: [String]
 
     /// The wire spelling of each field, in the order the engine writes
     /// them.
@@ -419,13 +450,13 @@ public struct VcsMergeResult: Codable, Hashable, Sendable {
 /// One entry on the stash stack, read from the `refs/stash` reflog.
 public struct StashEntry: Codable, Hashable, Sendable {
     /// The position on the stack, zero being the most recent stash.
-    public let index: UInt64
+    public var index: UInt64
     /// The stash commit's object id, 64 lowercase hex characters.
-    public let commitId: String
+    public var commitId: String
     /// The reflog message recorded when the stash was pushed.
-    public let message: String
+    public var message: String
     /// The stash time in Unix seconds.
-    public let timestamp: UInt64
+    public var timestamp: UInt64
 
     /// The wire spelling of each field, in the order the engine writes
     /// them.
@@ -451,9 +482,9 @@ public struct VcsStashResult: Codable, Hashable, Sendable {
     /// The stash just pushed. Normally the head of ``stack``; when the
     /// reflog read comes back empty the engine synthesizes it with an
     /// empty message and a zero timestamp.
-    public let stashed: StashEntry
+    public var stashed: StashEntry
     /// The whole stack after the push, newest first.
-    public let stack: [StashEntry]
+    public var stack: [StashEntry]
 
     /// The wire spelling of each field, in the order the engine writes
     /// them.
@@ -473,9 +504,9 @@ public struct VcsStashResult: Codable, Hashable, Sendable {
 /// What `pp_vcs_stash_pop` reports after restoring a stash.
 public struct VcsStashPopResult: Codable, Hashable, Sendable {
     /// The schema restored into the index, 64 lowercase hex characters.
-    public let restoredSchemaId: String
+    public var restoredSchemaId: String
     /// What remains on the stack after the pop, newest first.
-    public let stack: [StashEntry]
+    public var stack: [StashEntry]
 
     /// The wire spelling of each field, in the order the engine writes
     /// them.
@@ -502,13 +533,13 @@ public struct VcsStashPopResult: Codable, Hashable, Sendable {
 public struct BlameReport: Codable, Hashable, Sendable {
     /// The commit that introduced the vertex, 64 lowercase hex
     /// characters.
-    public let commitId: String
+    public var commitId: String
     /// That commit's author.
-    public let author: String
+    public var author: String
     /// That commit's time in Unix seconds.
-    public let timestamp: UInt64
+    public var timestamp: UInt64
     /// That commit's message.
-    public let message: String
+    public var message: String
 
     /// The wire spelling of each field, in the order the engine writes
     /// them.

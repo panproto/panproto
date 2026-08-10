@@ -7,13 +7,13 @@
 public struct ErrorEnvelope: Codable, Hashable, Sendable {
     /// The numeric status this error was reported with, matching the
     /// code the failing entry point returned.
-    public let status: Int32
+    public var status: Int32
     /// A short machine-readable category: `invalid_handle`,
     /// `type_mismatch`, `serialization`, `panic`, `internal`, or
     /// `operation`.
-    public let tag: String
+    public var tag: String
     /// The human-readable detail, formatted by the engine.
-    public let message: String
+    public var message: String
 
     /// Construct an envelope directly, which tests and fixtures need
     /// and the decoder does not.

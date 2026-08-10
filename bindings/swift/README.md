@@ -30,7 +30,7 @@ PANPROTO_SWIFT_XCFRAMEWORK=.panproto-c/panproto_c.xcframework swift build
 | `PanprotoProject` | multi-file project assembly | yes, `project` |
 | `PanprotoGit` | the git bridge | yes, `git` |
 
-`PanprotoStructural` imports no FFI module, which the package graph enforces. A tool that only rewrites schemas can link it alone.
+`PanprotoStructural` imports no FFI module, which the package graph enforces. A tool that only rewrites schemas can link it alone, and the algebra it needs is there: migration specifications compose, protolens chains concatenate and fuse, optic kinds fold, schema morphisms compose, expressions render back to surface syntax, and two schemas diff against each other. None of that starts an engine.
 
 ## The engine runs on one thread
 
@@ -43,7 +43,7 @@ In practice that means `await`:
 ```swift
 let atproto = try await ProtocolHandle.builtin("atproto")
 let schema = try await SchemaHandle.parseAtprotoLexicon(lexiconBytes)
-let messages = try await schema.validate(against: atproto)
+let messages = try await schema.violations(against: atproto)
 ```
 
 When you have a run of engine work, isolate your own function instead and pay one hop:

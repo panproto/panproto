@@ -290,6 +290,135 @@ public indirect enum Literal: Codable, Hashable, Sendable {
     }
 }
 
+// MARK: - Literal accessors
+
+extension Literal {
+    /// The boolean this literal carries, or `nil` when it carries
+    /// something else.
+    public var asBool: Bool? {
+        if case .bool(let flag) = self { return flag }
+        return nil
+    }
+
+    /// The integer this literal carries, or `nil` when it carries
+    /// something else.
+    ///
+    /// A ``float(_:)`` does not answer here even when it holds a whole
+    /// number: the two are distinct on the wire and in the language.
+    public var asInt: Int64? {
+        if case .int(let number) = self { return number }
+        return nil
+    }
+
+    /// The floating-point number this literal carries, or `nil` when it
+    /// carries something else.
+    public var asDouble: Double? {
+        if case .float(let number) = self { return number }
+        return nil
+    }
+
+    /// The string this literal carries, or `nil` when it carries
+    /// something else.
+    public var asString: String? {
+        if case .string(let text) = self { return text }
+        return nil
+    }
+
+    /// The bytes this literal carries, or `nil` when it carries
+    /// something else.
+    public var asBytes: [UInt8]? {
+        if case .bytes(let payload) = self { return payload }
+        return nil
+    }
+
+    /// The elements this literal carries, or `nil` when it is not a
+    /// list.
+    public var asList: [Literal]? {
+        if case .list(let elements) = self { return elements }
+        return nil
+    }
+
+    /// The fields this literal carries, keyed by name, or `nil` when it
+    /// is not a record.
+    ///
+    /// Field order is significant in the language and is dropped here; a
+    /// caller that needs it reads the ``record(_:)`` payload, which is
+    /// the ordered form. A repeated field name keeps its last binding.
+    public var asRecord: [String: Literal]? {
+        guard case .record(let fields) = self else { return nil }
+        return [String: Literal](
+            fields.map { ($0.key, $0.value) },
+            uniquingKeysWith: { _, latest in latest }
+        )
+    }
+
+    /// Whether this literal is the absent value.
+    public var isNull: Bool {
+        if case .null = self { return true }
+        return false
+    }
+
+    /// The first field named `key` in a record, or `nil` when this
+    /// literal is not a record or carries no such field.
+    public subscript(key: String) -> Literal? {
+        guard case .record(let fields) = self else { return nil }
+        return fields.first { $0.key == key }?.value
+    }
+
+    /// The element at `index` of a list, or `nil` when this literal is
+    /// not a list or the index is out of bounds.
+    public subscript(index: Int) -> Literal? {
+        guard let elements = asList, elements.indices.contains(index) else { return nil }
+        return elements[index]
+    }
+}
+
+// MARK: - Literal syntax
+
+extension Literal: ExpressibleByBooleanLiteral {
+    /// A boolean literal is a ``bool(_:)``.
+    public init(booleanLiteral value: Bool) {
+        self = .bool(value)
+    }
+}
+
+extension Literal: ExpressibleByIntegerLiteral {
+    /// An integer literal is an ``int(_:)``.
+    public init(integerLiteral value: Int64) {
+        self = .int(value)
+    }
+}
+
+extension Literal: ExpressibleByFloatLiteral {
+    /// A floating-point literal is a ``float(_:)``.
+    public init(floatLiteral value: Double) {
+        self = .float(value)
+    }
+}
+
+extension Literal: ExpressibleByStringLiteral {
+    /// A string literal is a ``string(_:)``.
+    public init(stringLiteral value: String) {
+        self = .string(value)
+    }
+}
+
+extension Literal: ExpressibleByArrayLiteral {
+    /// An array literal is a ``list(_:)``.
+    public init(arrayLiteral elements: Literal...) {
+        self = .list(elements)
+    }
+}
+
+extension Literal: ExpressibleByDictionaryLiteral {
+    /// A dictionary literal is a ``record(_:)``, and its fields keep the
+    /// order they were written in, which is the order the language reads
+    /// them in.
+    public init(dictionaryLiteral elements: (String, Literal)...) {
+        self = .record(elements.map { WirePair($0.0, $0.1) })
+    }
+}
+
 // MARK: - Patterns
 
 /// A destructuring pattern, tried in order against the scrutinee of a

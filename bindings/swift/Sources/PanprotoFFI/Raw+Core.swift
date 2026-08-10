@@ -1,5 +1,6 @@
 import CPanproto
 import Foundation
+import PanprotoStructural
 
 // MARK: - Namespace
 
@@ -271,7 +272,7 @@ extension Raw {
 extension Raw {
     /// Count the nodes in a W-type instance.
     ///
-    /// `instance` is a CBOR-encoded `WInstance`. The returned value is
+    /// `instance` is a CBOR-encoded `Instance`. The returned value is
     /// the node count. No handles are involved.
     @inlinable
     public static func instElementCount(instance: Data) -> (status: RawStatus, count: UInt32) {
@@ -286,7 +287,7 @@ extension Raw {
     /// bytes, decoded with `serde_json` rather than as CBOR.
     /// `rootVertex` is the UTF-8 name of the root vertex; passing the
     /// empty string infers it. The returned bytes are a CBOR-encoded
-    /// `WInstance`.
+    /// `Instance`.
     ///
     /// Root selection takes the first of these that resolves: the
     /// explicit `rootVertex` when the schema declares it, then the
@@ -307,7 +308,7 @@ extension Raw {
     /// Render a W-type instance as JSON.
     ///
     /// `schemaHandle` must be a `Schema` handle. `instance` is a
-    /// CBOR-encoded `WInstance`. The returned bytes are JSON, not CBOR.
+    /// CBOR-encoded `Instance`. The returned bytes are JSON, not CBOR.
     @inlinable
     public static func instToJson(
         schemaHandle: UInt32,
@@ -321,7 +322,7 @@ extension Raw {
     /// Validate a W-type instance against a schema.
     ///
     /// `schemaHandle` must be a `Schema` handle. `instance` is a
-    /// CBOR-encoded `WInstance`. The returned bytes are a CBOR-encoded
+    /// CBOR-encoded `Instance`. The returned bytes are a CBOR-encoded
     /// `Vec<String>` of validation messages; an empty list means the
     /// instance is valid. A completed pass answers ``RawStatus/ok``
     /// whether or not the instance passed, so violations arrive as
@@ -347,7 +348,7 @@ extension Raw {
     /// `registry` must be an `IoRegistry` handle and `schemaHandle` a
     /// `Schema` handle. `protoName` is the UTF-8 name of a codec
     /// registered in `registry`. `instance` is the CBOR-encoded instance
-    /// (a `WInstance` or an `FInstance`, per the protocol's native
+    /// (a `Instance` or an `FInstance`, per the protocol's native
     /// representation). The returned bytes are the raw format bytes, not
     /// CBOR. Instance bytes that do not decode answer
     /// ``RawStatus/serialization``; an unknown protocol or a failing
@@ -380,7 +381,7 @@ extension Raw {
     /// `registry` must be an `IoRegistry` handle and `schemaHandle` a
     /// `Schema` handle. `protoName` is the UTF-8 name of a codec
     /// registered in `registry`. `input` is the raw format bytes. The
-    /// returned bytes are the CBOR-encoded instance, a `WInstance` or an
+    /// returned bytes are the CBOR-encoded instance, a `Instance` or an
     /// `FInstance` according to the protocol's native representation. An
     /// unknown protocol or a failing parse answers
     /// ``RawStatus/operation``.

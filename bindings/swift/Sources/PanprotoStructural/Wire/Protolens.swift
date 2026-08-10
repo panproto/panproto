@@ -142,6 +142,169 @@ public struct ProtolensStepInfo: Codable, Hashable, Sendable {
         self.targetEndofunctor = targetEndofunctor
         self.lossless = lossless
     }
+
+    /// The step summary that stands for doing nothing: no name, no
+    /// endofunctors, and lossless.
+    ///
+    /// This is what an empty chain fuses to, and it is the summary of
+    /// the identity lens.
+    public static let identity = ProtolensStepInfo(
+        name: "",
+        sourceEndofunctor: "",
+        targetEndofunctor: "",
+        lossless: true
+    )
+
+    /// The optic this step is.
+    ///
+    /// ``ElementaryStep`` classifies the step from its name where the
+    /// name names a constructor, which is the precise answer. Where it
+    /// does not, or where the constructor is ``ElementaryStep/scoped``
+    /// and the optic follows an edge this summary does not carry, the
+    /// answer falls back to the two-point split the summary can justify:
+    /// a step that keeps everything is an isomorphism and a step that
+    /// does not is a lens.
+    public var opticKind: OpticKind {
+        ElementaryStep(stepName: name)?.opticKind ?? (lossless ? .iso : .lens)
+    }
+}
+
+// MARK: - The chain as a value
+
+/// A protolens chain in its summary form: the ordered steps, each named
+/// with its two endofunctors and whether it keeps everything.
+///
+/// This is the value half of a chain, and it is what
+/// ``Panproto/ProtolensChainHandle/stepSummaries()`` reads out of a live
+/// chain. Concatenation, the identity, the optic classification, and the
+/// fusion of a chain are all functions of the step list alone, so they
+/// are available here without an engine.
+///
+/// What is not available here is running the chain. The summaries drop
+/// the transforms and the complement constructor that make a step
+/// runnable, so this cannot be handed back to the engine: the JSON
+/// `pp_protolens_from_json` reads is a chain of whole steps, and the
+/// shape that reaches a host in that form is
+/// ``LensCandidate/chain``.
+///
+/// ```swift
+/// let chain = try await built.stepSummaries()
+/// if chain.isLossless { /* the round trip is an isomorphism */ }
+/// ```
+public struct ProtolensChain: Codable, Hashable, Sendable {
+    /// The steps, in the order they run.
+    public var steps: [ProtolensStepInfo]
+
+    /// Hold `steps` as a chain.
+    public init(steps: [ProtolensStepInfo] = []) {
+        self.steps = steps
+    }
+
+    /// The chain that does nothing, which is the unit of concatenation.
+    ///
+    /// Instantiating an empty chain at any schema yields the identity
+    /// lens, so this is an identity in the engine as well as in the
+    /// algebra.
+    public static let empty = ProtolensChain()
+
+    /// The one-step chain running `step`.
+    public init(_ step: ProtolensStepInfo) {
+        self.steps = [step]
+    }
+
+    /// Whether this chain does nothing.
+    public var isIdentity: Bool { steps.isEmpty }
+
+    /// Whether every step keeps everything, which makes the whole chain
+    /// lossless. An empty chain is vacuously lossless.
+    public var isLossless: Bool { steps.allSatisfy(\.lossless) }
+
+    /// What this chain is as an optic: the composition of its steps'
+    /// optics, folded from ``OpticKind/identity``.
+    public var opticKind: OpticKind {
+        OpticKind.composed(steps.map(\.opticKind))
+    }
+
+    /// This chain followed by `next`.
+    ///
+    /// Concatenation, matching the engine's own vertical composition:
+    /// nothing is simplified and no check is made that the endofunctors
+    /// meet, which is settled when the chain is instantiated at a
+    /// schema.
+    ///
+    /// - Parameter next: The chain to run after this one.
+    /// - Returns: The concatenated chain.
+    public func composed(with next: ProtolensChain) -> ProtolensChain {
+        ProtolensChain(steps: steps + next.steps)
+    }
+
+    /// Collapse this chain to the one step summary that stands for all
+    /// of it.
+    ///
+    /// The fused step starts where the first step starts and lands where
+    /// the last one lands, its name joins the step names last to first
+    /// with a dot (the engine's vertical-composition naming), and it
+    /// keeps everything exactly when every step did. An empty chain
+    /// fuses to ``ProtolensStepInfo/identity``.
+    ///
+    /// This is the structural fusion and is total. The engine's
+    /// ``Panproto/ProtolensChainHandle/fuse()`` also composes the
+    /// transforms, which can fail where two adjacent steps do not
+    /// compose.
+    ///
+    /// - Returns: The fused step summary.
+    public func fused() -> ProtolensStepInfo {
+        guard let first = steps.first, let last = steps.last else {
+            return .identity
+        }
+        return ProtolensStepInfo(
+            name: steps.reversed().map(\.name).joined(separator: "."),
+            sourceEndofunctor: first.sourceEndofunctor,
+            targetEndofunctor: last.targetEndofunctor,
+            lossless: isLossless
+        )
+    }
+
+    /// ``composed(with:)`` as an operator.
+    ///
+    /// - Parameters:
+    ///   - lhs: The chain that runs first.
+    ///   - rhs: The chain that runs second.
+    /// - Returns: The concatenated chain.
+    public static func + (lhs: ProtolensChain, rhs: ProtolensChain) -> ProtolensChain {
+        lhs.composed(with: rhs)
+    }
+
+    /// Append `rhs`'s steps to `lhs`.
+    ///
+    /// - Parameters:
+    ///   - lhs: The chain to extend.
+    ///   - rhs: The chain whose steps are appended.
+    public static func += (lhs: inout ProtolensChain, rhs: ProtolensChain) {
+        lhs.steps += rhs.steps
+    }
+
+    /// The wire spelling, which is the one-key object the engine writes
+    /// a chain under.
+    private enum CodingKeys: String, CodingKey {
+        case steps
+    }
+}
+
+extension ProtolensChain: RandomAccessCollection {
+    /// The position of the first step.
+    public var startIndex: Int { steps.startIndex }
+    /// The position one past the last step.
+    public var endIndex: Int { steps.endIndex }
+    /// The step at `position`.
+    public subscript(position: Int) -> ProtolensStepInfo { steps[position] }
+}
+
+extension ProtolensChain: ExpressibleByArrayLiteral {
+    /// A chain written as its steps in order.
+    public init(arrayLiteral elements: ProtolensStepInfo...) {
+        self.init(steps: elements)
+    }
 }
 
 // MARK: - The elementary step vocabulary
@@ -336,6 +499,9 @@ public enum OpticKind: String, Codable, Hashable, Sendable, CaseIterable {
     /// lens and a prism after a prism stays a prism, and anything that
     /// mixes a lens with a prism or involves an ``affine`` lands on
     /// ``affine``.
+    ///
+    /// Composition is associative with ``identity`` as a two-sided unit,
+    /// which is what lets ``composed(_:)`` fold a whole chain.
     public func composed(with other: OpticKind) -> OpticKind {
         switch (self, other) {
         case (.iso, let kind): kind
@@ -345,6 +511,31 @@ public enum OpticKind: String, Codable, Hashable, Sendable, CaseIterable {
         case (.prism, .prism): .prism
         default: .affine
         }
+    }
+
+    /// The unit of composition, which is ``iso``: an isomorphism before
+    /// or after any optic leaves that optic alone.
+    public static let identity: OpticKind = .iso
+
+    /// The optic a run of optics composes to, folded left to right from
+    /// ``identity``.
+    ///
+    /// An empty run composes to ``identity``.
+    ///
+    /// - Parameter kinds: The optics, in the order they run.
+    /// - Returns: Their composition.
+    public static func composed(_ kinds: some Sequence<OpticKind>) -> OpticKind {
+        kinds.reduce(identity) { $0.composed(with: $1) }
+    }
+
+    /// ``composed(with:)`` as an operator.
+    ///
+    /// - Parameters:
+    ///   - lhs: The optic that runs first.
+    ///   - rhs: The optic that runs second.
+    /// - Returns: Their composition.
+    public static func + (lhs: OpticKind, rhs: OpticKind) -> OpticKind {
+        lhs.composed(with: rhs)
     }
 }
 

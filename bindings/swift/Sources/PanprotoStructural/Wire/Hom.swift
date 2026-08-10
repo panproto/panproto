@@ -9,7 +9,7 @@
 /// domains, excluded sources and targets, scoring weights, and a name
 /// similarity threshold live on a separate struct that the C boundary
 /// does not expose, so those are not reachable from a host.
-public struct SearchOptionsWire: Codable, Hashable, Sendable {
+public struct MorphismSearchOptions: Codable, Hashable, Sendable {
     /// Require an injective vertex map.
     public var monic: Bool
     /// Require a surjective vertex map.
@@ -78,7 +78,7 @@ public struct SearchOptionsWire: Codable, Hashable, Sendable {
 /// cannot be a CBOR map key, so it crosses as an array of two-element
 /// arrays. The engine writes those pairs in hash order; this type sorts
 /// them by key so that one Swift value always encodes to the same bytes.
-public struct FoundMorphismWire: Codable, Hashable, Sendable {
+public struct FoundMorphism: Codable, Hashable, Sendable {
     /// Source vertex id to target vertex id.
     public var vertexMap: [Name: Name]
     /// Source edge to target edge.
@@ -118,6 +118,21 @@ public struct FoundMorphismWire: Codable, Hashable, Sendable {
         try container.encode(WireMap.pairs(of: edgeMap), forKey: .edgeMap)
         try container.encode(quality, forKey: .quality)
     }
+
+    /// This morphism as a migration specification.
+    ///
+    /// The projection is the obvious one: the two maps become the
+    /// migration's two maps and every other field stays at its default.
+    /// The quality score has no place in a specification and is dropped.
+    ///
+    /// This is the value-level counterpart of
+    /// ``Panproto/FoundMorphism/migration()``, which compiles the same
+    /// projection in the engine and answers with a handle. Reach for
+    /// this one to edit the mapping, compose it with another, or check
+    /// its existence before compiling anything.
+    public var asMigration: Migration {
+        Migration(vertexMap: vertexMap, edgeMap: edgeMap)
+    }
 }
 
 /// A functor between two schemas: where each vertex and each edge of the
@@ -137,7 +152,7 @@ public struct SchemaMorphism: Codable, Hashable, Sendable {
     /// Source vertex id to target vertex id.
     public var vertexMap: [Name: Name]
     /// Source edge to target edge, carried as a pair array for the same
-    /// reason ``FoundMorphismWire/edgeMap`` is.
+    /// reason ``FoundMorphism/edgeMap`` is.
     public var edgeMap: [Edge: Edge]
     /// The renames that produced the mapping.
     public var renames: [SiteRename]
@@ -192,5 +207,56 @@ public struct SchemaMorphism: Codable, Hashable, Sendable {
         try container.encode(vertexMap, forKey: .vertexMap)
         try container.encode(WireMap.pairs(of: edgeMap), forKey: .edgeMap)
         try container.encode(renames, forKey: .renames)
+    }
+
+    /// The morphism that moves nothing, from a protocol to itself.
+    ///
+    /// Both maps are empty, which under the partial-map reading of
+    /// ``composed(with:)`` means the morphism carries nothing forward:
+    /// it is the identity on the empty sub-schema rather than on a whole
+    /// schema. A morphism over a concrete schema's carriers is built by
+    /// filling the maps, the way ``Migration/identity(on:)`` does.
+    ///
+    /// - Parameters:
+    ///   - name: What to call the morphism.
+    ///   - protocolName: The protocol standing at both ends.
+    /// - Returns: The empty morphism.
+    public static func identity(named name: String, protocol protocolName: String) -> SchemaMorphism
+    {
+        SchemaMorphism(name: name, srcProtocol: protocolName, tgtProtocol: protocolName)
+    }
+
+    /// This morphism followed by `next`.
+    ///
+    /// The maps are partial, so composition is drop-on-miss: a vertex or
+    /// edge whose image here falls outside `next`'s domain was dropped
+    /// by `next` and is absent from the composite. Merging the two
+    /// dictionaries instead would keep exactly those entries, which is
+    /// the mistake this method exists to prevent.
+    ///
+    /// The composite runs from this morphism's source protocol to
+    /// `next`'s target protocol, names itself by joining the two names
+    /// with a semicolon, and concatenates the two rename provenances in
+    /// the order they were applied.
+    ///
+    /// - Parameter next: The morphism to apply after this one.
+    /// - Returns: The composite morphism.
+    public func composed(with next: SchemaMorphism) -> SchemaMorphism {
+        var vertices: [Name: Name] = [:]
+        for (source, intermediate) in vertexMap {
+            if let onward = next.vertexMap[intermediate] { vertices[source] = onward }
+        }
+        var edges: [Edge: Edge] = [:]
+        for (source, intermediate) in edgeMap {
+            if let onward = next.edgeMap[intermediate] { edges[source] = onward }
+        }
+        return SchemaMorphism(
+            name: "\(name);\(next.name)",
+            srcProtocol: srcProtocol,
+            tgtProtocol: next.tgtProtocol,
+            vertexMap: vertices,
+            edgeMap: edges,
+            renames: renames + next.renames
+        )
     }
 }

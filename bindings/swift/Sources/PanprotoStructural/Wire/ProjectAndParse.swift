@@ -37,10 +37,10 @@ public typealias ProtocolNames = [String]
 /// fresh panproto repository.
 public struct GitImportResult: Codable, Hashable, Sendable {
     /// How many git commits the walk covered.
-    public let commitCount: UInt64
+    public var commitCount: UInt64
     /// The imported HEAD as a panproto object id, 64 lowercase hex
     /// characters. This is a panproto commit id, not a git SHA-1.
-    public let headId: String
+    public var headId: String
 
     /// The wire spelling of each field, in the order the engine writes
     /// them.

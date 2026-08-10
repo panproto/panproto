@@ -90,43 +90,80 @@ struct EngineTests {
 
     @Test("Dropping a handle returns its slab slot")
     func deinitReturnsTheSlot() async {
-        let firstIndex = await PanprotoEngine.run { () -> UInt32 in
-            let created = Raw.ioRegisterProtocols()
-            #expect(created.status.isOK)
-            _ = IoRegistryHandle(adopting: created.handle)
-            return created.handle
+        // The slab is process-global, first-fit, and shared with every
+        // suite the runner has in flight, so which index a fresh
+        // allocation lands on is not this test's to predict. What is
+        // predictable is the shape of the pressure. A deinit that
+        // returns its slot lets the next allocation land back in it, so
+        // the indices stay inside the working set; a deinit that
+        // returns nothing makes the slab climb by a slot per
+        // allocation.
+        //
+        // The control phase measures the working set. Holding `held`
+        // registries at once pushes the slab out to at least that many
+        // slots, and the highest index it hands out while they are all
+        // live is the ceiling the second phase is read against.
+        let held = 128
+        let rounds = 512
+
+        let ceiling = await PanprotoEngine.run { () -> UInt32 in
+            var live: [IoRegistryHandle] = []
+            var peak: UInt32 = 0
+            for _ in 0..<held {
+                let created = Raw.ioRegisterProtocols()
+                #expect(created.status.isOK)
+                live.append(IoRegistryHandle(adopting: created.handle))
+                peak = max(peak, created.handle)
+            }
+            for handle in live { handle.release() }
+            return peak
         }
 
-        // The deinit queued the free rather than performing it inline,
-        // so give the engine two passes to drain the queue before
-        // asking whether the slot came back.
-        await PanprotoEngine.run {}
-        await PanprotoEngine.run {}
-
-        let reused = await PanprotoEngine.run { () -> UInt32 in
-            let created = Raw.ioRegisterProtocols()
-            #expect(created.status.isOK)
-            let handle = IoRegistryHandle(adopting: created.handle)
-            defer { handle.release() }
-            return created.handle
+        // The same allocation `rounds` times over, dropping each handle
+        // instead of holding it. Each round is its own job, and the
+        // executor drains the release queue ahead of the next batch, so
+        // round `n`'s free has landed before round `n + 1` allocates.
+        var peak: UInt32 = 0
+        for _ in 0..<rounds {
+            let index = await PanprotoEngine.run { () -> UInt32 in
+                let created = Raw.ioRegisterProtocols()
+                #expect(created.status.isOK)
+                _ = IoRegistryHandle(adopting: created.handle)
+                return created.handle
+            }
+            peak = max(peak, index)
         }
-        #expect(reused == firstIndex)
+
+        // A deinit that freed nothing would refill the `held` slots the
+        // control gave back and then climb one slot per remaining
+        // round, which puts it at or past this bound. Everything the
+        // deinit does free leaves the peak near the ceiling, with the
+        // difference standing as slack for whatever else is allocating.
+        #expect(peak < ceiling + UInt32(rounds - held))
     }
 
     @Test("Handles compare by slab index and variant")
     func handleIdentity() async {
+        // Indices far past anything the slab hands out. Identity is a
+        // property of the index and the variant, so any pair of indices
+        // proves it, and freeing one of these on the way out reaches no
+        // live entry. A low index would: the slab is process-global and
+        // the suites run in parallel, so index 7 belongs to whichever
+        // case allocated it, and returning it here would pull a resource
+        // out from under that case.
+        let first: UInt32 = 0xFFFF_FF07
+        let second: UInt32 = 0xFFFF_FF08
+
         await PanprotoEngine.run {
-            let a = SchemaHandle(adopting: 7)
-            let b = SchemaHandle(adopting: 7)
-            let c = ProtocolHandle(adopting: 7)
-            let d = SchemaHandle(adopting: 8)
+            let a = SchemaHandle(adopting: first)
+            let b = SchemaHandle(adopting: first)
+            let c = ProtocolHandle(adopting: first)
+            let d = SchemaHandle(adopting: second)
             #expect(a == b)
             #expect(a != c)
             #expect(a != d)
             #expect(Set([a, b]).count == 1)
-            #expect(a.description == "SchemaHandle(#7)")
-            // Nothing was allocated at these indices, so nothing should
-            // be freed on the way out.
+            #expect(a.description == "SchemaHandle(#\(first))")
             a.release()
             b.release()
             c.release()
@@ -150,7 +187,7 @@ struct EngineTests {
         #expect(error.domain == .io)
         #expect(error.detail.status == .invalidHandle)
         #expect(error.detail.envelope?.tag == "invalid_handle")
-        #expect(error.detail.fault == .invalidHandle(0xFFFF_FF00))
+        #expect(error.detail.fault == .invalidHandle(handle: 0xFFFF_FF00))
         #expect(error.description.contains("IoRegistry.protocolNames"))
     }
 
@@ -189,15 +226,15 @@ struct EngineTests {
         )
 
         for domain in PanprotoError.Domain.allCases {
-            let error = PanprotoError.make(domain: domain, detail: detail)
+            let error = PanprotoError(domain: domain, detail: detail)
             #expect(error.domain == domain)
             #expect(error.detail == detail)
             #expect(error.description == "\(domain.rawValue): Schema.validate: refused")
         }
 
         #expect(
-            PanprotoError.make(domain: .lens, detail: detail)
-                != PanprotoError.make(domain: .vcs, detail: detail)
+            PanprotoError(domain: .lens, detail: detail)
+                != PanprotoError(domain: .vcs, detail: detail)
         )
     }
 
@@ -207,13 +244,13 @@ struct EngineTests {
             status: .invalidHandle,
             operation: "Lens.put",
             envelope: nil,
-            fault: .invalidHandle(0xFFFF_FF00)
+            fault: .invalidHandle(handle: 0xFFFF_FF00)
         )
-        let error = PanprotoError.make(domain: .lens, detail: detail)
+        let error = PanprotoError(domain: .lens, detail: detail)
 
         #expect(error.detail.message.contains("no error envelope was pending"))
         #expect(error.detail.message.contains("\(RawStatus.invalidHandle.code)"))
         #expect(error.errorDescription == error.description)
-        #expect(error.detail.fault == .invalidHandle(0xFFFF_FF00))
+        #expect(error.detail.fault == .invalidHandle(handle: 0xFFFF_FF00))
     }
 }

@@ -467,3 +467,24 @@ struct ProjectParseGitWireTests {
         #expect(try encodedHex(GitImportResult(commitCount: 2, headId: "h")) == expected)
     }
 }
+
+// MARK: - Object ids
+
+@Suite("version-control object ids")
+struct VcsObjectIDTests {
+    @Test("the sentinel is sixty-four zeros")
+    func theZeroIdIsAllZeros() {
+        #expect(VcsObjectID.length == 64)
+        #expect(VcsObjectID.zero.count == VcsObjectID.length)
+        #expect(VcsObjectID.zero.allSatisfy { $0 == "0" })
+    }
+
+    @Test("the short rendering takes seven characters, or the whole id")
+    func shortTakesSevenCharacters() {
+        let id = String(repeating: "ab", count: 32)
+        #expect(VcsObjectID.short(id).count == 7)
+        #expect(VcsObjectID.short(id) == "abababa")
+        #expect(VcsObjectID.short("abc") == "abc")
+        #expect(VcsObjectID.short("") == "")
+    }
+}

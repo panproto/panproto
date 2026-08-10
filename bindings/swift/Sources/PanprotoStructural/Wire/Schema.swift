@@ -517,6 +517,43 @@ public struct Schema: Codable, Hashable, Sendable {
         edges.keys.filter { $0.src == source && $0.tgt == target }.sorted()
     }
 
+    /// The constraints attached to `vertex`, empty where it carries
+    /// none or is not a vertex of this schema.
+    public func constraints(of vertex: Name) -> [Constraint] {
+        constraints[vertex] ?? []
+    }
+
+    /// The text a parse-derived schema recorded for the `field` child of
+    /// `vertex`, or `nil` where it recorded none.
+    ///
+    /// A tree-sitter grammar can name an anonymous token, as in
+    /// `field('op', choice('+', '-'))`. There is no node to hang an edge
+    /// from, so the walker files the matched text as a constraint on the
+    /// parent under the sort `field:` followed by the field name. This
+    /// is the supported way to read it back; a field whose child is a
+    /// named node reaches the schema as an ordinary edge instead, and
+    /// ``outgoingEdges(from:)`` finds those.
+    ///
+    /// - Parameters:
+    ///   - vertex: The parent the field hangs from.
+    ///   - field: The grammar's field name.
+    /// - Returns: The matched token text, or `nil`.
+    public func fieldText(of vertex: Name, field: Name) -> String? {
+        constraints(of: vertex).first { $0.sort == "field:\(field)" }?.value
+    }
+
+    /// The vertex `id` names, readable and writable.
+    public subscript(vertex id: Name) -> Vertex? {
+        get { vertices[id] }
+        set { vertices[id] = newValue }
+    }
+
+    /// The kind filed against `edge`, readable and writable.
+    public subscript(edge: Edge) -> Name? {
+        get { edges[edge] }
+        set { edges[edge] = newValue }
+    }
+
     // MARK: Coding
 
     /// The wire spelling of each field, in the order the engine writes

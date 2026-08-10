@@ -1,5 +1,6 @@
 import Foundation
 import PanprotoFFI
+import PanprotoStructural
 
 /// The isolation domain every engine call runs in.
 ///
@@ -24,8 +25,8 @@ import PanprotoFFI
 /// Use it the way you use any global actor:
 ///
 /// ```swift
-/// let protocolHandle = try await PanprotoProtocol.builtin("atproto")
-/// let schema = try await Schema.parseAtprotoLexicon(lexiconJSON)
+/// let protocolHandle = try await ProtocolHandle.builtin("atproto")
+/// let schema = try await SchemaHandle.parseAtprotoLexicon(lexiconJSON)
 /// ```
 ///
 /// or amortize the hops by isolating a whole region of your own code:
@@ -93,7 +94,6 @@ private final class PinnedThreadExecutor: SerialExecutor, @unchecked Sendable {
     private let condition = NSCondition()
     private var pending: [UnownedJob] = []
     private var releases: [UInt32] = []
-    private var draining = true
 
     init(name: String) {
         let thread = Thread { [self] in
@@ -140,12 +140,8 @@ private final class PinnedThreadExecutor: SerialExecutor, @unchecked Sendable {
         let executor = asUnownedSerialExecutor()
         while true {
             condition.lock()
-            while pending.isEmpty && releases.isEmpty && draining {
+            while pending.isEmpty && releases.isEmpty {
                 condition.wait()
-            }
-            guard draining else {
-                condition.unlock()
-                return
             }
             let jobs = pending
             let handles = releases
@@ -179,7 +175,7 @@ extension RawStatus {
     ///
     /// ```swift
     /// let result = Raw.schemaValidate(schemaHandle: s, protoHandle: p)
-    /// try result.status.orThrow(.schemaValidation, "Schema.validate")
+    /// try result.status.orThrow(.schemaValidation, "SchemaHandle.violations(against:)")
     /// ```
     ///
     /// Engine-isolated because the error slot is thread-local: draining

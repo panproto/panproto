@@ -175,7 +175,7 @@ let package = Package(
 
         .target(
             name: "PanprotoFFI",
-            dependencies: ["CPanproto"],
+            dependencies: ["CPanproto", "PanprotoStructural"],
             swiftSettings: featureDefines,
             linkerSettings: devLinkSettings
         ),

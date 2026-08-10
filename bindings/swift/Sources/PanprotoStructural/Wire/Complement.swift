@@ -288,6 +288,15 @@ extension Complement {
             && originalExtraFields.isEmpty && arcEdges.isEmpty && arcOrder.isEmpty
             && originalValues.isEmpty && synthesizedNodes.isEmpty && contractedInto.isEmpty
     }
+
+    /// How many nodes the projection discarded.
+    public var droppedNodeCount: Int { droppedNodes.count }
+
+    /// How many arcs the projection discarded.
+    public var droppedArcCount: Int { droppedArcs.count }
+
+    /// How many fans the projection discarded.
+    public var droppedFanCount: Int { droppedFans.count }
 }
 
 // MARK: - The get envelope
@@ -301,7 +310,7 @@ extension Complement {
 /// fails, because the item there is major type 2 rather than major type
 /// 5.
 public struct GetRecordEnvelope: Codable, Hashable, Sendable {
-    /// The projected instance, as a CBOR-encoded ``WInstance``.
+    /// The projected instance, as a CBOR-encoded ``Instance``.
     public var viewBytes: Data
     /// The complement, as a CBOR-encoded ``Complement`` with its two
     /// pair-keyed maps in the array-of-pairs shape.
@@ -324,8 +333,8 @@ public struct GetRecordEnvelope: Codable, Hashable, Sendable {
     /// - Throws: ``CBORError`` when ``viewBytes`` is not one
     ///   well-formed CBOR item, and `DecodingError` when it is but is
     ///   not an instance.
-    public func view() throws -> WInstance {
-        try CBORDecoder().decode(WInstance.self, from: viewBytes)
+    public func view() throws -> Instance {
+        try CBORDecoder().decode(Instance.self, from: viewBytes)
     }
 
     /// Decode the complement.

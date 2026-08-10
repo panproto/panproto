@@ -743,15 +743,15 @@ struct QueryWireTests {
 struct HomWireTests {
     @Test("an empty map is a valid options payload")
     func emptyOptionsDecode() throws {
-        let decoded = try CBORDecoder().decode(SearchOptionsWire.self, from: bytes("a0"))
-        #expect(decoded == SearchOptionsWire())
+        let decoded = try CBORDecoder().decode(MorphismSearchOptions.self, from: bytes("a0"))
+        #expect(decoded == MorphismSearchOptions())
         #expect(decoded.maxResults == 0)
         #expect(decoded.initial.isEmpty)
     }
 
     @Test("options write all six keys in declaration order")
     func optionsWriteEveryKey() throws {
-        let encoded = try CBOREncoder().encode(SearchOptionsWire(monic: true, maxResults: 3))
+        let encoded = try CBOREncoder().encode(MorphismSearchOptions(monic: true, maxResults: 3))
         let reflected = try CBORDecoder().decode(CBORValue.self, from: encoded)
         guard case .map(let entries) = reflected else {
             Issue.record("options encode as a map")
@@ -772,7 +772,7 @@ struct HomWireTests {
     @Test("options carrying initial assignments round trip")
     func optionsRoundTrip() throws {
         try expectRoundTrip(
-            SearchOptionsWire(
+            MorphismSearchOptions(
                 monic: true,
                 epic: false,
                 iso: false,
@@ -785,7 +785,7 @@ struct HomWireTests {
 
     @Test("an edge map crosses as an array of pairs, not a map")
     func edgeMapsAreArraysOfPairs() throws {
-        let morphism = FoundMorphismWire(
+        let morphism = FoundMorphism(
             vertexMap: ["a": "x"],
             edgeMap: [
                 Edge(src: "a", tgt: "b", kind: "prop"): Edge(src: "x", tgt: "y", kind: "prop")
@@ -818,22 +818,22 @@ struct HomWireTests {
     func edgePairsAreOrdered() throws {
         let low = Edge(src: "a", tgt: "b", kind: "prop", name: "one")
         let high = Edge(src: "b", tgt: "c", kind: "prop", name: "two")
-        let morphism = FoundMorphismWire(
+        let morphism = FoundMorphism(
             vertexMap: ["a": "x", "b": "y"],
             edgeMap: [high: low, low: high],
             quality: 0.5
         )
         let encoded = try CBOREncoder().encode(morphism)
         #expect(try CBOREncoder().encode(morphism) == encoded)
-        let decoded = try CBORDecoder().decode(FoundMorphismWire.self, from: encoded)
+        let decoded = try CBORDecoder().decode(FoundMorphism.self, from: encoded)
         #expect(decoded == morphism)
     }
 
     @Test("the best-morphism payload is either a morphism or CBOR null")
     func bestMorphismIsOptional() throws {
-        let absent: FoundMorphismWire? = nil
+        let absent: FoundMorphism? = nil
         #expect(hex(try CBOREncoder().encode(absent)) == "f6")
-        let decoded = try CBORDecoder().decode(FoundMorphismWire?.self, from: bytes("f6"))
+        let decoded = try CBORDecoder().decode(FoundMorphism?.self, from: bytes("f6"))
         #expect(decoded == nil)
     }
 
@@ -874,5 +874,90 @@ struct HomWireTests {
                 .textString("renames"),
             ]
         )
+    }
+}
+
+// MARK: - Arity and the morphism algebra
+
+@Suite("operation arity and schema-morphism composition")
+struct HomAlgebraTests {
+    /// An operation with one explicit input and one recovered by
+    /// unification.
+    private let partiallyImplicit = Operation(
+        name: "compose",
+        inputs: [
+            OperationInput(name: "a", sort: .name("Ob"), implicit: .yes),
+            OperationInput(name: "f", sort: .name("Hom")),
+        ],
+        output: .name("Hom")
+    )
+
+    @Test("arity counts every input and explicit arity counts the written ones")
+    func arityCountsInputs() {
+        #expect(partiallyImplicit.arity == 2)
+        #expect(partiallyImplicit.explicitArity == 1)
+
+        let constant = Operation(name: "unit", output: .name("Ob"))
+        #expect(constant.arity == 0)
+        #expect(constant.explicitArity == 0)
+    }
+
+    @Test("the identity morphism moves nothing and names one protocol twice")
+    func morphismIdentityIsEmpty() {
+        let identity = SchemaMorphism.identity(named: "id", protocol: "atproto")
+        #expect(identity.srcProtocol == "atproto")
+        #expect(identity.tgtProtocol == "atproto")
+        #expect(identity.vertexMap.isEmpty)
+        #expect(identity.edgeMap.isEmpty)
+        #expect(identity.renames.isEmpty)
+    }
+
+    @Test("composing morphisms drops what the second one does not carry")
+    func morphismCompositionDropsOnMiss() {
+        let first = SchemaMorphism(
+            name: "first",
+            srcProtocol: "a",
+            tgtProtocol: "b",
+            vertexMap: ["v1": "v2", "gone": "nowhere"],
+            edgeMap: [
+                Edge(src: "v1", tgt: "w1", kind: "prop"): Edge(src: "v2", tgt: "w2", kind: "prop")
+            ],
+            renames: [SiteRename(site: .vertexId, old: "v1", new: "v2")]
+        )
+        let second = SchemaMorphism(
+            name: "second",
+            srcProtocol: "b",
+            tgtProtocol: "c",
+            vertexMap: ["v2": "v3"],
+            edgeMap: [
+                Edge(src: "v2", tgt: "w2", kind: "prop"): Edge(src: "v3", tgt: "w3", kind: "prop")
+            ],
+            renames: [SiteRename(site: .vertexId, old: "v2", new: "v3")]
+        )
+
+        let composite = first.composed(with: second)
+        #expect(composite.name == "first;second")
+        #expect(composite.srcProtocol == "a")
+        #expect(composite.tgtProtocol == "c")
+        #expect(composite.vertexMap == ["v1": "v3"])
+        #expect(composite.edgeMap.count == 1)
+        #expect(composite.renames.map(\.old) == ["v1", "v2"])
+    }
+
+    @Test("a found morphism projects to the migration its two maps describe")
+    func foundMorphismProjectsToAMigration() {
+        let edge = Edge(src: "post", tgt: "text", kind: "prop", name: "text")
+        let found = FoundMorphism(
+            vertexMap: ["post": "note"],
+            edgeMap: [edge: edge],
+            quality: 0.9
+        )
+
+        let migration = found.asMigration
+        #expect(migration.vertexMap == found.vertexMap)
+        #expect(migration.edgeMap == found.edgeMap)
+        // The score has no place in a specification.
+        #expect(migration.domain == nil)
+        #expect(migration.resolver.isEmpty)
     }
 }

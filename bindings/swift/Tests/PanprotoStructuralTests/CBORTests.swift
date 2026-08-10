@@ -1118,3 +1118,82 @@ struct MalformedInputTests {
         }
     }
 }
+
+// MARK: - The JSON bridge and the diagnostic rendering
+
+@Suite("CBORValue bridges")
+struct CBORValueBridgeTests {
+    @Test("a JSON-shaped item converts and converts back")
+    func jsonRoundTrips() throws {
+        let item = CBORValue.map([
+            .init(key: .textString("flag"), value: .bool(true)),
+            .init(key: .textString("count"), value: .unsigned(3)),
+            .init(key: .textString("cold"), value: .negative(2)),
+            .init(key: .textString("ratio"), value: .float(0.5)),
+            .init(key: .textString("name"), value: .textString("post")),
+            .init(key: .textString("nothing"), value: .null),
+            .init(key: .textString("items"), value: .array([.unsigned(1), .unsigned(2)])),
+        ])
+
+        let object = try #require(item.jsonObject)
+        #expect(JSONSerialization.isValidJSONObject(object))
+
+        let back = try #require(CBORValue(jsonObject: object))
+        // The inverse orders map entries by key, so the comparison is
+        // against the sorted form rather than the written one.
+        guard case .map(let entries) = back else {
+            Issue.record("an object converts back to a map")
+            return
+        }
+        let keys = entries.compactMap(\.key.stringValue)
+        #expect(keys == keys.sorted())
+        #expect(entries.count == 7)
+        #expect(back["name"] == .textString("post"))
+        #expect(back["cold"] == .negative(2))
+    }
+
+    @Test("what JSON cannot spell converts to nothing")
+    func nonJsonItemsRefuse() {
+        #expect(CBORValue.byteString([1, 2]).jsonObject == nil)
+        #expect(CBORValue.undefined.jsonObject == nil)
+        #expect(CBORValue.simple(19).jsonObject == nil)
+        #expect(CBORValue.array([.byteString([1])]).jsonObject == nil)
+        #expect(CBORValue.map([.init(key: .unsigned(1), value: .null)]).jsonObject == nil)
+        // Past `Int64`, which JSON has no exact spelling for here.
+        #expect(CBORValue.unsigned(UInt64.max).jsonObject == nil)
+    }
+
+    @Test("a tag is looked through rather than refused")
+    func tagsAreLookedThrough() {
+        let tagged = CBORValue.tag(number: 42, item: .textString("body"))
+        #expect(tagged.jsonObject as? String == "body")
+    }
+
+    @Test("what JSONSerialization actually parses converts")
+    func realJsonParses() throws {
+        let source = Data(#"{"a":[1,2.5,true,null],"b":"text"}"#.utf8)
+        let parsed = try JSONSerialization.jsonObject(with: source)
+        let item = try #require(CBORValue(jsonObject: parsed))
+        #expect(item["b"] == .textString("text"))
+        #expect(item["a"]?[0] == .unsigned(1))
+        #expect(item["a"]?[2] == .bool(true))
+        #expect(item["a"]?[3] == .null)
+    }
+
+    @Test("an item renders in the diagnostic notation of the RFC")
+    func diagnosticNotationRenders() {
+        #expect("\(CBORValue.unsigned(1))" == "1")
+        #expect("\(CBORValue.negative(0))" == "-1")
+        #expect("\(CBORValue.byteString([0x01, 0xFF]))" == "h'01ff'")
+        #expect("\(CBORValue.textString("a\"b"))" == #""a\"b""#)
+        #expect("\(CBORValue.array([.unsigned(1), .null]))" == "[1, null]")
+        #expect(
+            "\(CBORValue.map([.init(key: .textString("k"), value: .bool(false))]))"
+                == "{\"k\": false}"
+        )
+        #expect("\(CBORValue.tag(number: 2, item: .unsigned(3)))" == "2(3)")
+        #expect("\(CBORValue.undefined)" == "undefined")
+        #expect("\(CBORValue.simple(19))" == "simple(19)")
+        #expect("\(CBORValue.bool(true))" == "true")
+    }
+}

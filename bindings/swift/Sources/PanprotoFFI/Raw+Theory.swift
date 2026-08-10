@@ -1,5 +1,6 @@
 import CPanproto
 import Foundation
+import PanprotoStructural
 
 // Theory-layer shims over the panproto-c ABI: the GAT domain (theories,
 // theory morphisms, and models), the expression domain (surface parsing,
@@ -301,7 +302,7 @@ extension Raw {
     /// Execute a declarative query against a W-type instance.
     ///
     /// `query` is a CBOR-encoded `inst::InstanceQuery`; `instance` is a
-    /// CBOR-encoded `WInstance`; `schemaHandle` must be a `Schema`
+    /// CBOR-encoded `Instance`; `schemaHandle` must be a `Schema`
     /// handle. On success the buffer holds a CBOR-encoded list of match
     /// records, each a map with `node_id`, `anchor`, `value`, and
     /// `fields`.

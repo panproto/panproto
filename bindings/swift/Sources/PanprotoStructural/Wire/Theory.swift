@@ -438,6 +438,16 @@ public struct Operation: Codable, Hashable, Sendable {
         self.inputs = inputs
         self.output = output
     }
+
+    /// How many inputs the operation takes in total, implicit ones
+    /// included.
+    public var arity: Int { inputs.count }
+
+    /// How many inputs the caller writes at the call site.
+    ///
+    /// An implicit input is recovered by unification and is not written,
+    /// so this is what a term applying the operation has to supply.
+    public var explicitArity: Int { inputs.count { $0.implicit == .no } }
 }
 
 // MARK: - Terms

@@ -868,6 +868,25 @@ struct OpticKindTests {
         #expect(kind.composed(with: .traversal) == .traversal)
     }
 
+    @Test("composition is associative")
+    func compositionIsAssociative() {
+        for left in OpticKind.allCases {
+            for middle in OpticKind.allCases {
+                for right in OpticKind.allCases {
+                    #expect((left + middle) + right == left + (middle + right))
+                }
+            }
+        }
+    }
+
+    @Test("the unit of composition is the isomorphism")
+    func theUnitIsIso() {
+        #expect(OpticKind.identity == .iso)
+        #expect(OpticKind.composed([]) == .identity)
+        #expect(OpticKind.composed([.lens, .prism]) == .affine)
+        #expect(OpticKind.composed(OpticKind.allCases) == .traversal)
+    }
+
     @Test("mixing a lens with a prism yields an affine")
     func mixingYieldsAffine() {
         #expect(OpticKind.lens.composed(with: .lens) == .lens)
@@ -1027,5 +1046,104 @@ struct GraphPayloadTests {
                 == "a3657374616c65f56e646174615f736368656d615f6964626162707461726765745f736368656d61"
                 + "5f6964626364"
         )
+    }
+}
+
+// MARK: - Chains
+
+@Suite("protolens chains as values")
+struct ProtolensChainValueTests {
+    /// A lossless step, which classifies as an isomorphism.
+    private let rename = ProtolensStepInfo(
+        name: "rename_sort_post",
+        sourceEndofunctor: "id",
+        targetEndofunctor: "id",
+        lossless: true
+    )
+
+    /// A lossy step, which classifies as a lens.
+    private let drop = ProtolensStepInfo(
+        name: "drop_sort_langs",
+        sourceEndofunctor: "id",
+        targetEndofunctor: "drop",
+        lossless: false
+    )
+
+    @Test("a chain round-trips through its one-key object")
+    func chainRoundTrips() throws {
+        try expectRoundTrip(ProtolensChain(steps: [rename, drop]))
+        try expectRoundTrip(ProtolensChain.empty)
+    }
+
+    @Test("the empty chain is a two-sided unit of concatenation")
+    func theEmptyChainIsTheUnit() {
+        let chain = ProtolensChain(steps: [rename, drop])
+        #expect(ProtolensChain.empty + chain == chain)
+        #expect(chain + ProtolensChain.empty == chain)
+        #expect(ProtolensChain.empty.isIdentity)
+        #expect(!chain.isIdentity)
+    }
+
+    @Test("concatenation is associative")
+    func concatenationIsAssociative() {
+        let a = ProtolensChain(rename)
+        let b = ProtolensChain(drop)
+        let c: ProtolensChain = [rename, rename]
+        #expect((a + b) + c == a + (b + c))
+        #expect((a + b).count == 2)
+    }
+
+    @Test("appending in place matches the operator")
+    func appendingMatchesTheOperator() {
+        var accumulated = ProtolensChain.empty
+        accumulated += ProtolensChain(rename)
+        accumulated += ProtolensChain(drop)
+        #expect(accumulated == ProtolensChain(steps: [rename, drop]))
+    }
+
+    @Test("a chain is lossless exactly when every step is")
+    func losslessnessFolds() {
+        #expect(ProtolensChain.empty.isLossless)
+        #expect(ProtolensChain(rename).isLossless)
+        #expect(!ProtolensChain(steps: [rename, drop]).isLossless)
+    }
+
+    @Test("a chain's optic is the composition of its steps' optics")
+    func opticKindFolds() {
+        #expect(ProtolensChain.empty.opticKind == .iso)
+        #expect(ProtolensChain(rename).opticKind == .iso)
+        #expect(ProtolensChain(steps: [rename, drop]).opticKind == .lens)
+        // A step whose name names no constructor falls back to the split
+        // the summary can justify.
+        let unnamed = ProtolensStepInfo(
+            name: "mystery",
+            sourceEndofunctor: "id",
+            targetEndofunctor: "id",
+            lossless: false
+        )
+        #expect(ProtolensChain(unnamed).opticKind == .lens)
+        #expect(unnamed.opticKind == .lens)
+        #expect(rename.opticKind == .iso)
+    }
+
+    @Test("fusing joins the names last to first and keeps the endpoints")
+    func fusionCollapsesTheChain() {
+        let fused = ProtolensChain(steps: [rename, drop]).fused()
+        #expect(fused.name == "drop_sort_langs.rename_sort_post")
+        #expect(fused.sourceEndofunctor == "id")
+        #expect(fused.targetEndofunctor == "drop")
+        #expect(!fused.lossless)
+
+        #expect(ProtolensChain.empty.fused() == .identity)
+        #expect(ProtolensStepInfo.identity.lossless)
+    }
+
+    @Test("a chain indexes and iterates as its steps")
+    func chainIsACollection() {
+        let chain: ProtolensChain = [rename, drop]
+        #expect(chain.count == 2)
+        #expect(chain[0] == rename)
+        #expect(Array(chain) == [rename, drop])
+        #expect(ProtolensChain.empty.isEmpty)
     }
 }

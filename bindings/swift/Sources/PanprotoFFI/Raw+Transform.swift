@@ -1,5 +1,6 @@
 import CPanproto
 import Foundation
+import PanprotoStructural
 
 // The transform half of the C ABI: migrations (`pp_mig_*`), lenses and
 // protolens chains (`pp_lens_*`, `pp_protolens_*`), morphism search
@@ -84,7 +85,7 @@ extension Raw {
     /// Run coverage analysis (a dry-run migration) over a batch of
     /// instances.
     ///
-    /// `instances` is a CBOR-encoded `Vec<WInstance>`; the buffer
+    /// `instances` is a CBOR-encoded `Vec<Instance>`; the buffer
     /// receives a CBOR-encoded report carrying `total`, `succeeded`,
     /// `failed`, `coverage_percent`, `errors`, and the source and target
     /// vertex counts.
@@ -151,8 +152,8 @@ extension Raw {
 
     /// Apply a compiled migration to a single W-type record.
     ///
-    /// `record` is a CBOR-encoded `WInstance` and the buffer receives
-    /// the CBOR-encoded migrated `WInstance`.
+    /// `record` is a CBOR-encoded `Instance` and the buffer receives
+    /// the CBOR-encoded migrated `Instance`.
     ///
     /// `migration` must be a `Migration` or `MigrationWithSchemas`
     /// handle.
@@ -244,7 +245,7 @@ extension Raw {
 
     /// Check the `GetPut` lens law on a test instance.
     ///
-    /// `instance` is a CBOR-encoded `WInstance` and the buffer receives
+    /// `instance` is a CBOR-encoded `Instance` and the buffer receives
     /// a CBOR-encoded `LawCheckResult`. A law violation is reported
     /// inside that result, not as a failing status.
     ///
@@ -265,7 +266,7 @@ extension Raw {
     /// Check both the `GetPut` and `PutGet` lens laws on a test
     /// instance.
     ///
-    /// `instance` is a CBOR-encoded `WInstance` and the buffer receives
+    /// `instance` is a CBOR-encoded `Instance` and the buffer receives
     /// a CBOR-encoded `LawCheckResult`. A law violation is reported
     /// inside that result, not as a failing status.
     ///
@@ -285,7 +286,7 @@ extension Raw {
 
     /// Check the `PutGet` lens law on a test instance.
     ///
-    /// `instance` is a CBOR-encoded `WInstance` and the buffer receives
+    /// `instance` is a CBOR-encoded `Instance` and the buffer receives
     /// a CBOR-encoded `LawCheckResult`. A law violation is reported
     /// inside that result, not as a failing status.
     ///
@@ -372,10 +373,10 @@ extension Raw {
 
     /// Bidirectional get: extract a view and a complement from a record.
     ///
-    /// `record` is a CBOR-encoded `WInstance`. The buffer receives a
+    /// `record` is a CBOR-encoded `Instance`. The buffer receives a
     /// CBOR map with the keys `view` and `complement`, each holding a
     /// CBOR byte string that wraps one self-contained item: the
-    /// projected `WInstance` and its `Complement`. In that complement,
+    /// projected `Instance` and its `Complement`. In that complement,
     /// the tuple-keyed `contraction_choices` and `arc_edges` fields are
     /// written as lists of `[[k0, k1], edge]` pairs rather than as CBOR
     /// maps.
@@ -396,11 +397,11 @@ extension Raw {
 
     /// Bidirectional put: restore a record from a view and a complement.
     ///
-    /// `view` is a CBOR-encoded `WInstance` and `complement` is a
+    /// `view` is a CBOR-encoded `Instance` and `complement` is a
     /// CBOR-encoded `Complement`, accepted either in the list-of-pairs
     /// shape ``lensGetRecord(migration:record:)`` emits or with
     /// `contraction_choices` and `arc_edges` left as CBOR maps. The
-    /// buffer receives the CBOR-encoded restored `WInstance`.
+    /// buffer receives the CBOR-encoded restored `Instance`.
     ///
     /// `migration` must be a `Migration` or `MigrationWithSchemas`
     /// handle.
@@ -435,10 +436,10 @@ extension Raw {
 
     /// Sync data through a symmetric lens.
     ///
-    /// `view` is a CBOR-encoded `WInstance` and `complement` is a
+    /// `view` is a CBOR-encoded `Instance` and `complement` is a
     /// CBOR-encoded `Complement` in either accepted shape;
     /// `direction` is `0` for left-to-right and `1` for right-to-left.
-    /// The buffer receives the CBOR-encoded synced `WInstance`.
+    /// The buffer receives the CBOR-encoded synced `Instance`.
     ///
     /// `symLens` must be a `SymmetricLensHandle` handle.
     @inlinable
@@ -581,9 +582,9 @@ extension Raw {
 extension Raw {
     /// Find the single best-quality morphism between two schemas.
     ///
-    /// `opts` is a CBOR-encoded `SearchOptionsWire` mirroring
+    /// `opts` is a CBOR-encoded `MorphismSearchOptions` mirroring
     /// `mig::hom_search::SearchOptions`; the buffer receives a
-    /// CBOR-encoded `Option<FoundMorphismWire>`, which is CBOR `null`
+    /// CBOR-encoded `Option<FoundMorphism>`, which is CBOR `null`
     /// when the search finds nothing.
     ///
     /// `src` and `tgt` must be `Schema` handles.
@@ -602,9 +603,9 @@ extension Raw {
 
     /// Find structure-preserving morphisms between two schemas.
     ///
-    /// `opts` is a CBOR-encoded `SearchOptionsWire` mirroring
+    /// `opts` is a CBOR-encoded `MorphismSearchOptions` mirroring
     /// `mig::hom_search::SearchOptions`; the buffer receives a
-    /// CBOR-encoded `Vec<FoundMorphismWire>`, each entry carrying
+    /// CBOR-encoded `Vec<FoundMorphism>`, each entry carrying
     /// `vertex_map`, `edge_map`, and `quality`, ranked by descending
     /// quality.
     ///
@@ -667,7 +668,7 @@ extension Raw {
 
     /// Convert a found morphism into a compiled migration.
     ///
-    /// `morphism` is a CBOR-encoded `FoundMorphismWire`, lowered to a
+    /// `morphism` is a CBOR-encoded `FoundMorphism`, lowered to a
     /// `mig::Migration` and then compiled against the minimal schemas
     /// its surviving vertex and edge sets imply. The out-handle is a
     /// fresh `Migration`.
@@ -709,7 +710,7 @@ extension Raw {
 
     /// Compute the fiber of a compiled migration at one target anchor.
     ///
-    /// `instance` is a CBOR-encoded `WInstance` and `migration` is a
+    /// `instance` is a CBOR-encoded `Instance` and `migration` is a
     /// CBOR-encoded `CompiledMigration`, the byte form
     /// ``migSerializeCompiled(migHandle:)`` produces;
     /// `targetAnchor` is the UTF-8 anchor name. The buffer receives a
@@ -731,7 +732,7 @@ extension Raw {
     /// Compute the fibers of a compiled migration for every target
     /// anchor at once.
     ///
-    /// `instance` is a CBOR-encoded `WInstance` and `migration` is a
+    /// `instance` is a CBOR-encoded `Instance` and `migration` is a
     /// CBOR-encoded `CompiledMigration`. The buffer receives a
     /// CBOR-encoded map from anchor name to `Vec<u32>` partitioning the
     /// source nodes, so every source node appears in exactly one fiber.
@@ -814,7 +815,7 @@ extension Raw {
 
     /// Retrieve a data set as CBOR-encoded instances.
     ///
-    /// The buffer receives a CBOR-encoded `Vec<WInstance>`. The stored
+    /// The buffer receives a CBOR-encoded `Vec<Instance>`. The stored
     /// payload is decoded and re-encoded on the way out, so a corrupt
     /// carrier surfaces as ``RawStatus/serialization`` rather than as
     /// opaque bytes.

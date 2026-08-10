@@ -271,15 +271,15 @@ extension Node {
 /// referenced table, and a referenced column.
 public struct Fan: Codable, Hashable, Sendable {
     /// The schema hyper-edge this fan instantiates.
-    public var hyperEdgeID: String
+    public var hyperEdgeId: String
     /// The parent node.
     public var parent: UInt32
     /// The children, keyed by the label each occupies.
     public var children: [String: UInt32]
 
-    /// Realize `hyperEdgeID` at `parent` with `children`.
-    public init(hyperEdgeID: String, parent: UInt32, children: [String: UInt32] = [:]) {
-        self.hyperEdgeID = hyperEdgeID
+    /// Realize `hyperEdgeId` at `parent` with `children`.
+    public init(hyperEdgeId: String, parent: UInt32, children: [String: UInt32] = [:]) {
+        self.hyperEdgeId = hyperEdgeId
         self.parent = parent
         self.children = children
     }
@@ -287,7 +287,7 @@ public struct Fan: Codable, Hashable, Sendable {
     /// The wire spellings of the three fields, in Rust declaration
     /// order.
     private enum CodingKeys: String, CodingKey {
-        case hyperEdgeID = "hyper_edge_id"
+        case hyperEdgeId = "hyper_edge_id"
         case parent
         case children
     }
@@ -303,7 +303,8 @@ public struct Fan: Codable, Hashable, Sendable {
 /// Nodes anchor to schema vertices and arcs realize schema edges, with
 /// the tree rooted at ``root``. Instances cross the C ABI as CBOR
 /// blobs rather than as slab handles, so this type is what every
-/// instance-carrying entry point reads and writes.
+/// instance-carrying entry point reads and writes. The engine spells
+/// the same seven fields as `panproto_inst::WInstance`.
 ///
 /// Arc order matters. The children of a collection node are its
 /// elements in sequence, and a serializer reads array order straight
@@ -313,7 +314,7 @@ public struct Fan: Codable, Hashable, Sendable {
 /// ``init(nodes:arcs:fans:root:schemaRoot:)`` derives them. They are
 /// nonetheless full wire fields: the engine always writes them and
 /// always requires them on the way in.
-public struct WInstance: Codable, Hashable, Sendable {
+public struct Instance: Codable, Hashable, Sendable {
     /// Every node, keyed by its identifier.
     public var nodes: [UInt32: Node]
     /// The arcs, in the order the instance carries them.
@@ -378,7 +379,7 @@ public struct WInstance: Codable, Hashable, Sendable {
     }
 }
 
-extension WInstance {
+extension Instance {
     /// The wire spellings of the seven fields, in Rust declaration
     /// order.
     private enum CodingKeys: String, CodingKey {
@@ -426,12 +427,24 @@ extension WInstance {
     }
 }
 
-extension WInstance {
+extension Instance {
     /// The number of nodes.
     public var nodeCount: Int { nodes.count }
 
+    /// The number of arcs.
+    public var arcCount: Int { arcs.count }
+
+    /// The number of fans, which are the hyper-edge occurrences.
+    public var fanCount: Int { fans.count }
+
     /// The root node, or `nil` when ``root`` names no node.
     public var rootNode: Node? { nodes[root] }
+
+    /// The node `id` names, readable and writable.
+    public subscript(node id: UInt32) -> Node? {
+        get { nodes[id] }
+        set { nodes[id] = newValue }
+    }
 
     /// The children of `id`, in arc order.
     public func children(of id: UInt32) -> [UInt32] {

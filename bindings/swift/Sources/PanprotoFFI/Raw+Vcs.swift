@@ -1,5 +1,6 @@
 import CPanproto
 import Foundation
+import PanprotoStructural
 
 // The schematic version-control half of the C ABI (`pp_vcs_*`): opening
 // an on-disk repository, staging and committing schemas, walking the
