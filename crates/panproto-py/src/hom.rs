@@ -229,6 +229,14 @@ pub fn find_morphisms(
         iso,
         max_results,
         initial,
+        // The Python surface passes hard anchors only. `preferred` and
+        // `max_nodes` exist for `lens::auto_generate`, which derives its
+        // anchors from alignment strategies and needs a channel that
+        // orders a domain rather than collapsing it; a caller reaching
+        // the search directly is supplying anchors it knows, which is
+        // what `initial` is for.
+        preferred: HashMap::new(),
+        max_nodes: 0,
         relax_edge_name_pruning,
     };
     hom_search::find_morphisms(&src.inner, &tgt.inner, &opts)
@@ -260,6 +268,14 @@ pub fn find_best_morphism(
         iso,
         max_results: 1,
         initial,
+        // The Python surface passes hard anchors only. `preferred` and
+        // `max_nodes` exist for `lens::auto_generate`, which derives its
+        // anchors from alignment strategies and needs a channel that
+        // orders a domain rather than collapsing it; a caller reaching
+        // the search directly is supplying anchors it knows, which is
+        // what `initial` is for.
+        preferred: HashMap::new(),
+        max_nodes: 0,
         relax_edge_name_pruning,
     };
     hom_search::find_best_morphism(&src.inner, &tgt.inner, &opts)
