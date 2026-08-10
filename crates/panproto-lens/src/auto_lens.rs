@@ -634,20 +634,24 @@ fn merge_seed_anchors(opts: &mut SearchOptions, additional: &HashMap<Name, Name>
     }
 }
 
-/// Node budget for the soft-anchor retry, as a backstop against a
-/// pathological pair rather than a tuning knob.
+/// Node budget for the soft-anchor retry.
 ///
-/// A preference keeps a vertex's whole domain, and a schema's leaf
-/// vertices have no outgoing edge names to prune on, so every same-kind
-/// target stays a candidate and the assignment count is not bounded by
-/// anything the caller controls. This bounds it.
+/// This bounds solutions, not effort in the usual sense.
+/// `find_best_morphism` asks for every morphism (`max_results` of zero)
+/// and returns the highest-scoring one, so the search enumerates the
+/// whole hom-set and scores each member, and scoring runs an edit
+/// distance over every vertex pair. Under pinning the hom-set has about
+/// one member; under preferences each anchored vertex keeps its whole
+/// kind-compatible domain and the hom-set is enormous, so the cost is
+/// proportional to how many complete assignments exist rather than to
+/// how hard any one is to find.
 ///
-/// It does not bind on the `atproto` pair the regression test uses:
-/// dropping it to a single node leaves that retry's wall time
-/// unchanged, so whatever dominates there is not the number of vertex
-/// assignments tried. That cost is real and unexplained, and is
-/// recorded on the retry itself.
-const SOFT_ANCHOR_NODE_BUDGET: usize = 500_000;
+/// Measured on the `atproto` pair the regression test uses: 20000 nodes
+/// answers in about two seconds, 200000 in nineteen, 500000 in
+/// forty-seven, all returning a morphism. The number is chosen for the
+/// first of those. Enumerate-then-rank is the thing to replace; until
+/// then this is what keeps the retry usable.
+const SOFT_ANCHOR_NODE_BUDGET: usize = 20_000;
 
 /// Rebuild `opts` with every strategy anchor demoted from a pin to a
 /// preference, under a node budget.

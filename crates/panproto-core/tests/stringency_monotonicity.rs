@@ -6,7 +6,7 @@
 //! changes between tiers, so they never exercised the way the ladder
 //! actually broke.
 //!
-//! Two real ATProto lexicons do. `app.bsky.feed.post` against
+//! Two real `atproto` lexicons do. `app.bsky.feed.post` against
 //! `app.bsky.actor.profile` yields 26 resolved anchors at `Lenient` and
 //! 57 at `Exploratory`, and the extra ones come from the strategies
 //! only `Exploratory` runs. Since `align::resolve_anchors` keeps a
@@ -25,6 +25,10 @@ const FEED_POST: &str = include_str!("../../../fixtures/atproto/lexicons/app.bsk
 const ACTOR_PROFILE: &str =
     include_str!("../../../fixtures/atproto/lexicons/app.bsky.actor.profile.json");
 
+#[expect(
+    clippy::expect_used,
+    reason = "a malformed committed fixture should fail the test loudly"
+)]
 fn lexicon(source: &str) -> Schema {
     let json: serde_json::Value = serde_json::from_str(source).expect("lexicon parses as JSON");
     protocols::atproto::parse_lexicon(&json).expect("lexicon parses as a schema")
@@ -42,20 +46,20 @@ fn aligns_at(src: &Schema, tgt: &Schema, tier: Stringency) -> bool {
     lens::auto_generate(src, tgt, &protocol, &config).is_ok()
 }
 
-/// Ignored by default because it costs roughly a minute in release and
-/// eight in debug, which would dominate the suite.
+/// Ignored by default because it costs a couple of seconds in release
+/// and considerably more in debug, which is more than a unit test
+/// should spend.
 ///
-/// The cost is the soft-anchor retry on this pair, and it is not the
-/// number of vertex assignments: capping the retry at a single
-/// assignment leaves the wall time unchanged. Whatever dominates has
-/// not been identified, so the number stands as measured rather than
-/// explained. Run it with:
+/// The cost is the soft-anchor retry. `find_best_morphism` enumerates
+/// the whole hom-set and ranks it, and a preference keeps a vertex's
+/// whole domain, so the number of complete assignments to score is
+/// large. `SOFT_ANCHOR_NODE_BUDGET` bounds it. Run this with:
 ///
 /// ```text
 /// cargo nextest run --release -p panproto-core -- --ignored
 /// ```
 #[test]
-#[ignore = "roughly a minute in release; see the comment above"]
+#[ignore = "seconds, not milliseconds; see the comment above"]
 fn exploratory_aligns_whatever_lenient_aligns() {
     let post = lexicon(FEED_POST);
     let profile = lexicon(ACTOR_PROFILE);

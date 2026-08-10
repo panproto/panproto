@@ -58,19 +58,24 @@ pub struct SearchOptions {
     /// preference cannot: it reorders a domain, so it can change which
     /// morphism is found first, never whether one exists.
     pub preferred: HashMap<Name, Name>,
-    /// Maximum number of vertex assignments the backtracking search may
-    /// try before giving up. `0` means unlimited.
+    /// Maximum number of vertex assignments either backtracking search
+    /// may try before giving up. `0` means unlimited.
     ///
     /// A budget matters only when [`Self::preferred`] is populated.
     /// Pinning an anchor through [`Self::initial`] collapses its domain
-    /// to one target, so the search is linear in the pinned vertices; a
-    /// preference keeps the whole domain, and a schema's leaf vertices
-    /// (strings, integers) have no outgoing edge names to prune on, so
-    /// every same-kind target in the target schema stays a candidate.
-    /// On two moderate schemas that is minutes of search. The budget
-    /// converts an unbounded exploration into a bounded one that
-    /// reports no morphism, which is the same answer the caller would
-    /// have got from a pinned search that failed.
+    /// to one target, so few complete assignments exist; a preference
+    /// keeps the whole domain, and leaf vertices (strings, integers)
+    /// have no outgoing edge names to prune on, so every same-kind
+    /// target stays a candidate and the number of complete assignments
+    /// grows combinatorially.
+    ///
+    /// That is what the budget bounds. `find_best_morphism` asks for
+    /// every morphism and ranks them, so the dominant cost is the
+    /// number of complete assignments found and scored rather than the
+    /// difficulty of finding one, and scoring is not cheap: it runs an
+    /// edit distance over every vertex pair. Exhausting the budget ends
+    /// the search with what it has, which for a search that has found
+    /// nothing is the same "no morphism" a pinned search would report.
     pub max_nodes: usize,
     /// When `true`, the CSP relaxes its hard edge-name overlap pruning
     /// for object vertices with large candidate domains. Kind-compatible
@@ -571,6 +576,10 @@ fn backtrack_weighted(
         return;
     }
 
+    if opts.max_nodes > 0 && state.nodes >= opts.max_nodes {
+        return;
+    }
+
     if depth >= state.vertex_order.order.len() {
         if opts.epic || opts.iso {
             let assigned_targets: std::collections::HashSet<&Name> =
@@ -595,6 +604,11 @@ fn backtrack_weighted(
 
     let domain = state.domains.get(&src_vertex).cloned().unwrap_or_default();
     for tgt_vertex in domain {
+        if opts.max_nodes > 0 && state.nodes >= opts.max_nodes {
+            return;
+        }
+        state.nodes += 1;
+
         if (opts.monic || opts.iso) && state.used_targets.contains(&tgt_vertex) {
             continue;
         }
