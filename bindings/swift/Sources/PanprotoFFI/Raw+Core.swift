@@ -84,7 +84,7 @@ extension Raw {
     @inlinable
     public static func protocolDefine(spec: Data) -> (status: RawStatus, handle: UInt32) {
         var handle: UInt32 = 0
-        let code = withPpSlice(spec) { slice in pp_protocol_define(slice, &handle) }
+        let code = withPpSlice(spec) { spec in pp_protocol_define(spec, &handle) }
         return (RawStatus(code: code), handle)
     }
 
@@ -115,7 +115,7 @@ extension Raw {
         ops: Data
     ) -> (status: RawStatus, handle: UInt32) {
         var handle: UInt32 = 0
-        let code = withPpSlice(ops) { slice in pp_schema_build(proto, slice, &handle) }
+        let code = withPpSlice(ops) { ops in pp_schema_build(proto, ops, &handle) }
         return (RawStatus(code: code), handle)
     }
 
@@ -127,7 +127,7 @@ extension Raw {
     @inlinable
     public static func schemaFromCbor(spec: Data) -> (status: RawStatus, handle: UInt32) {
         var handle: UInt32 = 0
-        let code = withPpSlice(spec) { slice in pp_schema_from_cbor(slice, &handle) }
+        let code = withPpSlice(spec) { spec in pp_schema_from_cbor(spec, &handle) }
         return (RawStatus(code: code), handle)
     }
 
@@ -165,8 +165,8 @@ extension Raw {
         json: Data
     ) -> (status: RawStatus, handle: UInt32) {
         var handle: UInt32 = 0
-        let code = withPpSlice(json) { slice in
-            pp_schema_parse_atproto_lexicon(slice, &handle)
+        let code = withPpSlice(json) { json in
+            pp_schema_parse_atproto_lexicon(json, &handle)
         }
         return (RawStatus(code: code), handle)
     }
@@ -214,8 +214,8 @@ extension Raw {
         proto: UInt32,
         diff: Data
     ) -> (status: RawStatus, bytes: Data) {
-        withPpSlice(diff) { slice in
-            withPpOutBuffer { out in pp_check_classify(proto, slice, out) }
+        withPpSlice(diff) { diff in
+            withPpOutBuffer { out in pp_check_classify(proto, diff, out) }
         }
     }
 
@@ -248,8 +248,8 @@ extension Raw {
     /// answers ``RawStatus/serialization``. No handles are involved.
     @inlinable
     public static func checkReportJson(report: Data) -> (status: RawStatus, bytes: Data) {
-        withPpSlice(report) { slice in
-            withPpOutBuffer { out in pp_check_report_json(slice, out) }
+        withPpSlice(report) { report in
+            withPpOutBuffer { out in pp_check_report_json(report, out) }
         }
     }
 
@@ -260,8 +260,8 @@ extension Raw {
     /// answers ``RawStatus/serialization``. No handles are involved.
     @inlinable
     public static func checkReportText(report: Data) -> (status: RawStatus, bytes: Data) {
-        withPpSlice(report) { slice in
-            withPpOutBuffer { out in pp_check_report_text(slice, out) }
+        withPpSlice(report) { report in
+            withPpOutBuffer { out in pp_check_report_text(report, out) }
         }
     }
 }
@@ -276,7 +276,7 @@ extension Raw {
     @inlinable
     public static func instElementCount(instance: Data) -> (status: RawStatus, count: UInt32) {
         var count: UInt32 = 0
-        let code = withPpSlice(instance) { slice in pp_inst_element_count(slice, &count) }
+        let code = withPpSlice(instance) { instance in pp_inst_element_count(instance, &count) }
         return (RawStatus(code: code), count)
     }
 
@@ -297,9 +297,9 @@ extension Raw {
         json: Data,
         rootVertex: String
     ) -> (status: RawStatus, bytes: Data) {
-        withPpSlices(json, rootVertex) { jsonSlice, rootSlice in
+        withPpSlices(json, rootVertex) { json, rootVertex in
             withPpOutBuffer { out in
-                pp_inst_json_to_instance(schemaHandle, jsonSlice, rootSlice, out)
+                pp_inst_json_to_instance(schemaHandle, json, rootVertex, out)
             }
         }
     }
@@ -313,8 +313,8 @@ extension Raw {
         schemaHandle: UInt32,
         instance: Data
     ) -> (status: RawStatus, bytes: Data) {
-        withPpSlice(instance) { slice in
-            withPpOutBuffer { out in pp_inst_to_json(schemaHandle, slice, out) }
+        withPpSlice(instance) { instance in
+            withPpOutBuffer { out in pp_inst_to_json(schemaHandle, instance, out) }
         }
     }
 
@@ -333,8 +333,8 @@ extension Raw {
         schemaHandle: UInt32,
         instance: Data
     ) -> (status: RawStatus, bytes: Data) {
-        withPpSlice(instance) { slice in
-            withPpOutBuffer { out in pp_inst_validate(schemaHandle, slice, out) }
+        withPpSlice(instance) { instance in
+            withPpOutBuffer { out in pp_inst_validate(schemaHandle, instance, out) }
         }
     }
 }
@@ -359,9 +359,9 @@ extension Raw {
         schemaHandle: UInt32,
         instance: Data
     ) -> (status: RawStatus, bytes: Data) {
-        withPpSlices(protoName, instance) { nameSlice, instanceSlice in
+        withPpSlices(protoName, instance) { protoName, instance in
             withPpOutBuffer { out in
-                pp_io_emit_instance(registry, nameSlice, schemaHandle, instanceSlice, out)
+                pp_io_emit_instance(registry, protoName, schemaHandle, instance, out)
             }
         }
     }
@@ -391,9 +391,9 @@ extension Raw {
         schemaHandle: UInt32,
         input: Data
     ) -> (status: RawStatus, bytes: Data) {
-        withPpSlices(protoName, input) { nameSlice, inputSlice in
+        withPpSlices(protoName, input) { protoName, input in
             withPpOutBuffer { out in
-                pp_io_parse_instance(registry, nameSlice, schemaHandle, inputSlice, out)
+                pp_io_parse_instance(registry, protoName, schemaHandle, input, out)
             }
         }
     }
@@ -417,8 +417,8 @@ extension Raw {
     /// answers ``RawStatus/operation``. No handles are involved.
     @inlinable
     public static func registryGetBuiltin(name: String) -> (status: RawStatus, bytes: Data) {
-        withPpSlice(name) { slice in
-            withPpOutBuffer { out in pp_registry_get_builtin(slice, out) }
+        withPpSlice(name) { name in
+            withPpOutBuffer { out in pp_registry_get_builtin(name, out) }
         }
     }
 

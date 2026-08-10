@@ -85,18 +85,27 @@ public enum RawStatus: Sendable, Hashable {
 /// A one-byte allocation that stands in for the base address of an
 /// empty buffer.
 ///
-/// `safer-ffi` documents `slice_ref_uint8_t.ptr` as non-null even when
-/// `len` is zero, and `Data.withUnsafeBytes` hands back a null base
-/// address for empty storage. Pointing at a live byte with `len == 0`
-/// satisfies both: the engine reads nothing, and the pointer is valid.
+/// Both ABI byte types spell their pointer non-null on the Rust side:
+/// `slice_ref_uint8_t.ptr` is a `NonNull<u8>` and `Vec_uint8_t.ptr` is a
+/// `NonNullOwned<u8>`. The engine checks that on entry and rejects a
+/// null in either, `len` and `cap` of zero notwithstanding. Swift
+/// produces a null on both sides of that requirement:
+/// `Data.withUnsafeBytes` hands back a null base address for empty
+/// storage, and an owned output buffer has no address at all until the
+/// engine writes one. Pointing both at a live byte with a zero length
+/// satisfies the check: the engine reads nothing through it, and the
+/// address is valid and aligned for `UInt8`. A `Vec_uint8_t` built on it
+/// also frees cleanly, since Rust deallocates a `Vec` only when its
+/// capacity is non-zero.
+///
 /// The allocation lives for the process; it is one byte, written once
 /// before any concurrent read, which is what `nonisolated(unsafe)`
 /// asserts here.
 @usableFromInline
-nonisolated(unsafe) internal let emptySliceSentinel: UnsafePointer<UInt8> = {
+nonisolated(unsafe) internal let emptyBufferSentinel: UnsafeMutablePointer<UInt8> = {
     let pointer = UnsafeMutablePointer<UInt8>.allocate(capacity: 1)
     pointer.initialize(to: 0)
-    return UnsafePointer(pointer)
+    return pointer
 }()
 
 /// Call `body` with a borrowed slice over `bytes`.
@@ -130,7 +139,7 @@ public func withPpSlice<R>(
 @inlinable
 public func makePpSlice(_ raw: UnsafeRawBufferPointer) -> slice_ref_uint8_t {
     guard let base = raw.baseAddress, raw.count > 0 else {
-        return slice_ref_uint8_t(ptr: emptySliceSentinel, len: 0)
+        return slice_ref_uint8_t(ptr: UnsafePointer(emptyBufferSentinel), len: 0)
     }
     return slice_ref_uint8_t(
         ptr: base.assumingMemoryBound(to: UInt8.self),
@@ -220,12 +229,27 @@ extension String: PpSliceConvertible {
 
 // MARK: - Owned output buffers
 
+/// An empty `Vec_uint8_t` the engine accepts as an out-parameter.
+///
+/// This is the value every owned output buffer starts at. The engine
+/// takes `Vec_uint8_t *out` as a Rust `&mut Vec<u8>`, so the record has
+/// to be a valid empty vector before the call, not zeroed storage: the
+/// assignment that writes the result drops whatever was there first. A
+/// non-null pointer with a zero capacity is the vector that drop leaves
+/// alone.
+@inlinable
+public func makeEmptyPpBuffer() -> Vec_uint8_t {
+    Vec_uint8_t(ptr: emptyBufferSentinel, len: 0, cap: 0)
+}
+
 /// Copy an owned `Vec_uint8_t` into `Data` and free it.
 ///
 /// Every `Vec_uint8_t` the engine writes is owned by the caller and
 /// must go back through `pp_buf_free` exactly once. Copying first and
 /// freeing immediately means no `Data` ever borrows engine-owned
-/// storage, so a buffer cannot outlive its allocation.
+/// storage, so a buffer cannot outlive its allocation. The record is
+/// spent once this returns: passing the same one again is the
+/// double-free the contract forbids.
 @inlinable
 public func drainPpBuffer(_ buffer: consuming Vec_uint8_t) -> Data {
     let out: Data
@@ -238,16 +262,18 @@ public func drainPpBuffer(_ buffer: consuming Vec_uint8_t) -> Data {
     return out
 }
 
-/// Run `call` against a zeroed output buffer, then drain it.
+/// Run `call` against an empty output buffer, then drain it.
 ///
 /// The buffer is drained on every path, success or failure: a failing
 /// entry point may still have written a partial buffer, and the
-/// contract makes freeing it the host's job either way.
+/// contract makes freeing it the host's job either way. An entry point
+/// that fails before writing anything leaves the empty vector from
+/// ``makeEmptyPpBuffer()``, which frees as a no-op.
 @inlinable
 public func withPpOutBuffer(
     _ call: (UnsafeMutablePointer<Vec_uint8_t>) -> Int32
 ) -> (status: RawStatus, bytes: Data) {
-    var buffer = Vec_uint8_t(ptr: nil, len: 0, cap: 0)
+    var buffer = makeEmptyPpBuffer()
     let code = withUnsafeMutablePointer(to: &buffer) { call($0) }
     return (RawStatus(code: code), drainPpBuffer(buffer))
 }

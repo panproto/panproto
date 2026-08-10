@@ -104,7 +104,9 @@ The Rust type stores three precomputed adjacency indices. The Swift value does n
 
 Every payload crossing the ABI is CBOR produced by [`ciborium`](https://docs.rs/ciborium) driven by [`serde`](https://serde.rs/), so `PanprotoStructural` ships a codec written against that data model rather than a general-purpose one. `CBOREncoder` and `CBORDecoder` conform to Swift's `Encoder` and `Decoder`, so ordinary `Codable` conformances work.
 
-Encoding is deterministic: definite lengths everywhere, the shortest integer head that fits, the narrowest float width that reproduces the value exactly, and canonical key ordering for collections that carry no order of their own. Two encodes of the same value agree byte for byte, which is what lets the cross-SDK conformance corpus compare outputs rather than just structures.
+Encoding is deterministic: definite lengths everywhere, the shortest integer head that fits, the narrowest float width that reproduces the value exactly, and canonical key ordering for collections that carry no order of their own. Two encodes of the same Swift value agree byte for byte.
+
+The engine's output does not have that property, and conformance is not defined in terms of it. Most schema and instance fields are Rust `HashMap`s, and `ciborium` writes a map in whatever order the map iterates, so two runs of the engine can emit the same schema as different bytes. Two other differences are structural rather than incidental: an `Option` field with no value encodes as an explicit null on the way out but decodes from an absent key as well, and Swift's synthesized encoder omits it, which serde reads back as `None`. Conformance therefore means *the decoded value is equal*, checked by re-encoding a payload, handing it back to the engine, and reading it out again. Bytes the engine rejects are the failure this layer exists to catch; bytes that differ from a previous run are not a failure at all.
 
 Decoding is tolerant in the ways a forward-compatible host has to be: indefinite lengths, unknown map keys, semantic tags, and every float width all decode.
 

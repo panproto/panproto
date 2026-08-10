@@ -87,6 +87,8 @@ Every payload crossing the ABI is CBOR produced by [`ciborium`](https://docs.rs/
 
 Encoding is deterministic: definite lengths, shortest integer heads, narrowest exact float width, canonical key ordering. Decoding is tolerant: indefinite lengths, unknown keys, semantic tags, and every float width. `CBORValue` decodes any payload without a static type, which is how you inspect something the Swift model does not describe.
 
+Do not expect the engine's bytes to be reproducible. Most schema and instance fields are Rust `HashMap`s and `ciborium` writes them in iteration order, so the engine can emit the same schema as different bytes on two runs. Conformance here means the *decoded value* survives a trip through the engine, which is what the fixture tests assert.
+
 ## Feature-gated tiers
 
 The default `libpanproto_c` exports 103 of the 120 entry points. The `parse`, `project`, and `git` tiers need a library built with the matching cargo features, and a Swift build told to compile their shims in:
