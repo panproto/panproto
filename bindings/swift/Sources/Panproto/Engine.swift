@@ -65,13 +65,13 @@ public actor PanprotoEngine {
     /// This is the escape hatch for driving several engine calls
     /// without a suspension between them. It is also how a caller with
     /// no other reason to be isolated reaches the raw layer.
+    /// Isolated to the global actor rather than to the actor instance.
+    /// Those are different isolations even though `shared` is the only
+    /// instance: an instance method could not call a
+    /// `@PanprotoEngine`-isolated closure synchronously, which is the
+    /// whole point of this entry point.
+    @PanprotoEngine
     public static func run<T: Sendable, E: Error>(
-        _ body: @PanprotoEngine () throws(E) -> T
-    ) async throws(E) -> T {
-        try await shared.perform(body)
-    }
-
-    private func perform<T: Sendable, E: Error>(
         _ body: @PanprotoEngine () throws(E) -> T
     ) throws(E) -> T {
         try body()

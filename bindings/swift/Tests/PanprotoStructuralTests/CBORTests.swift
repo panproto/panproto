@@ -94,10 +94,10 @@ private let roundTripVectors: [Vector] = [
     Vector("f93e00", .float(1.5)),
     Vector("f97bff", .float(65504.0)),
     Vector("fa47c35000", .float(100_000.0)),
-    Vector("fa7f7fffff", .float(3.402_823_466_385_288_6e+38)),
+    Vector("fa7f7fffff", .float(Double(Float.greatestFiniteMagnitude))),
     Vector("fb7e37e43c8800759c", .float(1.0e+300)),
-    Vector("f90001", .float(5.960_464_477_539_063e-8)),
-    Vector("f90400", .float(0.000_061_035_156_25)),
+    Vector("f90001", .float(0x1p-24)),
+    Vector("f90400", .float(0x1p-14)),
     Vector("f9c400", .float(-4.0)),
     Vector("fbc010666666666666", .float(-4.1)),
     Vector("f97c00", .float(.infinity)),
@@ -581,7 +581,7 @@ struct ToleranceTests {
 
     @Test("an indefinite-length map decodes")
     func indefiniteMap() throws {
-        #expect(try CBORDecoder().decode(OneField.self, from: bytes("bf61610101ff")) != nil)
+        #expect(try CBORDecoder().decode(OneField.self, from: bytes("bf616101ff")) == OneField(a: 1))
     }
 
     @Test("an indefinite-length array decodes into an array field")
@@ -689,7 +689,7 @@ struct FloatTests {
         #expect(try encodedHex(Double(100_000.0)) == "fa47c35000")
         #expect(try encodedHex(Double(0.1)) == "fb3fb999999999999a")
         #expect(try encodedHex(Float(0.1)) == "fa3dcccccd")
-        #expect(try encodedHex(Double(5.960_464_477_539_063e-8)) == "f90001")
+        #expect(try encodedHex(Double(0x1p-24)) == "f90001")
         #expect(try encodedHex(-0.0) == "f98000")
         #expect(try encodedHex(Double.infinity) == "f97c00")
         #expect(try encodedHex(Double.nan) == "f97e00")
@@ -706,9 +706,11 @@ struct FloatTests {
 
     @Test("half-precision subnormals decode exactly")
     func halfSubnormals() throws {
-        #expect(try CBORDecoder().decode(Double.self, from: bytes("f90001")) == 5.960_464_477_539_063e-8)
-        #expect(try CBORDecoder().decode(Double.self, from: bytes("f903ff")) == 0.000_060_975_551_605_224_6)
-        #expect(try CBORDecoder().decode(Double.self, from: bytes("f90400")) == 0.000_061_035_156_25)
+        let decoder = CBORDecoder()
+        #expect(try decoder.decode(Double.self, from: bytes("f90001")) == 0x1p-24)
+        #expect(try decoder.decode(Double.self, from: bytes("f903ff")) == 1023.0 * 0x1p-24)
+        #expect(try decoder.decode(Double.self, from: bytes("f90400")) == 0x1p-14)
+        #expect(try decoder.decode(Double.self, from: bytes("f98001")) == -0x1p-24)
     }
 
     @Test("negative zero keeps its sign through a round trip")
@@ -740,21 +742,22 @@ struct DeterminismTests {
     @Test("dictionary keys are sorted by their encoded bytes")
     func canonicalMapOrder() throws {
         // The head carries the length, so "b" and "c" sort before "aa".
-        #expect(try encodedHex(["aa": 1, "b": 2, "c": 3]) == "a3616202616303626161 01".filtered)
+        #expect(try encodedHex(["aa": 1, "b": 2, "c": 3]) == "a361620261630362616101")
     }
 
     @Test("an integer-keyed dictionary is keyed by integers")
     func integerKeys() throws {
-        #expect(try encodedHex([2: "b", 10: "c", 1: "a"]) == "a3016161026162 0a6163".filtered)
-        let decoded = try CBORDecoder().decode([Int: String].self, from: bytes("a30161610261620a6163"))
+        #expect(try encodedHex([2: "b", 10: "c", 1: "a"]) == "a30161610261620a6163")
+        let payload = bytes("a30161610261620a6163")
+        let decoded = try CBORDecoder().decode([Int: String].self, from: payload)
         #expect(decoded == [1: "a", 2: "b", 10: "c"])
     }
 
     @Test("a string-keyed dictionary is keyed by text even when the keys read as numbers")
     func numericStringKeys() throws {
-        #expect(try encodedHex(["1": "a", "2": "b"]) == "a2613161616132616 2".filtered)
-        let decoded = try CBORDecoder().decode([String: String].self, from: bytes("a26131616161326162"))
-        #expect(decoded == ["1": "a", "2": "b"])
+        #expect(try encodedHex(["1": "a", "2": "b"]) == "a26131616161326162")
+        let payload = bytes("a26131616161326162")
+        #expect(try CBORDecoder().decode([String: String].self, from: payload) == ["1": "a", "2": "b"])
     }
 
     @Test("a set is sorted by the encoded bytes of its elements")
@@ -799,12 +802,6 @@ struct DeterminismTests {
     }
 }
 
-extension String {
-    /// The string without the spaces a test used to keep a byte string
-    /// readable on one line.
-    fileprivate var filtered: String { replacingOccurrences(of: " ", with: "") }
-}
-
 // MARK: - Container mechanics
 
 @Suite("container mechanics")
@@ -829,8 +826,7 @@ struct ContainerTests {
         let value = Nest(rows: [[1, 2], [3]], table: ["a": [1], "b": [2]])
         let encoded = try CBOREncoder().encode(value)
         #expect(try CBORDecoder().decode(Nest.self, from: encoded) == value)
-        #expect(hex(encoded) == "a2* 6472 6f7773 82 820102 8103 65 7461626c65 a2 616181 01 6162 8102".filtered
-            .replacingOccurrences(of: "*", with: ""))
+        #expect(hex(encoded) == "a264726f7773828201028103657461626c65a26161810161628102")
     }
 
     @Test("a nil written into a single-value container reads back as nil")
@@ -866,8 +862,9 @@ struct CBORValueTests {
         let payload = "a2646b696e64646c6f7564677061796c6f6164c1a2616101627a7a9f0102ff"
         let decoded = try CBORDecoder().decode(Envelope.self, from: bytes(payload))
         #expect(decoded.kind == "loud")
-        #expect(decoded.payload["a"] == nil)
-        #expect(decoded.payload.untagged["a"] == .unsigned(1))
+        #expect(decoded.payload == .tag(number: 1, item: decoded.payload.untagged))
+        #expect(decoded.payload["a"] == .unsigned(1))
+        #expect(decoded.payload["zz"] == .array([.unsigned(1), .unsigned(2)]))
         // The fragment re-encodes deterministically: the tag and the key
         // order survive, and the indefinite-length array closes.
         #expect(
