@@ -1,0 +1,6 @@
+module CPanproto [system] {
+    header "include/panproto.h"
+    header "include/panproto_gated.h"
+    link "panproto_c"
+    export *
+}

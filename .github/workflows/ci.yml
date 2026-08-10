@@ -287,6 +287,49 @@ jobs:
       - name: Build and test (native-only)
         run: cd bindings/haskell && cabal test -f native-only
 
+  swift:
+    name: Swift SDK
+    runs-on: macos-latest
+    # The second consumer of the panproto-c C ABI, and the one that
+    # exercises it from a strict-concurrency host: every engine call is
+    # routed through a global actor pinned to one thread, because the
+    # slab and the last-error slot are thread-local. Alongside the
+    # tests this job runs three gates the other bindings learned to
+    # want: the generated header must match what the package compiles
+    # against, every ABI entry point must have a Swift shim, and every
+    # public method must be named by a test.
+    defaults:
+      run:
+        working-directory: bindings/swift
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: swift
+      - name: Header drift gate
+        working-directory: .
+        # Regenerating must be a no-op, and the vendored copy the Swift
+        # package compiles against must be byte-identical to it. A
+        # silent ABI change is the failure mode this catches: the shims
+        # would still compile and would call the wrong thing.
+        run: |
+          PP_REGEN_HEADERS=1 cargo test -p panproto-c --features headers -- generate_headers
+          git diff --exit-code crates/panproto-c/include/panproto.h
+          diff -u crates/panproto-c/include/panproto.h \
+                  bindings/swift/Sources/CPanproto/include/panproto.h
+      - name: Build panproto-c and stage libs
+        working-directory: .
+        run: bash bindings/swift/bootstrap/dev-link.sh
+      - name: Lint
+        run: swift format lint -r --strict Sources Tests Examples Package.swift
+      - name: Build
+        run: swift build --build-tests
+      - name: Test
+        run: swift test
+      - name: Parity gate
+        run: python3 Scripts/parity-gate.py
+
   semver:
     name: Semver Check
     if: github.event_name == 'pull_request'

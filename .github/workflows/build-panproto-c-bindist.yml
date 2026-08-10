@@ -101,9 +101,181 @@ jobs:
           name: panproto-c-${{ matrix.target }}
           path: panproto-c-${{ matrix.target }}.${{ matrix.archive }}
 
+  build-ios:
+    name: Build iOS (${{ matrix.target }})
+    # The Swift binding is the only consumer that needs these, and it
+    # consumes them through an XCFramework rather than a tarball.
+    # Default features only: the `git` feature vendors libgit2 and
+    # OpenSSL, and `full-parse` compiles 261 tree-sitter grammars, so
+    # the gated tiers stay macOS-only by policy.
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - aarch64-apple-ios
+          - aarch64-apple-ios-sim
+          - x86_64-apple-ios
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Build
+        run: cargo build --release -p panproto-c --target ${{ matrix.target }}
+      - name: Stage
+        run: |
+          set -euxo pipefail
+          stage="panproto-c-${{ matrix.target }}"
+          mkdir -p "$stage/lib" "$stage/include"
+          cp crates/panproto-c/include/panproto.h "$stage/include/"
+          cp "target/${{ matrix.target }}/release/libpanproto_c.a" "$stage/lib/"
+          tar -czf "$stage.tar.gz" "$stage"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: panproto-c-${{ matrix.target }}
+          path: panproto-c-${{ matrix.target }}.tar.gz
+
+  build-full:
+    name: Build full-feature (${{ matrix.target }})
+    # The parse, project, and git tiers of the Swift and Python
+    # bindings need entry points the default cdylib does not export.
+    # Desktop platforms only.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Free disk space (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          df -h /
+      - name: Build
+        run: cargo build --release -p panproto-c --features full --target ${{ matrix.target }}
+      - name: Stage
+        shell: bash
+        run: |
+          set -euxo pipefail
+          stage="panproto-c-full-${{ matrix.target }}"
+          mkdir -p "$stage/lib" "$stage/include"
+          cp crates/panproto-c/include/panproto.h "$stage/include/"
+          tdir="target/${{ matrix.target }}/release"
+          for f in "$tdir/libpanproto_c.a" "$tdir/libpanproto_c.dylib" "$tdir/libpanproto_c.so"; do
+            [ -f "$f" ] && cp "$f" "$stage/lib/"
+          done
+          tar -czf "$stage.tar.gz" "$stage"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: panproto-c-full-${{ matrix.target }}
+          path: panproto-c-full-${{ matrix.target }}.tar.gz
+
+  xcframework:
+    name: Assemble XCFramework
+    needs: [build, build-ios, build-full]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: panproto-c-*
+          path: slices/
+          merge-multiple: true
+      - name: Assemble
+        shell: bash
+        # An XCFramework carries one static archive per platform, so the
+        # two macOS architectures and the two simulator architectures
+        # each lipo into a single slice first. The headers ride along
+        # with a module map, which is what lets SwiftPM import the
+        # binary target as `CPanproto` with no system-library shim.
+        run: |
+          set -euxo pipefail
+          cd slices
+          for f in *.tar.gz; do tar -xzf "$f"; done
+          ls -la
+
+          build_xcframework() {
+            local prefix="$1" out="$2" include_ios="$3"
+            local work="work-$prefix"
+            rm -rf "$work" "$out"
+            mkdir -p "$work/headers"
+
+            cp "$prefix-aarch64-apple-darwin/include/panproto.h" "$work/headers/"
+            cp ../bindings/swift/Sources/CPanproto/include/panproto_gated.h "$work/headers/"
+            cat > "$work/headers/module.modulemap" <<'MAP'
+          module CPanproto {
+              header "panproto.h"
+              header "panproto_gated.h"
+              export *
+          }
+          MAP
+
+            mkdir -p "$work/macos"
+            lipo -create \
+              "$prefix-aarch64-apple-darwin/lib/libpanproto_c.a" \
+              "$prefix-x86_64-apple-darwin/lib/libpanproto_c.a" \
+              -output "$work/macos/libpanproto_c.a"
+
+            local args=(-library "$work/macos/libpanproto_c.a" -headers "$work/headers")
+
+            if [ "$include_ios" = "yes" ]; then
+              mkdir -p "$work/ios-sim"
+              lipo -create \
+                "$prefix-aarch64-apple-ios-sim/lib/libpanproto_c.a" \
+                "$prefix-x86_64-apple-ios/lib/libpanproto_c.a" \
+                -output "$work/ios-sim/libpanproto_c.a"
+              args+=(
+                -library "$prefix-aarch64-apple-ios/lib/libpanproto_c.a" -headers "$work/headers"
+                -library "$work/ios-sim/libpanproto_c.a" -headers "$work/headers"
+              )
+            fi
+
+            xcodebuild -create-xcframework "${args[@]}" -output "$out"
+            zip -qry "$out.zip" "$out"
+          }
+
+          build_xcframework panproto-c panproto_c.xcframework yes
+          build_xcframework panproto-c-full panproto_c-full.xcframework no
+
+          for f in panproto_c.xcframework.zip panproto_c-full.xcframework.zip; do
+            swift package compute-checksum "$f" | tee "$f.checksum"
+          done
+          ls -la ./*.zip ./*.checksum
+      - name: Verify the Swift package builds against the XCFramework
+        run: |
+          set -euxo pipefail
+          cd bindings/swift
+          PANPROTO_SWIFT_XCFRAMEWORK="$GITHUB_WORKSPACE/slices/panproto_c.xcframework" \
+            swift build
+      - uses: actions/upload-artifact@v6
+        with:
+          name: panproto-c-xcframework
+          path: |
+            slices/panproto_c.xcframework.zip
+            slices/panproto_c.xcframework.zip.checksum
+            slices/panproto_c-full.xcframework.zip
+            slices/panproto_c-full.xcframework.zip.checksum
+
   release:
     name: Attach to GitHub Release
-    needs: build
+    needs: [build, build-ios, build-full, xcframework]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:

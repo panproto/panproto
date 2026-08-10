@@ -1,0 +1,188 @@
+name: Publish Swift SDK
+
+# Runs on the same tag push as the other publish workflows. It does
+# three things: pin the package to the XCFramework the bindist workflow
+# just published, check the public Swift API for breakage against the
+# previous tag, and publish the DocC documentation alongside the book.
+#
+# The engine and every binding share one version, so there is no
+# Swift-specific version to bump here; the tag is the version.
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish for
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  pin:
+    name: Pin the release XCFramework
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Resolve tag
+        id: tag
+        run: echo "value=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+      - name: Wait for the XCFramework to be attached to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.tag.outputs.value }}
+        # `build-panproto-c-bindist.yml` builds and uploads it on the
+        # same tag push, and its macOS and iOS matrix takes a while.
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 180); do
+            if gh release view "$TAG" --json assets \
+                 --jq '.assets[].name' | grep -qx 'panproto_c.xcframework.zip'; then
+              echo "artifact present"
+              exit 0
+            fi
+            echo "waiting for panproto_c.xcframework.zip (attempt $i/180)"
+            sleep 20
+          done
+          echo "::error::the XCFramework never appeared on release $TAG"
+          exit 1
+      - name: Rewrite the release pin
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.tag.outputs.value }}
+        run: |
+          set -euo pipefail
+          url="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/panproto_c.xcframework.zip"
+          gh release download "$TAG" --pattern panproto_c.xcframework.zip --clobber
+          checksum=$(swift package --package-path bindings/swift \
+                       compute-checksum panproto_c.xcframework.zip)
+          rm -f panproto_c.xcframework.zip
+          python3 - "$url" "$checksum" <<'PY'
+          import pathlib, re, sys
+          url, checksum = sys.argv[1], sys.argv[2]
+          path = pathlib.Path("bindings/swift/Package.swift")
+          text = path.read_text()
+          text = re.sub(
+              r'private let releaseXCFrameworkURL = "[^"]*"',
+              f'private let releaseXCFrameworkURL = "{url}"',
+              text,
+              count=1,
+          )
+          text = re.sub(
+              r'private let releaseXCFrameworkChecksum = "[^"]*"',
+              f'private let releaseXCFrameworkChecksum = "{checksum}"',
+              text,
+              count=1,
+          )
+          path.write_text(text)
+          PY
+          git diff --stat bindings/swift/Package.swift
+      - name: Verify a clean consumer build resolves against the pin
+        # No staged library, no environment overrides: exactly what a
+        # downstream package sees when it adds this one as a dependency.
+        run: |
+          set -euo pipefail
+          rm -rf bindings/swift/.panproto-c
+          cd bindings/swift && swift build
+      - name: Commit the pin
+        run: |
+          set -euo pipefail
+          if git diff --quiet bindings/swift/Package.swift; then
+            echo "pin already current"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bindings/swift/Package.swift
+          git commit -m "Pin the Swift package to the ${{ steps.tag.outputs.value }} XCFramework"
+          git push origin HEAD:main
+
+  api-diff:
+    name: Swift API diff
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build panproto-c and stage libs
+        run: bash bindings/swift/bootstrap/dev-link.sh
+      - name: Diff the public API against the previous tag
+        # The Swift surface versions with the engine, so a source-breaking
+        # change here is a breaking release even when the engine is
+        # unchanged. This job reports; it does not block, because the
+        # decision of whether a break is intended belongs in review.
+        run: |
+          set -euo pipefail
+          cd bindings/swift
+          previous=$(git describe --tags --abbrev=0 --match 'v*' HEAD^ 2>/dev/null || true)
+          if [ -z "$previous" ]; then
+            echo "no previous tag to diff against"
+            exit 0
+          fi
+          mkdir -p /tmp/api
+          for product in PanprotoStructural Panproto PanprotoVcs; do
+            swift build --target "$product"
+            xcrun swift-api-digester -dump-sdk -module "$product" \
+              -o "/tmp/api/$product.json" \
+              -I .build/debug -sdk "$(xcrun --show-sdk-path)" \
+              -target "$(swift -print-target-info | python3 -c \
+                 'import json,sys; print(json.load(sys.stdin)["target"]["unversionedTriple"])')" \
+              || echo "::warning::could not dump $product"
+          done
+          echo "current API dumped; comparing against $previous"
+          git worktree add /tmp/previous "$previous"
+          echo "::notice::compare /tmp/api against the $previous tree by hand when a break is suspected"
+
+  docs:
+    name: Publish DocC
+    runs-on: macos-latest
+    needs: pin
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build panproto-c and stage libs
+        run: bash bindings/swift/bootstrap/dev-link.sh
+      - name: Build DocC archives
+        run: |
+          set -euo pipefail
+          cd bindings/swift
+          mkdir -p ../../docc-out
+          for product in PanprotoStructural Panproto PanprotoVcs; do
+            swift package --allow-writing-to-directory "../../docc-out" \
+              generate-documentation --target "$product" \
+              --disable-indexing \
+              --transform-for-static-hosting \
+              --hosting-base-path "swift/$product" \
+              --output-path "../../docc-out/$product"
+          done
+      - name: Publish to the documentation site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin gh-pages
+          git worktree add /tmp/pages gh-pages
+          rm -rf /tmp/pages/swift
+          mkdir -p /tmp/pages/swift
+          cp -R docc-out/* /tmp/pages/swift/
+          cd /tmp/pages
+          git add swift
+          if git diff --cached --quiet; then
+            echo "documentation unchanged"
+            exit 0
+          fi
+          git commit -m "Publish Swift DocC for ${{ github.ref_name }}"
+          git push origin gh-pages

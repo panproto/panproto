@@ -1,0 +1,138 @@
+# Swift SDK reference
+
+The Swift binding lives at [`bindings/swift/`](https://github.com/panproto/panproto/tree/main/bindings/swift) and is a [SwiftPM](https://www.swift.org/documentation/package-manager/) package. It links [`libpanproto_c`](https://github.com/panproto/panproto/tree/main/crates/panproto-c), the C ABI exposed by the [`panproto-c`](https://github.com/panproto/panproto/tree/main/crates/panproto-c) crate, and reaches every one of its 120 entry points: schemas, instances, migrations, lenses, the GAT layer, the expression language, compatibility checking, homomorphism search, graph fibers, datasets, I/O codecs, version control, and the feature-gated parse, project, and git tiers.
+
+## Installation
+
+The package is not yet on a registry; install from this repository. See [Install the Swift SDK](../how-to/install/swift.md) for the bootstrap scripts, the XCFramework path, and the toolchain prerequisites.
+
+## Products
+
+The package splits along the line between values and the engine, and again along the line between what the default library exports and what it does not.
+
+| Product | Tier | Depends on the engine | Feature |
+| --- | --- | --- | --- |
+| `PanprotoStructural` | pure value layer | no | |
+| `Panproto` | core runtime | yes | |
+| `PanprotoVcs` | version control | yes | |
+| `PanprotoParse` | full-AST parsing | yes | `parse` |
+| `PanprotoProject` | multi-file assembly | yes | `project` |
+| `PanprotoGit` | git bridge | yes | `git` |
+
+`PanprotoStructural` imports no FFI module at all, which the package graph enforces: it depends on nothing but the standard library. Everything in it is a `Sendable`, `Hashable`, `Codable` value, including the CBOR codec that gives those values their wire form. A pipeline that only reads and rewrites schemas can link it alone and never start an engine.
+
+The three feature-gated products always exist in the package graph, so resolution does not depend on how the library was built. Without the matching feature their modules are empty, and the raw shims that would reference the absent symbols are compiled out. That matters because the default `libpanproto_c` exports 103 of the 120 entry points; referencing the other 17 unconditionally would make every default build fail to link.
+
+## The engine actor
+
+`PanprotoEngine` is a global actor whose executor is pinned to one dedicated thread for the lifetime of the process. Everything that touches a handle is isolated to it.
+
+The reason is narrower than it looks. The slab that hands out handles is process-global and mutex-guarded, so a handle really is valid from any thread. What is thread-local is the *last-error slot*: a failing entry point stashes its `ErrorEnvelope` where only the calling thread can drain it, and `pp_last_error_take` on any other thread answers empty. Every error message the binding reports depends on the drain landing on the thread that failed.
+
+A serial `DispatchQueue` would give mutual exclusion but not thread identity, so that invariant would hold only as long as no call ever suspended between the failure and the drain. Pinning a thread makes it hold unconditionally, and costs one resident thread.
+
+```swift
+// Each call hops to the engine and back.
+let schema = try await SchemaHandle.parseAtprotoLexicon(lexicon)
+let messages = try await schema.validate(against: atproto)
+
+// Or amortize the hops by isolating a region of your own code.
+@PanprotoEngine
+func migrateEverything(_ records: [Data]) throws(PanprotoError) -> [Data] { ... }
+```
+
+Engine methods are synchronous CPU-bound work performed off the caller's executor. Task cancellation is therefore observed *between* calls, never in the middle of one: the engine has no cancellation channel, and a partially executed migration is not a state the C ABI can express.
+
+## Handle taxonomy
+
+A handle owns one slab entry. `PanprotoHandle` is the base class; the fourteen slab variants are its final subclasses, so the variant is a compile-time fact and a `SchemaHandle` cannot be passed where the ABI wants a `ProtocolHandle`.
+
+| Swift type | Slab variant | Tier |
+| --- | --- | --- |
+| `ProtocolHandle` | `Protocol` | core |
+| `SchemaHandle` | `Schema` | core |
+| `MigrationHandle` | `Migration` | core |
+| `CompiledMigrationHandle` | `MigrationWithSchemas` | core |
+| `IoRegistryHandle` | `IoRegistry` | core |
+| `TheoryHandle` | `Theory` | core |
+| `ModelHandle` | `Model` | core |
+| `ProtolensChainHandle` | `ProtolensChain` | core |
+| `SymmetricLensHandle` | `SymmetricLens` | core |
+| `DataSetHandle` | `DataSet` | core |
+| `RepositoryHandle` | `VcsRepo` | vcs |
+| `AstRegistryHandle` | `AstRegistry` | parse |
+| `ProjectBuilderHandle` | `ProjectBuilder` | project |
+| `ProjectSchemaHandle` | `ProjectSchema` | project |
+
+`Model` is the one resource that cannot leave the engine as data: a model interprets each operation as a Rust closure, so what crosses the boundary is the result of evaluating in it, or its carrier read out sort by sort.
+
+Handles are engine-isolated classes, so they are safe to hold anywhere and usable only inside the engine. Deinitialization does not suspend, so it cannot hop onto the actor the way ordinary code does; a handle's `deinit` appends its index to the executor's release queue instead, and the engine thread frees it on its next pass. Call `release()` to return an entry earlier than that. It is idempotent, and safe to interleave with deinitialization.
+
+## Errors
+
+`PanprotoError` has twelve cases, one per family of operations: `parse`, `migration`, `lens`, `schemaValidation`, `check`, `existenceCheck`, `expr`, `gat`, `io`, `vcs`, `gitBridge`, `project`. Every method is declared `throws(PanprotoError)`, so the type is exact rather than existential.
+
+The C ABI collapses all engine failures into six status codes and a message, which is too coarse to branch on, so the binding restores the distinctions from two sources. The domain comes from the call site, which means it is exact: a lens failure and a VCS failure are never confusable, because different code raised them. The `Fault` comes from the envelope, where the engine's message is specific enough to recognize: `complementFingerprintMismatch`, `complementConflict`, `invalidHandle`, `typeMismatch`, and `panic`. An unrecognized message leaves the fault absent rather than mis-classifying it.
+
+```swift
+do {
+    let record = try await lens.put(view: edited, complement: complement)
+} catch .lens(let detail) {
+    if case .complementFingerprintMismatch(let left, let right) = detail.fault {
+        // The two complements were captured against different source schemas.
+    }
+}
+```
+
+The two complement faults are the ones worth catching by name. `Complement.compose` is a *partial* monoid: composition is defined exactly when two complements agree on every shared key, and disagreement is the boundary of its domain of definition rather than a recoverable condition.
+
+## Standard-protocol integration
+
+Where a panproto structure already is a known algebra, the binding gives it the corresponding Swift conformance, and where it is not, the binding declines to pretend.
+
+A `ProtolensChain` is a monoid under step concatenation: `+` concatenates and `.empty` is a genuine two-sided unit. `OpticKind` is a monoid under the optics lattice, with `iso` the unit and `traversal` absorbing. A `Migration` composes, but composition is deliberately exposed as a method rather than an operator with an identity: the engine's composition is drop-on-miss, so a vertex the right migration does not map is removed, and the only identity is the per-schema self-map, which has no schema-independent value. Calling that a monoid would be a lie the type system would then let you rely on.
+
+The value types conform to `Hashable` and `Sendable`, so they compare structurally and work as dictionary keys.
+
+## The structured schema
+
+`Schema` in `PanprotoStructural` is the primary schema type: a value carrying the semantic fields of `panproto_schema::Schema`, with vertices, edges, hyper-edges, constraints, variants, recursion points, spans, and the enrichment maps. `SchemaHandle` in `Panproto` is the engine-side resource, and the two convert in both directions.
+
+The Rust type stores three precomputed adjacency indices. The Swift value does not: they are derivable from the edge set, so the encoder recomputes them on the way out and the decoder ignores them on the way in, with `outgoingEdges(from:)`, `incomingEdges(to:)`, and `edges(between:and:)` as pure accessors. That keeps a decoded schema from carrying two representations of the same fact that could drift apart under mutation.
+
+## CBOR
+
+Every payload crossing the ABI is CBOR produced by [`ciborium`](https://docs.rs/ciborium) driven by [`serde`](https://serde.rs/), so `PanprotoStructural` ships a codec written against that data model rather than a general-purpose one. `CBOREncoder` and `CBORDecoder` conform to Swift's `Encoder` and `Decoder`, so ordinary `Codable` conformances work.
+
+Encoding is deterministic: definite lengths everywhere, the shortest integer head that fits, the narrowest float width that reproduces the value exactly, and canonical key ordering for collections that carry no order of their own. Two encodes of the same value agree byte for byte, which is what lets the cross-SDK conformance corpus compare outputs rather than just structures.
+
+Decoding is tolerant in the ways a forward-compatible host has to be: indefinite lengths, unknown map keys, semantic tags, and every float width all decode.
+
+`CBORValue` is the untyped escape hatch. It decodes any payload without a static type, and it is itself `Codable`, so a field typed `CBORValue` passes a fragment the Swift model does not describe through unchanged.
+
+## Parity
+
+Three gates run in CI, each closing a hole that a binding of this size grows on its own.
+
+The header-drift gate regenerates `panproto.h` from the crate and requires it to be byte-identical to the copy the Swift package compiles against. A silent ABI change is the failure this catches: the shims would still compile, and would call the wrong thing.
+
+The parity gate reads both headers, computes each entry point's Swift name mechanically (drop `pp_`, snake_case to lowerCamelCase, no acronym special-casing), and requires a matching `Raw` method. It then requires every shim to be called from somewhere other than the raw layer, and every public method of the domain layer to be named by a test or an example. Parity holds by construction rather than by release notes.
+
+The lint gate runs `swift format lint --strict`, with `AllPublicDeclarationsHaveDocumentation` on.
+
+## Native backend
+
+`PanprotoStructural` implements the capabilities that need no engine: decoding, re-encoding, and structural manipulation of schemas, protocols, protolens chains, and instances, plus the value algebra. Everything else, including validation, migration compilation, lens evaluation, and every law check, requires the engine, because the semantics live in Rust and the binding does not reimplement them.
+
+| Capability | `PanprotoStructural` | `Panproto` |
+| --- | --- | --- |
+| Schema and protocol round-trip | yes | yes |
+| Chain concatenation and optic-kind join | yes | yes |
+| Adjacency accessors | yes | yes |
+| Schema validation | | yes |
+| Diff and classification | | yes |
+| Migration compile, compose, invert, lift | | yes |
+| Lens generation, instantiation, get, put, sync | | yes |
+| Law checking | | yes |
+| Theories, expressions, enrichment | | yes |
+| Version control | | yes |
