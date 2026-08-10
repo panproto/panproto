@@ -35,7 +35,43 @@ pub struct SearchOptions {
     pub max_results: usize,
     /// Pre-assigned vertex mappings. The search extends this partial
     /// morphism to a total one.
+    ///
+    /// These are hard: a vertex named here is assigned before the
+    /// search begins and never reconsidered. Use it for mappings the
+    /// caller knows, not for mappings something inferred.
     pub initial: HashMap<Name, Name>,
+    /// Preferred vertex mappings. The search tries these first and
+    /// backtracks past them when they do not work out.
+    ///
+    /// A vertex named here keeps its whole kind-compatible domain; the
+    /// preferred target is moved to the front of it, and is kept in the
+    /// domain even when a pruning pass would otherwise drop it. This is
+    /// the channel for evidence that is probabilistic rather than
+    /// known: name similarity, structural priors, coercion proposals.
+    ///
+    /// Routing such evidence through [`Self::initial`] instead is what
+    /// makes a more permissive search fail where a less permissive one
+    /// succeeds. A pinned guess removes every other target for its
+    /// vertex, so an alignment strategy that fires only at a higher
+    /// stringency tier can displace a correct anchor with a
+    /// higher-confidence wrong one and leave the CSP unsatisfiable. A
+    /// preference cannot: it reorders a domain, so it can change which
+    /// morphism is found first, never whether one exists.
+    pub preferred: HashMap<Name, Name>,
+    /// Maximum number of vertex assignments the backtracking search may
+    /// try before giving up. `0` means unlimited.
+    ///
+    /// A budget matters only when [`Self::preferred`] is populated.
+    /// Pinning an anchor through [`Self::initial`] collapses its domain
+    /// to one target, so the search is linear in the pinned vertices; a
+    /// preference keeps the whole domain, and a schema's leaf vertices
+    /// (strings, integers) have no outgoing edge names to prune on, so
+    /// every same-kind target in the target schema stays a candidate.
+    /// On two moderate schemas that is minutes of search. The budget
+    /// converts an unbounded exploration into a bounded one that
+    /// reports no morphism, which is the same answer the caller would
+    /// have got from a pinned search that failed.
+    pub max_nodes: usize,
     /// When `true`, the CSP relaxes its hard edge-name overlap pruning
     /// for object vertices with large candidate domains. Kind-compatible
     /// targets are kept even when they share no outgoing edge name with
@@ -213,6 +249,8 @@ struct BacktrackState<'a> {
     vertex_order: VertexOrder,
     /// Target vertices already used (for monic constraint).
     used_targets: std::collections::HashSet<Name>,
+    /// Vertex assignments tried so far, against `SearchOptions::max_nodes`.
+    nodes: usize,
 }
 
 /// Default quality scoring weights: [name, edge, property, degree].
@@ -325,6 +363,8 @@ impl<'a> BacktrackState<'a> {
             }
         }
 
+        apply_preferences(&mut domains, src, tgt, opts, constraints);
+
         // MRV order: sort source vertices by domain size (smallest first).
         // `domains` is a HashMap, so collecting its keys gives a
         // randomized order; `sort_by_key` is stable, so ties on
@@ -334,6 +374,20 @@ impl<'a> BacktrackState<'a> {
         let mut order: Vec<Name> = domains.keys().cloned().collect();
         order.sort_by(|a, b| a.as_str().cmp(b.as_str()));
         order.sort_by_key(|v| domains.get(v).map_or(0, Vec::len));
+        // Assign the vertices something proposed a target for before
+        // the rest, keeping MRV order within each group.
+        //
+        // MRV alone is the wrong heuristic once preferences exist. A
+        // preferred vertex keeps its whole domain, so MRV sends it to
+        // the back and the solver explores thousands of unconstrained
+        // vertices before reaching the ones it has evidence about. On
+        // the two bsky lexicons that turned an instant search into two
+        // minutes. Taking the evidence first reproduces the shape of
+        // the old pinned search: the first descent assigns exactly the
+        // proposed anchors, forward checking prunes from there, and
+        // backtracking past a bad anchor stays available rather than
+        // being ruled out by construction.
+        order.sort_by_key(|v| usize::from(!opts.preferred.contains_key(v)));
 
         let assignment: HashMap<Name, Name> = opts.initial.clone();
         let used_targets: std::collections::HashSet<Name> =
@@ -346,7 +400,95 @@ impl<'a> BacktrackState<'a> {
             assignment,
             vertex_order: VertexOrder { order },
             used_targets,
+            nodes: 0,
         }
+    }
+}
+
+/// Move each preferred target to the front of its domain, keeping it
+/// there through every pruning pass.
+///
+/// A preference must never shrink a domain: that is the whole
+/// difference between it and [`SearchOptions::initial`], and it is what
+/// keeps a more permissive search from failing where a less permissive
+/// one succeeded. What it may do is reorder, so the solver reaches the
+/// proposed target first and backtracks past it when it does not work.
+fn apply_preferences(
+    domains: &mut HashMap<Name, Vec<Name>>,
+    src: &Schema,
+    tgt: &Schema,
+    opts: &SearchOptions,
+    constraints: &DomainConstraints,
+) {
+    // Preferred targets survive every pruning pass and lead their
+    // domain. Re-inserting a target the passes above dropped is
+    // deliberate: the strategy that proposed it saw evidence the
+    // pruning heuristics cannot, which is the same reason
+    // `initial` skips the name-similarity filter. What a preference
+    // must never do is shrink the domain, so nothing is removed
+    // here.
+    for (src_id, preferred) in &opts.preferred {
+        if opts.initial.contains_key(src_id) {
+            continue;
+        }
+        if constraints.excluded_sources.contains(src_id)
+            || constraints.excluded_targets.contains(preferred)
+        {
+            continue;
+        }
+        let Some(domain) = domains.get_mut(src_id) else {
+            continue;
+        };
+        // Only a kind-compatible target is a legal assignment, and
+        // the CSP relies on that invariant when it builds the edge
+        // map.
+        let compatible = src
+            .vertices
+            .get(src_id)
+            .zip(tgt.vertices.get(preferred))
+            .is_some_and(|(s, t)| s.kind == t.kind);
+        if !compatible {
+            continue;
+        }
+        domain.retain(|t| t != preferred);
+
+        // Edge-name pruning applies to the alternatives even when
+        // `relax_edge_name_pruning` is set. That relaxation exists
+        // so pruning cannot discard a target a strategy seeded, and
+        // the preference below already guarantees that outright.
+        // Leaving the tail unpruned as well is what makes the
+        // domain the entire kind-compatible target set, which on a
+        // schema of any size is a search that does not terminate in
+        // useful time.
+        if domain.len() > 5 {
+            let src_edge_names: std::collections::HashSet<&str> = src
+                .outgoing_edges(src_id)
+                .iter()
+                .filter_map(|e| e.name.as_deref())
+                .collect();
+            if !src_edge_names.is_empty() {
+                let pruned: Vec<Name> = domain
+                    .iter()
+                    .filter(|tid| {
+                        let tgt_edge_names: std::collections::HashSet<&str> = tgt
+                            .outgoing_edges(tid)
+                            .iter()
+                            .filter_map(|e| e.name.as_deref())
+                            .collect();
+                        src_edge_names
+                            .intersection(&tgt_edge_names)
+                            .next()
+                            .is_some()
+                    })
+                    .cloned()
+                    .collect();
+                if !pruned.is_empty() {
+                    *domain = pruned;
+                }
+            }
+        }
+
+        domain.insert(0, preferred.clone());
     }
 }
 
@@ -359,6 +501,13 @@ fn backtrack(
 ) {
     // Check result limit
     if opts.max_results > 0 && results.len() >= opts.max_results {
+        return;
+    }
+
+    // Check the node budget. Exhausting it ends the search with
+    // whatever it has found, which for a search that had found nothing
+    // is the same "no morphism" the caller would otherwise have got.
+    if opts.max_nodes > 0 && state.nodes >= opts.max_nodes {
         return;
     }
 
@@ -391,6 +540,10 @@ fn backtrack(
     // Try each value in the domain
     let domain = state.domains.get(&src_vertex).cloned().unwrap_or_default();
     for tgt_vertex in domain {
+        if opts.max_nodes > 0 && state.nodes >= opts.max_nodes {
+            return;
+        }
+        state.nodes += 1;
         // Monic check: target not already used
         if (opts.monic || opts.iso) && state.used_targets.contains(&tgt_vertex) {
             continue;

@@ -618,12 +618,59 @@ fn run_strategies(
     (anchors, coerce_proposals)
 }
 
-/// Merge `additional` (source → target name pairs) into `opts.initial`
-/// without overwriting any existing entry.
+/// Merge `additional` (source → target name pairs) into
+/// `opts.preferred` without overwriting any existing entry.
+///
+/// Strategy output is evidence, not knowledge, so it reaches the solver
+/// as a preference rather than a pin. That is what keeps the stringency
+/// tiers ordered: a tier that runs more strategies proposes more
+/// anchors, and a preference can only change which morphism is found
+/// first, never whether one exists. Pinning them instead let a
+/// higher-confidence anchor from a tier-exclusive strategy displace a
+/// correct one and leave the search unsatisfiable.
 fn merge_seed_anchors(opts: &mut SearchOptions, additional: &HashMap<Name, Name>) {
     for (s, t) in additional {
         opts.initial.entry(s.clone()).or_insert_with(|| t.clone());
     }
+}
+
+/// Node budget for the soft-anchor retry, as a backstop against a
+/// pathological pair rather than a tuning knob.
+///
+/// A preference keeps a vertex's whole domain, and a schema's leaf
+/// vertices have no outgoing edge names to prune on, so every same-kind
+/// target stays a candidate and the assignment count is not bounded by
+/// anything the caller controls. This bounds it.
+///
+/// It does not bind on the `atproto` pair the regression test uses:
+/// dropping it to a single node leaves that retry's wall time
+/// unchanged, so whatever dominates there is not the number of vertex
+/// assignments tried. That cost is real and unexplained, and is
+/// recorded on the retry itself.
+const SOFT_ANCHOR_NODE_BUDGET: usize = 500_000;
+
+/// Rebuild `opts` with every strategy anchor demoted from a pin to a
+/// preference, under a node budget.
+///
+/// Anchors the caller supplied stay pinned: those are known, not
+/// inferred. Everything `resolved` contributed moves to
+/// [`SearchOptions::preferred`], where a wrong guess costs an ordering
+/// rather than a solution.
+fn soften_seed_anchors(
+    opts: &SearchOptions,
+    caller_anchors: &HashMap<Name, Name>,
+    resolved: &HashMap<Name, Name>,
+) -> SearchOptions {
+    let mut soft = opts.clone();
+    soft.initial.clone_from(caller_anchors);
+    for (s, t) in resolved {
+        if caller_anchors.contains_key(s) {
+            continue;
+        }
+        soft.preferred.entry(s.clone()).or_insert_with(|| t.clone());
+    }
+    soft.max_nodes = SOFT_ANCHOR_NODE_BUDGET;
+    soft
 }
 
 /// Set `opts.relax_edge_name_pruning` according to `stringency`. The
@@ -639,7 +686,8 @@ fn merge_seed_anchors(opts: &mut SearchOptions, additional: &HashMap<Name, Name>
 ///   `AutoLensConfig::search_opts`.
 /// * `max_results`: candidate APIs set this per-call; the single-best
 ///   entry point leaves it at the default.
-/// * `initial`: seeded separately via `merge_seed_anchors`.
+/// * `initial`: reserved for caller-supplied anchors. Strategy anchors
+///   go to `preferred` via `merge_seed_anchors`.
 const fn apply_stringency_search_opts(opts: &mut SearchOptions, stringency: Stringency) {
     if stringency.relax_edge_name_pruning() {
         opts.relax_edge_name_pruning = true;
@@ -874,7 +922,21 @@ pub fn auto_generate(
         !search_opts.relax_edge_name_pruning,
     );
 
-    let result = run_search(
+    // Pinned first, because collapsing each anchored vertex's domain to
+    // one target is what keeps this search in milliseconds. A pin is a
+    // guess, though, and a wrong one removes every other target for its
+    // vertex, so a failure here is not evidence that no morphism
+    // exists. Retry with the same anchors as preferences, which can
+    // reorder a domain but never empty it.
+    //
+    // This is what keeps the stringency tiers ordered. A higher tier
+    // runs more alignment strategies, and `resolve_anchors` keeps one
+    // winner per source vertex, so a tier-exclusive strategy can
+    // outrank and displace an anchor a lower tier relied on. Pinned,
+    // that turns a solvable alignment into "no morphism found"; as a
+    // preference, the solver simply backtracks past it.
+    let caller_anchors = config.search_opts.initial.clone();
+    let result = match run_search(
         src,
         tgt,
         protocol,
@@ -882,7 +944,22 @@ pub fn auto_generate(
         &search_opts,
         span_constraints.as_ref(),
         DEFAULT_QUALITY_FLOOR,
-    )?;
+    ) {
+        Ok(found) => found,
+        Err(pinned_failure) => {
+            let soft_opts = soften_seed_anchors(&search_opts, &caller_anchors, &resolved);
+            run_search(
+                src,
+                tgt,
+                protocol,
+                &effective,
+                &soft_opts,
+                span_constraints.as_ref(),
+                DEFAULT_QUALITY_FLOOR,
+            )
+            .map_err(|_| pinned_failure)?
+        }
+    };
 
     Ok(AutoLensResult {
         chain: result.chain,

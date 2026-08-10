@@ -86,6 +86,14 @@ impl SearchOptionsWire {
             iso: self.iso,
             max_results: self.max_results,
             initial,
+            // The wire form carries hard anchors only. `preferred` and
+            // `max_nodes` exist for `lens::auto_generate`, which derives
+            // its anchors from alignment strategies and needs a channel
+            // that orders a domain rather than collapsing it; a host
+            // calling the search directly is supplying anchors it knows,
+            // which is what `initial` is for.
+            preferred: HashMap::new(),
+            max_nodes: 0,
             relax_edge_name_pruning: self.relax_edge_name_pruning,
         }
     }
